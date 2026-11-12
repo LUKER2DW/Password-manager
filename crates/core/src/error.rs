@@ -25,6 +25,10 @@ pub enum Error {
     EmptyPassword,
     #[error("item not found")]
     ItemNotFound,
+    #[error("invalid TOTP secret or otpauth URI")]
+    InvalidTotp,
+    #[error("password generator options are invalid")]
+    InvalidGeneratorOptions,
     #[error("the operating system random number generator failed")]
     Rng,
     #[error("key derivation failed")]

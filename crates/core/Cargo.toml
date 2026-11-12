@@ -11,7 +11,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-argon2 = { version = "0.6", features = ["zeroize"] }
+# `parallel`: Argon2 lanes run on separate threads (faster unlock at the same attacker cost).
+argon2 = { version = "0.6", features = ["zeroize", "parallel"] }
 # `zeroize` features: wipe internal key state of the cipher and of HMAC (used by HKDF) on drop.
 chacha20poly1305 = { version = "0.11", features = ["zeroize"] }
 getrandom = "0.4"
@@ -19,6 +20,7 @@ hkdf = "0.13"
 hmac = { version = "0.13", features = ["zeroize"] }
 postcard = { version = "1.1", features = ["use-std"] }
 serde = { version = "1.0", features = ["derive"] }
+sha1 = "0.11"  # TOTP only (RFC 6238 default); never used for anything security-critical beyond HMAC
 sha2 = "0.11"
 subtle = "2.6"
 thiserror = "2.0"
@@ -26,4 +28,5 @@ unicode-normalization = "0.1"
 zeroize = { version = "1.9", features = ["derive"] }
 
 [dev-dependencies]
+proptest = "1.12"
 tempfile = "3.27"

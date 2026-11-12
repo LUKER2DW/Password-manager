@@ -29,13 +29,15 @@ mod padding;
 mod random;
 mod vault;
 
+pub mod generator;
 pub mod storage;
+pub mod totp;
 
 pub use error::Error;
 pub use item::{CustomField, ItemData, ItemId, ItemKind, ItemSummary};
 pub use kdf::KdfParams;
 pub use keys::{RecoveryKey, SecretKey};
-pub use vault::{Unlock, Vault};
+pub use vault::{Unlock, Vault, VaultInfo};
 
 /// Convenience alias used throughout the crate.
 pub type Result<T> = std::result::Result<T, Error>;

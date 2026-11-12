@@ -1,5 +1,7 @@
 //! Password hashing with Argon2id (spec: CRYPTO.md §2.1 and §4).
 
+use std::time::{Duration, Instant};
+
 use argon2::{Algorithm, Argon2, Params, Version};
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
@@ -68,6 +70,27 @@ impl KdfParams {
 
     pub fn parallelism(&self) -> u32 {
         self.parallelism
+    }
+
+    /// Picks the iteration count so that one unlock takes roughly `target` on this device at
+    /// the given memory cost. The result never goes below the floor (or above the ceiling).
+    pub fn calibrate(memory_kib: u32, parallelism: u32, target: Duration) -> Result<Self> {
+        let probe = Self::new(memory_kib, MIN_ITERATIONS, parallelism)?;
+        let started = Instant::now();
+        derive_password_key("calibration probe", &probe)?;
+        let per_iteration = (started.elapsed() / MIN_ITERATIONS).as_nanos().max(1);
+        let iterations = u32::try_from(target.as_nanos() / per_iteration)
+            .unwrap_or(MAX_ITERATIONS)
+            .clamp(MIN_ITERATIONS, MAX_ITERATIONS);
+        Self::new(memory_kib, iterations, parallelism)
+    }
+
+    /// Lanes to use on this machine: available cores, capped at 4.
+    pub fn default_parallelism() -> u32 {
+        std::thread::available_parallelism()
+            .map(|n| u32::try_from(n.get()).unwrap_or(1))
+            .unwrap_or(1)
+            .clamp(MIN_PARALLELISM, 4)
     }
 
     /// Same cost, new random salt (used whenever the password slot is rewritten).
@@ -169,6 +192,15 @@ mod tests {
                 .is_err()
         );
         assert!(KdfParams::recommended().is_ok());
+    }
+
+    #[test]
+    fn calibration_stays_in_range() {
+        let tiny = KdfParams::calibrate(MIN_MEMORY_KIB, 1, Duration::from_millis(1)).unwrap();
+        assert_eq!(tiny.iterations(), MIN_ITERATIONS);
+        let long = KdfParams::calibrate(MIN_MEMORY_KIB, 1, Duration::from_secs(3600)).unwrap();
+        assert_eq!(long.iterations(), MAX_ITERATIONS);
+        assert!((1..=4).contains(&KdfParams::default_parallelism()));
     }
 
     #[test]

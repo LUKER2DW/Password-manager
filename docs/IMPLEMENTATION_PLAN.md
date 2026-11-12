@@ -39,30 +39,35 @@ Rules:
 ### M1 — Core: primitives ✅ (`crates/core`)
 - ✅ AEAD wrapper: XChaCha20-Poly1305 with key commitment and mandatory AAD
 - ✅ KDF: Argon2id with hard-coded floor and ceiling
-- ⬜ KDF calibration helper (pick cost from a target duration per device)
+- ✅ KDF calibration (iterations from a target duration; Argon2 lanes run in parallel)
 - ✅ Secret Key and Recovery Key: generation, Crockford Base32 text form with checksum, parsing
 - ✅ Key hierarchy: KEK derivation (password + Secret Key), vault-key wrapping, HKDF subkeys
 - ✅ Password normalization (Unicode NFKC)
-- ⬜ Known-answer vectors pinned in `docs/spec/` (regression against accidental format changes)
+- ✅ Known-answer fixture: a committed v0 vault file must keep opening
+  (`crates/core/tests/fixtures`); RFC 6238 vectors for TOTP
 - **Done when:** unit tests + known-answer tests pass, tamper tests fail closed, clippy clean.
 
-### M2 — Core: vault 🚧 (`crates/core`)
+### M2 — Core: vault ✅ (`crates/core`)
 - ✅ Vault header with key slots (password slot, recovery slot)
 - ✅ Items encrypted individually (own random key), whole body encrypted and padded
 - ✅ Create / unlock / save / add / get / update / delete / list / change password / recovery slot
 - ✅ Atomic file writes + one backup generation
 - ✅ Revision counter in the body (rollback *detection* needs the client-side memory from M3)
-- ⬜ Fuzz target for the file parser (`cargo-fuzz`)
-- **Done when:** round-trip, tamper, downgrade, wrong-credential and corruption tests pass ✅;
-  fuzz target for the parser exists ⬜.
+- ✅ Property tests: random and mutated files never panic and are never accepted
+- ⬜ `cargo-fuzz` target for the file parser (Linux CI)
+- **Done when:** round-trip, tamper, downgrade, wrong-credential and corruption tests pass ✅.
 
-### M3 — CLI ⬜
-- `init`, `add`, `list`, `show`, `edit`, `rm`, `generate`, `passwd`, `emergency-kit`
-- Secure terminal input (no echo, zeroized), clipboard copy with auto-clear
-- Password / passphrase generator (EFF large word list)
-- TOTP (RFC 6238)
-- Import: Bitwarden JSON, KeePass KDBX 4, Chrome/Firefox CSV
-- **Done when:** a vault can be fully managed from the terminal; import tests use fixtures.
+### M3 — CLI 🚧 (`crates/cli`, binary `vault`)
+- ✅ `init`, `info`, `list`, `add`, `show`, `edit`, `rm`, `generate`, `totp`, `passwd`,
+  `recover`, `kit`, `forget`
+- ✅ Secret Key kept in the OS credential store; typed from the kit on a new device
+- ✅ Rollback detection: highest revision seen per vault is remembered on the device
+- ✅ Hidden prompts, clipboard copy excluded from history with auto-clear after 20 s
+- ✅ Password generator (uniform, guaranteed character classes); TOTP (RFC 6238)
+- ⬜ Passphrase generator (EFF large word list, vendored from eff.org with attribution)
+- ⬜ Import: Bitwarden JSON, KeePass KDBX 4, Chrome/Firefox CSV
+- ⬜ Printable emergency kit (PDF) — terminal version done
+- **Done when:** a vault can be fully managed from the terminal ✅; import tests use fixtures ⬜.
 
 ### M4 — Desktop app (Windows first) ⬜
 - Real UI built from the prototype, redesigned with the `frontend-design` guidelines

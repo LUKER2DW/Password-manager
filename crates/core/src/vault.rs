@@ -34,6 +34,14 @@ impl fmt::Debug for Unlock<'_> {
     }
 }
 
+/// Public header information, readable without credentials (see [`Vault::inspect`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VaultInfo {
+    pub id_hex: String,
+    pub kdf: KdfParams,
+    pub has_recovery_key: bool,
+}
+
 /// An unlocked vault. Items stay encrypted in memory; each one is decrypted only when asked for.
 pub struct Vault {
     header: VaultHeader,
@@ -123,6 +131,16 @@ impl Vault {
             vault_key,
             revision: body.revision,
             items: body.items,
+        })
+    }
+
+    /// Reads the public, unencrypted header information without unlocking.
+    pub fn inspect(bytes: &[u8]) -> Result<VaultInfo> {
+        let parsed = format::parse(bytes)?;
+        Ok(VaultInfo {
+            id_hex: hex(&parsed.header.vault_id),
+            has_recovery_key: parsed.header.slot(SlotKind::Recovery).is_some(),
+            kdf: parsed.header.kdf,
         })
     }
 

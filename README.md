@@ -26,7 +26,20 @@ cargo test --workspace
 
 | Crate | Purpose |
 |---|---|
-| [`crates/core`](crates/core) | Cryptography, vault file format, item model (no UI, no network) |
+| [`crates/core`](crates/core) | Cryptography, vault file format, item model, TOTP, generator (no UI, no network) |
+| [`crates/cli`](crates/cli) | `vault` command-line client |
+
+### Trying the CLI (test vaults only)
+
+```bash
+cargo run -p vault-cli -- init          # create a vault, prints the emergency kit
+cargo run -p vault-cli -- add GitHub -u me --url https://github.com --generate
+cargo run -p vault-cli -- list
+cargo run -p vault-cli -- show GitHub --copy
+```
+
+The Secret Key is stored in the OS credential store (Windows Credential Manager on Windows).
+`vault forget` removes it from the device.
 
 ## Planned platforms
 
