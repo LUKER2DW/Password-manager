@@ -2,7 +2,8 @@
 
 An open-source, local-first, zero-knowledge password manager focused on security above all.
 
-> ⚠️ **Research phase.** There is no usable code yet. Do not store real passwords with it.
+> ⚠️ **Early development.** The cryptographic core exists, but there is no usable app yet and
+> nothing has been audited. Do not store real passwords with it.
 
 ## Goal
 
@@ -14,7 +15,18 @@ hardware security key.
 
 - [Threat model](docs/THREAT_MODEL.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Roadmap](docs/ROADMAP.md)
+- [Roadmap](docs/ROADMAP.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md)
+- Specifications: [cryptography](docs/spec/CRYPTO.md), [vault file format](docs/spec/VAULT_FORMAT.md)
+
+## Development
+
+```bash
+cargo test --workspace
+```
+
+| Crate | Purpose |
+|---|---|
+| [`crates/core`](crates/core) | Cryptography, vault file format, item model (no UI, no network) |
 
 ## Planned platforms
 

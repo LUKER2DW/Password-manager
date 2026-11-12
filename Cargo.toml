@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = ["crates/core"]
+# Prototypes are standalone experiments with their own lockfiles.
+exclude = ["prototypes"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+# Argon2 is unbearably slow without optimizations, even in debug builds and tests.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

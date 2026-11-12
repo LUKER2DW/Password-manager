@@ -14,7 +14,7 @@
 - [ ] Confirm i18n workflow with Slint translations
 - [ ] Learn Rust (the Rust Book + exercises on the core itself)
 
-## Phase 1: Rust core + CLI
+## Phase 1: Rust core + CLI _(started: `crates/core` — see [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md))_
 - Vault: create, open, add/edit/remove items, change master password
 - Secret Key, calibrated Argon2id, emergency kit generation
 - Password and passphrase generator (EFF word list)
