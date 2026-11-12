@@ -1,0 +1,186 @@
+# Architecture (proposal)
+
+> Status: **draft** (research phase). Decisions marked _Proposal_ will be validated with
+> prototypes. See also [THREAT_MODEL.md](THREAT_MODEL.md) and [ROADMAP.md](ROADMAP.md).
+
+## 1. Overview
+
+```
+                    ┌──────────────────────────────────────────┐
+                    │           Rust core (library)            │
+                    │  crypto · vault format · sync · TOTP     │
+                    │  import/export · generator · zeroize     │
+                    └───────┬──────────────┬──────────────┬────┘
+                            │              │              │ UniFFI
+                    ┌───────▼─────┐  ┌─────▼─────┐  ┌─────▼──────────────┐
+                    │ Desktop     │  │ CLI       │  │ Android            │
+                    │ Slint       │  │ (Rust)    │  │ Slint UI +         │
+                    │ (native)    │  └───────────┘  │ Kotlin services:   │
+                    │ Windows /   │                 │ Autofill Service + │
+                    │ Linux       │                 │ Credential Manager │
+                    └──────┬──────┘                 └────────────────────┘
+          Native Messaging │ (stdio, local only)
+                    ┌──────▼──────────────┐       ┌──────────────────────────┐
+                    │ Browser extension   │       │ Self-hosted sync server  │
+                    │ (TS, no secrets,    │       │ (Rust), stores only      │
+                    │ asks the desktop)   │       │ encrypted blobs          │
+                    └─────────────────────┘       └──────────────────────────┘
+```
+
+**Core rule:** all cryptography lives **only** in the Rust core. UIs, the extension and the server
+never implement crypto themselves.
+
+## 2. Key hierarchy
+
+```
+Master password ──► Argon2id(salt, params ≥ floor) ──┐
+                                                     ├─► HKDF ──► Key Encryption Key (KEK)
+Secret Key (128 bits) ───────────────────────────────┤
+Hardware key (hmac-secret) [optional] ───────────────┤
+Keyfile [optional] ──────────────────────────────────┘
+                                                             │ unwraps (AEAD)
+                                                             ▼
+                                                 Vault Key (256 bits, random)
+                                                             │ HKDF per purpose
+                       ┌───────────────────┬─────────────────┴──┬─────────────────────┐
+                       ▼                   ▼                    ▼                     ▼
+                Item keys           Index/metadata        Vault integrity        X25519 + ML-KEM
+                (one per item)      key                   key (manifest)         key pair (sharing)
+```
+
+- **Random Vault Key**: changing the master password only re-wraps this key (fast, no re-encryption).
+- **Secret Key** combined with the password (1Password's "2SKD" model): even a mediocre master
+  password becomes uncrackable offline.
+- **Quick unlock** is another wrapping of the same Vault Key, done by a hardware-held key:
+  - Windows: Windows Hello (IR face, fingerprint or PIN), key in the TPM; modeled on KeePassXC's Quick Unlock.
+  - Android: Keystore/StrongBox + `BiometricPrompt` Class 3.
+  - Any platform: YubiKey touch (`hmac-secret`).
+  - Policy: full unlock required after reboot, every N days and after X failed attempts.
+- **Emergency kit**: printable PDF with the Secret Key, a QR code and instructions. Optionally a
+  separate **recovery key** that wraps the Vault Key, which can be split with Shamir's Secret
+  Sharing (e.g. 2 of 3 shares kept in different places).
+
+## 3. Primitives (_Proposal_)
+
+| Purpose | Choice | Notes |
+|---|---|---|
+| Password KDF | **Argon2id** | Calibrated per device (~1 s; hundreds of MiB on desktop). Hard-coded floor, well above the OWASP server-side minimum. |
+| Subkey derivation | **HKDF-SHA-256** | Domain separation by label |
+| Encryption | **XChaCha20-Poly1305** | Random 192-bit nonces are safe; alternative AES-256-GCM-SIV |
+| Key commitment | TBD | Avoid partitioning-oracle attacks on non-committing AEADs |
+| Sharing | **HPKE** with hybrid **X25519 + ML-KEM-768** KEM | Resists quantum "harvest now, decrypt later" |
+| Server authentication | **OPAQUE** (PAKE) | The server never sees the password or a crackable verifier |
+| Randomness | OS CSPRNG (`getrandom`) | |
+| Memory | `zeroize`, `secrecy`, `VirtualLock`/`mlock` | |
+
+Candidate libraries: the **RustCrypto** ecosystem (`argon2`, `chacha20poly1305`, `hkdf`,
+`x25519-dalek`, `ml-kem`), `opaque-ke`, `hpke`. The audit status of each crate is still being researched.
+
+## 4. Vault format (_Proposal_, to be specified)
+
+- **Header** (plaintext but **authenticated** as AAD): magic, version, KDF parameters, salts,
+  wrapped keys (password, hardware, recovery).
+- **Items**: each encrypted with its own key, AAD = `vault_id ‖ item_id ‖ version`.
+- **Manifest**: list of (item_id, version, hash), authenticated with the integrity key. It detects
+  removal, swapping, reordering and **rollback** of items.
+- **Padding** to fixed size buckets to hide each item's real size.
+- **Atomic writes** plus version history so data is never corrupted or lost.
+- A public specification in `docs/spec/` (to be written), with test vectors.
+
+## 5. Browser and autofill
+
+- WebExtension (TypeScript) with **no secrets and no crypto**. It talks to the desktop app over
+  **Native Messaging** (local process, no network).
+- **Confirmation happens in the native app or the extension popup**, never in UI injected into
+  the page (defense against DOM-based extension clickjacking, DEF CON 2025).
+- Exact origin matching (scheme + host + port) by default; no filling into cross-origin iframes;
+  no filling over plain HTTP.
+- On Android: Autofill Service + Credential Manager (`CredentialProviderService`, Android 14+),
+  validating the app package and signature (defense against AutoSpill).
+
+## 6. Sync
+
+- Self-hosted server (Rust, e.g. `axum`), shipped as a Docker image with a Compose file.
+- Target host: a small Linux box (Ubuntu LTS, Docker, ~4 GiB RAM). The server never runs
+  Argon2id (key stretching happens on the client), so its resource needs are tiny.
+- Exposure: reachable **only over a private overlay network** (e.g. Tailscale/WireGuard), never
+  directly from the public internet. TLS on top regardless (e.g. `tailscale serve` certificates
+  or a local reverse proxy). Defense in depth: even a fully exposed server only holds ciphertext.
+- Stores only encrypted blobs plus minimal version metadata. It never sends cryptographic
+  parameters that the client would accept without validation.
+- The client detects rollback/fork (monotonic counter authenticated in the manifest).
+- New device enrollment requires the Secret Key (QR code from an enrolled device, or typed from
+  the emergency kit).
+- Test against the ETH Zurich group's **ZK-AE-Tester** tool.
+
+## 7. User interface: native Rust with Slint (_Proposal_, prototype passed)
+
+> A working prototype lives in [`prototypes/slint-ui`](../prototypes/slint-ui/README.md): secure
+> password field, Argon2id unlock, reveal with countdown, clipboard exclusion and auto-clear,
+> screen-capture blocking and lock, all verified on Windows.
+
+**Requirement:** passwords and other secrets must not pass through memory we cannot control.
+
+### Why native instead of a WebView (Tauri)
+
+| Concern | Tauri 2 (WebView) | Slint (native Rust) |
+|---|---|---|
+| Master password typing | Every keystroke goes through the DOM and the JS engine; strings are copied by the GC and cannot be wiped | A custom secure field captures key events in Rust and appends them to a `Zeroizing` buffer; the UI layer only knows how many bullets to draw |
+| Revealing a password | The value is serialized over IPC as JSON, then lives in the JS heap and the DOM | The value is a short-lived Rust string shown in one text element, cleared and zeroized when hidden |
+| Copy to clipboard | Can be done in Rust (OK in both) | Done in Rust |
+| Attack surface | Browser engine + JS + npm supply chain | Rust crates only |
+| Design freedom | Highest (HTML/CSS ecosystem) | High: custom components, gradients, shadows, rounded corners, animations and transitions, states, custom fonts, SVG; live preview; Figma-to-Slint inspector plugin. Weaker: fewer ready-made component libraries, limited effects such as backdrop blur |
+| Platforms | Windows, Linux, Android | Windows, Linux, Android (Rust) |
+
+Note: no UI toolkit can make a secret vanish completely. The OS delivers keystrokes as events,
+and a revealed password has to be in the renderer's memory while it is on screen. What native
+Rust gives us is **control**: short lifetimes, no hidden copies, explicit zeroization.
+
+### Slint details
+
+- Declarative `.slint` markup + Rust logic; renders with its own GPU/software renderer, no WebView.
+- License: GPL-3.0-only OR royalty-free OR commercial. The GPL-3.0 option fits this project.
+- Android: supported from Rust. Autofill Service, Credential Manager and BiometricPrompt are still
+  **Kotlin** Android services that call the same Rust core.
+- To validate in the prototype: a secure password field built on key-event handling (no
+  `TextInput` holding the secret), accessibility (screen readers), IME/keyboard layouts, Android
+  build, and whether the visual result matches the intended design.
+
+### Alternatives kept on file
+
+- **Tauri 2**: fallback if a native UI cannot reach the design we want. It would run with a
+  locked-down configuration (minimal capabilities, Isolation Pattern, strict CSP, secrets kept in
+  Rust, a native prompt for the master password).
+- **Iced** (Elm-style, used by the COSMIC desktop), **Makepad** (shader-based, very flexible
+  visuals, thin documentation), **Freya** (Skia, Dioxus-style), **Dioxus Native/Blitz** (HTML/CSS
+  rendered natively, not yet stable).
+
+## 8. Internationalization (i18n)
+
+- All code, identifiers, comments, logs and docs are in **English**.
+- No user-facing string is hard-coded: every UI string goes through a translation layer from day one.
+- UI: Slint's built-in translation support (`@tr()` strings, gettext `.po` files or bundled
+  translations). Android system services: Android string resources. Core error messages: stable error codes
+  that the UI translates (the core itself returns no user-facing text).
+- Default locale `en`; the first translation will be `pt-BR`.
+
+## 9. Import / export
+
+- Import: KeePass (KDBX 4), Bitwarden (JSON), Chrome/Edge/Firefox (CSV), 1Password (1PUX).
+- Passkeys: follow the **FIDO Alliance Credential Exchange Protocol/Format**.
+- Plaintext export only after a strong confirmation and a warning; the file is overwritten
+  before deletion when possible.
+
+## 10. Licensing (_Decided_)
+
+- Clients, core, CLI and browser extension: **GPL-3.0-or-later**.
+- Sync server: **AGPL-3.0-or-later** (modified versions offered as a network service must share source).
+- Dependencies are checked for license compatibility with `cargo-deny`.
+- Code from other projects is only reused when its license is compatible, with attribution.
+
+## 11. Development security
+
+- `cargo-audit` / `cargo-deny` (vulnerabilities and licenses), fuzzing (`cargo-fuzz`) of the
+  vault parser, property-based tests, known-answer test vectors.
+- Reproducible builds and signed releases.
+- An independent external audit before any stable release.
