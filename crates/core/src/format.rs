@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use zeroize::Zeroizing;
 
 use crate::{
-    Error, Folder, ItemId, KdfParams, Result, VaultSettings,
+    Error, Folder, ItemGuard, ItemId, KdfParams, Result, VaultSettings,
     item::{FolderV1, FolderV3},
 };
 
@@ -13,10 +13,12 @@ pub(crate) const MAGIC: &[u8; 8] = b"PMVAULT\0";
 /// v0 = original layout; v1 = folders in the body, folder and recovery codes in items;
 /// v2 = vault settings in the body, password history in items;
 /// v3 = folder icons and colours, an icon website per item;
-/// v4 = a picture link per folder.
-pub(crate) const FORMAT_VERSION: u16 = 4;
+/// v4 = a picture link per folder;
+/// v5 = a re-prompt flag per item, the item guard in the body, and a password slot that also
+/// needs a keyfile.
+pub(crate) const FORMAT_VERSION: u16 = 5;
 /// Last version that changed the item layout: items of older files are re-encrypted on open.
-pub(crate) const ITEM_LAYOUT_VERSION: u16 = 3;
+pub(crate) const ITEM_LAYOUT_VERSION: u16 = 5;
 /// Oldest version this build still reads (and upgrades on the next save).
 pub(crate) const OLDEST_READABLE_VERSION: u16 = 0;
 const ENVELOPE_PREFIX: usize = 8 + 2 + 4;
@@ -27,6 +29,8 @@ const MAX_BODY_LEN: usize = 1 << 30;
 pub(crate) enum SlotKind {
     Password,
     Recovery,
+    /// Master password + Secret Key + keyfile (format v5). Takes the place of `Password`.
+    PasswordKeyfile,
 }
 
 impl SlotKind {
@@ -35,6 +39,7 @@ impl SlotKind {
         match self {
             SlotKind::Password => 0x01,
             SlotKind::Recovery => 0x02,
+            SlotKind::PasswordKeyfile => 0x03,
         }
     }
 }
@@ -57,11 +62,20 @@ impl VaultHeader {
         self.slots.iter().find(|slot| slot.kind == kind)
     }
 
-    /// Exactly one password slot, at most one recovery slot, valid KDF parameters.
+    /// The slot the master password opens, with or without a keyfile.
+    pub(crate) fn password_slot(&self) -> Option<&KeySlot> {
+        self.slot(SlotKind::Password)
+            .or_else(|| self.slot(SlotKind::PasswordKeyfile))
+    }
+
+    /// Exactly one password slot (plain or with a keyfile), at most one recovery slot, valid
+    /// KDF parameters.
     pub(crate) fn validate(&self) -> Result<()> {
         self.kdf.validate()?;
         let count = |kind| self.slots.iter().filter(|s| s.kind == kind).count();
-        if count(SlotKind::Password) != 1 || count(SlotKind::Recovery) > 1 {
+        if count(SlotKind::Password) + count(SlotKind::PasswordKeyfile) != 1
+            || count(SlotKind::Recovery) > 1
+        {
             return Err(Error::Malformed);
         }
         Ok(())
@@ -78,6 +92,16 @@ pub(crate) struct ItemRecord {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct VaultBody {
+    pub(crate) revision: u64,
+    pub(crate) items: Vec<ItemRecord>,
+    pub(crate) folders: Vec<Folder>,
+    pub(crate) settings: VaultSettings,
+    pub(crate) guard: ItemGuard,
+}
+
+/// Body layout of format v4 (no item guard).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct VaultBodyV4 {
     pub(crate) revision: u64,
     pub(crate) items: Vec<ItemRecord>,
     pub(crate) folders: Vec<Folder>,

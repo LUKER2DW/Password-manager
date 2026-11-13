@@ -5,3 +5,5 @@
 crates/core/data/eff_large_wordlist.txt -text
 # Binary test fixtures.
 *.bin binary
+# Keyfiles count byte for byte.
+*.keyfile binary

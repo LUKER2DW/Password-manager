@@ -320,6 +320,11 @@ pub struct ItemData {
     pub password_changed_at: i64,
     /// Website whose icon stands for this item ("" = its first URL). (Format v3.)
     pub icon_url: String,
+    /// Ask for the master password again before showing or copying this item's secrets.
+    /// The client enforces it; it guards against someone at an unlocked computer, not against
+    /// malware that already reads the unlocked vault. (Format v5.)
+    #[zeroize(skip)]
+    pub reprompt: bool,
 }
 
 impl ItemData {
@@ -345,6 +350,7 @@ impl ItemData {
             password_history: Vec::new(),
             password_changed_at: 0,
             icon_url: String::new(),
+            reprompt: false,
         }
     }
 
@@ -434,6 +440,7 @@ impl ItemDataV0 {
             password_history: Vec::new(),
             password_changed_at: 0,
             icon_url: String::new(),
+            reprompt: false,
             kind: self.kind,
             title: std::mem::take(&mut self.title),
             username: std::mem::take(&mut self.username),
@@ -492,6 +499,7 @@ impl ItemDataV1 {
             password_history: Vec::new(),
             password_changed_at: 0,
             icon_url: String::new(),
+            reprompt: false,
         }
     }
 }
@@ -539,6 +547,56 @@ impl ItemDataV2 {
             password_history: std::mem::take(&mut self.password_history),
             password_changed_at: self.password_changed_at,
             icon_url: String::new(),
+            reprompt: false,
+        }
+    }
+}
+
+/// Item data as stored by formats v3 and v4 (before the re-prompt flag). Read-only: those
+/// vaults are upgraded when opened.
+#[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub(crate) struct ItemDataV3 {
+    #[zeroize(skip)]
+    pub(crate) kind: ItemKind,
+    pub(crate) title: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) urls: Vec<String>,
+    pub(crate) notes: String,
+    pub(crate) totp: String,
+    pub(crate) favorite: bool,
+    pub(crate) custom_fields: Vec<CustomField>,
+    pub(crate) created_at: i64,
+    pub(crate) updated_at: i64,
+    #[zeroize(skip)]
+    pub(crate) folder: Option<FolderId>,
+    pub(crate) recovery_codes: Vec<RecoveryCode>,
+    pub(crate) password_history: Vec<PasswordChange>,
+    pub(crate) password_changed_at: i64,
+    pub(crate) icon_url: String,
+}
+
+impl ItemDataV3 {
+    /// Moves the fields into the current item layout (`take` leaves wiped-on-drop empties).
+    pub(crate) fn upgrade(mut self) -> ItemData {
+        ItemData {
+            kind: self.kind,
+            title: std::mem::take(&mut self.title),
+            username: std::mem::take(&mut self.username),
+            password: std::mem::take(&mut self.password),
+            urls: std::mem::take(&mut self.urls),
+            notes: std::mem::take(&mut self.notes),
+            totp: std::mem::take(&mut self.totp),
+            favorite: self.favorite,
+            custom_fields: std::mem::take(&mut self.custom_fields),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            folder: self.folder,
+            recovery_codes: std::mem::take(&mut self.recovery_codes),
+            password_history: std::mem::take(&mut self.password_history),
+            password_changed_at: self.password_changed_at,
+            icon_url: std::mem::take(&mut self.icon_url),
+            reprompt: false,
         }
     }
 }
@@ -565,6 +623,9 @@ pub struct ItemSummary {
     pub card_brand: crate::card::Brand,
     /// Website chosen for the item's icon ("" = `url`).
     pub icon_url: String,
+    /// The item asks for the master password again before showing its secrets.
+    #[zeroize(skip)]
+    pub reprompt: bool,
 }
 
 impl ItemSummary {
@@ -589,6 +650,7 @@ impl ItemSummary {
                 String::new()
             },
             icon_url: data.icon_url.clone(),
+            reprompt: data.reprompt,
             card_brand: if data.kind == ItemKind::Card {
                 crate::card::detect_brand(&crate::card::CardDetails::from_item(data).number)
             } else {

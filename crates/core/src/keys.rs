@@ -158,18 +158,84 @@ fn hkdf32(ikm: &[u8], salt: &[u8], info: &[&[u8]]) -> Zeroizing<aead::Key> {
     out
 }
 
-/// KEK for the password slot: Argon2id(password) combined with the Secret Key.
+/// A keyfile: an optional third factor next to the master password and the Secret Key. Any
+/// file works; what counts is a SHA-256 of its exact bytes, so the file must never change.
+/// Kept apart from the vault (a USB stick), it means a stolen vault file, password and Secret
+/// Key still open nothing.
+#[derive(Clone)]
+pub struct Keyfile(Zeroizing<[u8; 32]>);
+
+impl Keyfile {
+    /// Largest file accepted (1 MiB): a keyfile is a key, not a document.
+    pub const MAX_LEN: usize = 1024 * 1024;
+    /// Smallest file accepted: fewer bytes can't hold a key worth having.
+    pub const MIN_LEN: usize = 16;
+
+    /// Reads a keyfile's bytes (the whole file, unchanged).
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if !(Self::MIN_LEN..=Self::MAX_LEN).contains(&bytes.len()) {
+            return Err(Error::InvalidKeyFormat);
+        }
+        let mut hasher = Sha256::new();
+        hasher.update(b"vault-v0/keyfile");
+        hasher.update(bytes);
+        Ok(Self(Zeroizing::new(hasher.finalize().into())))
+    }
+
+    /// A new keyfile: the key and the bytes to write to the file (a line of text holding 256
+    /// random bits, so it can also be printed and typed back into a file).
+    pub fn generate() -> Result<(Self, Zeroizing<Vec<u8>>)> {
+        let random: Zeroizing<[u8; 32]> = Zeroizing::new(crate::random::array()?);
+        let mut text = Zeroizing::new(String::with_capacity(96));
+        text.push_str("vault-keyfile-v1 ");
+        for byte in random.iter() {
+            use std::fmt::Write as _;
+            let _ = write!(text, "{byte:02x}");
+        }
+        text.push('\n');
+        let bytes = Zeroizing::new(text.as_bytes().to_vec());
+        Ok((Self::from_bytes(&bytes)?, bytes))
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Keyfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Keyfile(<redacted>)")
+    }
+}
+
+/// KEK for the password slot: Argon2id(password) combined with the Secret Key, and with the
+/// keyfile when the vault uses one (a different HKDF label, so the two can't be confused).
 pub(crate) fn password_kek(
     password: &str,
     secret_key: &SecretKey,
+    keyfile: Option<&Keyfile>,
     kdf_params: &KdfParams,
     vault_id: &[u8; 16],
 ) -> Result<Zeroizing<aead::Key>> {
     let password_key = kdf::derive_password_key(password, kdf_params)?;
-    let mut ikm = Zeroizing::new([0u8; 32 + SECRET_KEY_LEN]);
+    let mut ikm = Zeroizing::new([0u8; 32 + SECRET_KEY_LEN + 32]);
     ikm[..32].copy_from_slice(password_key.as_ref());
-    ikm[32..].copy_from_slice(secret_key.as_bytes());
-    Ok(hkdf32(ikm.as_ref(), vault_id, &[b"vault-v0/kek/password"]))
+    ikm[32..32 + SECRET_KEY_LEN].copy_from_slice(secret_key.as_bytes());
+    match keyfile {
+        None => Ok(hkdf32(
+            &ikm[..32 + SECRET_KEY_LEN],
+            vault_id,
+            &[b"vault-v0/kek/password"],
+        )),
+        Some(keyfile) => {
+            ikm[32 + SECRET_KEY_LEN..].copy_from_slice(keyfile.as_bytes());
+            Ok(hkdf32(
+                ikm.as_ref(),
+                vault_id,
+                &[b"vault-v0/kek/password+keyfile"],
+            ))
+        }
+    }
 }
 
 /// KEK for the recovery slot. No Argon2: the Recovery Key already has 256 bits of entropy.

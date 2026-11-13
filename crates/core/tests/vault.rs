@@ -1,6 +1,97 @@
 //! End-to-end tests of the public `vault-core` API.
 
 #[test]
+fn a_keyfile_is_a_third_factor() {
+    use vault_core::Keyfile;
+    let secret_key = SecretKey::generate().unwrap();
+    let recovery_key = RecoveryKey::generate().unwrap();
+    let kdf = KdfParams::minimum().unwrap();
+    let mut vault = Vault::create("pw", &secret_key, Some(&recovery_key), kdf.clone()).unwrap();
+    let mut item = ItemData::login("Bank", "me", "s3cret", "https://bank.example");
+    item.reprompt = true;
+    let id = vault.add_item(&item).unwrap();
+    assert!(!vault.needs_keyfile());
+
+    let (keyfile, file) = Keyfile::generate().unwrap();
+    assert!(file.starts_with(b"vault-keyfile-v1 "));
+    vault
+        .change_password("pw", &secret_key, Some(&keyfile), &kdf)
+        .unwrap();
+    assert!(vault.needs_keyfile());
+    let bytes = vault.to_bytes().unwrap();
+    assert!(Vault::inspect(&bytes).unwrap().needs_keyfile);
+
+    // The password and Secret Key alone are refused, before any hashing.
+    assert!(matches!(
+        Vault::open(
+            &bytes,
+            Unlock::Password {
+                password: "pw",
+                secret_key: &secret_key
+            }
+        ),
+        Err(Error::KeyfileRequired)
+    ));
+    // Another file, or the same file with one byte changed, doesn't open it.
+    let mut changed = file.to_vec();
+    changed[20] ^= 1;
+    for wrong in [
+        Keyfile::generate().unwrap().0,
+        Keyfile::from_bytes(&changed).unwrap(),
+    ] {
+        assert!(matches!(
+            Vault::open(
+                &bytes,
+                Unlock::PasswordAndKeyfile {
+                    password: "pw",
+                    secret_key: &secret_key,
+                    keyfile: &wrong
+                }
+            ),
+            Err(Error::DecryptionFailed)
+        ));
+    }
+    // The same bytes read again do; so does the Recovery Key on its own.
+    let again = Keyfile::from_bytes(&file).unwrap();
+    let opened = Vault::open(
+        &bytes,
+        Unlock::PasswordAndKeyfile {
+            password: "pw",
+            secret_key: &secret_key,
+            keyfile: &again,
+        },
+    )
+    .unwrap();
+    assert!(opened.get_item(&id).unwrap().reprompt);
+    assert!(opened.summaries().unwrap()[0].reprompt);
+    let mut recovered = Vault::open(&bytes, Unlock::Recovery(&recovery_key)).unwrap();
+
+    // Removing the keyfile goes back to two factors; a keyfile offered to such a vault is
+    // simply not used.
+    recovered
+        .change_password("pw2", &secret_key, None, &kdf)
+        .unwrap();
+    assert!(!recovered.needs_keyfile());
+    let plain = recovered.to_bytes().unwrap();
+    for unlock in [
+        Unlock::Password {
+            password: "pw2",
+            secret_key: &secret_key,
+        },
+        Unlock::PasswordAndKeyfile {
+            password: "pw2",
+            secret_key: &secret_key,
+            keyfile: &again,
+        },
+    ] {
+        Vault::open(&plain, unlock).unwrap();
+    }
+    // Too small or too large to be a keyfile.
+    assert!(Keyfile::from_bytes(b"short").is_err());
+    assert!(Keyfile::from_bytes(&vec![0u8; Keyfile::MAX_LEN + 1]).is_err());
+}
+
+#[test]
 fn folders_can_be_reordered_and_get_a_picture_link() {
     let secret_key = SecretKey::generate().unwrap();
     let mut vault = Vault::create("pw", &secret_key, None, KdfParams::minimum().unwrap()).unwrap();
@@ -326,10 +417,10 @@ fn foreign_files_and_future_versions_are_rejected() {
         Err(Error::NotAVault)
     ));
     let mut bytes = f.vault.to_bytes().unwrap();
-    bytes[8] = 5; // format_version = 5: from the future
+    bytes[8] = 6; // format_version = 6: from the future
     assert!(matches!(
         Vault::open(&bytes, Unlock::Recovery(&f.recovery_key)),
-        Err(Error::UnsupportedVersion(5))
+        Err(Error::UnsupportedVersion(6))
     ));
     // Relabelling a current file as an older version changes the authenticated header: the body won't open.
     let mut relabelled = f.vault.to_bytes().unwrap();
@@ -436,6 +527,7 @@ fn change_password_and_secret_key() {
         .change_password(
             "a brand new passphrase",
             &new_secret,
+            None,
             &KdfParams::minimum().unwrap(),
         )
         .unwrap();

@@ -22,6 +22,7 @@ mod aead;
 mod encoding;
 mod error;
 mod format;
+mod guard;
 mod item;
 mod kdf;
 mod keys;
@@ -36,12 +37,13 @@ pub mod totp;
 
 pub mod card;
 pub use error::Error;
+pub use guard::{GuardCheck, ItemGuard};
 pub use item::{
     CustomField, Folder, FolderId, ItemData, ItemId, ItemKind, ItemSummary, PasswordChange,
     RecoveryCode, VaultSettings,
 };
 pub use kdf::{KdfParams, KdfStrength};
-pub use keys::{RecoveryKey, SecretKey};
+pub use keys::{Keyfile, RecoveryKey, SecretKey};
 pub use vault::{Unlock, Vault, VaultInfo};
 
 /// Convenience alias used throughout the crate.

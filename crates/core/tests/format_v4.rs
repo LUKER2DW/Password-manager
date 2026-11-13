@@ -107,6 +107,33 @@ fn reads_the_committed_v4_fixture() {
     }
 }
 
+#[test]
+fn a_v4_vault_is_upgraded_on_save() {
+    let bytes = std::fs::read(fixture_dir().join("vault-v4.bin")).unwrap();
+    let (secret_key, _) = credentials();
+    let unlock = || Unlock::Password {
+        password: PASSWORD,
+        secret_key: &secret_key,
+    };
+    let mut vault = Vault::open(&bytes, unlock()).unwrap();
+    assert!(!vault.needs_keyfile());
+    let upgraded = vault.to_bytes().unwrap();
+    assert_eq!(
+        &upgraded[8..10],
+        &5u16.to_le_bytes(),
+        "written as format v5"
+    );
+    let reopened = Vault::open(&upgraded, unlock()).unwrap();
+    let folder = reopened.folders()[1].id;
+    let mut items: Vec<ItemData> = reopened
+        .item_ids()
+        .map(|id| reopened.get_item(&id).unwrap())
+        .collect();
+    items.sort_by(|a, b| a.title.cmp(&b.title));
+    assert_eq!(items, expected_items(Some(folder)));
+    assert!(items.iter().all(|item| !item.reprompt));
+}
+
 /// Regenerates the fixture. Run only when intentionally creating a new format version:
 /// `cargo test -p vault-core --test format_v4 -- --ignored`
 #[test]

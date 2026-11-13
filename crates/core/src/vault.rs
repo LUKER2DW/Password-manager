@@ -5,14 +5,14 @@ use std::fmt;
 use zeroize::Zeroizing;
 
 use crate::{
-    Error, Folder, FolderId, ItemData, ItemId, ItemSummary, KdfParams, RecoveryKey, Result,
-    SecretKey, VaultSettings, aead,
+    Error, Folder, FolderId, GuardCheck, ItemData, ItemGuard, ItemId, ItemSummary, KdfParams,
+    RecoveryKey, Result, SecretKey, VaultSettings, aead,
     format::{
         self, ItemRecord, KeySlot, SlotKind, VaultBody, VaultBodyV0, VaultBodyV1, VaultBodyV2,
-        VaultBodyV3, VaultHeader,
+        VaultBodyV3, VaultBodyV4, VaultHeader,
     },
-    item::{FolderV1, FolderV3, ItemDataV0, ItemDataV1, ItemDataV2, PasswordChange},
-    keys::{self, VaultKey},
+    item::{FolderV1, FolderV3, ItemDataV0, ItemDataV1, ItemDataV2, ItemDataV3, PasswordChange},
+    keys::{self, Keyfile, VaultKey},
     padding,
 };
 
@@ -26,7 +26,13 @@ pub enum Unlock<'a> {
         password: &'a str,
         secret_key: &'a SecretKey,
     },
-    /// Recovery Key from the emergency kit.
+    /// Master password + Secret Key + keyfile, for vaults that use one.
+    PasswordAndKeyfile {
+        password: &'a str,
+        secret_key: &'a SecretKey,
+        keyfile: &'a Keyfile,
+    },
+    /// Recovery Key from the emergency kit. Opens the vault on its own, keyfile or not.
     Recovery(&'a RecoveryKey),
 }
 
@@ -34,6 +40,9 @@ impl fmt::Debug for Unlock<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Unlock::Password { .. } => f.write_str("Unlock::Password(<redacted>)"),
+            Unlock::PasswordAndKeyfile { .. } => {
+                f.write_str("Unlock::PasswordAndKeyfile(<redacted>)")
+            }
             Unlock::Recovery(_) => f.write_str("Unlock::Recovery(<redacted>)"),
         }
     }
@@ -45,6 +54,8 @@ pub struct VaultInfo {
     pub id_hex: String,
     pub kdf: KdfParams,
     pub has_recovery_key: bool,
+    /// The master password alone doesn't open it: a keyfile is needed too.
+    pub needs_keyfile: bool,
 }
 
 /// An unlocked vault. Items stay encrypted in memory; each one is decrypted only when asked for.
@@ -55,6 +66,7 @@ pub struct Vault {
     items: Vec<ItemRecord>,
     folders: Vec<Folder>,
     settings: VaultSettings,
+    guard: ItemGuard,
 }
 
 impl fmt::Debug for Vault {
@@ -90,8 +102,9 @@ impl Vault {
             items: Vec::new(),
             folders: Vec::new(),
             settings: VaultSettings::default(),
+            guard: ItemGuard::default(),
         };
-        let slot = vault.password_slot(password, secret_key, &vault.header.kdf)?;
+        let slot = vault.password_slot(password, secret_key, None, &vault.header.kdf)?;
         vault.header.slots.push(slot);
         if let Some(recovery_key) = recovery_key {
             let slot = vault.recovery_slot(recovery_key)?;
@@ -108,10 +121,39 @@ impl Vault {
             Unlock::Password {
                 password,
                 secret_key,
-            } => (
-                SlotKind::Password,
-                keys::password_kek(password, secret_key, &header.kdf, &header.vault_id)?,
-            ),
+            } => {
+                // Checked before the slow hash: the answer is in the (public) header.
+                if header.slot(SlotKind::PasswordKeyfile).is_some() {
+                    return Err(Error::KeyfileRequired);
+                }
+                (
+                    SlotKind::Password,
+                    keys::password_kek(password, secret_key, None, &header.kdf, &header.vault_id)?,
+                )
+            }
+            Unlock::PasswordAndKeyfile {
+                password,
+                secret_key,
+                keyfile,
+            } => {
+                // A vault without a keyfile opens with the password alone; the extra file
+                // is simply not used.
+                let (kind, keyfile) = if header.slot(SlotKind::PasswordKeyfile).is_some() {
+                    (SlotKind::PasswordKeyfile, Some(keyfile))
+                } else {
+                    (SlotKind::Password, None)
+                };
+                (
+                    kind,
+                    keys::password_kek(
+                        password,
+                        secret_key,
+                        keyfile,
+                        &header.kdf,
+                        &header.vault_id,
+                    )?,
+                )
+            }
             Unlock::Recovery(recovery_key) => (
                 SlotKind::Recovery,
                 keys::recovery_kek(recovery_key, &header.vault_id),
@@ -159,6 +201,7 @@ impl Vault {
                     items: old.items,
                     folders: Vec::new(),
                     settings: VaultSettings::default(),
+                    guard: ItemGuard::default(),
                 }
             }
             1 => {
@@ -168,6 +211,7 @@ impl Vault {
                     items: old.items,
                     folders: old.folders.into_iter().map(FolderV1::upgrade).collect(),
                     settings: VaultSettings::default(),
+                    guard: ItemGuard::default(),
                 }
             }
             2 => {
@@ -177,6 +221,7 @@ impl Vault {
                     items: old.items,
                     folders: old.folders.into_iter().map(FolderV1::upgrade).collect(),
                     settings: old.settings,
+                    guard: ItemGuard::default(),
                 }
             }
             3 => {
@@ -186,10 +231,22 @@ impl Vault {
                     items: old.items,
                     folders: old.folders.into_iter().map(FolderV3::upgrade).collect(),
                     settings: old.settings,
+                    guard: ItemGuard::default(),
+                }
+            }
+            4 => {
+                let old: VaultBodyV4 = format::decode_exact(plain)?;
+                VaultBody {
+                    revision: old.revision,
+                    items: old.items,
+                    folders: old.folders,
+                    settings: old.settings,
+                    guard: ItemGuard::default(),
                 }
             }
             _ => format::decode_exact(plain)?,
         };
+        body.guard.validate()?;
 
         let mut ids: Vec<ItemId> = body.items.iter().map(|record| record.id).collect();
         ids.sort_unstable();
@@ -208,6 +265,7 @@ impl Vault {
             items: body.items,
             folders: body.folders,
             settings: body.settings,
+            guard: body.guard,
         };
         if parsed.version < format::ITEM_LAYOUT_VERSION {
             vault.upgrade_items(parsed.version)?;
@@ -226,6 +284,7 @@ impl Vault {
                 0 => format::decode_exact::<ItemDataV0>(plain)?.upgrade(),
                 1 => format::decode_exact::<ItemDataV1>(plain)?.upgrade(),
                 2 => format::decode_exact::<ItemDataV2>(plain)?.upgrade(),
+                3 | 4 => format::decode_exact::<ItemDataV3>(plain)?.upgrade(),
                 _ => return Err(Error::Malformed),
             };
             let (id, revision) = (self.items[index].id, self.items[index].revision);
@@ -256,6 +315,30 @@ impl Vault {
             ..settings
         };
         Ok(())
+    }
+
+    // ---- item guard ----
+
+    /// The second check asked before guarded items show their secrets.
+    pub fn item_guard(&self) -> &ItemGuard {
+        &self.guard
+    }
+
+    /// Changes the item guard: which items it covers and what is typed to pass it. `secret`
+    /// is the new PIN or password (`None` keeps the current one when the kind is unchanged).
+    pub fn set_item_guard(
+        &mut self,
+        all_items: bool,
+        check: GuardCheck,
+        secret: Option<&str>,
+    ) -> Result<()> {
+        self.guard = ItemGuard::new(&self.guard, all_items, check, secret)?;
+        Ok(())
+    }
+
+    /// Whether this item's secrets wait for the guard's check.
+    pub fn guards(&self, item: &ItemData) -> bool {
+        self.guard.all_items || item.reprompt
     }
 
     // ---- folders ----
@@ -375,6 +458,7 @@ impl Vault {
         Ok(VaultInfo {
             id_hex: hex(&parsed.header.vault_id),
             has_recovery_key: parsed.header.slot(SlotKind::Recovery).is_some(),
+            needs_keyfile: parsed.header.slot(SlotKind::PasswordKeyfile).is_some(),
             kdf: parsed.header.kdf,
         })
     }
@@ -388,6 +472,7 @@ impl Vault {
             items: self.items.clone(),
             folders: self.folders.clone(),
             settings: self.settings.clone(),
+            guard: self.guard.clone(),
         };
         let encoded = postcard::to_allocvec(&body).map_err(|_| Error::Malformed)?;
         let padded = padding::pad(&encoded, padding::body_bucket)?;
@@ -533,20 +618,32 @@ impl Vault {
             .collect()
     }
 
-    /// Re-protects the vault with a new master password and/or Secret Key and KDF cost.
-    /// The vault key and items are unchanged; only the password slot is rewritten.
+    /// Re-protects the vault with a new master password and/or Secret Key, KDF cost and
+    /// keyfile. The vault key and items are unchanged; only the password slot is rewritten.
+    ///
+    /// `keyfile` is what the vault needs from now on: `Some` makes (or keeps) it a third
+    /// factor, `None` removes it. Callers that only change the password pass the keyfile the
+    /// vault was opened with.
     pub fn change_password(
         &mut self,
         new_password: &str,
         secret_key: &SecretKey,
+        keyfile: Option<&Keyfile>,
         kdf: &KdfParams,
     ) -> Result<()> {
         let kdf = kdf.with_fresh_salt()?;
-        let slot = self.password_slot(new_password, secret_key, &kdf)?;
+        let slot = self.password_slot(new_password, secret_key, keyfile, &kdf)?;
         self.header.kdf = kdf;
-        self.header.slots.retain(|s| s.kind != SlotKind::Password);
+        self.header
+            .slots
+            .retain(|s| !matches!(s.kind, SlotKind::Password | SlotKind::PasswordKeyfile));
         self.header.slots.insert(0, slot);
         Ok(())
+    }
+
+    /// Whether the master password needs a keyfile next to it.
+    pub fn needs_keyfile(&self) -> bool {
+        self.header.slot(SlotKind::PasswordKeyfile).is_some()
     }
 
     /// Adds, replaces or (with `None`) removes the recovery slot.
@@ -569,11 +666,17 @@ impl Vault {
         &self,
         password: &str,
         secret_key: &SecretKey,
+        keyfile: Option<&Keyfile>,
         kdf: &KdfParams,
     ) -> Result<KeySlot> {
         let vault_id = &self.header.vault_id;
-        let kek = keys::password_kek(password, secret_key, kdf, vault_id)?;
-        self.wrap_vault_key(&kek, SlotKind::Password)
+        let kek = keys::password_kek(password, secret_key, keyfile, kdf, vault_id)?;
+        let kind = if keyfile.is_some() {
+            SlotKind::PasswordKeyfile
+        } else {
+            SlotKind::Password
+        };
+        self.wrap_vault_key(&kek, kind)
     }
 
     fn recovery_slot(&self, recovery_key: &RecoveryKey) -> Result<KeySlot> {
@@ -663,9 +766,7 @@ fn item_aad(vault_id: &[u8; 16], id: &ItemId, revision: u64) -> Vec<u8> {
 /// Binds a device unlock to the vault and to the current password slot.
 fn device_aad(header: &VaultHeader) -> Result<Vec<u8>> {
     use sha2::{Digest, Sha256};
-    let slot = header
-        .slot(SlotKind::Password)
-        .ok_or(Error::NoMatchingSlot)?;
+    let slot = header.password_slot().ok_or(Error::NoMatchingSlot)?;
     let slot_hash = Sha256::digest(&slot.wrapped_vault_key);
     Ok([
         b"vault-v0/device".as_slice(),
@@ -743,6 +844,7 @@ mod tests {
                 slot.kind = match slot.kind {
                     SlotKind::Password => SlotKind::Recovery,
                     SlotKind::Recovery => SlotKind::Password,
+                    SlotKind::PasswordKeyfile => SlotKind::PasswordKeyfile,
                 };
             }
         });
@@ -831,7 +933,7 @@ mod tests {
         // Changing the master password revokes every device unlock.
         let kdf = vault.kdf_params().clone();
         vault
-            .change_password("a brand new passphrase", &secret_key, &kdf)
+            .change_password("a brand new passphrase", &secret_key, None, &kdf)
             .unwrap();
         let changed = vault.to_bytes().unwrap();
         assert!(matches!(
