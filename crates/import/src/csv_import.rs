@@ -1,21 +1,43 @@
-//! CSV exports (Chrome, Edge, Firefox, Bitwarden CSV, and similar) with header detection.
+//! CSV exports with header detection: Chrome, Edge, Brave, Opera, Vivaldi, Firefox, Safari,
+//! Bitwarden, 1Password, LastPass, Dashlane, Proton Pass, NordPass, KeePassXC and similar.
 
 use vault_core::{CustomField, ItemData, ItemKind};
 
 use crate::{ImportError, ImportReport, host_of, non_empty};
 
 /// Column name aliases (compared case-insensitively, ignoring spaces and underscores).
-const TITLE: &[&str] = &["name", "title", "account"];
-const URL: &[&str] = &["url", "loginuri", "website", "uri", "address"];
-const USERNAME: &[&str] = &["username", "loginusername", "login", "user", "email"];
+const TITLE: &[&str] = &["name", "title", "account", "itemname"];
+const URL: &[&str] = &[
+    "url", "loginuri", "website", "uri", "address", "loginurl", "weburl", "site",
+];
+const USERNAME: &[&str] = &["username", "loginusername", "login", "user", "username1"];
+/// Used when the username column is missing or empty (Proton Pass has both).
+const EMAIL: &[&str] = &["email", "emailaddress", "loginemail"];
 const PASSWORD: &[&str] = &["password", "loginpassword"];
-const NOTES: &[&str] = &["note", "notes", "extra", "comments", "comment"];
-const TOTP: &[&str] = &["totp", "logintotp", "otpauth", "otp"];
+const NOTES: &[&str] = &[
+    "note",
+    "notes",
+    "extra",
+    "comments",
+    "comment",
+    "notesplain",
+];
+/// Dashlane "otpSecret"/"otpUrl", 1Password and Safari "OTPAuth".
+const TOTP: &[&str] = &[
+    "totp",
+    "logintotp",
+    "otpauth",
+    "otp",
+    "otpsecret",
+    "otpurl",
+    "2fa",
+];
 const FAVORITE: &[&str] = &["favorite", "fav"];
 const KIND: &[&str] = &["type"];
 const FIELDS: &[&str] = &["fields"];
-/// Bitwarden CSV "folder", LastPass "grouping".
-const FOLDER: &[&str] = &["folder", "grouping", "group"];
+/// Bitwarden CSV "folder", LastPass "grouping", KeePassXC "group", Dashlane "category",
+/// Proton Pass "vault".
+const FOLDER: &[&str] = &["folder", "grouping", "group", "category", "vault"];
 /// Firefox: milliseconds since the Unix epoch.
 const CREATED_MS: &[&str] = &["timecreated"];
 const CHANGED_MS: &[&str] = &["timepasswordchanged"];
@@ -24,6 +46,7 @@ struct Columns {
     title: Option<usize>,
     url: Option<usize>,
     username: Option<usize>,
+    email: Option<usize>,
     password: Option<usize>,
     notes: Option<usize>,
     totp: Option<usize>,
@@ -50,6 +73,7 @@ impl Columns {
             title: find(TITLE),
             url: find(URL),
             username: find(USERNAME),
+            email: find(EMAIL),
             password: find(PASSWORD),
             notes: find(NOTES),
             totp: find(TOTP),
@@ -63,12 +87,15 @@ impl Columns {
     }
 
     fn is_usable(&self) -> bool {
-        self.password.is_some() || self.username.is_some() || self.url.is_some()
+        self.password.is_some()
+            || self.username.is_some()
+            || self.email.is_some()
+            || self.url.is_some()
     }
 }
 
 /// Imports a CSV export. The first row must be a header.
-pub fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
+pub(crate) fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
     let columns = Columns::from_headers(reader.headers()?);
@@ -87,7 +114,7 @@ pub fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
         };
 
         let url = get(columns.url);
-        let username = get(columns.username);
+        let username = get(columns.username).or_else(|| get(columns.email));
         let password = get(columns.password);
         let notes = get(columns.notes);
         if url.is_none() && username.is_none() && password.is_none() && notes.is_none() {
@@ -123,7 +150,17 @@ pub fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
         }
         if let Some(changed) = get(columns.changed_ms).and_then(|ms| ms.parse::<i64>().ok()) {
             item.updated_at = changed / 1000;
+            item.password_changed_at = changed / 1000;
         }
+        // KeePassXC exports its root group as "Root/…".
+        let folder = get(columns.folder).map(|folder| {
+            let trimmed = folder.strip_prefix("Root/").unwrap_or(&folder);
+            if trimmed == "Root" {
+                String::new()
+            } else {
+                trimmed.to_owned()
+            }
+        });
         // Bitwarden CSV: "name: value" per line.
         for line in get(columns.fields).unwrap_or_default().lines() {
             if let Some((name, value)) = line.split_once(": ") {
@@ -134,7 +171,7 @@ pub fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
                 });
             }
         }
-        report.push(item, get(columns.folder));
+        report.push(item, folder);
     }
     Ok(report)
 }
@@ -172,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn bitwarden_csv_export() {
+    fn csv_with_folder_type_and_fields() {
         let csv = "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n\
                    Work,1,login,Mail,,\"Recovery: abc\nPIN: 42\",0,https://mail.example,me,pw,JBSWY3DPEHPK3PXP\n\
                    ,,note,Recipe,secret sauce,,0,,,,\n";
@@ -183,6 +220,34 @@ mod tests {
         assert_eq!(mail.totp, "JBSWY3DPEHPK3PXP");
         assert_eq!(mail.custom_fields.len(), 2);
         assert_eq!(report.items[1].kind, ItemKind::SecureNote);
+    }
+
+    #[test]
+    fn other_managers() {
+        // Proton Pass: email used when the username is empty; "vault" becomes the folder.
+        let proton = "type,name,url,email,username,password,note,totp,createTime,modifyTime,vault\n\
+                      login,Shop,https://shop.example,me@mail.example,,pw1,,,1,2,Personal\n";
+        let report = import_csv(proton.as_bytes()).unwrap();
+        assert_eq!(report.items[0].username, "me@mail.example");
+        assert_eq!(report.folders[0].as_deref(), Some("Personal"));
+        // Dashlane: otpSecret and category.
+        let dashlane = "username,username2,username3,title,password,note,url,category,otpSecret\n\
+                        me,,,Mail,pw2,,https://mail.example,Work,JBSWY3DPEHPK3PXP\n";
+        let report = import_csv(dashlane.as_bytes()).unwrap();
+        assert_eq!(report.items[0].totp, "JBSWY3DPEHPK3PXP");
+        assert_eq!(report.folders[0].as_deref(), Some("Work"));
+        // KeePassXC: "Root/" dropped from the group path.
+        let keepassxc = "\"Group\",\"Title\",\"Username\",\"Password\",\"URL\",\"Notes\",\"TOTP\",\"Icon\",\"Last Modified\",\"Created\"\n\
+                         \"Root/Games\",\"Steam\",\"me\",\"pw3\",\"https://store.example\",\"\",\"\",\"0\",\"\",\"\"\n\
+                         \"Root\",\"Bank\",\"me\",\"pw4\",\"\",\"\",\"\",\"0\",\"\",\"\"\n";
+        let report = import_csv(keepassxc.as_bytes()).unwrap();
+        assert_eq!(report.folders, [Some("Games".to_owned()), None]);
+        // 1Password / Safari: OTPAuth.
+        let onepassword = "Title,Url,Username,Password,OTPAuth,Favorite,Archived,Tags,Notes\n\
+                           Git,https://git.example,me,pw5,otpauth://totp/x?secret=JBSWY3DPEHPK3PXP,true,false,,\n";
+        let report = import_csv(onepassword.as_bytes()).unwrap();
+        assert!(report.items[0].totp.starts_with("otpauth://"));
+        assert!(report.items[0].favorite);
     }
 
     #[test]

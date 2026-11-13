@@ -9,7 +9,7 @@ use crate::{ImportError, ImportReport, host_of, non_empty};
 
 /// Opens a KDBX database with its password (and optional key file) and converts every entry
 /// outside the recycle bin.
-pub fn import_kdbx(
+pub(crate) fn import_kdbx(
     bytes: &[u8],
     password: &str,
     keyfile: Option<&[u8]>,

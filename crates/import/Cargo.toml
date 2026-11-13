@@ -1,7 +1,7 @@
 [package]
 name = "vault-import"
 version = "0.0.0"
-description = "Importers from other password managers (Bitwarden, KeePass, browser CSV)"
+description = "Import from and export to other password managers (JSON, CSV, KDBX)"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

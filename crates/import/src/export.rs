@@ -1,6 +1,6 @@
 //! Unencrypted exports, for moving to another password manager.
 //!
-//! Both formats are Bitwarden's, which most managers import: JSON (`.json`, keeps folders,
+//! Both use the common layout most managers import: JSON (`.json`, keeps folders,
 //! custom fields and cards) and CSV (`.csv`, logins and notes). The output is plain text holding
 //! every password: it is returned in a wiped-on-drop buffer and should go straight to a file the
 //! user chose.
@@ -65,8 +65,8 @@ fn iso8601(unix: i64) -> String {
     )
 }
 
-/// Bitwarden-compatible unencrypted JSON.
-pub fn export_bitwarden_json(vault: &Vault) -> Result<Zeroizing<String>, vault_core::Error> {
+/// Unencrypted JSON in the common layout (keeps folders, cards and fields).
+pub fn export_json(vault: &Vault) -> Result<Zeroizing<String>, vault_core::Error> {
     let folders: Vec<Value> = vault
         .folders()
         .iter()
@@ -122,7 +122,7 @@ pub fn export_bitwarden_json(vault: &Vault) -> Result<Zeroizing<String>, vault_c
     Ok(Zeroizing::new(text))
 }
 
-/// Bitwarden-format CSV (logins and notes; cards go out as notes with their fields).
+/// CSV in the common layout (logins and notes; cards go out as notes with their fields).
 pub fn export_csv(vault: &Vault) -> Result<Zeroizing<String>, vault_core::Error> {
     let mut writer = csv::Writer::from_writer(Vec::new());
     let header = [
@@ -177,7 +177,7 @@ pub fn export_csv(vault: &Vault) -> Result<Zeroizing<String>, vault_core::Error>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{import_bitwarden_json, import_csv};
+    use crate::{import_csv, import_json};
     use vault_core::{CustomField, KdfParams, RecoveryCode, SecretKey};
 
     fn vault() -> Vault {
@@ -215,8 +215,8 @@ mod tests {
     #[test]
     fn json_round_trips_through_our_importer() {
         let vault = vault();
-        let json = export_bitwarden_json(&vault).unwrap();
-        let report = import_bitwarden_json(json.as_bytes()).unwrap();
+        let json = export_json(&vault).unwrap();
+        let report = import_json(json.as_bytes()).unwrap();
         assert_eq!(report.items.len(), 2);
         let gmail = report
             .items

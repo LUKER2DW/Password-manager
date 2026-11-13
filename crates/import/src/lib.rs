@@ -1,30 +1,47 @@
-//! Importers from other password managers.
+//! Import from and export to other password managers and browsers.
 //!
-//! Supported:
-//! - **Bitwarden** unencrypted JSON export (`.json`)
-//! - **KeePass / KeePassXC** databases (`.kdbx`, KDBX 3 and 4) — opened with their password
-//! - **CSV** exports from Chrome, Edge, Firefox, Bitwarden and similar (header-detected)
+//! One entry point, [`import`], reads every supported file by its format:
+//! - **JSON**: unencrypted exports in the common layout (`.json`)
+//! - **KDBX**: KeePass-format databases (`.kdbx`, KDBX 3 and 4), opened with their password
+//! - **CSV**: exports from browsers and most managers, read by their header row
+//!
+//! [`Source`] lists where an export can come from, for the app to explain how to make one.
 //!
 //! Importers only produce [`ItemData`]; they never touch the vault or its keys.
 
-mod bitwarden;
 mod csv_import;
 mod dates;
 mod export;
+mod json;
 mod kdbx;
 
-pub use bitwarden::import_bitwarden_json;
-pub use csv_import::import_csv;
-pub use export::{export_bitwarden_json, export_csv};
-pub use kdbx::import_kdbx;
+pub use export::{export_csv, export_json};
 
-use vault_core::{ItemData, Vault};
+pub(crate) use csv_import::import_csv;
+pub(crate) use json::import_json;
+pub(crate) use kdbx::import_kdbx;
+
+/// Reads an export. `password` (and `keyfile`) only matter for KDBX databases.
+pub fn import(
+    bytes: &[u8],
+    format: Format,
+    password: &str,
+    keyfile: Option<&[u8]>,
+) -> Result<ImportReport, ImportError> {
+    match format {
+        Format::Json => import_json(bytes),
+        Format::Csv => import_csv(bytes),
+        Format::Kdbx => import_kdbx(bytes, password, keyfile),
+    }
+}
+
+use vault_core::{FolderId, ItemData, ItemKind, Vault};
 use zeroize::Zeroizing;
 
 /// File formats the importer understands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Format {
-    BitwardenJson,
+    Json,
     Csv,
     Kdbx,
 }
@@ -37,7 +54,7 @@ pub fn detect_format(bytes: &[u8]) -> Format {
     }
     let text = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     match text.iter().find(|b| !b.is_ascii_whitespace()) {
-        Some(b'{') => Format::BitwardenJson,
+        Some(b'{') => Format::Json,
         _ => Format::Csv,
     }
 }
@@ -56,6 +73,96 @@ impl ImportReport {
     pub(crate) fn push(&mut self, item: ItemData, folder: Option<String>) {
         self.items.push(item);
         self.folders.push(folder.filter(|f| !f.trim().is_empty()));
+    }
+
+    /// One row per item for a review screen (no secrets), with duplicates of items already
+    /// in `vault` (or earlier in the file) marked.
+    pub fn review(&self, vault: &Vault) -> Result<Vec<ReviewRow>, vault_core::Error> {
+        let mut known = known_fingerprints(vault)?;
+        Ok(self
+            .items
+            .iter()
+            .zip(&self.folders)
+            .map(|(item, folder)| ReviewRow {
+                kind: item.kind,
+                title: item.title.clone(),
+                username: item.username.clone(),
+                site: item
+                    .urls
+                    .first()
+                    .and_then(|url| host_of(url))
+                    .unwrap_or_default(),
+                has_password: !item.password.is_empty(),
+                has_totp: !item.totp.trim().is_empty(),
+                folder: folder.clone().unwrap_or_default(),
+                duplicate: !known.insert(fingerprint(item)),
+            })
+            .collect())
+    }
+
+    /// Adds the items whose `selected` entry is true (all when `selected` is shorter), filed
+    /// as `target` says. Duplicates are skipped as in [`ImportReport::add_to_vault`].
+    pub fn add_selected(
+        self,
+        vault: &mut Vault,
+        selected: &[bool],
+        target: &FolderTarget,
+    ) -> Result<ImportOutcome, vault_core::Error> {
+        let mut known = known_fingerprints(vault)?;
+        let mut outcome = ImportOutcome::default();
+        let mut shared_folder: Option<FolderId> = match target {
+            FolderTarget::Existing(id) => {
+                if !vault.folders().iter().any(|f| f.id == *id) {
+                    return Err(vault_core::Error::FolderNotFound);
+                }
+                Some(*id)
+            }
+            _ => None,
+        };
+        for (index, (mut item, folder)) in self.items.into_iter().zip(self.folders).enumerate() {
+            if !selected.get(index).copied().unwrap_or(true) {
+                continue;
+            }
+            if !known.insert(fingerprint(&item)) {
+                outcome.duplicates += 1;
+                continue;
+            }
+            item.folder = match target {
+                FolderTarget::FromFile => match folder {
+                    Some(name) => {
+                        let name = name.trim();
+                        Some(match find_folder(vault, &name.to_lowercase()) {
+                            Some(id) => id,
+                            None => {
+                                outcome.new_folders += 1;
+                                vault.add_folder(name)?
+                            }
+                        })
+                    }
+                    None => None,
+                },
+                FolderTarget::NoFolder => None,
+                FolderTarget::Existing(_) => shared_folder,
+                FolderTarget::New(name) => match shared_folder {
+                    Some(id) => Some(id),
+                    None => {
+                        let id = match find_folder(vault, &name.trim().to_lowercase()) {
+                            Some(id) => id,
+                            None => {
+                                outcome.new_folders += 1;
+                                vault.add_folder(name)?
+                            }
+                        };
+                        shared_folder = Some(id);
+                        Some(id)
+                    }
+                },
+            };
+            vault.add_item(&item)?;
+            outcome.titles.push(item.title.clone());
+            outcome.added += 1;
+        }
+        Ok(outcome)
     }
 
     /// What [`ImportReport::add_to_vault`] would do, without changing the vault.
@@ -85,28 +192,125 @@ impl ImportReport {
     /// and first URL) and creating missing folders (an existing folder with the same name,
     /// ignoring case, is reused).
     pub fn add_to_vault(self, vault: &mut Vault) -> Result<ImportOutcome, vault_core::Error> {
-        let mut known = known_fingerprints(vault)?;
-        let mut outcome = ImportOutcome::default();
-        for (mut item, folder) in self.items.into_iter().zip(self.folders) {
-            if !known.insert(fingerprint(&item)) {
-                outcome.duplicates += 1;
-                continue;
-            }
-            if let Some(name) = folder {
-                let name = name.trim();
-                item.folder = Some(match find_folder(vault, &name.to_lowercase()) {
-                    Some(id) => id,
-                    None => {
-                        outcome.new_folders += 1;
-                        vault.add_folder(name)?
-                    }
-                });
-            }
-            vault.add_item(&item)?;
-            outcome.titles.push(item.title.clone());
-            outcome.added += 1;
+        self.add_selected(vault, &[], &FolderTarget::FromFile)
+    }
+}
+
+/// Where imported items are filed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FolderTarget {
+    /// The folders named in the file (created when missing; matched ignoring case).
+    FromFile,
+    /// No folder.
+    NoFolder,
+    /// All into one folder of the vault.
+    Existing(FolderId),
+    /// All into a folder with this name (created unless one exists, ignoring case).
+    New(String),
+}
+
+/// One imported item as shown for review: nothing secret, only whether there is a password.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReviewRow {
+    pub kind: ItemKind,
+    pub title: String,
+    pub username: String,
+    /// Host of the first URL.
+    pub site: String,
+    pub has_password: bool,
+    pub has_totp: bool,
+    /// Folder named in the file ("" = none).
+    pub folder: String,
+    /// Same title, username, password and URL as an item already in the vault (or earlier in
+    /// the file): it will be skipped.
+    pub duplicate: bool,
+}
+
+/// Where an export can come from. The app shows how to make the export for each one; every
+/// browser and most managers produce a CSV, which [`import_csv`] reads by its header.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    Chrome,
+    Edge,
+    Firefox,
+    Brave,
+    Opera,
+    OperaGx,
+    Vivaldi,
+    Safari,
+    Bitwarden,
+    OnePassword,
+    LastPass,
+    KeePass,
+    Dashlane,
+    ProtonPass,
+    NordPass,
+    OtherCsv,
+}
+
+impl Source {
+    /// Browsers first, then password managers, then any CSV.
+    pub const ALL: [Source; 16] = [
+        Source::Chrome,
+        Source::Edge,
+        Source::Firefox,
+        Source::Brave,
+        Source::Opera,
+        Source::OperaGx,
+        Source::Vivaldi,
+        Source::Safari,
+        Source::Bitwarden,
+        Source::OnePassword,
+        Source::LastPass,
+        Source::KeePass,
+        Source::Dashlane,
+        Source::ProtonPass,
+        Source::NordPass,
+        Source::OtherCsv,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Source::Chrome => "Google Chrome",
+            Source::Edge => "Microsoft Edge",
+            Source::Firefox => "Firefox",
+            Source::Brave => "Brave",
+            Source::Opera => "Opera",
+            Source::OperaGx => "Opera GX",
+            Source::Vivaldi => "Vivaldi",
+            Source::Safari => "Safari",
+            Source::Bitwarden => "Bitwarden",
+            Source::OnePassword => "1Password",
+            Source::LastPass => "LastPass",
+            Source::KeePass => "KeePass / KeePassXC",
+            Source::Dashlane => "Dashlane",
+            Source::ProtonPass => "Proton Pass",
+            Source::NordPass => "NordPass",
+            Source::OtherCsv => "Other (CSV)",
         }
-        Ok(outcome)
+    }
+
+    pub fn is_browser(self) -> bool {
+        matches!(
+            self,
+            Source::Chrome
+                | Source::Edge
+                | Source::Firefox
+                | Source::Brave
+                | Source::Opera
+                | Source::OperaGx
+                | Source::Vivaldi
+                | Source::Safari
+        )
+    }
+
+    /// File types to offer in the file picker.
+    pub fn extensions(self) -> &'static [&'static str] {
+        match self {
+            Source::Bitwarden => &["json", "csv"],
+            Source::KeePass => &["kdbx", "csv"],
+            _ => &["csv"],
+        }
     }
 }
 
@@ -194,9 +398,62 @@ mod tests {
         assert_eq!(detect_format(&[0x03, 0xd9, 0xa2, 0x9a, 0x67]), Format::Kdbx);
         assert_eq!(
             detect_format(b"\xEF\xBB\xBF  {\"items\": []}"),
-            Format::BitwardenJson
+            Format::Json
         );
         assert_eq!(detect_format(b"name,url,username,password\n"), Format::Csv);
+    }
+
+    #[test]
+    fn review_and_selective_import() {
+        let key = vault_core::SecretKey::generate().unwrap();
+        let mut vault =
+            Vault::create("pw", &key, None, vault_core::KdfParams::minimum().unwrap()).unwrap();
+        vault
+            .add_item(&ItemData::login("Old", "me", "pw0", "https://old.example"))
+            .unwrap();
+        let csv = "name,url,username,password,folder\n\
+                   Old,https://old.example,me,pw0,\n\
+                   Mail,https://www.mail.example/in,me,pw1,Work\n\
+                   Shop,https://shop.example,me,pw2,Home\n\
+                   Bank,https://bank.example,me,,Home\n";
+        let report = import_csv(csv.as_bytes()).unwrap();
+        let rows = report.review(&vault).unwrap();
+        assert_eq!(rows.len(), 4);
+        assert!(rows[0].duplicate && !rows[1].duplicate);
+        assert_eq!(rows[1].site, "mail.example");
+        assert_eq!(rows[1].folder, "Work");
+        assert!(rows[1].has_password && !rows[3].has_password);
+        assert!(!format!("{rows:?}").contains("pw1"));
+
+        // Everything but "Shop", all into one new folder.
+        let outcome = report
+            .add_selected(
+                &mut vault,
+                &[true, true, false, true],
+                &FolderTarget::New("Imported".into()),
+            )
+            .unwrap();
+        assert_eq!(
+            (outcome.added, outcome.duplicates, outcome.new_folders),
+            (2, 1, 1)
+        );
+        let folder = vault.folders()[0].id;
+        let filed = vault
+            .item_ids()
+            .filter(|id| vault.get_item(id).unwrap().folder == Some(folder))
+            .count();
+        assert_eq!(filed, 2);
+        assert!(
+            import_csv(csv.as_bytes())
+                .unwrap()
+                .add_selected(
+                    &mut vault,
+                    &[],
+                    &FolderTarget::Existing(FolderId::from_hex(&"0".repeat(32)).unwrap())
+                )
+                .is_err()
+        );
+        assert_eq!(Source::ALL.iter().filter(|s| s.is_browser()).count(), 8);
     }
 
     #[test]

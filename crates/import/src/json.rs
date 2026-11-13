@@ -1,4 +1,4 @@
-//! Bitwarden unencrypted JSON export.
+//! Unencrypted JSON exports (the layout most password managers read and write).
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -13,11 +13,11 @@ struct Export {
     #[serde(default)]
     items: Vec<Item>,
     #[serde(default)]
-    folders: Vec<BitwardenFolder>,
+    folders: Vec<ExportFolder>,
 }
 
 #[derive(Deserialize)]
-struct BitwardenFolder {
+struct ExportFolder {
     id: String,
     name: Option<String>,
 }
@@ -40,6 +40,14 @@ struct Item {
     ssh_key: Option<serde_json::Map<String, Value>>,
     creation_date: Option<String>,
     revision_date: Option<String>,
+    password_history: Option<Vec<OldPassword>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OldPassword {
+    password: Option<String>,
+    last_used_date: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -59,6 +67,7 @@ struct Login {
     password: Option<String>,
     totp: Option<String>,
     fido2_credentials: Option<Vec<Value>>,
+    password_revision_date: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -77,8 +86,8 @@ struct Card {
     code: Option<String>,
 }
 
-/// Imports a Bitwarden JSON export (`File > Export vault > .json`, not the encrypted variant).
-pub fn import_bitwarden_json(bytes: &[u8]) -> Result<ImportReport, ImportError> {
+/// Imports an unencrypted JSON export (not the encrypted variant).
+pub(crate) fn import_json(bytes: &[u8]) -> Result<ImportReport, ImportError> {
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     let export: Export = serde_json::from_slice(bytes)?;
     if export.encrypted {
@@ -101,7 +110,7 @@ pub fn import_bitwarden_json(bytes: &[u8]) -> Result<ImportReport, ImportError> 
             2 | 4 | 5 => ItemKind::SecureNote,
             other => {
                 report.warnings.push(format!(
-                    "\"{title}\": unknown Bitwarden item type {other}, imported as a note"
+                    "\"{title}\": unknown item type {other}, imported as a note"
                 ));
                 ItemKind::SecureNote
             }
@@ -120,6 +129,13 @@ pub fn import_bitwarden_json(bytes: &[u8]) -> Result<ImportReport, ImportError> 
             item.username = login.username.unwrap_or_default();
             item.password = login.password.unwrap_or_default();
             item.totp = login.totp.unwrap_or_default();
+            if let Some(changed) = login
+                .password_revision_date
+                .as_deref()
+                .and_then(iso8601_to_unix)
+            {
+                item.password_changed_at = changed;
+            }
             item.urls = login
                 .uris
                 .unwrap_or_default()
@@ -128,7 +144,7 @@ pub fn import_bitwarden_json(bytes: &[u8]) -> Result<ImportReport, ImportError> 
                 .collect();
             if login.fido2_credentials.is_some_and(|c| !c.is_empty()) {
                 report.warnings.push(format!(
-                    "\"{title}\": its passkey cannot be exported by Bitwarden; register a new passkey for that site"
+                    "\"{title}\": its passkey was not exported; register a new passkey for that site"
                 ));
             }
             if title == "Untitled"
@@ -137,6 +153,20 @@ pub fn import_bitwarden_json(bytes: &[u8]) -> Result<ImportReport, ImportError> 
                 item.title = host;
             }
         }
+
+        for old in source.password_history.unwrap_or_default() {
+            if let Some(password) = non_empty(old.password) {
+                item.password_history.push(vault_core::PasswordChange {
+                    password,
+                    replaced_at: old
+                        .last_used_date
+                        .as_deref()
+                        .and_then(iso8601_to_unix)
+                        .unwrap_or(0),
+                });
+            }
+        }
+        item.password_history.sort_by_key(|c| c.replaced_at);
 
         if let Some(card) = source.card {
             item.username = card.cardholder_name.unwrap_or_default();
@@ -250,7 +280,7 @@ mod tests {
 
     #[test]
     fn imports_all_item_types() {
-        let report = import_bitwarden_json(SAMPLE.as_bytes()).unwrap();
+        let report = import_json(SAMPLE.as_bytes()).unwrap();
         assert_eq!(report.items.len(), 5);
         assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings); // the passkey
 
@@ -306,7 +336,7 @@ mod tests {
     fn rejects_encrypted_exports() {
         let encrypted = r#"{"encrypted": true, "passwordProtected": true, "data": "..."}"#;
         assert!(matches!(
-            import_bitwarden_json(encrypted.as_bytes()),
+            import_json(encrypted.as_bytes()),
             Err(ImportError::EncryptedExport)
         ));
     }
@@ -314,7 +344,7 @@ mod tests {
     #[test]
     fn rejects_invalid_json() {
         assert!(matches!(
-            import_bitwarden_json(b"{not json"),
+            import_json(b"{not json"),
             Err(ImportError::Json(_))
         ));
     }
