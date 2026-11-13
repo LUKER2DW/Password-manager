@@ -1,6 +1,48 @@
 //! End-to-end tests of the public `vault-core` API.
 
 #[test]
+fn folders_can_be_reordered_and_get_a_picture_link() {
+    let secret_key = SecretKey::generate().unwrap();
+    let mut vault = Vault::create("pw", &secret_key, None, KdfParams::minimum().unwrap()).unwrap();
+    let a = vault.add_folder("A").unwrap();
+    let b = vault.add_folder("B").unwrap();
+    let c = vault.add_folder("C").unwrap();
+    let names = |v: &Vault| {
+        v.folders()
+            .iter()
+            .map(|f| f.name.clone())
+            .collect::<Vec<_>>()
+    };
+    vault.move_folder(&c, 0).unwrap();
+    assert_eq!(names(&vault), ["C", "A", "B"]);
+    vault.move_folder(&c, 99).unwrap();
+    assert_eq!(names(&vault), ["A", "B", "C"]);
+    vault.move_folder(&a, 1).unwrap();
+    assert_eq!(names(&vault), ["B", "A", "C"]);
+
+    vault
+        .set_folder_icon_url(&b, "  https://example.com/logo.png ")
+        .unwrap();
+    assert_eq!(vault.folders()[0].icon_url, "https://example.com/logo.png");
+    assert!(vault.set_folder_icon_url(&b, "two words").is_err());
+    assert!(vault.set_folder_icon_url(&b, &"x".repeat(3000)).is_err());
+
+    let reopened = Vault::open(
+        &vault.to_bytes().unwrap(),
+        Unlock::Password {
+            password: "pw",
+            secret_key: &secret_key,
+        },
+    )
+    .unwrap();
+    assert_eq!(names(&reopened), ["B", "A", "C"]);
+    assert_eq!(
+        reopened.folders()[0].icon_url,
+        "https://example.com/logo.png"
+    );
+}
+
+#[test]
 fn folders_get_an_icon_and_a_colour() {
     let secret_key = SecretKey::generate().unwrap();
     let mut vault = Vault::create("pw", &secret_key, None, KdfParams::minimum().unwrap()).unwrap();
@@ -284,10 +326,10 @@ fn foreign_files_and_future_versions_are_rejected() {
         Err(Error::NotAVault)
     ));
     let mut bytes = f.vault.to_bytes().unwrap();
-    bytes[8] = 4; // format_version = 4: from the future
+    bytes[8] = 5; // format_version = 5: from the future
     assert!(matches!(
         Vault::open(&bytes, Unlock::Recovery(&f.recovery_key)),
-        Err(Error::UnsupportedVersion(4))
+        Err(Error::UnsupportedVersion(5))
     ));
     // Relabelling a current file as an older version changes the authenticated header: the body won't open.
     let mut relabelled = f.vault.to_bytes().unwrap();

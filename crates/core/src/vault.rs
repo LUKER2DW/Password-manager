@@ -9,9 +9,9 @@ use crate::{
     SecretKey, VaultSettings, aead,
     format::{
         self, ItemRecord, KeySlot, SlotKind, VaultBody, VaultBodyV0, VaultBodyV1, VaultBodyV2,
-        VaultHeader,
+        VaultBodyV3, VaultHeader,
     },
-    item::{FolderV1, ItemDataV0, ItemDataV1, ItemDataV2, PasswordChange},
+    item::{FolderV1, FolderV3, ItemDataV0, ItemDataV1, ItemDataV2, PasswordChange},
     keys::{self, VaultKey},
     padding,
 };
@@ -179,6 +179,15 @@ impl Vault {
                     settings: old.settings,
                 }
             }
+            3 => {
+                let old: VaultBodyV3 = format::decode_exact(plain)?;
+                VaultBody {
+                    revision: old.revision,
+                    items: old.items,
+                    folders: old.folders.into_iter().map(FolderV3::upgrade).collect(),
+                    settings: old.settings,
+                }
+            }
             _ => format::decode_exact(plain)?,
         };
 
@@ -200,7 +209,7 @@ impl Vault {
             folders: body.folders,
             settings: body.settings,
         };
-        if parsed.version < format::FORMAT_VERSION {
+        if parsed.version < format::ITEM_LAYOUT_VERSION {
             vault.upgrade_items(parsed.version)?;
         }
         Ok(vault)
@@ -251,7 +260,7 @@ impl Vault {
 
     // ---- folders ----
 
-    /// Folders, in the order they were created.
+    /// Folders, in the user's order (creation order unless moved).
     pub fn folders(&self) -> &[Folder] {
         &self.folders
     }
@@ -273,8 +282,40 @@ impl Vault {
             name: name.to_owned(),
             icon: String::new(),
             color: 0,
+            icon_url: String::new(),
         });
         Ok(id)
+    }
+
+    /// Moves a folder to position `index` (clamped to the end); the others keep their order.
+    pub fn move_folder(&mut self, id: &FolderId, index: usize) -> Result<()> {
+        let from = self
+            .folders
+            .iter()
+            .position(|f| f.id == *id)
+            .ok_or(Error::FolderNotFound)?;
+        let folder = self.folders.remove(from);
+        let to = index.min(self.folders.len());
+        self.folders.insert(to, folder);
+        Ok(())
+    }
+
+    /// Sets the website or image link whose picture stands for a folder ("" = none). Links are
+    /// trimmed; whitespace inside or control characters are refused.
+    pub fn set_folder_icon_url(&mut self, id: &FolderId, url: &str) -> Result<()> {
+        let url = url.trim();
+        if url.chars().count() > Folder::MAX_ICON_URL_CHARS
+            || url.chars().any(|c| c.is_whitespace() || c.is_control())
+        {
+            return Err(Error::InvalidName);
+        }
+        let folder = self
+            .folders
+            .iter_mut()
+            .find(|f| f.id == *id)
+            .ok_or(Error::FolderNotFound)?;
+        folder.icon_url = url.to_owned();
+        Ok(())
     }
 
     pub fn rename_folder(&mut self, id: &FolderId, name: &str) -> Result<()> {

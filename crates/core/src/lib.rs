@@ -40,7 +40,7 @@ pub use item::{
     CustomField, Folder, FolderId, ItemData, ItemId, ItemKind, ItemSummary, PasswordChange,
     RecoveryCode, VaultSettings,
 };
-pub use kdf::KdfParams;
+pub use kdf::{KdfParams, KdfStrength};
 pub use keys::{RecoveryKey, SecretKey};
 pub use vault::{Unlock, Vault, VaultInfo};
 

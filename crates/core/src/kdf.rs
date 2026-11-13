@@ -112,6 +112,53 @@ impl KdfParams {
     }
 }
 
+/// How much work unlocking costs, as offered to the user. Only Argon2id is used: it is the
+/// recommendation of RFC 9106 and OWASP, and its memory cost is what makes guessing on graphics
+/// cards and custom chips expensive (PBKDF2 and bcrypt have none, scrypt is older and easier to
+/// misconfigure). The levels differ only in memory and passes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KdfStrength {
+    /// 64 MiB, 3 passes: for older computers or little memory.
+    Light,
+    /// 256 MiB, 3 passes (the default).
+    Standard,
+    /// 512 MiB, 4 passes.
+    Strong,
+    /// 1 GiB, 5 passes: a few seconds per unlock.
+    Maximum,
+}
+
+impl KdfStrength {
+    pub const ALL: [KdfStrength; 4] = [Self::Light, Self::Standard, Self::Strong, Self::Maximum];
+
+    /// (memory in KiB, passes, lanes).
+    pub fn costs(self) -> (u32, u32, u32) {
+        match self {
+            Self::Light => (64 * 1024, 3, RECOMMENDED_PARALLELISM),
+            Self::Standard => (
+                RECOMMENDED_MEMORY_KIB,
+                RECOMMENDED_ITERATIONS,
+                RECOMMENDED_PARALLELISM,
+            ),
+            Self::Strong => (512 * 1024, 4, RECOMMENDED_PARALLELISM),
+            Self::Maximum => (1024 * 1024, 5, RECOMMENDED_PARALLELISM),
+        }
+    }
+
+    /// Fresh parameters (new salt) at this level.
+    pub fn params(self) -> Result<KdfParams> {
+        let (memory, iterations, lanes) = self.costs();
+        KdfParams::new(memory, iterations, lanes)
+    }
+
+    /// The level these parameters match, or `None` for other (custom or older) values.
+    pub fn of(params: &KdfParams) -> Option<Self> {
+        Self::ALL.into_iter().find(|level| {
+            level.costs() == (params.memory_kib, params.iterations, params.parallelism)
+        })
+    }
+}
+
 /// NFKC-normalizes a password into a buffer that is wiped on drop.
 pub(crate) fn normalize_password(password: &str) -> Zeroizing<String> {
     // Reserve the worst case up front so pushing never reallocates (which would leave copies).
@@ -192,6 +239,19 @@ mod tests {
                 .is_err()
         );
         assert!(KdfParams::recommended().is_ok());
+    }
+
+    #[test]
+    fn strength_levels_are_valid_and_recognised() {
+        for level in KdfStrength::ALL {
+            let params = level.params().unwrap();
+            assert_eq!(KdfStrength::of(&params), Some(level));
+        }
+        assert_eq!(
+            KdfStrength::of(&KdfParams::recommended().unwrap()),
+            Some(KdfStrength::Standard)
+        );
+        assert_eq!(KdfStrength::of(&KdfParams::minimum().unwrap()), None);
     }
 
     #[test]

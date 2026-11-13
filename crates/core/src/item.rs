@@ -90,6 +90,39 @@ pub struct Folder {
     /// Colour index chosen by the user (0 = default). (Format v3.)
     #[zeroize(skip)]
     pub color: u8,
+    /// A website or image link whose picture replaces the icon ("" = none). (Format v4.)
+    pub icon_url: String,
+}
+
+/// Folder as stored by format v3 (icon and colour, no picture link).
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub(crate) struct FolderV3 {
+    #[zeroize(skip)]
+    pub(crate) id: FolderId,
+    pub(crate) name: String,
+    pub(crate) icon: String,
+    #[zeroize(skip)]
+    pub(crate) color: u8,
+}
+
+impl fmt::Debug for FolderV3 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FolderV3")
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl FolderV3 {
+    pub(crate) fn upgrade(mut self) -> Folder {
+        Folder {
+            id: self.id,
+            name: std::mem::take(&mut self.name),
+            icon: std::mem::take(&mut self.icon),
+            color: self.color,
+            icon_url: String::new(),
+        }
+    }
 }
 
 /// Folder as stored by formats v1 and v2 (before icons and colours).
@@ -115,6 +148,7 @@ impl FolderV1 {
             name: std::mem::take(&mut self.name),
             icon: String::new(),
             color: 0,
+            icon_url: String::new(),
         }
     }
 }
@@ -122,6 +156,8 @@ impl FolderV1 {
 impl Folder {
     /// Longest icon name accepted.
     pub const MAX_ICON_CHARS: usize = 32;
+    /// Longest picture link accepted.
+    pub const MAX_ICON_URL_CHARS: usize = 2048;
     /// Highest colour index accepted.
     pub const MAX_COLOR: u8 = 15;
 }

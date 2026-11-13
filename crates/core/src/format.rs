@@ -3,14 +3,20 @@
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use zeroize::Zeroizing;
 
-use crate::{Error, Folder, ItemId, KdfParams, Result, VaultSettings, item::FolderV1};
+use crate::{
+    Error, Folder, ItemId, KdfParams, Result, VaultSettings,
+    item::{FolderV1, FolderV3},
+};
 
 pub(crate) const MAGIC: &[u8; 8] = b"PMVAULT\0";
 /// Version written by this build.
 /// v0 = original layout; v1 = folders in the body, folder and recovery codes in items;
 /// v2 = vault settings in the body, password history in items;
-/// v3 = folder icons and colours, an icon website per item.
-pub(crate) const FORMAT_VERSION: u16 = 3;
+/// v3 = folder icons and colours, an icon website per item;
+/// v4 = a picture link per folder.
+pub(crate) const FORMAT_VERSION: u16 = 4;
+/// Last version that changed the item layout: items of older files are re-encrypted on open.
+pub(crate) const ITEM_LAYOUT_VERSION: u16 = 3;
 /// Oldest version this build still reads (and upgrades on the next save).
 pub(crate) const OLDEST_READABLE_VERSION: u16 = 0;
 const ENVELOPE_PREFIX: usize = 8 + 2 + 4;
@@ -84,6 +90,15 @@ pub(crate) struct VaultBodyV1 {
     pub(crate) revision: u64,
     pub(crate) items: Vec<ItemRecord>,
     pub(crate) folders: Vec<FolderV1>,
+}
+
+/// Body layout of format v3 (folders without a picture link).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct VaultBodyV3 {
+    pub(crate) revision: u64,
+    pub(crate) items: Vec<ItemRecord>,
+    pub(crate) folders: Vec<FolderV3>,
+    pub(crate) settings: VaultSettings,
 }
 
 /// Body layout of format v2 (plain folders).
