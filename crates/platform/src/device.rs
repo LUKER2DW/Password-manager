@@ -28,6 +28,9 @@ pub const MAX_RECENT_VAULTS: usize = 8;
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct VaultState {
     highest_revision: u64,
+    /// Where the vault's keyfile was last found (a location, never the key).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    keyfile_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,6 +174,20 @@ impl DeviceState {
     pub fn record_revision(&mut self, vault_id: &str, revision: u64) {
         let entry = self.vaults.entry(vault_id.to_owned()).or_default();
         entry.highest_revision = entry.highest_revision.max(revision);
+    }
+
+    /// Where this device last found the vault's keyfile.
+    pub fn keyfile_path(&self, vault_id: &str) -> Option<std::path::PathBuf> {
+        self.vaults
+            .get(vault_id)?
+            .keyfile_path
+            .as_deref()
+            .map(std::path::PathBuf::from)
+    }
+
+    pub fn set_keyfile_path(&mut self, vault_id: &str, path: Option<&std::path::Path>) {
+        let entry = self.vaults.entry(vault_id.to_owned()).or_default();
+        entry.keyfile_path = path.map(|p| p.to_string_lossy().into_owned());
     }
 }
 

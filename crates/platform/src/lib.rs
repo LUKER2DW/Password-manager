@@ -8,6 +8,7 @@ pub mod clipboard;
 pub mod device;
 pub mod dpapi;
 pub mod files;
+pub mod keyfile;
 pub mod kit_pdf;
 pub mod paths;
 pub mod quick_unlock;
