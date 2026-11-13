@@ -3,10 +3,14 @@
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use zeroize::Zeroizing;
 
-use crate::{Error, ItemId, KdfParams, Result};
+use crate::{Error, Folder, ItemId, KdfParams, Result};
 
 pub(crate) const MAGIC: &[u8; 8] = b"PMVAULT\0";
-pub(crate) const FORMAT_VERSION: u16 = 0;
+/// Version written by this build.
+/// v0 = original layout; v1 = folders in the body, folder and recovery codes in items.
+pub(crate) const FORMAT_VERSION: u16 = 1;
+/// Oldest version this build still reads (and upgrades on the next save).
+pub(crate) const OLDEST_READABLE_VERSION: u16 = 0;
 const ENVELOPE_PREFIX: usize = 8 + 2 + 4;
 const MAX_HEADER_LEN: usize = 64 * 1024;
 const MAX_BODY_LEN: usize = 1 << 30;
@@ -68,11 +72,21 @@ pub(crate) struct ItemRecord {
 pub(crate) struct VaultBody {
     pub(crate) revision: u64,
     pub(crate) items: Vec<ItemRecord>,
+    pub(crate) folders: Vec<Folder>,
+}
+
+/// Body layout of format v0 (no folders).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct VaultBodyV0 {
+    pub(crate) revision: u64,
+    pub(crate) items: Vec<ItemRecord>,
 }
 
 /// A parsed (but not yet decrypted) vault file.
 #[derive(Debug)]
 pub(crate) struct ParsedFile<'a> {
+    /// Format version of this file (between OLDEST_READABLE_VERSION and FORMAT_VERSION).
+    pub(crate) version: u16,
     /// Magic, version, length and header: the exact bytes used as body AAD.
     pub(crate) header_bytes: &'a [u8],
     pub(crate) header: VaultHeader,
@@ -84,7 +98,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<ParsedFile<'_>> {
         return Err(Error::NotAVault);
     }
     let version = u16::from_le_bytes([bytes[8], bytes[9]]);
-    if version != FORMAT_VERSION {
+    if !(OLDEST_READABLE_VERSION..=FORMAT_VERSION).contains(&version) {
         return Err(Error::UnsupportedVersion(version));
     }
     let header_len = read_u32(bytes, 10)? as usize;
@@ -105,6 +119,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<ParsedFile<'_>> {
         return Err(Error::Malformed);
     }
     Ok(ParsedFile {
+        version,
         header_bytes: &bytes[..header_end],
         header,
         body: &bytes[body_start..],

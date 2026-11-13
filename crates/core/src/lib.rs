@@ -34,7 +34,9 @@ pub mod storage;
 pub mod totp;
 
 pub use error::Error;
-pub use item::{CustomField, ItemData, ItemId, ItemKind, ItemSummary};
+pub use item::{
+    CustomField, Folder, FolderId, ItemData, ItemId, ItemKind, ItemSummary, RecoveryCode,
+};
 pub use kdf::KdfParams;
 pub use keys::{RecoveryKey, SecretKey};
 pub use vault::{Unlock, Vault, VaultInfo};

@@ -1,6 +1,6 @@
-# Vault File Format — v0
+# Vault File Format — v1
 
-> Status: **draft v0**, not stable. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
+> Status: **draft v1**, not stable. v0 files are still read and upgraded to v1 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
 > Structures are serialized with [postcard](https://postcard.jamesmunns.com/wire-format) 1.x
 > (stable wire format). Integers in the file envelope are little-endian.
 
@@ -9,7 +9,7 @@
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 8 | magic `"PMVAULT\0"` |
-| 8 | 2 | `format_version` (u16) = `0` |
+| 8 | 2 | `format_version` (u16) = `1` (`0` is read and upgraded) |
 | 10 | 4 | `header_len` (u32) |
 | 14 | `header_len` | `header` (postcard `VaultHeader`) |
 | … | 4 | `body_len` (u32) |
@@ -18,7 +18,8 @@
 - No trailing bytes are allowed.
 - `header_bytes` (used as AAD) = bytes `0 .. 14 + header_len`, i.e. magic, version, length and header.
 - A reader must reject any `format_version` it does not implement. There is no negotiation and
-  no fallback (downgrade protection).
+  no fallback (downgrade protection). The version is part of `header_bytes` (the body AAD), so
+  relabelling a file as another version makes its body fail to open.
 - Limits: `header_len` ≤ 64 KiB, `body_len` ≤ 1 GiB.
 
 ## 2. Header (plaintext, authenticated)
@@ -55,6 +56,12 @@ recovery slot exists. It reveals nothing about the items.
 struct VaultBody {
     revision: u64,           // incremented on every save; used for rollback detection
     items: Vec<ItemRecord>,
+    folders: Vec<Folder>,    // v1; absent in v0
+}
+
+struct Folder {
+    id: [u8; 16],            // random; unique within the vault
+    name: String,            // encrypted with the body like everything else
 }
 
 struct ItemRecord {
@@ -69,7 +76,7 @@ Items are encrypted twice on disk (item layer + body layer) on purpose: after un
 app keeps items encrypted in memory and decrypts only the one being used; the body layer hides
 the item count, sizes and ids. Item records are also the unit of future sync.
 
-## 4. Item data (v0)
+## 4. Item data (v1)
 
 ```rust
 struct ItemData {
@@ -84,6 +91,13 @@ struct ItemData {
     custom_fields: Vec<CustomField>,
     created_at: i64,         // Unix seconds
     updated_at: i64,
+    folder: Option<[u8; 16]>,          // v1: folder id, None = no folder
+    recovery_codes: Vec<RecoveryCode>, // v1: the account's two-step backup codes
+}
+
+struct RecoveryCode {
+    code: String,
+    used: bool,              // marked by the user once spent
 }
 
 struct CustomField {
@@ -93,10 +107,17 @@ struct CustomField {
 }
 ```
 
-## 5. Rules
+## 5. Upgrading v0
+
+A v0 file has no `folders` in the body and its items end after `updated_at`. When one is
+opened, every item is decrypted with the v0 layout and re-encrypted with the v1 layout in memory
+(same ids and revisions, new item keys); the next save writes a v1 file. Fixtures for both
+versions are committed (`crates/core/tests/fixtures`) and must keep opening.
+
+## 6. Rules
 
 - Writes are atomic: write `vault.tmp`, flush to disk, keep the previous file as `vault.bak`,
   then rename over the original.
-- Item ids are unique within a vault; duplicates make the vault invalid.
+- Item ids are unique within a vault, and so are folder ids; duplicates make the vault invalid.
 - Clients remember the highest `(vault_id, revision)` they have seen and warn if a file with a
   lower revision is opened (rollback).

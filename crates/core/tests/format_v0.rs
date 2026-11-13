@@ -1,14 +1,14 @@
 //! Known-answer test for the v0 file format.
 //!
-//! `fixtures/vault-v0.bin` was produced once by `generate_fixture` and committed. If this test
-//! fails, the code no longer reads files written by earlier builds: either a bug, or a format
-//! change that needs a new format version and a migration.
+//! `fixtures/vault-v0.bin` was produced by the v0 builds and committed; this build can only read
+//! it (and upgrades it to v1 on save). If this test fails, files written by earlier builds no
+//! longer open: either a bug, or a broken migration.
 //!
 //! The credentials below are test values for this fixture only.
 
 use std::path::PathBuf;
 
-use vault_core::{ItemData, ItemKind, KdfParams, RecoveryKey, SecretKey, Unlock, Vault};
+use vault_core::{ItemData, ItemKind, RecoveryKey, SecretKey, Unlock, Vault};
 
 const PASSWORD: &str = "fixture password ✓ çãé";
 
@@ -79,35 +79,31 @@ fn reads_the_committed_v0_fixture() {
     }
 }
 
-/// Regenerates the fixture. Run only when intentionally creating a new format version:
-/// `cargo test -p vault-core --test format_v0 -- --ignored`
+/// Opening a v0 file upgrades it in memory; the next save writes the current format, which
+/// opens with the same credentials and the same items (no folders, no recovery codes).
 #[test]
-#[ignore = "writes the committed fixture"]
-fn generate_fixture() {
-    let secret_key = SecretKey::generate().unwrap();
-    let recovery_key = RecoveryKey::generate().unwrap();
-    let mut vault = Vault::create(
-        PASSWORD,
-        &secret_key,
-        Some(&recovery_key),
-        KdfParams::minimum().unwrap(),
-    )
-    .unwrap();
-    for item in expected_items() {
-        vault.add_item(&item).unwrap();
-    }
-    let dir = fixture_dir();
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("vault-v0.bin"), vault.to_bytes().unwrap()).unwrap();
-    std::fs::write(
-        dir.join("vault-v0.credentials.txt"),
-        format!(
-            "# Test credentials for vault-v0.bin (fixture only, not real secrets).\n\
-             # password = see PASSWORD in tests/format_v0.rs\n\
-             secret_key = {}\nrecovery_key = {}\n",
-            secret_key.to_display_string().as_str(),
-            recovery_key.to_display_string().as_str()
-        ),
-    )
-    .unwrap();
+fn a_v0_vault_is_upgraded_on_save() {
+    let bytes = std::fs::read(fixture_dir().join("vault-v0.bin")).unwrap();
+    let (secret_key, recovery_key) = credentials();
+    let unlock = || Unlock::Password {
+        password: PASSWORD,
+        secret_key: &secret_key,
+    };
+    let mut vault = Vault::open(&bytes, unlock()).unwrap();
+    let upgraded = vault.to_bytes().unwrap();
+    assert_eq!(
+        &upgraded[8..10],
+        &1u16.to_le_bytes(),
+        "written as format v1"
+    );
+
+    let reopened = Vault::open(&upgraded, unlock()).unwrap();
+    assert!(reopened.folders().is_empty());
+    let mut items: Vec<ItemData> = reopened
+        .item_ids()
+        .map(|id| reopened.get_item(&id).unwrap())
+        .collect();
+    items.sort_by(|a, b| a.title.cmp(&b.title));
+    assert_eq!(items, expected_items());
+    assert!(Vault::open(&upgraded, Unlock::Recovery(&recovery_key)).is_ok());
 }

@@ -5,8 +5,10 @@ use std::fmt;
 use zeroize::Zeroizing;
 
 use crate::{
-    Error, ItemData, ItemId, ItemSummary, KdfParams, RecoveryKey, Result, SecretKey, aead,
-    format::{self, ItemRecord, KeySlot, SlotKind, VaultBody, VaultHeader},
+    Error, Folder, FolderId, ItemData, ItemId, ItemSummary, KdfParams, RecoveryKey, Result,
+    SecretKey, aead,
+    format::{self, ItemRecord, KeySlot, SlotKind, VaultBody, VaultBodyV0, VaultHeader},
+    item::ItemDataV0,
     keys::{self, VaultKey},
     padding,
 };
@@ -48,6 +50,7 @@ pub struct Vault {
     vault_key: VaultKey,
     revision: u64,
     items: Vec<ItemRecord>,
+    folders: Vec<Folder>,
 }
 
 impl fmt::Debug for Vault {
@@ -81,6 +84,7 @@ impl Vault {
             vault_key,
             revision: 0,
             items: Vec::new(),
+            folders: Vec::new(),
         };
         let slot = vault.password_slot(password, secret_key, &vault.header.kdf)?;
         vault.header.slots.push(slot);
@@ -141,20 +145,110 @@ impl Vault {
         let header = &parsed.header;
         let body_key = vault_key.subkey(SUBKEY_BODY, &header.vault_id);
         let padded = aead::open(&body_key, parsed.body, &body_aad(parsed.header_bytes))?;
-        let body: VaultBody = format::decode_exact(padding::unpad(&padded)?)?;
+        let plain = padding::unpad(&padded)?;
+        let body: VaultBody = if parsed.version == 0 {
+            let old: VaultBodyV0 = format::decode_exact(plain)?;
+            VaultBody {
+                revision: old.revision,
+                items: old.items,
+                folders: Vec::new(),
+            }
+        } else {
+            format::decode_exact(plain)?
+        };
 
         let mut ids: Vec<ItemId> = body.items.iter().map(|record| record.id).collect();
         ids.sort_unstable();
-        if ids.windows(2).any(|pair| pair[0] == pair[1]) {
+        let mut folder_ids: Vec<FolderId> = body.folders.iter().map(|f| f.id).collect();
+        folder_ids.sort_unstable();
+        if ids.windows(2).any(|pair| pair[0] == pair[1])
+            || folder_ids.windows(2).any(|pair| pair[0] == pair[1])
+        {
             return Err(Error::Malformed);
         }
 
-        Ok(Self {
+        let mut vault = Self {
             header: parsed.header,
             vault_key,
             revision: body.revision,
             items: body.items,
-        })
+            folders: body.folders,
+        };
+        if parsed.version == 0 {
+            vault.upgrade_v0_items()?;
+        }
+        Ok(vault)
+    }
+
+    /// Re-encrypts every item from the v0 layout into the current one, keeping ids and
+    /// revisions. Runs in memory when a v0 file is opened; the next save writes format v1.
+    fn upgrade_v0_items(&mut self) -> Result<()> {
+        for index in 0..self.items.len() {
+            let padded = self.decrypt_item(&self.items[index])?;
+            let old: ItemDataV0 = format::decode_exact(padding::unpad(&padded)?)?;
+            let (id, revision) = (self.items[index].id, self.items[index].revision);
+            self.items[index] = self.seal_item(id, revision, &old.upgrade())?;
+        }
+        Ok(())
+    }
+
+    // ---- folders ----
+
+    /// Folders, in the order they were created.
+    pub fn folders(&self) -> &[Folder] {
+        &self.folders
+    }
+
+    /// Creates a folder. Names are trimmed; empty names are refused.
+    pub fn add_folder(&mut self, name: &str) -> Result<FolderId> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(Error::InvalidName);
+        }
+        let id = loop {
+            let candidate = FolderId::generate()?;
+            if !self.folders.iter().any(|f| f.id == candidate) {
+                break candidate;
+            }
+        };
+        self.folders.push(Folder {
+            id,
+            name: name.to_owned(),
+        });
+        Ok(id)
+    }
+
+    pub fn rename_folder(&mut self, id: &FolderId, name: &str) -> Result<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(Error::InvalidName);
+        }
+        let folder = self
+            .folders
+            .iter_mut()
+            .find(|f| f.id == *id)
+            .ok_or(Error::FolderNotFound)?;
+        folder.name = name.to_owned();
+        Ok(())
+    }
+
+    /// Deletes a folder. Its items are kept and simply leave the folder.
+    pub fn remove_folder(&mut self, id: &FolderId) -> Result<()> {
+        let index = self
+            .folders
+            .iter()
+            .position(|f| f.id == *id)
+            .ok_or(Error::FolderNotFound)?;
+        let ids: Vec<ItemId> = self.items.iter().map(|record| record.id).collect();
+        for item_id in ids {
+            let mut data = self.get_item(&item_id)?;
+            if data.folder == Some(*id) {
+                data.folder = None;
+                self.update_item(&item_id, &data)?;
+            }
+        }
+        self.folders.remove(index);
+        Ok(())
     }
 
     /// Reads the public, unencrypted header information without unlocking.
@@ -174,6 +268,7 @@ impl Vault {
         let body = VaultBody {
             revision: next_revision,
             items: self.items.clone(),
+            folders: self.folders.clone(),
         };
         let encoded = postcard::to_allocvec(&body).map_err(|_| Error::Malformed)?;
         let padded = padding::pad(&encoded, padding::body_bucket)?;
@@ -357,6 +452,12 @@ impl Vault {
     }
 
     fn open_item(&self, record: &ItemRecord) -> Result<ItemData> {
+        let padded = self.decrypt_item(record)?;
+        format::decode_exact(padding::unpad(&padded)?)
+    }
+
+    /// The item's padded plaintext (still to be unpadded and decoded).
+    fn decrypt_item(&self, record: &ItemRecord) -> Result<Zeroizing<Vec<u8>>> {
         let vault_id = &self.header.vault_id;
         let wrap_key = self.vault_key.subkey(SUBKEY_ITEM_WRAP, vault_id);
         let key_bytes = aead::open(
@@ -370,12 +471,11 @@ impl Vault {
                 .try_into()
                 .map_err(|_| Error::Malformed)?,
         );
-        let padded = aead::open(
+        aead::open(
             &item_key,
             &record.data,
             &item_aad(vault_id, &record.id, record.revision),
-        )?;
-        format::decode_exact(padding::unpad(&padded)?)
+        )
     }
 }
 

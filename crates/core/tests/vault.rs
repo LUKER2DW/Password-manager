@@ -197,11 +197,60 @@ fn foreign_files_and_future_versions_are_rejected() {
         Err(Error::NotAVault)
     ));
     let mut bytes = f.vault.to_bytes().unwrap();
-    bytes[8] = 1; // format_version = 1
+    bytes[8] = 2; // format_version = 2: from the future
     assert!(matches!(
         Vault::open(&bytes, Unlock::Recovery(&f.recovery_key)),
-        Err(Error::UnsupportedVersion(1))
+        Err(Error::UnsupportedVersion(2))
     ));
+    // Relabelling a v1 file as v0 changes the authenticated header: the body won't open.
+    let mut relabelled = f.vault.to_bytes().unwrap();
+    relabelled[8] = 0;
+    assert!(matches!(
+        Vault::open(&relabelled, Unlock::Recovery(&f.recovery_key)),
+        Err(Error::DecryptionFailed)
+    ));
+}
+
+#[test]
+fn folders_and_recovery_codes() {
+    let mut f = fixture();
+    let google = f.vault.add_folder("  Google accounts ").unwrap();
+    let work = f.vault.add_folder("Work").unwrap();
+    assert!(matches!(f.vault.add_folder("   "), Err(Error::InvalidName)));
+    assert_eq!(f.vault.folders()[0].name, "Google accounts");
+
+    let mut gmail = ItemData::login("Gmail", "me", "pw", "https://mail.google.com");
+    gmail.folder = Some(google);
+    gmail.recovery_codes = vault_core::RecoveryCode::parse_list("1111-2222\n3333-4444");
+    let gmail_id = f.vault.add_item(&gmail).unwrap();
+    let mut jira = ItemData::login("Jira", "me", "pw", "");
+    jira.folder = Some(work);
+    let jira_id = f.vault.add_item(&jira).unwrap();
+
+    // Survives a save and reopen.
+    let bytes = f.vault.to_bytes().unwrap();
+    let mut reopened = Vault::open(&bytes, Unlock::Recovery(&f.recovery_key)).unwrap();
+    assert_eq!(reopened.folders().len(), 2);
+    let loaded = reopened.get_item(&gmail_id).unwrap();
+    assert_eq!(loaded.folder, Some(google));
+    assert_eq!(loaded.recovery_codes.len(), 2);
+    let summaries = reopened.summaries().unwrap();
+    assert!(summaries.iter().any(|s| s.folder == Some(work)));
+
+    reopened.rename_folder(&work, "Job").unwrap();
+    assert_eq!(reopened.folders()[1].name, "Job");
+    // Deleting a folder keeps its items, outside any folder.
+    reopened.remove_folder(&work).unwrap();
+    assert_eq!(reopened.folders().len(), 1);
+    assert_eq!(reopened.get_item(&jira_id).unwrap().folder, None);
+    assert!(matches!(
+        reopened.remove_folder(&work),
+        Err(Error::FolderNotFound)
+    ));
+
+    // Folder names are encrypted like everything else.
+    let bytes = reopened.to_bytes().unwrap();
+    assert!(!bytes.windows(6).any(|w| w == b"Google"));
 }
 
 #[test]

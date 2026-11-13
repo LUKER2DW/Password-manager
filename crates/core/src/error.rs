@@ -25,6 +25,10 @@ pub enum Error {
     EmptyPassword,
     #[error("item not found")]
     ItemNotFound,
+    #[error("folder not found")]
+    FolderNotFound,
+    #[error("the name must not be empty")]
+    InvalidName,
     #[error("invalid TOTP secret or otpauth URI")]
     InvalidTotp,
     #[error("password generator options are invalid")]

@@ -53,6 +53,94 @@ impl fmt::Display for ItemId {
     }
 }
 
+/// Random 128-bit folder identifier.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct FolderId([u8; 16]);
+
+impl FolderId {
+    pub(crate) fn generate() -> Result<Self> {
+        random::array().map(Self)
+    }
+
+    /// Lowercase hex form (32 characters).
+    pub fn to_hex(&self) -> String {
+        self.0.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// Parses the hex form produced by [`FolderId::to_hex`].
+    pub fn from_hex(text: &str) -> Option<Self> {
+        ItemId::from_hex(text).map(|id| Self(id.0))
+    }
+}
+
+impl fmt::Debug for FolderId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "FolderId({})", self.to_hex())
+    }
+}
+
+/// A folder to file items in (like Bitwarden's). Its name is encrypted with the vault body.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub struct Folder {
+    #[zeroize(skip)]
+    pub id: FolderId,
+    pub name: String,
+}
+
+impl fmt::Debug for Folder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Folder")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .finish()
+    }
+}
+
+/// One of an account's single-use backup codes for two-step sign-in.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub struct RecoveryCode {
+    pub code: String,
+    /// Marked by the user once spent; kept so they can see how many are left.
+    pub used: bool,
+}
+
+impl fmt::Debug for RecoveryCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RecoveryCode")
+            .field("code", &"<redacted>")
+            .field("used", &self.used)
+            .finish()
+    }
+}
+
+impl RecoveryCode {
+    /// Parses pasted codes: one per line (or separated by commas/semicolons), surrounding
+    /// spaces, bullets and numbering such as `1.` removed, empty lines skipped.
+    pub fn parse_list(text: &str) -> Vec<RecoveryCode> {
+        text.split(['\n', ',', ';'])
+            .map(|line| {
+                let line = line.trim().trim_start_matches(['-', '*', '•']).trim();
+                // "1. abcd-efgh" / "1) abcd-efgh"
+                let line = match line.split_once([' ', '\t']) {
+                    Some((number, rest))
+                        if number
+                            .trim_end_matches(['.', ')'])
+                            .chars()
+                            .all(|c| c.is_ascii_digit())
+                            && number.ends_with(['.', ')']) =>
+                    {
+                        rest.trim()
+                    }
+                    _ => line,
+                };
+                line.to_owned()
+            })
+            .filter(|code| !code.is_empty())
+            .map(|code| RecoveryCode { code, used: false })
+            .collect()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ItemKind {
     #[default]
@@ -103,6 +191,11 @@ pub struct ItemData {
     pub created_at: i64,
     /// Unix seconds.
     pub updated_at: i64,
+    /// Folder the item is filed in; `None` = no folder. (Format v1.)
+    #[zeroize(skip)]
+    pub folder: Option<FolderId>,
+    /// The account's backup codes for two-step sign-in. (Format v1.)
+    pub recovery_codes: Vec<RecoveryCode>,
 }
 
 impl ItemData {
@@ -123,7 +216,14 @@ impl ItemData {
             custom_fields: Vec::new(),
             created_at: now,
             updated_at: now,
+            folder: None,
+            recovery_codes: Vec::new(),
         }
+    }
+
+    /// Backup codes not yet marked as used.
+    pub fn recovery_codes_left(&self) -> usize {
+        self.recovery_codes.iter().filter(|c| !c.used).count()
     }
 
     /// Convenience constructor for a login.
@@ -164,7 +264,48 @@ impl fmt::Debug for ItemData {
             .field("custom_fields", &self.custom_fields)
             .field("created_at", &self.created_at)
             .field("updated_at", &self.updated_at)
+            .field("folder", &self.folder)
+            .field("recovery_codes", &self.recovery_codes.len())
             .finish()
+    }
+}
+
+/// Item data as stored by format v0 (before folders and recovery codes). Read-only: v0 vaults
+/// are upgraded when opened.
+#[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub(crate) struct ItemDataV0 {
+    #[zeroize(skip)]
+    pub(crate) kind: ItemKind,
+    pub(crate) title: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) urls: Vec<String>,
+    pub(crate) notes: String,
+    pub(crate) totp: String,
+    pub(crate) favorite: bool,
+    pub(crate) custom_fields: Vec<CustomField>,
+    pub(crate) created_at: i64,
+    pub(crate) updated_at: i64,
+}
+
+impl ItemDataV0 {
+    /// Moves the fields into the current item layout (`take` leaves wiped-on-drop empties).
+    pub(crate) fn upgrade(mut self) -> ItemData {
+        ItemData {
+            kind: self.kind,
+            title: std::mem::take(&mut self.title),
+            username: std::mem::take(&mut self.username),
+            password: std::mem::take(&mut self.password),
+            urls: std::mem::take(&mut self.urls),
+            notes: std::mem::take(&mut self.notes),
+            totp: std::mem::take(&mut self.totp),
+            favorite: self.favorite,
+            custom_fields: std::mem::take(&mut self.custom_fields),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            folder: None,
+            recovery_codes: Vec::new(),
+        }
     }
 }
 
@@ -179,6 +320,8 @@ pub struct ItemSummary {
     pub username: String,
     pub url: String,
     pub favorite: bool,
+    #[zeroize(skip)]
+    pub folder: Option<FolderId>,
 }
 
 impl ItemSummary {
@@ -190,6 +333,7 @@ impl ItemSummary {
             username: data.username.clone(),
             url: data.urls.first().cloned().unwrap_or_default(),
             favorite: data.favorite,
+            folder: data.folder,
         }
     }
 }
@@ -237,6 +381,32 @@ mod tests {
         assert!(!text.contains("hunter2"));
         assert!(!text.contains("1234"));
         assert!(!text.contains("9876"));
+    }
+
+    #[test]
+    fn recovery_codes_are_parsed_from_pasted_text() {
+        let pasted = "  1. abcd-efgh\n2) ijkl-mnop\n\n- qrst-uvwx\n• yz12-3456 , 7890-abcd;  \n";
+        let codes: Vec<String> = RecoveryCode::parse_list(pasted)
+            .into_iter()
+            .map(|c| c.code.clone())
+            .collect();
+        assert_eq!(
+            codes,
+            [
+                "abcd-efgh",
+                "ijkl-mnop",
+                "qrst-uvwx",
+                "yz12-3456",
+                "7890-abcd"
+            ]
+        );
+        // Codes that contain spaces are kept whole.
+        assert_eq!(RecoveryCode::parse_list("abcd efgh")[0].code, "abcd efgh");
+        let mut item = ItemData::new(ItemKind::Login, "x");
+        item.recovery_codes = RecoveryCode::parse_list("a\nb\nc");
+        item.recovery_codes[1].used = true;
+        assert_eq!(item.recovery_codes_left(), 2);
+        assert!(!format!("{item:?}").contains("\"a\""));
     }
 
     #[test]
