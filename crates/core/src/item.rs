@@ -141,6 +141,48 @@ impl RecoveryCode {
     }
 }
 
+/// A password an item used before (format v2).
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub struct PasswordChange {
+    pub password: String,
+    /// When it stopped being the password (Unix seconds).
+    pub replaced_at: i64,
+}
+
+impl fmt::Debug for PasswordChange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PasswordChange")
+            .field("password", &"<redacted>")
+            .field("replaced_at", &self.replaced_at)
+            .finish()
+    }
+}
+
+/// Settings stored inside the vault (encrypted with it), so they follow the vault to every
+/// device. (Format v2.)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VaultSettings {
+    /// Shown in the app instead of the file name when not empty.
+    pub name: String,
+    /// Old passwords kept per item (0 = keep none).
+    pub history_limit: u16,
+}
+
+impl VaultSettings {
+    pub const DEFAULT_HISTORY_LIMIT: u16 = 10;
+    pub const MAX_HISTORY_LIMIT: u16 = 100;
+    pub const MAX_NAME_CHARS: usize = 60;
+}
+
+impl Default for VaultSettings {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            history_limit: Self::DEFAULT_HISTORY_LIMIT,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ItemKind {
     #[default]
@@ -196,6 +238,11 @@ pub struct ItemData {
     pub folder: Option<FolderId>,
     /// The account's backup codes for two-step sign-in. (Format v1.)
     pub recovery_codes: Vec<RecoveryCode>,
+    /// Earlier passwords, oldest first; filled in by [`crate::Vault::update_item`] when the
+    /// password changes. (Format v2.)
+    pub password_history: Vec<PasswordChange>,
+    /// When the current password was set (Unix seconds; 0 = unknown, before format v2).
+    pub password_changed_at: i64,
 }
 
 impl ItemData {
@@ -218,6 +265,17 @@ impl ItemData {
             updated_at: now,
             folder: None,
             recovery_codes: Vec::new(),
+            password_history: Vec::new(),
+            password_changed_at: 0,
+        }
+    }
+
+    /// When the current password was set, falling back to when the item was created.
+    pub fn password_set_at(&self) -> i64 {
+        if self.password_changed_at > 0 {
+            self.password_changed_at
+        } else {
+            self.created_at
         }
     }
 
@@ -266,6 +324,8 @@ impl fmt::Debug for ItemData {
             .field("updated_at", &self.updated_at)
             .field("folder", &self.folder)
             .field("recovery_codes", &self.recovery_codes.len())
+            .field("password_history", &self.password_history.len())
+            .field("password_changed_at", &self.password_changed_at)
             .finish()
     }
 }
@@ -292,6 +352,8 @@ impl ItemDataV0 {
     /// Moves the fields into the current item layout (`take` leaves wiped-on-drop empties).
     pub(crate) fn upgrade(mut self) -> ItemData {
         ItemData {
+            password_history: Vec::new(),
+            password_changed_at: 0,
             kind: self.kind,
             title: std::mem::take(&mut self.title),
             username: std::mem::take(&mut self.username),
@@ -305,6 +367,50 @@ impl ItemDataV0 {
             updated_at: self.updated_at,
             folder: None,
             recovery_codes: Vec::new(),
+        }
+    }
+}
+
+/// Item data as stored by format v1 (before password history). Read-only: v1 vaults are
+/// upgraded when opened.
+#[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub(crate) struct ItemDataV1 {
+    #[zeroize(skip)]
+    pub(crate) kind: ItemKind,
+    pub(crate) title: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) urls: Vec<String>,
+    pub(crate) notes: String,
+    pub(crate) totp: String,
+    pub(crate) favorite: bool,
+    pub(crate) custom_fields: Vec<CustomField>,
+    pub(crate) created_at: i64,
+    pub(crate) updated_at: i64,
+    #[zeroize(skip)]
+    pub(crate) folder: Option<FolderId>,
+    pub(crate) recovery_codes: Vec<RecoveryCode>,
+}
+
+impl ItemDataV1 {
+    /// Moves the fields into the current item layout (`take` leaves wiped-on-drop empties).
+    pub(crate) fn upgrade(mut self) -> ItemData {
+        ItemData {
+            kind: self.kind,
+            title: std::mem::take(&mut self.title),
+            username: std::mem::take(&mut self.username),
+            password: std::mem::take(&mut self.password),
+            urls: std::mem::take(&mut self.urls),
+            notes: std::mem::take(&mut self.notes),
+            totp: std::mem::take(&mut self.totp),
+            favorite: self.favorite,
+            custom_fields: std::mem::take(&mut self.custom_fields),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            folder: self.folder,
+            recovery_codes: std::mem::take(&mut self.recovery_codes),
+            password_history: Vec::new(),
+            password_changed_at: 0,
         }
     }
 }
@@ -326,6 +432,9 @@ pub struct ItemSummary {
     pub has_totp: bool,
     /// Cards: "Visa •••• 4242" when the number is stored, else empty.
     pub card_hint: String,
+    /// Cards: the network, from the number's first digits.
+    #[zeroize(skip)]
+    pub card_brand: crate::card::Brand,
 }
 
 impl ItemSummary {
@@ -349,6 +458,11 @@ impl ItemSummary {
             } else {
                 String::new()
             },
+            card_brand: if data.kind == ItemKind::Card {
+                crate::card::detect_brand(&crate::card::CardDetails::from_item(data).number)
+            } else {
+                crate::card::Brand::Unknown
+            },
         }
     }
 }
@@ -363,7 +477,7 @@ impl fmt::Debug for ItemSummary {
     }
 }
 
-fn unix_now() -> i64 {
+pub(crate) fn unix_now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))

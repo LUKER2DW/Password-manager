@@ -83,6 +83,15 @@ user_key_impl!(
     RECOVERY_KEY_GROUP
 );
 
+impl RecoveryKey {
+    /// The printed form is always `R0` followed by this many groups…
+    pub const GROUPS: usize =
+        (encoding::encoded_len(RECOVERY_KEY_LEN) + CHECKSUM_CHARS) / RECOVERY_KEY_GROUP;
+    /// …of this many characters, so it can be written into boxes on paper.
+    pub const GROUP_LEN: usize = RECOVERY_KEY_GROUP;
+    pub const PREFIX: &'static str = RECOVERY_KEY_PREFIX;
+}
+
 /// Top 10 bits of SHA-256("vault-v0/key-checksum" ‖ prefix ‖ key).
 fn checksum(prefix: &str, key: &[u8]) -> u16 {
     let digest = Sha256::new()

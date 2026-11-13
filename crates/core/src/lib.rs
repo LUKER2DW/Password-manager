@@ -30,13 +30,15 @@ mod random;
 mod vault;
 
 pub mod generator;
+pub mod health;
 pub mod storage;
 pub mod totp;
 
 pub mod card;
 pub use error::Error;
 pub use item::{
-    CustomField, Folder, FolderId, ItemData, ItemId, ItemKind, ItemSummary, RecoveryCode,
+    CustomField, Folder, FolderId, ItemData, ItemId, ItemKind, ItemSummary, PasswordChange,
+    RecoveryCode, VaultSettings,
 };
 pub use kdf::KdfParams;
 pub use keys::{RecoveryKey, SecretKey};

@@ -6,9 +6,11 @@ use zeroize::Zeroizing;
 
 use crate::{
     Error, Folder, FolderId, ItemData, ItemId, ItemSummary, KdfParams, RecoveryKey, Result,
-    SecretKey, aead,
-    format::{self, ItemRecord, KeySlot, SlotKind, VaultBody, VaultBodyV0, VaultHeader},
-    item::ItemDataV0,
+    SecretKey, VaultSettings, aead,
+    format::{
+        self, ItemRecord, KeySlot, SlotKind, VaultBody, VaultBodyV0, VaultBodyV1, VaultHeader,
+    },
+    item::{ItemDataV0, ItemDataV1, PasswordChange},
     keys::{self, VaultKey},
     padding,
 };
@@ -51,6 +53,7 @@ pub struct Vault {
     revision: u64,
     items: Vec<ItemRecord>,
     folders: Vec<Folder>,
+    settings: VaultSettings,
 }
 
 impl fmt::Debug for Vault {
@@ -85,6 +88,7 @@ impl Vault {
             revision: 0,
             items: Vec::new(),
             folders: Vec::new(),
+            settings: VaultSettings::default(),
         };
         let slot = vault.password_slot(password, secret_key, &vault.header.kdf)?;
         vault.header.slots.push(slot);
@@ -146,15 +150,26 @@ impl Vault {
         let body_key = vault_key.subkey(SUBKEY_BODY, &header.vault_id);
         let padded = aead::open(&body_key, parsed.body, &body_aad(parsed.header_bytes))?;
         let plain = padding::unpad(&padded)?;
-        let body: VaultBody = if parsed.version == 0 {
-            let old: VaultBodyV0 = format::decode_exact(plain)?;
-            VaultBody {
-                revision: old.revision,
-                items: old.items,
-                folders: Vec::new(),
+        let body: VaultBody = match parsed.version {
+            0 => {
+                let old: VaultBodyV0 = format::decode_exact(plain)?;
+                VaultBody {
+                    revision: old.revision,
+                    items: old.items,
+                    folders: Vec::new(),
+                    settings: VaultSettings::default(),
+                }
             }
-        } else {
-            format::decode_exact(plain)?
+            1 => {
+                let old: VaultBodyV1 = format::decode_exact(plain)?;
+                VaultBody {
+                    revision: old.revision,
+                    items: old.items,
+                    folders: old.folders,
+                    settings: VaultSettings::default(),
+                }
+            }
+            _ => format::decode_exact(plain)?,
         };
 
         let mut ids: Vec<ItemId> = body.items.iter().map(|record| record.id).collect();
@@ -173,22 +188,53 @@ impl Vault {
             revision: body.revision,
             items: body.items,
             folders: body.folders,
+            settings: body.settings,
         };
-        if parsed.version == 0 {
-            vault.upgrade_v0_items()?;
+        if parsed.version < format::FORMAT_VERSION {
+            vault.upgrade_items(parsed.version)?;
         }
         Ok(vault)
     }
 
-    /// Re-encrypts every item from the v0 layout into the current one, keeping ids and
-    /// revisions. Runs in memory when a v0 file is opened; the next save writes format v1.
-    fn upgrade_v0_items(&mut self) -> Result<()> {
+    /// Re-encrypts every item from an older layout into the current one, keeping ids and
+    /// revisions. Runs in memory when an older file is opened; the next save writes the
+    /// current format.
+    fn upgrade_items(&mut self, version: u16) -> Result<()> {
         for index in 0..self.items.len() {
             let padded = self.decrypt_item(&self.items[index])?;
-            let old: ItemDataV0 = format::decode_exact(padding::unpad(&padded)?)?;
+            let plain = padding::unpad(&padded)?;
+            let item = match version {
+                0 => format::decode_exact::<ItemDataV0>(plain)?.upgrade(),
+                1 => format::decode_exact::<ItemDataV1>(plain)?.upgrade(),
+                _ => return Err(Error::Malformed),
+            };
             let (id, revision) = (self.items[index].id, self.items[index].revision);
-            self.items[index] = self.seal_item(id, revision, &old.upgrade())?;
+            self.items[index] = self.seal_item(id, revision, &item)?;
         }
+        Ok(())
+    }
+
+    // ---- settings ----
+
+    /// Settings kept inside this vault.
+    pub fn settings(&self) -> &VaultSettings {
+        &self.settings
+    }
+
+    /// Replaces the vault's settings. Lowering the history limit trims every item's history
+    /// on its next change, not now.
+    pub fn set_settings(&mut self, settings: VaultSettings) -> Result<()> {
+        let name = settings.name.trim();
+        if name.chars().count() > VaultSettings::MAX_NAME_CHARS
+            || name.chars().any(char::is_control)
+            || settings.history_limit > VaultSettings::MAX_HISTORY_LIMIT
+        {
+            return Err(Error::InvalidName);
+        }
+        self.settings = VaultSettings {
+            name: name.to_owned(),
+            ..settings
+        };
         Ok(())
     }
 
@@ -269,6 +315,7 @@ impl Vault {
             revision: next_revision,
             items: self.items.clone(),
             folders: self.folders.clone(),
+            settings: self.settings.clone(),
         };
         let encoded = postcard::to_allocvec(&body).map_err(|_| Error::Malformed)?;
         let padded = padding::pad(&encoded, padding::body_bucket)?;
@@ -335,7 +382,11 @@ impl Vault {
                 break candidate;
             }
         };
-        let record = self.seal_item(id, 1, data)?;
+        let mut data = data.clone();
+        if data.password_changed_at == 0 && !data.password.is_empty() {
+            data.password_changed_at = data.created_at;
+        }
+        let record = self.seal_item(id, 1, &data)?;
         self.items.push(record);
         Ok(id)
     }
@@ -347,13 +398,49 @@ impl Vault {
     }
 
     /// Replaces an item's contents (new item key, revision + 1).
+    ///
+    /// When the password changes, the old one is added to the item's password history (up to
+    /// the vault's history limit, oldest dropped first) and `password_changed_at` is set to
+    /// now; the history passed in `data` is replaced by the stored one in that case.
     pub fn update_item(&mut self, id: &ItemId, data: &ItemData) -> Result<()> {
         let index = self.position(id).ok_or(Error::ItemNotFound)?;
         let revision = self.items[index]
             .revision
             .checked_add(1)
             .ok_or(Error::Malformed)?;
-        self.items[index] = self.seal_item(*id, revision, data)?;
+        let old = self.open_item(&self.items[index])?;
+        let mut data = data.clone();
+        if old.password != data.password {
+            let mut history = old.password_history.clone();
+            if !old.password.is_empty() {
+                history.push(PasswordChange {
+                    password: old.password.clone(),
+                    replaced_at: crate::item::unix_now(),
+                });
+            }
+            let limit = usize::from(self.settings.history_limit);
+            let excess = history.len().saturating_sub(limit);
+            history.drain(..excess);
+            data.password_history = history;
+            data.password_changed_at = crate::item::unix_now();
+        }
+        self.items[index] = self.seal_item(*id, revision, &data)?;
+        Ok(())
+    }
+
+    /// Forgets an item's earlier passwords.
+    pub fn clear_password_history(&mut self, id: &ItemId) -> Result<()> {
+        let index = self.position(id).ok_or(Error::ItemNotFound)?;
+        let mut item = self.open_item(&self.items[index])?;
+        if item.password_history.is_empty() {
+            return Ok(());
+        }
+        item.password_history.clear();
+        let revision = self.items[index]
+            .revision
+            .checked_add(1)
+            .ok_or(Error::Malformed)?;
+        self.items[index] = self.seal_item(*id, revision, &item)?;
         Ok(())
     }
 

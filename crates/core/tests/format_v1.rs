@@ -88,6 +88,34 @@ fn reads_the_committed_v1_fixture() {
     }
 }
 
+#[test]
+fn a_v1_vault_is_upgraded_on_save() {
+    let bytes = std::fs::read(fixture_dir().join("vault-v1.bin")).unwrap();
+    let (secret_key, _) = credentials();
+    let unlock = || Unlock::Password {
+        password: PASSWORD,
+        secret_key: &secret_key,
+    };
+    let mut vault = Vault::open(&bytes, unlock()).unwrap();
+    assert_eq!(vault.settings(), &vault_core::VaultSettings::default());
+    let upgraded = vault.to_bytes().unwrap();
+    assert_eq!(
+        &upgraded[8..10],
+        &2u16.to_le_bytes(),
+        "written as format v2"
+    );
+    let reopened = Vault::open(&upgraded, unlock()).unwrap();
+    assert_eq!(reopened.folders().len(), 1);
+    let folder = reopened.folders()[0].id;
+    let mut items: Vec<ItemData> = reopened
+        .item_ids()
+        .map(|id| reopened.get_item(&id).unwrap())
+        .collect();
+    items.sort_by(|a, b| a.title.cmp(&b.title));
+    assert_eq!(items, expected_items(Some(folder)));
+    assert!(items.iter().all(|i| i.password_history.is_empty()));
+}
+
 /// Regenerates the fixture. Run only when intentionally creating a new format version:
 /// `cargo test -p vault-core --test format_v1 -- --ignored`
 #[test]

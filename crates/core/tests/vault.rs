@@ -1,5 +1,65 @@
 //! End-to-end tests of the public `vault-core` API.
 
+#[test]
+fn password_changes_are_kept_in_the_history() {
+    let secret_key = SecretKey::generate().unwrap();
+    let mut vault = Vault::create("pw", &secret_key, None, KdfParams::minimum().unwrap()).unwrap();
+    let mut item = ItemData::login("Site", "me", "first", "");
+    item.created_at = 100;
+    let id = vault.add_item(&item).unwrap();
+    assert_eq!(vault.get_item(&id).unwrap().password_changed_at, 100);
+
+    // Same password: nothing recorded.
+    let mut same = vault.get_item(&id).unwrap();
+    same.notes = "changed notes".into();
+    vault.update_item(&id, &same).unwrap();
+    assert!(vault.get_item(&id).unwrap().password_history.is_empty());
+
+    vault
+        .set_settings(vault_core::VaultSettings {
+            name: "  Home  ".into(),
+            history_limit: 2,
+        })
+        .unwrap();
+    assert_eq!(vault.settings().name, "Home");
+    for next in ["second", "third", "fourth"] {
+        let mut changed = vault.get_item(&id).unwrap();
+        changed.password = next.into();
+        changed.password_history.clear(); // ignored: the vault keeps its own record
+        vault.update_item(&id, &changed).unwrap();
+    }
+    let stored = vault.get_item(&id).unwrap();
+    let old: Vec<&str> = stored
+        .password_history
+        .iter()
+        .map(|c| c.password.as_str())
+        .collect();
+    assert_eq!(old, ["second", "third"], "oldest dropped past the limit");
+    assert!(stored.password_changed_at > 100);
+    assert!(stored.password_history.iter().all(|c| c.replaced_at > 0));
+
+    vault.clear_password_history(&id).unwrap();
+    assert!(vault.get_item(&id).unwrap().password_history.is_empty());
+    assert_eq!(vault.get_item(&id).unwrap().password, "fourth");
+
+    assert!(
+        vault
+            .set_settings(vault_core::VaultSettings {
+                name: "x".repeat(61),
+                history_limit: 2,
+            })
+            .is_err()
+    );
+    assert!(
+        vault
+            .set_settings(vault_core::VaultSettings {
+                name: String::new(),
+                history_limit: 101,
+            })
+            .is_err()
+    );
+}
+
 use vault_core::{
     CustomField, Error, ItemData, ItemKind, KdfParams, RecoveryKey, SecretKey, Unlock, Vault,
     storage,
@@ -57,7 +117,9 @@ fn create_save_and_reopen_with_password() {
     assert_eq!(reopened.len(), 2);
     assert_eq!(reopened.revision(), 1);
     assert_eq!(reopened.id_hex(), f.vault.id_hex());
-    assert_eq!(reopened.get_item(&id).unwrap(), login);
+    let mut expected = login.clone();
+    expected.password_changed_at = login.created_at; // set when added
+    assert_eq!(reopened.get_item(&id).unwrap(), expected);
     assert_eq!(reopened.get_item(&note_id).unwrap(), note);
 }
 
@@ -197,12 +259,12 @@ fn foreign_files_and_future_versions_are_rejected() {
         Err(Error::NotAVault)
     ));
     let mut bytes = f.vault.to_bytes().unwrap();
-    bytes[8] = 2; // format_version = 2: from the future
+    bytes[8] = 3; // format_version = 3: from the future
     assert!(matches!(
         Vault::open(&bytes, Unlock::Recovery(&f.recovery_key)),
-        Err(Error::UnsupportedVersion(2))
+        Err(Error::UnsupportedVersion(3))
     ));
-    // Relabelling a v1 file as v0 changes the authenticated header: the body won't open.
+    // Relabelling a current file as an older version changes the authenticated header: the body won't open.
     let mut relabelled = f.vault.to_bytes().unwrap();
     relabelled[8] = 0;
     assert!(matches!(
