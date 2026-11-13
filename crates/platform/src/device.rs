@@ -17,7 +17,13 @@ pub struct DeviceState {
     vaults: BTreeMap<String, VaultState>,
     #[serde(default)]
     pub settings: Settings,
+    /// Vault files opened on this device, most recent first (paths only).
+    #[serde(default)]
+    recent_vaults: Vec<String>,
 }
+
+/// How many vault files the device remembers.
+pub const MAX_RECENT_VAULTS: usize = 8;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct VaultState {
@@ -61,6 +67,30 @@ pub enum RollbackStatus {
 }
 
 impl DeviceState {
+    /// Vault files opened on this device, most recent first.
+    pub fn recent_vaults(&self) -> Vec<std::path::PathBuf> {
+        self.recent_vaults
+            .iter()
+            .map(std::path::PathBuf::from)
+            .collect()
+    }
+
+    /// Puts path first in the recent list (moving it if it was already there).
+    pub fn remember_vault(&mut self, path: &std::path::Path) {
+        let path = path.to_string_lossy().into_owned();
+        self.recent_vaults
+            .retain(|p| !p.eq_ignore_ascii_case(&path));
+        self.recent_vaults.insert(0, path);
+        self.recent_vaults.truncate(MAX_RECENT_VAULTS);
+    }
+
+    /// Removes path from the recent list (the file itself is untouched).
+    pub fn forget_vault(&mut self, path: &std::path::Path) {
+        let path = path.to_string_lossy();
+        self.recent_vaults
+            .retain(|p| !p.eq_ignore_ascii_case(&path));
+    }
+
     pub fn load() -> Result<Self> {
         let path = paths::app_dir()?.join("state.json");
         match fs::read(&path) {
@@ -121,6 +151,32 @@ mod tests {
             }
         );
         assert_eq!(state.check_rollback("other", 0), RollbackStatus::Ok);
+    }
+
+    #[test]
+    fn recent_vaults_most_recent_first() {
+        let mut state = DeviceState::default();
+        for i in 0..10 {
+            state.remember_vault(std::path::Path::new(&format!("C:/v{i}.vault")));
+        }
+        state.remember_vault(std::path::Path::new("C:/V5.vault")); // same file, other case
+        let recent = state.recent_vaults();
+        assert_eq!(recent.len(), MAX_RECENT_VAULTS);
+        assert_eq!(recent[0], std::path::PathBuf::from("C:/V5.vault"));
+        assert_eq!(
+            recent
+                .iter()
+                .filter(|p| p.to_string_lossy().to_lowercase() == "c:/v5.vault")
+                .count(),
+            1
+        );
+        state.forget_vault(std::path::Path::new("c:/v5.vault"));
+        assert!(
+            !state
+                .recent_vaults()
+                .iter()
+                .any(|p| p.ends_with("V5.vault"))
+        );
     }
 
     #[test]
