@@ -1,0 +1,298 @@
+import { Theme, Sketch, Secrets } from "theme.slint";
+import { Screen, Panel, ItemRow, DetailField, Messages } from "model.slint";
+import { RoughBox } from "widgets.slint";
+import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
+import { VaultIndex, ItemList } from "vault.slint";
+import { DetailPage, EditorPage, GeneratorPage, SettingsPage } from "pages.slint";
+
+export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, Messages }
+
+component Notice inherits Rectangle {
+    in property <string> text;
+    height: label.preferred-height + 24px;
+    width: Math.min(label.preferred-width + 36px, 460px);
+    background: Theme.sheet;
+    opacity: root.text == "" ? 0 : 1;
+    animate opacity { duration: Theme.quick; }
+    RoughBox { variant: 1; }
+    label := Text {
+        x: 18px;
+        width: parent.width - 36px;
+        text: root.text;
+        font-size: Theme.body;
+        color: Theme.ink;
+        wrap: word-wrap;
+    }
+}
+
+export component AppWindow inherits Window {
+    title: @tr("Vault");
+    preferred-width: 1180px;
+    preferred-height: 760px;
+    min-width: 940px;
+    min-height: 620px;
+    background: Theme.paper;
+    default-font-family: Theme.ui-font;
+    default-font-size: Theme.body;
+
+    // ---- shared state ----
+    in property <Screen> screen: Screen.unlock;
+    in property <bool> busy;
+    in property <int> error-code;
+    in property <string> error-detail;
+    in property <int> notice-code;
+    in property <string> notice-arg;
+    in property <string> vault-path;
+    in property <string> vault-id;
+
+    // ---- onboarding / recovery ----
+    in property <int> onboarding-step: 1;
+    in property <bool> recovered;
+    in property <string> suggestion;
+    in property <string> kit-secret-key;
+    in property <string> kit-recovery-key;
+    in-out property <bool> kit-saved;
+    callback create-vault();
+    callback suggest-passphrase();
+    callback use-suggestion();
+    callback finish-onboarding();
+
+    // ---- unlock / recover ----
+    in property <bool> needs-secret-key;
+    callback unlock();
+    callback show-recovery();
+    callback recover();
+    callback back-to-unlock();
+
+    // ---- vault ----
+    in property <Panel> panel: Panel.detail;
+    in property <[ItemRow]> items;
+    in property <int> selected: -1;
+    in property <int> total-items;
+    in property <int> category;
+    in property <[int]> counts: [0, 0, 0, 0, 0];
+    in-out property <string> search-text;
+    callback search(string);
+    callback select-category(int);
+    callback select(int);
+    callback new-item();
+    callback open-generator();
+    callback open-settings();
+    callback lock();
+
+    // ---- detail ----
+    in property <bool> has-selection;
+    in property <string> detail-title;
+    in property <int> detail-kind;
+    in property <bool> detail-favorite;
+    in property <string> detail-username;
+    in property <bool> detail-has-password;
+    in property <string> revealed-password;
+    in property <int> reveal-left;
+    in property <string> totp-code;
+    in property <int> totp-left;
+    in property <[string]> detail-urls;
+    in property <string> detail-notes;
+    in property <[DetailField]> detail-fields;
+    in-out property <bool> notes-shown;
+    in-out property <bool> confirming-delete;
+    callback edit-item();
+    callback toggle-favorite();
+    callback delete-item();
+    callback reveal();
+    callback conceal();
+    callback copy-username();
+    callback copy-password();
+    callback copy-totp();
+    callback copy-field(int);
+
+    // ---- editor ----
+    in property <bool> editing-item;
+    in property <bool> editor-is-new;
+    in property <string> editor-password-shown;
+    in-out property <int> ed-kind;
+    in-out property <string> ed-title;
+    in-out property <string> ed-username;
+    in-out property <string> ed-url;
+    in-out property <string> ed-totp;
+    in-out property <string> ed-notes;
+    in-out property <bool> ed-favorite;
+    callback save-item();
+    callback cancel-edit();
+    callback toggle-show-password();
+    callback generate-for-item();
+
+    // ---- generator ----
+    in property <string> gen-result;
+    in property <int> gen-bits;
+    in-out property <int> gen-mode;
+    in-out property <int> gen-length: 24;
+    in-out property <int> gen-words: 6;
+    in-out property <bool> gen-lowercase: true;
+    in-out property <bool> gen-uppercase: true;
+    in-out property <bool> gen-digits: true;
+    in-out property <bool> gen-symbols: true;
+    in-out property <bool> gen-avoid-ambiguous;
+    in-out property <bool> gen-capitalize;
+    in-out property <bool> gen-number;
+    callback regenerate();
+    callback copy-generated();
+    callback use-generated();
+
+    // ---- settings ----
+    in-out property <int> auto-lock-minutes: 5;
+    in-out property <int> clipboard-seconds: 20;
+    callback settings-changed();
+    callback change-password();
+    callback show-kit();
+    callback hide-kit();
+    callback new-recovery-key();
+
+    if root.screen == Screen.onboarding: OnboardingScreen {
+        step: root.onboarding-step;
+        busy: root.busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        suggestion: root.suggestion;
+        recovered: root.recovered;
+        kit-vault-id: root.vault-id;
+        kit-secret-key: root.kit-secret-key;
+        kit-recovery-key: root.kit-recovery-key;
+        kit-path: root.vault-path;
+        kit-saved <=> root.kit-saved;
+        create => { root.create-vault(); }
+        suggest => { root.suggest-passphrase(); }
+        use-suggestion => { root.use-suggestion(); }
+        finish => { root.finish-onboarding(); }
+    }
+
+    if root.screen == Screen.unlock: UnlockScreen {
+        busy: root.busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        needs-secret-key: root.needs-secret-key;
+        vault-path: root.vault-path;
+        unlock => { root.unlock(); }
+        forgot => { root.show-recovery(); }
+    }
+
+    if root.screen == Screen.recover: RecoverScreen {
+        busy: root.busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        recover => { root.recover(); }
+        back => { root.back-to-unlock(); }
+    }
+
+    if root.screen == Screen.vault: HorizontalLayout {
+        VaultIndex {
+            width: 210px;
+            category: root.category;
+            counts: root.counts;
+            panel: root.panel;
+            select-category(c) => { root.select-category(c); }
+            open-generator => { root.open-generator(); }
+            open-settings => { root.open-settings(); }
+            lock => { root.lock(); }
+        }
+        Rectangle { width: 1px; background: Theme.rule; }
+        ItemList {
+            width: 330px;
+            items: root.items;
+            selected: root.selected;
+            total: root.total-items;
+            search-text <=> root.search-text;
+            search(text) => { root.search(text); }
+            select(index) => { root.select(index); }
+            new-item => { root.new-item(); }
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            background: Theme.sheet;
+
+            if root.panel == Panel.detail: DetailPage {
+                has-item: root.has-selection;
+                title: root.detail-title;
+                kind: root.detail-kind;
+                favorite: root.detail-favorite;
+                username: root.detail-username;
+                has-password: root.detail-has-password;
+                revealed-password: root.revealed-password;
+                reveal-left: root.reveal-left;
+                totp-code: root.totp-code;
+                totp-left: root.totp-left;
+                urls: root.detail-urls;
+                notes: root.detail-notes;
+                fields: root.detail-fields;
+                notes-shown <=> root.notes-shown;
+                confirming-delete <=> root.confirming-delete;
+                edit => { root.edit-item(); }
+                toggle-favorite => { root.toggle-favorite(); }
+                delete => { root.delete-item(); }
+                reveal => { root.reveal(); }
+                conceal => { root.conceal(); }
+                copy-username => { root.copy-username(); }
+                copy-password => { root.copy-password(); }
+                copy-totp => { root.copy-totp(); }
+                copy-field(i) => { root.copy-field(i); }
+            }
+            if root.panel == Panel.editor: EditorPage {
+                is-new: root.editor-is-new;
+                error-code: root.error-code;
+                error-detail: root.error-detail;
+                password-shown: root.editor-password-shown;
+                kind <=> root.ed-kind;
+                title <=> root.ed-title;
+                username <=> root.ed-username;
+                url <=> root.ed-url;
+                totp <=> root.ed-totp;
+                notes <=> root.ed-notes;
+                favorite <=> root.ed-favorite;
+                save => { root.save-item(); }
+                cancel => { root.cancel-edit(); }
+                toggle-show-password => { root.toggle-show-password(); }
+                generate-password => { root.generate-for-item(); }
+            }
+            if root.panel == Panel.generator: GeneratorPage {
+                result: root.gen-result;
+                bits: root.gen-bits;
+                editing: root.editing-item;
+                mode <=> root.gen-mode;
+                length <=> root.gen-length;
+                words <=> root.gen-words;
+                lowercase <=> root.gen-lowercase;
+                uppercase <=> root.gen-uppercase;
+                digits <=> root.gen-digits;
+                symbols <=> root.gen-symbols;
+                avoid-ambiguous <=> root.gen-avoid-ambiguous;
+                capitalize <=> root.gen-capitalize;
+                number <=> root.gen-number;
+                regenerate => { root.regenerate(); }
+                copy => { root.copy-generated(); }
+                use-for-item => { root.use-generated(); }
+            }
+            if root.panel == Panel.settings: SettingsPage {
+                error-code: root.error-code;
+                error-detail: root.error-detail;
+                busy: root.busy;
+                vault-path: root.vault-path;
+                vault-id: root.vault-id;
+                kit-secret-key: root.kit-secret-key;
+                kit-recovery-key: root.kit-recovery-key;
+                auto-lock-minutes <=> root.auto-lock-minutes;
+                clipboard-seconds <=> root.clipboard-seconds;
+                settings-changed => { root.settings-changed(); }
+                change-password => { root.change-password(); }
+                show-kit => { root.show-kit(); }
+                hide-kit => { root.hide-kit(); }
+                new-recovery-key => { root.new-recovery-key(); }
+            }
+
+            Notice {
+                x: 28px;
+                y: parent.height - self.height - 24px;
+                text: Messages.notice(root.notice-code, root.notice-arg);
+            }
+        }
+    }
+}

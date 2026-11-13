@@ -27,8 +27,19 @@ cargo test --workspace
 | Crate | Purpose |
 |---|---|
 | [`crates/core`](crates/core) | Cryptography, vault file format, item model, TOTP, generator (no UI, no network) |
+| [`crates/platform`](crates/platform) | OS integration: Secret Key store, device state, secure clipboard, capture blocking, secure input |
 | [`crates/import`](crates/import) | Importers: Bitwarden JSON, KeePass `.kdbx`, browser/Bitwarden CSV |
 | [`crates/cli`](crates/cli) | `vault` command-line client |
+| [`crates/desktop`](crates/desktop) | Desktop app (Slint); design notes in [docs/DESIGN.md](docs/DESIGN.md) |
+
+### Trying the desktop app (test vaults only)
+
+```bash
+cargo run -p vault-desktop
+```
+
+It uses the same vault as the CLI by default. Point both at a test file with
+`VAULT_FILE=C:\path\to\test.vault`.
 
 ### Trying the CLI (test vaults only)
 

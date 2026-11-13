@@ -1,33 +1,15 @@
-//! Locating, unlocking and saving the vault; per-device state.
+//! Locating, unlocking and saving the vault. Device integration lives in `vault-platform`.
 
-use std::{
-    collections::BTreeMap,
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow, bail};
-use serde::{Deserialize, Serialize};
+use anyhow::{Result, anyhow, bail};
 use vault_core::{Error as CoreError, SecretKey, Unlock, Vault, storage};
-use zeroize::Zeroizing;
+use vault_platform::{DeviceState, RollbackStatus, device, paths, secret_store};
 
 use crate::prompt::Prompter;
 
-const KEYRING_SERVICE: &str = "vault-cli";
-const APP_DIR: &str = "vault";
-
-/// Default vault location: `<local data dir>/vault/default.vault`.
 pub fn default_vault_path() -> Result<PathBuf> {
-    Ok(app_dir()?.join("default.vault"))
-}
-
-/// App data directory. `VAULT_HOME` overrides it (portable installs, tests).
-fn app_dir() -> Result<PathBuf> {
-    if let Some(home) = std::env::var_os("VAULT_HOME") {
-        return Ok(PathBuf::from(home));
-    }
-    let base = dirs::data_local_dir().context("cannot determine the local data directory")?;
-    Ok(base.join(APP_DIR))
+    paths::default_vault_path()
 }
 
 /// Turns core errors into messages a person can act on.
@@ -42,81 +24,21 @@ pub fn explain(error: CoreError) -> anyhow::Error {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Secret Key storage in the OS credential store (Windows Credential Manager, macOS Keychain,
-// Secret Service on Linux). The Secret Key never touches the vault file or plain files.
-// ---------------------------------------------------------------------------------------------
-
-fn keyring_entry(vault_id: &str) -> Result<keyring::Entry> {
-    keyring::Entry::new(KEYRING_SERVICE, &format!("secret-key:{vault_id}"))
-        .context("opening the OS credential store")
-}
-
 pub fn store_secret_key(vault_id: &str, key: &SecretKey) -> Result<()> {
-    keyring_entry(vault_id)?
-        .set_password(&key.to_display_string())
-        .context("saving the Secret Key in the OS credential store")
+    secret_store::store(vault_id, key)
 }
 
 pub fn load_secret_key(vault_id: &str) -> Result<Option<SecretKey>> {
-    match keyring_entry(vault_id)?.get_password() {
-        Ok(text) => {
-            let text = Zeroizing::new(text);
-            Ok(Some(SecretKey::parse(&text).map_err(explain)?))
-        }
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(anyhow!(error).context("reading the OS credential store")),
-    }
+    secret_store::load(vault_id)
 }
 
 pub fn forget_secret_key(vault_id: &str) -> Result<bool> {
-    match keyring_entry(vault_id)?.delete_credential() {
-        Ok(()) => Ok(true),
-        Err(keyring::Error::NoEntry) => Ok(false),
-        Err(error) => Err(anyhow!(error).context("deleting from the OS credential store")),
-    }
+    secret_store::forget(vault_id)
 }
 
-// ---------------------------------------------------------------------------------------------
-// Rollback protection: remember the highest revision seen for each vault on this device.
-// ---------------------------------------------------------------------------------------------
-
-#[derive(Default, Serialize, Deserialize)]
-struct DeviceState {
-    #[serde(default)]
-    vaults: BTreeMap<String, VaultState>,
+pub fn record_new_vault(vault: &Vault) -> Result<()> {
+    device::record_revision(&vault.id_hex(), vault.revision())
 }
-
-#[derive(Default, Serialize, Deserialize)]
-struct VaultState {
-    highest_revision: u64,
-}
-
-fn state_path() -> Result<PathBuf> {
-    Ok(app_dir()?.join("state.json"))
-}
-
-fn load_state() -> Result<DeviceState> {
-    let path = state_path()?;
-    match fs::read(&path) {
-        Ok(bytes) => {
-            serde_json::from_slice(&bytes).with_context(|| format!("reading {}", path.display()))
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(DeviceState::default()),
-        Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
-    }
-}
-
-fn record_revision(vault_id: &str, revision: u64) -> Result<()> {
-    let mut state = load_state()?;
-    let entry = state.vaults.entry(vault_id.to_owned()).or_default();
-    entry.highest_revision = entry.highest_revision.max(revision);
-    let path = state_path()?;
-    fs::create_dir_all(path.parent().expect("state path has a parent"))?;
-    storage::write_atomic(&path, &serde_json::to_vec_pretty(&state)?).map_err(explain)
-}
-
-// ---------------------------------------------------------------------------------------------
 
 /// An unlocked vault bound to its file.
 pub struct Session {
@@ -131,7 +53,7 @@ impl Session {
         let bytes = read_vault_file(path)?;
         let info = Vault::inspect(&bytes).map_err(explain)?;
 
-        let (secret_key, typed) = match load_secret_key(&info.id_hex)? {
+        let (secret_key, typed) = match secret_store::load(&info.id_hex)? {
             Some(key) => (key, false),
             None => {
                 eprintln!("This device does not know the Secret Key for this vault yet.");
@@ -150,11 +72,29 @@ impl Session {
         .map_err(explain)?;
 
         if typed {
-            store_secret_key(&info.id_hex, &secret_key)?;
+            secret_store::store(&info.id_hex, &secret_key)?;
             eprintln!("Secret Key saved in this device's credential store.");
         }
-        check_rollback(&info.id_hex, vault.revision(), allow_rollback)?;
-        record_revision(&info.id_hex, vault.revision())?;
+
+        let mut state = DeviceState::load()?;
+        if let RollbackStatus::Older {
+            revision,
+            highest_seen,
+        } = state.check_rollback(&info.id_hex, vault.revision())
+        {
+            let message = format!(
+                "this vault file is OLDER than one this device has already seen \
+                 (revision {revision} < {highest_seen}). Someone may have replaced it with an old copy."
+            );
+            if !allow_rollback {
+                bail!(
+                    "{message}\nIf you restored a backup on purpose, re-run with --allow-rollback."
+                );
+            }
+            eprintln!("warning: {message}");
+        }
+        state.record_revision(&info.id_hex, vault.revision());
+        state.save()?;
 
         Ok(Self {
             path: path.to_owned(),
@@ -167,7 +107,7 @@ impl Session {
     pub fn save(&mut self) -> Result<()> {
         let bytes = self.vault.to_bytes().map_err(explain)?;
         storage::write_atomic(&self.path, &bytes).map_err(explain)?;
-        record_revision(&self.vault.id_hex(), self.vault.revision())
+        device::record_revision(&self.vault.id_hex(), self.vault.revision())
     }
 }
 
@@ -179,26 +119,4 @@ pub fn read_vault_file(path: &Path) -> Result<Vec<u8>> {
         );
     }
     storage::read(path).map_err(explain)
-}
-
-fn check_rollback(vault_id: &str, revision: u64, allow_rollback: bool) -> Result<()> {
-    let highest = load_state()?
-        .vaults
-        .get(vault_id)
-        .map_or(0, |state| state.highest_revision);
-    if revision < highest {
-        let message = format!(
-            "this vault file is OLDER than one this device has already seen \
-             (revision {revision} < {highest}). Someone may have replaced it with an old copy."
-        );
-        if !allow_rollback {
-            bail!("{message}\nIf you restored a backup on purpose, re-run with --allow-rollback.");
-        }
-        eprintln!("warning: {message}");
-    }
-    Ok(())
-}
-
-pub fn record_new_vault(vault: &Vault) -> Result<()> {
-    record_revision(&vault.id_hex(), vault.revision())
 }

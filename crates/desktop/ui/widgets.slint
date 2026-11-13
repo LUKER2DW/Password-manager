@@ -1,0 +1,481 @@
+import { Theme, Sketch, Secrets } from "theme.slint";
+
+// A hand-drawn rectangle outline that stretches to its parent.
+export component RoughBox inherits Rectangle {
+    in property <int> variant: 0;
+    in property <brush> stroke: Theme.ink;
+    in property <length> stroke-width: 1.3px;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 200;
+        viewbox-height: 48;
+        commands: root.variant == 1 ? Sketch.box-b : root.variant == 2 ? Sketch.box-c : Sketch.box-a;
+        stroke: root.stroke;
+        stroke-width: root.stroke-width;
+        fill: transparent;
+    }
+}
+
+// The signature element: a highlighter swash. `reveal` (0–1) sweeps it in from the left.
+export component MarkerSwash inherits Rectangle {
+    in property <int> variant: 0;
+    in property <float> reveal: 1;
+    in property <color> tint: Theme.marker;
+    clip: true;
+    Rectangle {
+        x: 0;
+        width: root.width * root.reveal;
+        height: root.height;
+        clip: true;
+        Path {
+            x: 0;
+            width: root.width;
+            height: root.height;
+            viewbox-width: 200;
+            viewbox-height: 24;
+            commands: root.variant == 1 ? Sketch.marker-b : root.variant == 2 ? Sketch.marker-c : Sketch.marker-a;
+            stroke: root.tint;
+            stroke-width: root.height * 0.62;
+            fill: transparent;
+            opacity: 0.85;
+        }
+    }
+}
+
+export component Underline inherits Rectangle {
+    in property <int> variant: 0;
+    in property <brush> stroke: Theme.rule;
+    in property <length> stroke-width: 1.2px;
+    height: 6px;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 200;
+        viewbox-height: 8;
+        commands: root.variant == 1 ? Sketch.underline-b : Sketch.underline-a;
+        stroke: root.stroke;
+        stroke-width: root.stroke-width;
+        fill: transparent;
+    }
+}
+
+// Primary action: ink text over a marker swash, inside a hand-drawn box.
+export component InkButton inherits Rectangle {
+    in property <string> text;
+    in property <string> busy-text;
+    in property <bool> enabled: true;
+    in property <bool> busy: false;
+    in property <int> variant: 0;
+    callback clicked;
+
+    accessible-role: button;
+    accessible-label: root.text;
+    forward-focus: focus;
+    height: 44px;
+    min-width: label.preferred-width + 44px;
+
+    MarkerSwash {
+        x: 8px;
+        y: parent.height * 0.2;
+        width: parent.width - 16px;
+        height: parent.height * 0.6;
+        variant: root.variant;
+        opacity: !root.enabled ? 0.25 : touch.pressed ? 1 : touch.has-hover ? 0.95 : 0.75;
+        animate opacity { duration: Theme.quick; }
+    }
+    RoughBox {
+        variant: root.variant;
+        stroke: root.enabled ? Theme.ink : Theme.graphite;
+        stroke-width: focus.has-focus ? 2.2px : 1.3px;
+    }
+    label := Text {
+        text: root.busy ? root.busy-text : root.text;
+        font-size: Theme.body;
+        font-weight: 600;
+        color: root.enabled ? Theme.ink : Theme.graphite;
+    }
+    touch := TouchArea {
+        enabled: root.enabled && !root.busy;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+    focus := FocusScope {
+        enabled: root.enabled && !root.busy;
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+}
+
+// Quiet action: plain text; a hand-drawn underline firms up on hover and focus.
+export component TextButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <color> tint: Theme.ink;
+    callback clicked;
+
+    accessible-role: button;
+    accessible-label: root.text;
+    forward-focus: focus;
+    height: 30px;
+    min-width: label.preferred-width + 6px;
+
+    label := Text {
+        text: root.text;
+        font-size: Theme.body;
+        color: root.enabled ? root.tint : Theme.graphite;
+    }
+    Underline {
+        x: (parent.width - label.preferred-width) / 2;
+        y: parent.height - 7px;
+        width: label.preferred-width;
+        variant: 1;
+        stroke: root.tint;
+        opacity: !root.enabled ? 0 : (touch.has-hover || focus.has-focus) ? 1 : 0.3;
+        animate opacity { duration: Theme.quick; }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+}
+
+// Plain text entry written "on a line", like a notebook.
+export component LineField inherits VerticalLayout {
+    in property <string> label;
+    in property <string> placeholder;
+    in-out property <string> text;
+    in property <bool> mono: false;
+    callback edited(string);
+    callback accepted();
+
+    forward-focus: input;
+    spacing: 3px;
+
+    if root.label != "": Text {
+        text: root.label;
+        font-size: Theme.small;
+        color: Theme.graphite;
+    }
+    Rectangle {
+        height: 30px;
+        input := TextInput {
+            width: parent.width;
+            height: parent.height;
+            text <=> root.text;
+            font-size: Theme.lead;
+            font-family: root.mono ? Theme.mono-font : Theme.ui-font;
+            color: Theme.ink;
+            single-line: true;
+            vertical-alignment: center;
+            selection-background-color: Theme.marker;
+            selection-foreground-color: Theme.ink;
+            accessible-label: root.label;
+            edited => { root.edited(self.text); }
+            accepted => { root.accepted(); }
+        }
+        if root.text == "": Text {
+            width: parent.width;
+            height: parent.height;
+            text: root.placeholder;
+            font-size: Theme.lead;
+            color: Theme.graphite;
+            opacity: 0.7;
+            vertical-alignment: center;
+        }
+    }
+    Underline {
+        stroke: input.has-focus ? Theme.ink : Theme.rule;
+        stroke-width: input.has-focus ? 1.8px : 1.2px;
+    }
+}
+
+// Multi-line notes in a hand-drawn box.
+export component NotesField inherits VerticalLayout {
+    in property <string> label;
+    in-out property <string> text;
+    spacing: 4px;
+    Text {
+        text: root.label;
+        font-size: Theme.small;
+        color: Theme.graphite;
+    }
+    Rectangle {
+        height: 96px;
+        RoughBox {
+            variant: 2;
+            stroke: input.has-focus ? Theme.ink : Theme.rule;
+        }
+        input := TextInput {
+            x: 10px;
+            y: 8px;
+            width: parent.width - 20px;
+            height: parent.height - 16px;
+            text <=> root.text;
+            font-size: Theme.body;
+            color: Theme.ink;
+            single-line: false;
+            wrap: word-wrap;
+            selection-background-color: Theme.marker;
+            accessible-label: root.label;
+        }
+    }
+}
+
+// Secret entry. Keystrokes are forwarded to Rust and never stored in the UI; the field draws
+// one dot per character. Paste and other shortcuts are ignored on purpose (AltGr still works).
+export component SecretLine inherits VerticalLayout {
+    in property <int> field;
+    in property <string> label;
+    in property <string> placeholder;
+    in property <bool> error: false;
+    // When not empty, shown instead of the dots (e.g. a password the user asked to see).
+    in property <string> revealed;
+    callback accepted();
+
+    property <int> length: Secrets.lengths[root.field];
+    forward-focus: scope;
+    spacing: 3px;
+    accessible-role: text-input;
+    accessible-label: root.label;
+
+    if root.label != "": Text {
+        text: root.label;
+        font-size: Theme.small;
+        color: Theme.graphite;
+    }
+    Rectangle {
+        height: 32px;
+        TouchArea {
+            mouse-cursor: MouseCursor.text;
+            clicked => { scope.focus(); }
+        }
+        scope := FocusScope {
+            key-pressed(event) => {
+                if (event.text == Key.Return) {
+                    root.accepted();
+                    return accept;
+                }
+                if (event.text == Key.Backspace) {
+                    Secrets.backspace(root.field);
+                    return accept;
+                }
+                if (event.text == Key.Escape) {
+                    Secrets.clear(root.field);
+                    return accept;
+                }
+                if (event.text == Key.Tab) {
+                    return reject;
+                }
+                if (event.modifiers.meta || event.modifiers.control != event.modifiers.alt) {
+                    return accept;
+                }
+                Secrets.insert(root.field, event.text);
+                accept
+            }
+        }
+        HorizontalLayout {
+            alignment: start;
+            spacing: 6px;
+            if root.revealed != "": Text {
+                text: root.revealed;
+                font-family: Theme.mono-font;
+                font-size: Theme.lead;
+                color: Theme.ink;
+                vertical-alignment: center;
+            }
+            if root.revealed == "" && root.length == 0: Text {
+                text: root.placeholder;
+                font-size: Theme.lead;
+                color: Theme.graphite;
+                opacity: 0.7;
+                vertical-alignment: center;
+            }
+            if root.revealed == "": HorizontalLayout {
+                spacing: 6px;
+                for index in Math.min(root.length, 32): VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 7px;
+                        height: 7px;
+                        border-radius: 3.5px;
+                        background: Theme.ink;
+                    }
+                }
+            }
+            if scope.has-focus: VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 1.5px;
+                    height: 20px;
+                    background: Theme.ink;
+                    opacity: Math.mod(animation-tick() / 1ms, 1060) < 530 ? 1 : 0;
+                }
+            }
+        }
+    }
+    Underline {
+        stroke: root.error ? Theme.seal : scope.has-focus ? Theme.ink : Theme.rule;
+        stroke-width: scope.has-focus || root.error ? 1.8px : 1.2px;
+    }
+}
+
+// Hand-drawn check box with a label.
+export component CheckLine inherits Rectangle {
+    in property <string> text;
+    in-out property <bool> checked;
+    callback toggled(bool);
+
+    accessible-role: checkbox;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-label: root.text;
+    forward-focus: focus;
+    min-height: 30px;
+
+    HorizontalLayout {
+        spacing: 10px;
+        alignment: start;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 20px;
+                height: 20px;
+                RoughBox {
+                    variant: 1;
+                    stroke-width: focus.has-focus ? 2px : 1.3px;
+                }
+                if root.checked: Path {
+                    width: 100%;
+                    height: 100%;
+                    viewbox-width: 24;
+                    viewbox-height: 24;
+                    commands: Sketch.check;
+                    stroke: Theme.ink;
+                    stroke-width: 2px;
+                    fill: transparent;
+                }
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: Theme.body;
+            color: Theme.ink;
+            wrap: word-wrap;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+    }
+    TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == " ") {
+                root.checked = !root.checked;
+                root.toggled(root.checked);
+                return accept;
+            }
+            reject
+        }
+    }
+}
+
+// "Label   −  24  +"
+export component Stepper inherits HorizontalLayout {
+    in property <string> label;
+    in-out property <int> value;
+    in property <int> minimum: 0;
+    in property <int> maximum: 100;
+    in property <string> unit;
+    callback changed(int);
+
+    spacing: 10px;
+    alignment: start;
+    Text {
+        text: root.label;
+        font-size: Theme.body;
+        color: Theme.ink;
+        vertical-alignment: center;
+        min-width: 150px;
+    }
+    TextButton {
+        text: "−";
+        enabled: root.value > root.minimum;
+        clicked => {
+            root.value = Math.max(root.minimum, root.value - 1);
+            root.changed(root.value);
+        }
+    }
+    Text {
+        text: root.unit == "" ? root.value : root.value + " " + root.unit;
+        font-size: Theme.lead;
+        color: Theme.ink;
+        vertical-alignment: center;
+        min-width: 56px;
+        horizontal-alignment: center;
+    }
+    TextButton {
+        text: "+";
+        enabled: root.value < root.maximum;
+        clicked => {
+            root.value = Math.min(root.maximum, root.value + 1);
+            root.changed(root.value);
+        }
+    }
+}
+
+// Two or more options shown as words; the chosen one is marked.
+export component Choice inherits HorizontalLayout {
+    in property <[string]> options;
+    in-out property <int> selected;
+    callback changed(int);
+    spacing: 18px;
+    alignment: start;
+    for option[index] in root.options: Rectangle {
+        min-width: label.preferred-width + 8px;
+        height: 30px;
+        accessible-role: button;
+        accessible-label: option;
+        MarkerSwash {
+            y: parent.height * 0.3;
+            height: parent.height * 0.5;
+            variant: Math.mod(index, 3);
+            reveal: index == root.selected ? 1 : 0;
+            animate reveal { duration: Theme.sweep; easing: ease-out; }
+        }
+        label := Text {
+            text: option;
+            font-size: Theme.body;
+            font-weight: index == root.selected ? 600 : 400;
+            color: Theme.ink;
+        }
+        TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => {
+                root.selected = index;
+                root.changed(index);
+            }
+        }
+    }
+}

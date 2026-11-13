@@ -1,0 +1,620 @@
+// Right-hand pages of the vault: item detail, editor, generator, settings.
+
+import { ScrollView } from "std-widgets.slint";
+import { Theme, Sketch } from "theme.slint";
+import { DetailField, Messages } from "model.slint";
+import { InkButton, TextButton, LineField, NotesField, SecretLine, CheckLine, Stepper, Choice, RoughBox, Underline, MarkerSwash } from "widgets.slint";
+import { KitSlip } from "kit.slint";
+
+component PageTitle inherits Text {
+    font-size: Theme.headline;
+    font-weight: 300;
+    color: Theme.ink;
+    wrap: word-wrap;
+}
+
+component SectionTitle inherits Text {
+    font-size: Theme.lead;
+    font-weight: 600;
+    color: Theme.ink;
+}
+
+component Prose inherits Text {
+    font-size: Theme.body;
+    color: Theme.graphite;
+    wrap: word-wrap;
+}
+
+// One labelled value on the item page, with its actions on the right.
+component FieldRow inherits VerticalLayout {
+    in property <string> label;
+    in property <string> value;
+    in property <bool> mono: false;
+    in property <bool> large: false;
+    spacing: 6px;
+    HorizontalLayout {
+        spacing: 16px;
+        Text {
+            width: 150px;
+            text: root.label;
+            font-size: Theme.body;
+            color: Theme.graphite;
+            vertical-alignment: center;
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.value;
+            font-family: root.mono ? Theme.mono-font : Theme.ui-font;
+            font-size: root.large ? Theme.title : Theme.lead;
+            color: Theme.ink;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        @children
+    }
+    Underline {
+        stroke: Theme.rule;
+        variant: 1;
+    }
+}
+
+export component DetailPage inherits Rectangle {
+    in property <bool> has-item;
+    in property <string> title;
+    in property <int> kind;
+    in property <bool> favorite;
+    in property <string> username;
+    in property <bool> has-password;
+    in property <string> revealed-password;
+    in property <int> reveal-left;
+    in property <string> totp-code;
+    in property <int> totp-left;
+    in property <[string]> urls;
+    in property <string> notes;
+    in property <[DetailField]> fields;
+    in-out property <bool> notes-shown;
+    in-out property <bool> confirming-delete;
+    callback edit();
+    callback toggle-favorite();
+    callback delete();
+    callback reveal();
+    callback conceal();
+    callback copy-username();
+    callback copy-password();
+    callback copy-totp();
+    callback copy-field(int);
+
+    if !root.has-item: VerticalLayout {
+        padding: 48px;
+        alignment: start;
+        Prose {
+            text: @tr("Pick an item on the left, or add a new one.");
+            font-size: Theme.lead;
+        }
+    }
+
+    if root.has-item: ScrollView {
+        VerticalLayout {
+            padding: 44px;
+            padding-right: 52px;
+            spacing: 20px;
+            alignment: start;
+
+            HorizontalLayout {
+                spacing: 18px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 4px;
+                    PageTitle { text: root.title; }
+                    Text {
+                        text: Messages.kind-name(root.kind);
+                        font-size: Theme.small;
+                        color: Theme.graphite;
+                    }
+                }
+                if root.favorite: VerticalLayout {
+                    alignment: start;
+                    Path {
+                        width: 22px;
+                        height: 22px;
+                        viewbox-width: 24;
+                        viewbox-height: 24;
+                        commands: Sketch.star;
+                        stroke: Theme.ink;
+                        stroke-width: 1.4px;
+                        fill: Theme.marker;
+                        accessible-role: image;
+                        accessible-label: @tr("Favorite");
+                    }
+                }
+            }
+
+            if root.username != "": FieldRow {
+                label: @tr("Username");
+                value: root.username;
+                TextButton {
+                    text: @tr("Copy");
+                    clicked => { root.copy-username(); }
+                }
+            }
+
+            if root.has-password: VerticalLayout {
+                spacing: 4px;
+                FieldRow {
+                    label: @tr("Password");
+                    value: root.revealed-password != "" ? root.revealed-password : "••••••••••••";
+                    mono: root.revealed-password != "";
+                    TextButton {
+                        text: root.revealed-password != "" ? @tr("Hide") : @tr("Show");
+                        clicked => {
+                            if (root.revealed-password != "") { root.conceal(); } else { root.reveal(); }
+                        }
+                    }
+                    TextButton {
+                        text: @tr("Copy");
+                        clicked => { root.copy-password(); }
+                    }
+                }
+                if root.revealed-password != "": Text {
+                    x: 166px;
+                    text: @tr("Hides again in {} s", root.reveal-left);
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                }
+            }
+
+            if root.totp-code != "": FieldRow {
+                label: @tr("One-time code");
+                value: root.totp-code;
+                mono: true;
+                large: true;
+                Text {
+                    text: @tr("{} s", root.totp-left);
+                    font-size: Theme.small;
+                    color: root.totp-left <= 5 ? Theme.seal : Theme.graphite;
+                    vertical-alignment: center;
+                }
+                TextButton {
+                    text: @tr("Copy");
+                    clicked => { root.copy-totp(); }
+                }
+            }
+
+            for url in root.urls: FieldRow {
+                label: @tr("Website");
+                value: url;
+            }
+
+            for field[index] in root.fields: FieldRow {
+                label: field.label;
+                value: field.sensitive ? "••••••••" : field.value;
+                TextButton {
+                    text: @tr("Copy");
+                    clicked => { root.copy-field(index); }
+                }
+            }
+
+            if root.notes != "": VerticalLayout {
+                spacing: 8px;
+                Text {
+                    text: @tr("Notes");
+                    font-size: Theme.body;
+                    color: Theme.graphite;
+                }
+                if root.notes-shown: Text {
+                    text: root.notes;
+                    font-size: Theme.body;
+                    color: Theme.ink;
+                    wrap: word-wrap;
+                }
+                if !root.notes-shown: HorizontalLayout {
+                    alignment: start;
+                    TextButton {
+                        text: @tr("Show notes");
+                        clicked => { root.notes-shown = true; }
+                    }
+                }
+            }
+
+            Rectangle { height: 12px; }
+
+            if !root.confirming-delete: HorizontalLayout {
+                alignment: start;
+                spacing: 22px;
+                InkButton {
+                    text: @tr("Edit");
+                    clicked => { root.edit(); }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    TextButton {
+                        text: root.favorite ? @tr("Remove from favorites") : @tr("Add to favorites");
+                        clicked => { root.toggle-favorite(); }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    TextButton {
+                        text: @tr("Delete");
+                        tint: Theme.seal;
+                        clicked => { root.confirming-delete = true; }
+                    }
+                }
+            }
+            if root.confirming-delete: VerticalLayout {
+                spacing: 12px;
+                Text {
+                    text: @tr("Delete “{}”? This can't be undone.", root.title);
+                    font-size: Theme.body;
+                    color: Theme.seal;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 22px;
+                    InkButton {
+                        text: @tr("Delete");
+                        clicked => { root.delete(); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        TextButton {
+                            text: @tr("Keep it");
+                            clicked => { root.confirming-delete = false; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component EditorPage inherits Rectangle {
+    in property <bool> is-new;
+    in property <int> error-code;
+    in property <string> error-detail;
+    in property <string> password-shown;
+    in-out property <int> kind;
+    in-out property <string> title;
+    in-out property <string> username;
+    in-out property <string> url;
+    in-out property <string> totp;
+    in-out property <string> notes;
+    in-out property <bool> favorite;
+    callback save();
+    callback cancel();
+    callback toggle-show-password();
+    callback generate-password();
+
+    ScrollView {
+        VerticalLayout {
+            padding: 44px;
+            padding-right: 52px;
+            spacing: 18px;
+            alignment: start;
+
+            PageTitle { text: root.is-new ? @tr("New item") : @tr("Edit item"); }
+            Choice {
+                options: [@tr("Login"), @tr("Card"), @tr("Secure note")];
+                selected <=> root.kind;
+            }
+            LineField {
+                label: @tr("Title");
+                text <=> root.title;
+            }
+            if root.kind != 2: LineField {
+                label: root.kind == 1 ? @tr("Name on card") : @tr("Username or email");
+                text <=> root.username;
+            }
+            if root.kind != 2: HorizontalLayout {
+                spacing: 18px;
+                SecretLine {
+                    horizontal-stretch: 1;
+                    field: 4;
+                    label: root.kind == 1 ? @tr("PIN or security code") : @tr("Password");
+                    revealed: root.password-shown;
+                }
+                VerticalLayout {
+                    alignment: end;
+                    TextButton {
+                        text: root.password-shown != "" ? @tr("Hide") : @tr("Show");
+                        clicked => { root.toggle-show-password(); }
+                    }
+                }
+                VerticalLayout {
+                    alignment: end;
+                    TextButton {
+                        text: @tr("Generate");
+                        clicked => { root.generate-password(); }
+                    }
+                }
+            }
+            if root.kind == 0: LineField {
+                label: @tr("Website");
+                placeholder: "https://";
+                text <=> root.url;
+            }
+            if root.kind == 0: LineField {
+                label: @tr("One-time code secret (optional)");
+                placeholder: @tr("otpauth:// link or the key from the website");
+                mono: true;
+                text <=> root.totp;
+            }
+            NotesField {
+                label: @tr("Notes");
+                text <=> root.notes;
+            }
+            CheckLine {
+                text: @tr("Favorite");
+                checked <=> root.favorite;
+            }
+            Text {
+                text: Messages.error(root.error-code, root.error-detail);
+                visible: root.error-code != 0;
+                font-size: Theme.body;
+                color: Theme.seal;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 22px;
+                InkButton {
+                    text: @tr("Save");
+                    clicked => { root.save(); }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    TextButton {
+                        text: @tr("Cancel");
+                        clicked => { root.cancel(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component GeneratorPage inherits Rectangle {
+    in property <string> result;
+    in property <int> bits;
+    in property <bool> editing;
+    in-out property <int> mode;
+    in-out property <int> length;
+    in-out property <int> words;
+    in-out property <bool> lowercase;
+    in-out property <bool> uppercase;
+    in-out property <bool> digits;
+    in-out property <bool> symbols;
+    in-out property <bool> avoid-ambiguous;
+    in-out property <bool> capitalize;
+    in-out property <bool> number;
+    callback regenerate();
+    callback copy();
+    callback use-for-item();
+
+    ScrollView {
+        VerticalLayout {
+            padding: 44px;
+            padding-right: 52px;
+            spacing: 18px;
+            alignment: start;
+
+            PageTitle { text: @tr("Password generator"); }
+            Choice {
+                options: [@tr("Random characters"), @tr("Words")];
+                selected <=> root.mode;
+                changed => { root.regenerate(); }
+            }
+
+            Rectangle {
+                min-height: output.preferred-height + 40px;
+                background: Theme.sheet;
+                RoughBox { variant: 1; }
+                output := Text {
+                    x: 20px;
+                    width: parent.width - 40px;
+                    text: root.result;
+                    font-family: Theme.mono-font;
+                    font-size: Theme.title;
+                    color: Theme.ink;
+                    wrap: word-wrap;
+                }
+            }
+            Prose {
+                text: root.bits >= 100 ? @tr("About {} bits: far beyond what anyone can guess.", root.bits)
+                    : root.bits >= 70 ? @tr("About {} bits: strong.", root.bits)
+                    : @tr("About {} bits: make it longer if the site allows.", root.bits);
+            }
+
+            if root.mode == 0: VerticalLayout {
+                spacing: 8px;
+                Stepper {
+                    label: @tr("Length");
+                    value <=> root.length;
+                    minimum: 8;
+                    maximum: 64;
+                    changed => { root.regenerate(); }
+                }
+                CheckLine {
+                    text: @tr("Lowercase letters");
+                    checked <=> root.lowercase;
+                    toggled => { root.regenerate(); }
+                }
+                CheckLine {
+                    text: @tr("Capital letters");
+                    checked <=> root.uppercase;
+                    toggled => { root.regenerate(); }
+                }
+                CheckLine {
+                    text: @tr("Digits");
+                    checked <=> root.digits;
+                    toggled => { root.regenerate(); }
+                }
+                CheckLine {
+                    text: @tr("Symbols");
+                    checked <=> root.symbols;
+                    toggled => { root.regenerate(); }
+                }
+                CheckLine {
+                    text: @tr("Leave out look-alikes (I, l, 1, O, 0, o)");
+                    checked <=> root.avoid-ambiguous;
+                    toggled => { root.regenerate(); }
+                }
+            }
+            if root.mode == 1: VerticalLayout {
+                spacing: 8px;
+                Stepper {
+                    label: @tr("Words");
+                    value <=> root.words;
+                    minimum: 3;
+                    maximum: 12;
+                    changed => { root.regenerate(); }
+                }
+                CheckLine {
+                    text: @tr("Capitalize each word");
+                    checked <=> root.capitalize;
+                    toggled => { root.regenerate(); }
+                }
+                CheckLine {
+                    text: @tr("Add a digit");
+                    checked <=> root.number;
+                    toggled => { root.regenerate(); }
+                }
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                spacing: 22px;
+                InkButton {
+                    text: @tr("Copy");
+                    clicked => { root.copy(); }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    TextButton {
+                        text: @tr("Generate another");
+                        clicked => { root.regenerate(); }
+                    }
+                }
+                if root.editing: VerticalLayout {
+                    alignment: center;
+                    TextButton {
+                        text: @tr("Use for this item");
+                        clicked => { root.use-for-item(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component SettingsPage inherits Rectangle {
+    in property <int> error-code;
+    in property <string> error-detail;
+    in property <bool> busy;
+    in property <string> vault-path;
+    in property <string> vault-id;
+    in property <string> kit-secret-key;
+    in property <string> kit-recovery-key;
+    in-out property <int> auto-lock-minutes;
+    in-out property <int> clipboard-seconds;
+    callback settings-changed();
+    callback change-password();
+    callback show-kit();
+    callback hide-kit();
+    callback new-recovery-key();
+
+    ScrollView {
+        VerticalLayout {
+            padding: 44px;
+            padding-right: 52px;
+            spacing: 18px;
+            alignment: start;
+
+            PageTitle { text: @tr("Settings"); }
+
+            SectionTitle { text: @tr("Locking"); }
+            Stepper {
+                label: @tr("Lock after");
+                unit: @tr("min");
+                value <=> root.auto-lock-minutes;
+                minimum: 1;
+                maximum: 60;
+                changed => { root.settings-changed(); }
+            }
+            Stepper {
+                label: @tr("Clear copied secrets after");
+                unit: @tr("s");
+                value <=> root.clipboard-seconds;
+                minimum: 5;
+                maximum: 120;
+                changed => { root.settings-changed(); }
+            }
+
+            Rectangle { height: 8px; }
+            SectionTitle { text: @tr("Master password and emergency kit"); }
+            Prose {
+                text: @tr("Confirm your current master password to change it, to see your Secret Key, or to replace your Recovery Key.");
+            }
+            SecretLine {
+                field: 5;
+                label: @tr("Current master password");
+                error: root.error-code == 11;
+            }
+            SecretLine {
+                field: 6;
+                label: @tr("New master password");
+                error: root.error-code == 4 || root.error-code == 5;
+            }
+            SecretLine {
+                field: 7;
+                label: @tr("Type the new one again");
+                error: root.error-code == 4;
+            }
+            Text {
+                text: Messages.error(root.error-code, root.error-detail);
+                visible: root.error-code != 0;
+                font-size: Theme.body;
+                color: Theme.seal;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 22px;
+                InkButton {
+                    text: @tr("Change master password");
+                    busy-text: @tr("Working…");
+                    busy: root.busy;
+                    clicked => { root.change-password(); }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    TextButton {
+                        text: root.kit-secret-key == "" ? @tr("Show Secret Key") : @tr("Hide kit");
+                        clicked => {
+                            if (root.kit-secret-key == "") { root.show-kit(); } else { root.hide-kit(); }
+                        }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    TextButton {
+                        text: @tr("Issue a new Recovery Key");
+                        clicked => { root.new-recovery-key(); }
+                    }
+                }
+            }
+            if root.kit-secret-key != "": KitSlip {
+                vault-id: root.vault-id;
+                secret-key: root.kit-secret-key;
+                recovery-key: root.kit-recovery-key;
+                vault-path: root.vault-path;
+            }
+
+            Rectangle { height: 8px; }
+            SectionTitle { text: @tr("This vault"); }
+            Prose { text: @tr("File: {}", root.vault-path); }
+            Prose { text: @tr("Vault ID: {}", root.vault-id); }
+        }
+    }
+}

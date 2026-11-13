@@ -72,13 +72,23 @@ Rules:
 - ⬜ Printable emergency kit (PDF) — terminal version done
 - **Done when:** a vault can be fully managed from the terminal ✅; import tests use fixtures ✅.
 
-### M4 — Desktop app (Windows first) ⬜
-- Real UI built from the prototype, redesigned with the `frontend-design` guidelines
-  (natural, hand-drawn touches, no generic look)
-- Secure field, reveal, clipboard, capture blocking, auto-lock (from the prototype)
-- Windows Hello quick unlock (TPM-backed key slot), YubiKey (FIDO2 `hmac-secret`) slot
-- Emergency kit (printable PDF)
-- i18n: `en` + `pt-BR`
+### M4 — Desktop app (Windows first) 🚧 (`crates/desktop`, design in [DESIGN.md](DESIGN.md))
+- ✅ `crates/platform`: OS integration shared with the CLI (Secret Key store, device state and
+  rollback, secure clipboard, capture blocking, page-locked secure input buffer)
+- ✅ Visual system: "locksmith's notebook" tokens, hand-drawn strokes generated in Rust
+- ✅ Onboarding (master password with confirmation, passphrase suggestion, emergency kit),
+  unlock (Secret Key typed once per device), recovery with the Recovery Key
+- ✅ Vault: index tabs, search, list, item page (reveal with countdown, copy with auto-clear,
+  live TOTP), editor, favorites, delete with confirmation
+- ✅ Generator (characters / words), settings (auto-lock, clipboard timeout, change master
+  password, show Secret Key, new Recovery Key — all re-verify the master password)
+- ✅ Auto-lock, screen-capture blocking, every UI string through `@tr()`
+- ✅ Headless end-to-end test of the whole app flow (Slint testing backend)
+- ⬜ Visual review and polish (built without screenshots), dark theme, accessibility pass
+- ⬜ Windows Hello quick unlock (TPM-backed key slot), YubiKey (FIDO2 `hmac-secret`) slot
+- ⬜ Emergency kit as a printable PDF
+- ⬜ `pt-BR` translation file
+- ⬜ Custom fields editing, attachments, tags/folders
 - **Done when:** daily use on Windows is possible with a test vault.
 
 ### M5 — Browser extension ⬜

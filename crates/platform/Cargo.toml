@@ -1,0 +1,38 @@
+[package]
+name = "vault-platform"
+version = "0.0.0"
+description = "OS integration shared by the CLI and desktop app: secret store, device state, clipboard, screen capture, secure input"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# This crate is the one place allowed to call OS APIs through `unsafe` (each block documented).
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "warn"
+
+[dependencies]
+vault-core = { path = "../core" }
+anyhow = "1"
+arboard = "3.7"
+dirs = "7"
+keyring = "4"
+raw-window-handle = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+zeroize = "1.9"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Memory",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+tempfile = "3.27"

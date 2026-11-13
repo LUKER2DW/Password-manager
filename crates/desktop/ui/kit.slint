@@ -1,0 +1,98 @@
+import { Theme } from "theme.slint";
+import { RoughBox, Underline } from "widgets.slint";
+
+component KitLine inherits VerticalLayout {
+    in property <string> label;
+    in property <string> value;
+    in property <bool> large: false;
+    spacing: 4px;
+    Text {
+        text: root.label;
+        font-size: Theme.small;
+        color: Theme.graphite;
+    }
+    Text {
+        text: root.value;
+        font-family: Theme.mono-font;
+        font-size: root.large ? Theme.title : Theme.body;
+        color: Theme.ink;
+        wrap: word-wrap;
+    }
+}
+
+// The emergency kit as a paper slip: the only place the handwriting font appears, because it is
+// the one screen meant to end up on paper.
+export component KitSlip inherits Rectangle {
+    in property <string> vault-id;
+    in property <string> secret-key;
+    in property <string> recovery-key;
+    in property <string> vault-path;
+
+    background: Theme.sheet;
+    min-height: layout.preferred-height;
+
+    RoughBox {
+        variant: 2;
+        stroke-width: 1.5px;
+    }
+
+    layout := VerticalLayout {
+        padding: 28px;
+        spacing: 16px;
+
+        Text {
+            text: @tr("Emergency kit");
+            font-size: Theme.title;
+            font-weight: 600;
+            color: Theme.ink;
+        }
+        Text {
+            text: @tr("Keep this on paper, away from your computer.");
+            font-family: Theme.hand-font;
+            font-size: Theme.lead;
+            color: Theme.graphite;
+        }
+
+        KitLine {
+            label: @tr("Secret Key");
+            value: root.secret-key;
+            large: true;
+        }
+        if root.recovery-key != "": KitLine {
+            label: @tr("Recovery Key (opens the vault on its own)");
+            value: root.recovery-key;
+        }
+        KitLine {
+            label: @tr("Vault ID");
+            value: root.vault-id;
+        }
+        VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: @tr("Master password");
+                font-size: Theme.small;
+                color: Theme.graphite;
+            }
+            Rectangle {
+                height: 30px;
+                Text {
+                    x: 0;
+                    text: @tr("write it here, by hand");
+                    font-family: Theme.hand-font;
+                    font-size: Theme.body;
+                    color: Theme.graphite;
+                    opacity: 0.6;
+                }
+            }
+            Underline {
+                stroke: Theme.ink;
+            }
+        }
+        if root.vault-path != "": Text {
+            text: @tr("Vault file: {}", root.vault-path);
+            font-size: Theme.small;
+            color: Theme.graphite;
+            wrap: word-wrap;
+        }
+    }
+}

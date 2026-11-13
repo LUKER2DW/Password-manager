@@ -1,0 +1,57 @@
+// Design tokens. Direction: a locksmith's notebook — cool carbon-copy paper, navy ink,
+// a yellow marker for the one thing that matters on screen, red only for danger.
+
+export global Theme {
+    // Palette
+    out property <color> paper: #E9EDF1;      // window background
+    out property <color> sheet: #F8FAFB;      // raised surfaces (detail page, kit slip)
+    out property <color> ink: #1F2A3D;        // text and strokes
+    out property <color> graphite: #677385;   // secondary text
+    out property <color> rule: #C3CCD6;       // idle underlines and dividers
+    out property <color> marker: #F4D648;     // highlighter: selection and primary actions
+    out property <color> seal: #B3261E;       // danger, errors
+
+    // Type: Bahnschrift (DIN) for the interface, Cascadia Mono only for secrets shown as data,
+    // Ink Free only for handwritten notes on the emergency kit. All ship with Windows 10+.
+    out property <string> ui-font: "Bahnschrift";
+    out property <string> mono-font: "Cascadia Mono";
+    out property <string> hand-font: "Ink Free";
+
+    // Scale (base 14 px, ratio ≈ 1.25)
+    out property <length> small: 12px;
+    out property <length> body: 14px;
+    out property <length> lead: 17px;
+    out property <length> title: 22px;
+    out property <length> headline: 30px;
+    out property <length> display: 46px;
+
+    out property <duration> quick: 140ms;
+    out property <duration> sweep: 220ms;
+}
+
+// Hand-drawn path data, generated in Rust (src/sketch.rs) and set once at startup.
+export global Sketch {
+    in property <string> box-a;        // view box 200 × 48
+    in property <string> box-b;
+    in property <string> box-c;
+    in property <string> marker-a;     // view box 200 × 24
+    in property <string> marker-b;
+    in property <string> marker-c;
+    in property <string> underline-a;  // view box 200 × 8
+    in property <string> underline-b;
+    in property <string> padlock;      // view box 64 × 72
+    in property <string> check;        // view box 24 × 24
+    in property <string> star;         // view box 24 × 24
+    in property <string> plus;         // view box 24 × 24
+}
+
+// Bridge for secure text entry: keystrokes go straight to Rust (locked, zeroized buffers);
+// the UI only ever learns how many characters each field holds.
+export global Secrets {
+    // Field ids: 0 master password, 1 confirmation, 2 Secret Key, 3 Recovery Key,
+    // 4 item password, 5 current password (settings), 6 new password, 7 new password again.
+    in property <[int]> lengths: [0, 0, 0, 0, 0, 0, 0, 0];
+    callback insert(int, string);
+    callback backspace(int);
+    callback clear(int);
+}

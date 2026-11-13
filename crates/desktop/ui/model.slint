@@ -1,0 +1,59 @@
+// Data shapes shared between Rust and the UI, plus every user-facing message.
+// Rust only sends codes; the words live here so they can be translated (@tr).
+
+export enum Screen { onboarding, unlock, recover, vault }
+export enum Panel { detail, editor, generator, settings }
+
+export struct ItemRow {
+    title: string,
+    subtitle: string,
+    kind: int,        // 0 login, 1 card, 2 note, 3 passkey
+    favorite: bool,
+}
+
+export struct DetailField {
+    label: string,
+    value: string,
+    sensitive: bool,
+}
+
+export global Messages {
+    public pure function kind-name(kind: int) -> string {
+        if (kind == 1) { return @tr("Card"); }
+        if (kind == 2) { return @tr("Secure note"); }
+        if (kind == 3) { return @tr("Passkey"); }
+        return @tr("Login");
+    }
+
+    public pure function error(code: int, detail: string) -> string {
+        if (code == 0) { return ""; }
+        if (code == 1) { return @tr("That master password doesn't open this vault. Check Caps Lock and try again."); }
+        if (code == 2) { return @tr("That Secret Key has a typo. Compare it with your emergency kit, group by group."); }
+        if (code == 3) { return @tr("A Secret Key starts with S0- followed by four groups of seven characters."); }
+        if (code == 4) { return @tr("The two passwords are different. Type them again."); }
+        if (code == 5) { return @tr("Use at least 12 characters. A passphrase of random words is easiest."); }
+        if (code == 6) { return @tr("This vault file is older than one this computer has already opened ({}). Someone may have swapped it for an old copy. Restore the newest file before continuing.", detail); }
+        if (code == 7) { return @tr("The vault file couldn't be read or written: {}", detail); }
+        if (code == 8) { return @tr("That Recovery Key doesn't open this vault. It starts with R0- and has nine groups."); }
+        if (code == 9) { return @tr("Give the item a title."); }
+        if (code == 10) { return @tr("The one-time code secret isn't valid. Paste the otpauth:// link or the key shown by the website."); }
+        if (code == 11) { return @tr("The current master password is wrong."); }
+        if (code == 12) { return @tr("The clipboard isn't available right now. Try again."); }
+        return @tr("Something went wrong: {}", detail);
+    }
+
+    public pure function notice(code: int, arg: string) -> string {
+        if (code == 1) { return @tr("Password copied. The clipboard clears in {} seconds.", arg); }
+        if (code == 2) { return @tr("Username copied."); }
+        if (code == 3) { return @tr("Code copied. The clipboard clears in {} seconds.", arg); }
+        if (code == 4) { return @tr("Clipboard cleared."); }
+        if (code == 5) { return @tr("Saved."); }
+        if (code == 6) { return @tr("Deleted {}.", arg); }
+        if (code == 7) { return @tr("Master password changed."); }
+        if (code == 8) { return @tr("New Recovery Key issued. The old one no longer works."); }
+        if (code == 9) { return @tr("Settings saved."); }
+        if (code == 10) { return @tr("Copied. The clipboard clears in {} seconds.", arg); }
+        if (code == 11) { return @tr("Generated password copied. The clipboard clears in {} seconds.", arg); }
+        return "";
+    }
+}

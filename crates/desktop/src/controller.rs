@@ -1,0 +1,1537 @@
+//! Connects the Slint window to the vault: every callback, every background job, every timer.
+//!
+//! Secrets typed by the user live only in `SecretBuffer`s (locked, zeroized). Slow work (Argon2id)
+//! runs on a worker thread; its result comes back to the UI thread through `finish_job`.
+
+use std::{
+    cell::RefCell,
+    path::PathBuf,
+    rc::{Rc, Weak},
+    time::Duration,
+};
+
+use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
+use vault_core::{
+    Error as CoreError, ItemData, ItemId, KdfParams, RecoveryKey, SecretKey, Unlock, Vault,
+    generator::{self, PassphraseOptions, PasswordOptions},
+    storage,
+    totp::Totp,
+};
+use vault_platform::{DeviceState, RollbackStatus, SecretBuffer, clipboard, device, secret_store};
+use zeroize::Zeroizing;
+
+use crate::{
+    ui::{AppWindow, DetailField, ItemRow, Panel, Screen, Secrets},
+    view,
+};
+
+/// Secure field ids (must match `Secrets` in theme.slint).
+mod field {
+    pub const MASTER: usize = 0;
+    pub const CONFIRM: usize = 1;
+    pub const SECRET_KEY: usize = 2;
+    pub const RECOVERY_KEY: usize = 3;
+    pub const ITEM_PASSWORD: usize = 4;
+    pub const CURRENT: usize = 5;
+    pub const NEW: usize = 6;
+    pub const NEW_AGAIN: usize = 7;
+    pub const COUNT: usize = 8;
+}
+
+/// Error codes (texts live in model.slint → Messages.error).
+mod error {
+    pub const NONE: i32 = 0;
+    pub const WRONG_PASSWORD: i32 = 1;
+    pub const SECRET_KEY_TYPO: i32 = 2;
+    pub const SECRET_KEY_FORMAT: i32 = 3;
+    pub const MISMATCH: i32 = 4;
+    pub const TOO_SHORT: i32 = 5;
+    pub const ROLLBACK: i32 = 6;
+    pub const FILE: i32 = 7;
+    pub const RECOVERY_KEY: i32 = 8;
+    pub const TITLE_REQUIRED: i32 = 9;
+    pub const BAD_TOTP: i32 = 10;
+    pub const WRONG_CURRENT: i32 = 11;
+    pub const CLIPBOARD: i32 = 12;
+    pub const OTHER: i32 = 13;
+}
+
+/// Notice codes (texts live in model.slint → Messages.notice).
+mod notice {
+    pub const PASSWORD_COPIED: i32 = 1;
+    pub const USERNAME_COPIED: i32 = 2;
+    pub const CODE_COPIED: i32 = 3;
+    pub const CLIPBOARD_CLEARED: i32 = 4;
+    pub const SAVED: i32 = 5;
+    pub const DELETED: i32 = 6;
+    pub const PASSWORD_CHANGED: i32 = 7;
+    pub const RECOVERY_ISSUED: i32 = 8;
+    pub const FIELD_COPIED: i32 = 10;
+    pub const GENERATED_COPIED: i32 = 11;
+}
+
+const MIN_MASTER_PASSWORD_CHARS: usize = 12;
+const REVEAL_SECONDS: i32 = 15;
+const NOTICE_DURATION: Duration = Duration::from_millis(3500);
+const KDF_MEMORY_KIB: u32 = 256 * 1024;
+const KDF_TARGET: Duration = Duration::from_millis(1000);
+
+/// How slow jobs run: on a worker thread (the app) or inline (headless tests).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Runner {
+    Thread,
+    Inline,
+}
+
+struct Session {
+    vault: Vault,
+    secret_key: SecretKey,
+}
+
+/// Results of background work, sent back to the UI thread.
+enum JobResult {
+    Created {
+        session: Session,
+        recovery_key: RecoveryKey,
+    },
+    Unlocked {
+        session: Session,
+        typed_secret_key: bool,
+    },
+    Recovered {
+        session: Session,
+    },
+    PasswordChanged {
+        session: Session,
+    },
+    KitVerified {
+        session: Session,
+    },
+    RecoveryIssued {
+        session: Session,
+        recovery_key: RecoveryKey,
+    },
+    /// `session` is handed back when the job borrowed an open vault.
+    Failed {
+        code: i32,
+        detail: String,
+        session: Option<Session>,
+    },
+}
+
+struct State {
+    path: PathBuf,
+    runner: Runner,
+    secrets: Vec<SecretBuffer>,
+    session: Option<Session>,
+    /// Onboarding step 2 shows the kit; the vault opens when the user confirms.
+    pending: Option<Session>,
+    summaries: Vec<vault_core::ItemSummary>,
+    visible: Vec<ItemId>,
+    selected: Option<ItemId>,
+    /// `Some(None)` = new item, `Some(Some(id))` = editing `id`.
+    editing: Option<Option<ItemId>>,
+    copied: Option<Zeroizing<String>>,
+    suggestion: Option<Zeroizing<String>>,
+    generated: Option<Zeroizing<String>>,
+    totp: Option<Totp>,
+    settings: device::Settings,
+}
+
+#[derive(Default)]
+struct Timers {
+    reveal: Timer,
+    clipboard: Timer,
+    notice: Timer,
+    auto_lock: Timer,
+    totp: Timer,
+}
+
+pub struct Controller {
+    app: slint::Weak<AppWindow>,
+    state: RefCell<State>,
+    timers: Timers,
+    lengths: Rc<VecModel<i32>>,
+    items: Rc<VecModel<ItemRow>>,
+    this: RefCell<Weak<Controller>>,
+}
+
+thread_local! {
+    /// Lets worker-thread results find the controller once they are back on the UI thread.
+    static CURRENT: RefCell<Weak<Controller>> = const { RefCell::new(Weak::new()) };
+}
+
+impl std::fmt::Debug for Controller {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Controller")
+    }
+}
+
+impl Controller {
+    pub fn install(app: &AppWindow, path: PathBuf, runner: Runner) -> anyhow::Result<Rc<Self>> {
+        let settings = DeviceState::load().map(|s| s.settings).unwrap_or_default();
+        let controller = Rc::new(Self {
+            app: app.as_weak(),
+            state: RefCell::new(State {
+                path,
+                runner,
+                secrets: (0..field::COUNT).map(|_| SecretBuffer::new()).collect(),
+                session: None,
+                pending: None,
+                summaries: Vec::new(),
+                visible: Vec::new(),
+                selected: None,
+                editing: None,
+                copied: None,
+                suggestion: None,
+                generated: None,
+                totp: None,
+                settings,
+            }),
+            timers: Timers::default(),
+            lengths: Rc::new(VecModel::from(vec![0; field::COUNT])),
+            items: Rc::new(VecModel::default()),
+            this: RefCell::new(Weak::new()),
+        });
+        *controller.this.borrow_mut() = Rc::downgrade(&controller);
+        CURRENT.with(|current| *current.borrow_mut() = Rc::downgrade(&controller));
+
+        app.global::<Secrets>()
+            .set_lengths(ModelRc::from(controller.lengths.clone()));
+        app.set_items(ModelRc::from(controller.items.clone()));
+        controller.wire(app);
+        controller.show_start_screen();
+        Ok(controller)
+    }
+
+    fn app(&self) -> AppWindow {
+        self.app
+            .upgrade()
+            .expect("the window outlives the controller")
+    }
+
+    fn weak(&self) -> Weak<Controller> {
+        self.this.borrow().clone()
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Wiring
+    // -----------------------------------------------------------------------------------------
+
+    fn wire(self: &Rc<Self>, app: &AppWindow) {
+        macro_rules! on {
+            ($setter:ident, |$c:ident $(, $arg:ident)*| $body:expr) => {{
+                let weak = Rc::downgrade(self);
+                app.$setter(move |$($arg),*| {
+                    if let Some($c) = weak.upgrade() {
+                        $c.touch_activity();
+                        $body
+                    }
+                });
+            }};
+        }
+
+        let secrets = app.global::<Secrets>();
+        {
+            let weak = Rc::downgrade(self);
+            secrets.on_insert(move |field, text| {
+                if let Some(c) = weak.upgrade() {
+                    c.edit_secret(field, |buffer| {
+                        buffer.push_str(&text);
+                    });
+                }
+            });
+        }
+        {
+            let weak = Rc::downgrade(self);
+            secrets.on_backspace(move |field| {
+                if let Some(c) = weak.upgrade() {
+                    c.edit_secret(field, SecretBuffer::backspace);
+                }
+            });
+        }
+        {
+            let weak = Rc::downgrade(self);
+            secrets.on_clear(move |field| {
+                if let Some(c) = weak.upgrade() {
+                    c.edit_secret(field, SecretBuffer::clear);
+                }
+            });
+        }
+
+        on!(on_create_vault, |c| c.create_vault());
+        on!(on_suggest_passphrase, |c| c.suggest_passphrase());
+        on!(on_use_suggestion, |c| c.use_suggestion());
+        on!(on_finish_onboarding, |c| c.finish_onboarding());
+        on!(on_unlock, |c| c.unlock());
+        on!(on_show_recovery, |c| c.show_screen(Screen::Recover));
+        on!(on_back_to_unlock, |c| c.show_screen(Screen::Unlock));
+        on!(on_recover, |c| c.recover());
+
+        on!(on_search, |c, _text| c.refresh_list());
+        on!(on_select_category, |c, category| c
+            .select_category(category));
+        on!(on_select, |c, index| c.select(index));
+        on!(on_new_item, |c| c.open_editor(None));
+        on!(on_open_generator, |c| c.open_generator());
+        on!(on_open_settings, |c| c.open_settings());
+        on!(on_lock, |c| c.lock());
+
+        on!(on_edit_item, |c| {
+            let selected = c.state.borrow().selected;
+            if let Some(id) = selected {
+                c.open_editor(Some(id));
+            }
+        });
+        on!(on_toggle_favorite, |c| c.toggle_favorite());
+        on!(on_delete_item, |c| c.delete_selected());
+        on!(on_reveal, |c| c.reveal());
+        on!(on_conceal, |c| c.conceal());
+        on!(on_copy_username, |c| c
+            .copy_from_selected(CopyWhat::Username));
+        on!(on_copy_password, |c| c
+            .copy_from_selected(CopyWhat::Password));
+        on!(on_copy_totp, |c| c.copy_from_selected(CopyWhat::Totp));
+        on!(on_copy_field, |c, index| c
+            .copy_from_selected(CopyWhat::Field(index)));
+
+        on!(on_save_item, |c| c.save_item());
+        on!(on_cancel_edit, |c| c.close_editor());
+        on!(on_toggle_show_password, |c| c.toggle_show_password());
+        on!(on_generate_for_item, |c| c.generate_for_item());
+
+        on!(on_regenerate, |c| c.regenerate());
+        on!(on_copy_generated, |c| c.copy_generated());
+        on!(on_use_generated, |c| c.use_generated());
+
+        on!(on_settings_changed, |c| c.save_settings());
+        on!(on_change_password, |c| c.change_password());
+        on!(on_show_kit, |c| c.verify_then(KitAction::Show));
+        on!(on_hide_kit, |c| {
+            let app = c.app();
+            app.set_kit_secret_key(SharedString::new());
+            app.set_kit_recovery_key(SharedString::new());
+        });
+        on!(on_new_recovery_key, |c| c
+            .verify_then(KitAction::NewRecoveryKey));
+    }
+
+    fn edit_secret(&self, field: i32, edit: impl FnOnce(&mut SecretBuffer)) {
+        let Some(index) = usize::try_from(field).ok().filter(|&i| i < field::COUNT) else {
+            return;
+        };
+        let length = {
+            let mut state = self.state.borrow_mut();
+            edit(&mut state.secrets[index]);
+            state.secrets[index].char_count()
+        };
+        self.lengths
+            .set_row_data(index, i32::try_from(length).unwrap_or(i32::MAX));
+        // A shown password in the editor must follow the buffer.
+        if index == field::ITEM_PASSWORD && !self.app().get_editor_password_shown().is_empty() {
+            let text = SharedString::from(self.state.borrow().secrets[index].as_str());
+            self.app().set_editor_password_shown(text);
+        }
+        self.set_error(error::NONE, "");
+        self.touch_activity();
+    }
+
+    fn clear_secret(&self, index: usize) {
+        self.state.borrow_mut().secrets[index].clear();
+        self.lengths.set_row_data(index, 0);
+    }
+
+    fn clear_all_secrets(&self) {
+        for index in 0..field::COUNT {
+            self.clear_secret(index);
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Screens, errors, notices
+    // -----------------------------------------------------------------------------------------
+
+    fn show_start_screen(&self) {
+        let app = self.app();
+        let path = self.state.borrow().path.clone();
+        app.set_vault_path(SharedString::from(path.display().to_string()));
+        match storage::read(&path)
+            .ok()
+            .and_then(|bytes| Vault::inspect(&bytes).ok())
+        {
+            Some(info) => {
+                let known = secret_store::load(&info.id_hex).ok().flatten().is_some();
+                app.set_vault_id(SharedString::from(info.id_hex));
+                app.set_needs_secret_key(!known);
+                self.show_screen(Screen::Unlock);
+            }
+            None if path.exists() => {
+                self.show_screen(Screen::Unlock);
+                self.set_error(error::FILE, "not a vault file");
+            }
+            None => {
+                app.set_onboarding_step(1);
+                self.show_screen(Screen::Onboarding);
+            }
+        }
+    }
+
+    fn show_screen(&self, screen: Screen) {
+        self.set_error(error::NONE, "");
+        self.app().set_screen(screen);
+    }
+
+    fn set_error(&self, code: i32, detail: &str) {
+        let app = self.app();
+        app.set_error_code(code);
+        app.set_error_detail(SharedString::from(detail));
+    }
+
+    fn notify(&self, code: i32, arg: &str) {
+        let app = self.app();
+        app.set_notice_code(code);
+        app.set_notice_arg(SharedString::from(arg));
+        let weak = self.app.clone();
+        self.timers
+            .notice
+            .start(TimerMode::SingleShot, NOTICE_DURATION, move || {
+                if let Some(app) = weak.upgrade() {
+                    app.set_notice_code(0);
+                }
+            });
+    }
+
+    fn core_error(&self, err: &CoreError) -> (i32, String) {
+        match err {
+            CoreError::DecryptionFailed => (error::WRONG_PASSWORD, String::new()),
+            CoreError::KeyChecksumMismatch => (error::SECRET_KEY_TYPO, String::new()),
+            CoreError::InvalidKeyFormat => (error::SECRET_KEY_FORMAT, String::new()),
+            CoreError::InvalidTotp => (error::BAD_TOTP, String::new()),
+            CoreError::Io(io) => (error::FILE, io.to_string()),
+            other => (error::OTHER, other.to_string()),
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Background jobs
+    // -----------------------------------------------------------------------------------------
+
+    fn run_job(&self, job: impl FnOnce() -> JobResult + Send + 'static) {
+        self.app().set_busy(true);
+        self.set_error(error::NONE, "");
+        let runner = self.state.borrow().runner;
+        match runner {
+            Runner::Inline => self.finish_job(job()),
+            Runner::Thread => {
+                std::thread::spawn(move || {
+                    let result = job();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
+                            controller.finish_job(result);
+                        }
+                    });
+                });
+            }
+        }
+    }
+
+    fn finish_job(&self, result: JobResult) {
+        let app = self.app();
+        app.set_busy(false);
+        match result {
+            JobResult::Created {
+                session,
+                recovery_key,
+            } => {
+                self.clear_secret(field::MASTER);
+                self.clear_secret(field::CONFIRM);
+                self.state.borrow_mut().suggestion = None;
+                app.set_suggestion(SharedString::new());
+                app.set_vault_id(SharedString::from(session.vault.id_hex()));
+                app.set_kit_secret_key(SharedString::from(
+                    session.secret_key.to_display_string().as_str(),
+                ));
+                app.set_kit_recovery_key(SharedString::from(
+                    recovery_key.to_display_string().as_str(),
+                ));
+                app.set_recovered(false);
+                app.set_kit_saved(false);
+                app.set_onboarding_step(2);
+                self.state.borrow_mut().pending = Some(session);
+            }
+            JobResult::Recovered { session } => {
+                self.clear_secret(field::MASTER);
+                self.clear_secret(field::CONFIRM);
+                self.clear_secret(field::RECOVERY_KEY);
+                app.set_kit_secret_key(SharedString::from(
+                    session.secret_key.to_display_string().as_str(),
+                ));
+                app.set_kit_recovery_key(SharedString::new());
+                app.set_recovered(true);
+                app.set_kit_saved(false);
+                app.set_onboarding_step(2);
+                self.state.borrow_mut().pending = Some(session);
+                self.show_screen(Screen::Onboarding);
+            }
+            JobResult::Unlocked {
+                session,
+                typed_secret_key,
+            } => {
+                let id = session.vault.id_hex();
+                let revision = session.vault.revision();
+                let mut device_state = DeviceState::load().unwrap_or_default();
+                if let RollbackStatus::Older {
+                    revision,
+                    highest_seen,
+                } = device_state.check_rollback(&id, revision)
+                {
+                    self.set_error(error::ROLLBACK, &format!("{revision} < {highest_seen}"));
+                    return;
+                }
+                device_state.record_revision(&id, revision);
+                let _ = device_state.save();
+                if typed_secret_key {
+                    if let Err(err) = secret_store::store(&id, &session.secret_key) {
+                        self.set_error(error::OTHER, &err.to_string());
+                    }
+                    app.set_needs_secret_key(false);
+                }
+                self.clear_secret(field::MASTER);
+                self.clear_secret(field::SECRET_KEY);
+                self.enter_vault(session);
+            }
+            JobResult::PasswordChanged { session } => {
+                for index in [field::CURRENT, field::NEW, field::NEW_AGAIN] {
+                    self.clear_secret(index);
+                }
+                self.state.borrow_mut().session = Some(session);
+                self.notify(notice::PASSWORD_CHANGED, "");
+            }
+            JobResult::KitVerified { session } => {
+                self.clear_secret(field::CURRENT);
+                app.set_kit_secret_key(SharedString::from(
+                    session.secret_key.to_display_string().as_str(),
+                ));
+                app.set_kit_recovery_key(SharedString::new());
+                self.state.borrow_mut().session = Some(session);
+            }
+            JobResult::RecoveryIssued {
+                session,
+                recovery_key,
+            } => {
+                self.clear_secret(field::CURRENT);
+                app.set_kit_secret_key(SharedString::from(
+                    session.secret_key.to_display_string().as_str(),
+                ));
+                app.set_kit_recovery_key(SharedString::from(
+                    recovery_key.to_display_string().as_str(),
+                ));
+                self.state.borrow_mut().session = Some(session);
+                self.notify(notice::RECOVERY_ISSUED, "");
+            }
+            JobResult::Failed {
+                code,
+                detail,
+                session,
+            } => {
+                if session.is_some() {
+                    self.state.borrow_mut().session = session;
+                }
+                self.set_error(code, &detail);
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Onboarding, unlock, recovery
+    // -----------------------------------------------------------------------------------------
+
+    /// Checks the two new-password fields; returns the password on success.
+    fn new_password_from(&self, first: usize, second: usize) -> Option<Zeroizing<String>> {
+        let state = self.state.borrow();
+        let (a, b) = (&state.secrets[first], &state.secrets[second]);
+        if a.char_count() < MIN_MASTER_PASSWORD_CHARS {
+            drop(state);
+            self.set_error(error::TOO_SHORT, "");
+            return None;
+        }
+        if !a.matches(b) {
+            drop(state);
+            self.set_error(error::MISMATCH, "");
+            return None;
+        }
+        Some(Zeroizing::new(a.as_str().to_owned()))
+    }
+
+    fn create_vault(&self) {
+        let Some(password) = self.new_password_from(field::MASTER, field::CONFIRM) else {
+            return;
+        };
+        let path = self.state.borrow().path.clone();
+        let fast = self.state.borrow().runner == Runner::Inline;
+        self.run_job(move || {
+            let result = (|| -> Result<JobResult, (i32, String)> {
+                let kdf = if fast {
+                    KdfParams::minimum()
+                } else {
+                    KdfParams::calibrate(
+                        KDF_MEMORY_KIB,
+                        KdfParams::default_parallelism(),
+                        KDF_TARGET,
+                    )
+                }
+                .map_err(|e| (error::OTHER, e.to_string()))?;
+                let secret_key =
+                    SecretKey::generate().map_err(|e| (error::OTHER, e.to_string()))?;
+                let recovery_key =
+                    RecoveryKey::generate().map_err(|e| (error::OTHER, e.to_string()))?;
+                let mut vault = Vault::create(&password, &secret_key, Some(&recovery_key), kdf)
+                    .map_err(|e| (error::OTHER, e.to_string()))?;
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| (error::FILE, e.to_string()))?;
+                }
+                let bytes = vault
+                    .to_bytes()
+                    .map_err(|e| (error::OTHER, e.to_string()))?;
+                storage::write_atomic(&path, &bytes).map_err(|e| (error::FILE, e.to_string()))?;
+                secret_store::store(&vault.id_hex(), &secret_key)
+                    .map_err(|e| (error::OTHER, e.to_string()))?;
+                device::record_revision(&vault.id_hex(), vault.revision())
+                    .map_err(|e| (error::FILE, e.to_string()))?;
+                Ok(JobResult::Created {
+                    session: Session { vault, secret_key },
+                    recovery_key,
+                })
+            })();
+            result.unwrap_or_else(|(code, detail)| JobResult::Failed {
+                code,
+                detail,
+                session: None,
+            })
+        });
+    }
+
+    fn suggest_passphrase(&self) {
+        let options = PassphraseOptions {
+            words: 6,
+            separator: "-".into(),
+            ..PassphraseOptions::default()
+        };
+        if let Ok(phrase) = generator::generate_passphrase(&options) {
+            self.app()
+                .set_suggestion(SharedString::from(phrase.as_str()));
+            self.state.borrow_mut().suggestion = Some(phrase);
+        }
+    }
+
+    fn use_suggestion(&self) {
+        let Some(phrase) = self.state.borrow().suggestion.clone() else {
+            return;
+        };
+        for index in [field::MASTER, field::CONFIRM] {
+            self.edit_secret(index as i32, |buffer| {
+                buffer.set(&phrase);
+            });
+        }
+    }
+
+    fn finish_onboarding(&self) {
+        let Some(session) = self.state.borrow_mut().pending.take() else {
+            return;
+        };
+        let app = self.app();
+        app.set_kit_secret_key(SharedString::new());
+        app.set_kit_recovery_key(SharedString::new());
+        app.set_kit_saved(false);
+        app.set_needs_secret_key(false);
+        self.enter_vault(session);
+    }
+
+    fn unlock(&self) {
+        let path = self.state.borrow().path.clone();
+        let bytes = match storage::read(&path) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                let (code, detail) = self.core_error(&err);
+                self.set_error(code, &detail);
+                return;
+            }
+        };
+        let info = match Vault::inspect(&bytes) {
+            Ok(info) => info,
+            Err(err) => {
+                self.set_error(error::FILE, &err.to_string());
+                return;
+            }
+        };
+        let (secret_key, typed) = match secret_store::load(&info.id_hex) {
+            Ok(Some(key)) => (key, false),
+            Ok(None) => {
+                let parsed =
+                    SecretKey::parse(self.state.borrow().secrets[field::SECRET_KEY].as_str());
+                match parsed {
+                    Ok(key) => (key, true),
+                    Err(err) => {
+                        self.app().set_needs_secret_key(true);
+                        let (code, detail) = self.core_error(&err);
+                        self.set_error(code, &detail);
+                        return;
+                    }
+                }
+            }
+            Err(err) => {
+                self.set_error(error::OTHER, &err.to_string());
+                return;
+            }
+        };
+        let password = Zeroizing::new(
+            self.state.borrow().secrets[field::MASTER]
+                .as_str()
+                .to_owned(),
+        );
+        if password.is_empty() {
+            return;
+        }
+        self.run_job(move || {
+            match Vault::open(
+                &bytes,
+                Unlock::Password {
+                    password: &password,
+                    secret_key: &secret_key,
+                },
+            ) {
+                Ok(vault) => JobResult::Unlocked {
+                    session: Session { vault, secret_key },
+                    typed_secret_key: typed,
+                },
+                Err(CoreError::DecryptionFailed) => JobResult::Failed {
+                    code: error::WRONG_PASSWORD,
+                    detail: String::new(),
+                    session: None,
+                },
+                Err(other) => JobResult::Failed {
+                    code: error::OTHER,
+                    detail: other.to_string(),
+                    session: None,
+                },
+            }
+        });
+    }
+
+    fn recover(&self) {
+        let recovery_key =
+            match RecoveryKey::parse(self.state.borrow().secrets[field::RECOVERY_KEY].as_str()) {
+                Ok(key) => key,
+                Err(_) => {
+                    self.set_error(error::RECOVERY_KEY, "");
+                    return;
+                }
+            };
+        let Some(password) = self.new_password_from(field::MASTER, field::CONFIRM) else {
+            return;
+        };
+        let path = self.state.borrow().path.clone();
+        self.run_job(move || {
+            let result = (|| -> Result<JobResult, (i32, String)> {
+                let bytes = storage::read(&path).map_err(|e| (error::FILE, e.to_string()))?;
+                let mut vault =
+                    Vault::open(&bytes, Unlock::Recovery(&recovery_key)).map_err(|e| match e {
+                        CoreError::DecryptionFailed | CoreError::NoMatchingSlot => {
+                            (error::RECOVERY_KEY, String::new())
+                        }
+                        other => (error::OTHER, other.to_string()),
+                    })?;
+                // The old Secret Key may be lost or exposed: always issue a new one.
+                let secret_key =
+                    SecretKey::generate().map_err(|e| (error::OTHER, e.to_string()))?;
+                let kdf = vault.kdf_params().clone();
+                vault
+                    .change_password(&password, &secret_key, &kdf)
+                    .map_err(|e| (error::OTHER, e.to_string()))?;
+                let bytes = vault
+                    .to_bytes()
+                    .map_err(|e| (error::OTHER, e.to_string()))?;
+                storage::write_atomic(&path, &bytes).map_err(|e| (error::FILE, e.to_string()))?;
+                secret_store::store(&vault.id_hex(), &secret_key)
+                    .map_err(|e| (error::OTHER, e.to_string()))?;
+                device::record_revision(&vault.id_hex(), vault.revision())
+                    .map_err(|e| (error::FILE, e.to_string()))?;
+                Ok(JobResult::Recovered {
+                    session: Session { vault, secret_key },
+                })
+            })();
+            result.unwrap_or_else(|(code, detail)| JobResult::Failed {
+                code,
+                detail,
+                session: None,
+            })
+        });
+    }
+
+    fn enter_vault(&self, session: Session) {
+        let app = self.app();
+        app.set_vault_id(SharedString::from(session.vault.id_hex()));
+        {
+            let mut state = self.state.borrow_mut();
+            state.session = Some(session);
+            state.selected = None;
+            state.editing = None;
+        }
+        app.set_search_text(SharedString::new());
+        app.set_category(0);
+        app.set_panel(Panel::Detail);
+        self.refresh_list();
+        self.show_detail();
+        self.show_screen(Screen::Vault);
+        self.restart_auto_lock();
+    }
+
+    fn lock(&self) {
+        for timer in [
+            &self.timers.reveal,
+            &self.timers.auto_lock,
+            &self.timers.totp,
+        ] {
+            timer.stop();
+        }
+        {
+            let mut state = self.state.borrow_mut();
+            state.session = None;
+            state.pending = None;
+            state.summaries.clear();
+            state.visible.clear();
+            state.selected = None;
+            state.editing = None;
+            state.generated = None;
+            state.totp = None;
+        }
+        self.clear_all_secrets();
+        self.items.set_vec(Vec::new());
+        let app = self.app();
+        app.set_selected(-1);
+        app.set_has_selection(false);
+        app.set_revealed_password(SharedString::new());
+        app.set_detail_notes(SharedString::new());
+        app.set_detail_fields(ModelRc::default());
+        app.set_detail_urls(ModelRc::default());
+        app.set_totp_code(SharedString::new());
+        app.set_gen_result(SharedString::new());
+        app.set_editor_password_shown(SharedString::new());
+        app.set_kit_secret_key(SharedString::new());
+        app.set_kit_recovery_key(SharedString::new());
+        app.set_ed_title(SharedString::new());
+        app.set_ed_username(SharedString::new());
+        app.set_ed_url(SharedString::new());
+        app.set_ed_totp(SharedString::new());
+        app.set_ed_notes(SharedString::new());
+        app.set_search_text(SharedString::new());
+        app.set_panel(Panel::Detail);
+        self.show_screen(Screen::Unlock);
+    }
+
+    fn touch_activity(&self) {
+        if self.state.borrow().session.is_some() {
+            self.restart_auto_lock();
+        }
+    }
+
+    fn restart_auto_lock(&self) {
+        let minutes = u64::from(self.state.borrow().settings.auto_lock_minutes.max(1));
+        let weak = self.weak();
+        self.timers.auto_lock.start(
+            TimerMode::SingleShot,
+            Duration::from_secs(minutes * 60),
+            move || {
+                if let Some(controller) = weak.upgrade() {
+                    controller.lock();
+                }
+            },
+        );
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // List and detail
+    // -----------------------------------------------------------------------------------------
+
+    fn refresh_list(&self) {
+        let app = self.app();
+        let category = app.get_category();
+        let query = app.get_search_text().to_string();
+        let summaries = match self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .map(|s| s.vault.summaries())
+        {
+            Some(Ok(summaries)) => summaries,
+            Some(Err(err)) => {
+                let (code, detail) = self.core_error(&err);
+                self.set_error(code, &detail);
+                return;
+            }
+            None => return,
+        };
+        let (visible, counts) = view::filter(&summaries, category, &query);
+        let rows: Vec<ItemRow> = visible
+            .iter()
+            .map(|&i| {
+                let s = &summaries[i];
+                ItemRow {
+                    title: SharedString::from(s.title.as_str()),
+                    subtitle: SharedString::from(view::subtitle(s)),
+                    kind: view::kind_to_int(s.kind),
+                    favorite: s.favorite,
+                }
+            })
+            .collect();
+        let ids: Vec<ItemId> = visible.iter().map(|&i| summaries[i].id).collect();
+        let selected_index = {
+            let mut state = self.state.borrow_mut();
+            state.visible = ids;
+            state.summaries = summaries;
+            state
+                .selected
+                .and_then(|id| state.visible.iter().position(|v| *v == id))
+                .map_or(-1, |i| i as i32)
+        };
+        self.items.set_vec(rows);
+        app.set_counts(ModelRc::from(Rc::new(VecModel::from(counts.to_vec()))));
+        app.set_total_items(self.state.borrow().summaries.len() as i32);
+        app.set_selected(selected_index);
+    }
+
+    fn select_category(&self, category: i32) {
+        let app = self.app();
+        app.set_category(category);
+        if matches!(app.get_panel(), Panel::Generator | Panel::Settings) {
+            app.set_panel(Panel::Detail);
+        }
+        self.refresh_list();
+    }
+
+    fn select(&self, index: i32) {
+        let id = usize::try_from(index)
+            .ok()
+            .and_then(|i| self.state.borrow().visible.get(i).copied());
+        let Some(id) = id else { return };
+        {
+            let mut state = self.state.borrow_mut();
+            state.selected = Some(id);
+            state.editing = None;
+        }
+        let app = self.app();
+        app.set_selected(index);
+        app.set_editing_item(false);
+        app.set_panel(Panel::Detail);
+        self.show_detail();
+    }
+
+    fn selected_item(&self) -> Option<(ItemId, ItemData)> {
+        let state = self.state.borrow();
+        let id = state.selected?;
+        let item = state.session.as_ref()?.vault.get_item(&id).ok()?;
+        Some((id, item))
+    }
+
+    fn show_detail(&self) {
+        let app = self.app();
+        self.conceal();
+        self.timers.totp.stop();
+        app.set_notes_shown(false);
+        app.set_confirming_delete(false);
+        let Some((_, item)) = self.selected_item() else {
+            app.set_has_selection(false);
+            self.state.borrow_mut().totp = None;
+            return;
+        };
+        app.set_has_selection(true);
+        app.set_detail_title(SharedString::from(item.title.as_str()));
+        app.set_detail_kind(view::kind_to_int(item.kind));
+        app.set_detail_favorite(item.favorite);
+        app.set_detail_username(SharedString::from(item.username.as_str()));
+        app.set_detail_has_password(!item.password.is_empty());
+        app.set_detail_notes(SharedString::from(item.notes.as_str()));
+        let urls: Vec<SharedString> = item
+            .urls
+            .iter()
+            .map(|u| SharedString::from(u.as_str()))
+            .collect();
+        app.set_detail_urls(ModelRc::from(Rc::new(VecModel::from(urls))));
+        let fields: Vec<DetailField> = item
+            .custom_fields
+            .iter()
+            .map(|f| DetailField {
+                label: SharedString::from(f.name.as_str()),
+                value: if f.sensitive {
+                    SharedString::new()
+                } else {
+                    SharedString::from(f.value.as_str())
+                },
+                sensitive: f.sensitive,
+            })
+            .collect();
+        app.set_detail_fields(ModelRc::from(Rc::new(VecModel::from(fields))));
+
+        let totp = (!item.totp.is_empty())
+            .then(|| Totp::parse(&item.totp).ok())
+            .flatten();
+        self.state.borrow_mut().totp = totp;
+        self.tick_totp();
+        if self.state.borrow().totp.is_some() {
+            let weak = self.weak();
+            self.timers
+                .totp
+                .start(TimerMode::Repeated, Duration::from_secs(1), move || {
+                    if let Some(controller) = weak.upgrade() {
+                        controller.tick_totp();
+                    }
+                });
+        }
+    }
+
+    fn tick_totp(&self) {
+        let app = self.app();
+        match self.state.borrow().totp.as_ref().map(Totp::now) {
+            Some((code, left)) => {
+                app.set_totp_code(SharedString::from(view::group_code(&code)));
+                app.set_totp_left(i32::try_from(left).unwrap_or(0));
+            }
+            None => app.set_totp_code(SharedString::new()),
+        }
+    }
+
+    fn reveal(&self) {
+        let Some((_, item)) = self.selected_item() else {
+            return;
+        };
+        let app = self.app();
+        app.set_revealed_password(SharedString::from(item.password.as_str()));
+        app.set_reveal_left(REVEAL_SECONDS);
+        let weak = self.weak();
+        self.timers
+            .reveal
+            .start(TimerMode::Repeated, Duration::from_secs(1), move || {
+                if let Some(controller) = weak.upgrade() {
+                    let app = controller.app();
+                    let left = app.get_reveal_left() - 1;
+                    if left <= 0 {
+                        controller.conceal();
+                    } else {
+                        app.set_reveal_left(left);
+                    }
+                }
+            });
+    }
+
+    fn conceal(&self) {
+        self.timers.reveal.stop();
+        let app = self.app();
+        app.set_revealed_password(SharedString::new());
+        app.set_reveal_left(0);
+    }
+
+    fn copy_from_selected(&self, what: CopyWhat) {
+        let Some((_, item)) = self.selected_item() else {
+            return;
+        };
+        let (value, secret, code) = match what {
+            CopyWhat::Username => (
+                Zeroizing::new(item.username.clone()),
+                false,
+                notice::USERNAME_COPIED,
+            ),
+            CopyWhat::Password => (
+                Zeroizing::new(item.password.clone()),
+                true,
+                notice::PASSWORD_COPIED,
+            ),
+            CopyWhat::Totp => match self.state.borrow().totp.as_ref() {
+                Some(totp) => (totp.now().0, true, notice::CODE_COPIED),
+                None => return,
+            },
+            CopyWhat::Field(index) => {
+                let Some(field) = usize::try_from(index)
+                    .ok()
+                    .and_then(|i| item.custom_fields.get(i))
+                else {
+                    return;
+                };
+                (
+                    Zeroizing::new(field.value.clone()),
+                    field.sensitive,
+                    notice::FIELD_COPIED,
+                )
+            }
+        };
+        self.copy(value, secret, code);
+    }
+
+    fn copy(&self, value: Zeroizing<String>, secret: bool, code: i32) {
+        let result = if secret {
+            clipboard::copy_secret(&value)
+        } else {
+            clipboard::copy_plain(&value)
+        };
+        if result.is_err() {
+            self.set_error(error::CLIPBOARD, "");
+            return;
+        }
+        let seconds = self.state.borrow().settings.clipboard_clear_seconds.max(5);
+        self.notify(code, &seconds.to_string());
+        if !secret {
+            return;
+        }
+        self.state.borrow_mut().copied = Some(value);
+        let weak = self.weak();
+        self.timers.clipboard.start(
+            TimerMode::SingleShot,
+            Duration::from_secs(u64::from(seconds)),
+            move || {
+                if let Some(controller) = weak.upgrade() {
+                    let copied = controller.state.borrow_mut().copied.take();
+                    if copied.is_some_and(|value| clipboard::clear_if(&value)) {
+                        controller.notify(notice::CLIPBOARD_CLEARED, "");
+                    }
+                }
+            },
+        );
+    }
+
+    fn save_vault(&self) -> bool {
+        let result = {
+            let mut state = self.state.borrow_mut();
+            let path = state.path.clone();
+            match state.session.as_mut() {
+                Some(session) => session
+                    .vault
+                    .to_bytes()
+                    .and_then(|bytes| storage::write_atomic(&path, &bytes))
+                    .map(|()| (session.vault.id_hex(), session.vault.revision())),
+                None => return false,
+            }
+        };
+        match result {
+            Ok((id, revision)) => {
+                let _ = device::record_revision(&id, revision);
+                true
+            }
+            Err(err) => {
+                let (code, detail) = self.core_error(&err);
+                self.set_error(code, &detail);
+                false
+            }
+        }
+    }
+
+    fn toggle_favorite(&self) {
+        let Some((id, mut item)) = self.selected_item() else {
+            return;
+        };
+        item.favorite = !item.favorite;
+        item.touch();
+        let updated = self
+            .state
+            .borrow_mut()
+            .session
+            .as_mut()
+            .map(|s| s.vault.update_item(&id, &item));
+        if matches!(updated, Some(Ok(()))) && self.save_vault() {
+            self.refresh_list();
+            self.show_detail();
+        }
+    }
+
+    fn delete_selected(&self) {
+        let Some((id, item)) = self.selected_item() else {
+            return;
+        };
+        let removed = self
+            .state
+            .borrow_mut()
+            .session
+            .as_mut()
+            .map(|s| s.vault.remove_item(&id));
+        if matches!(removed, Some(Ok(()))) && self.save_vault() {
+            self.state.borrow_mut().selected = None;
+            self.refresh_list();
+            self.show_detail();
+            self.notify(notice::DELETED, &item.title);
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Editor
+    // -----------------------------------------------------------------------------------------
+
+    fn open_editor(&self, id: Option<ItemId>) {
+        let app = self.app();
+        self.conceal();
+        let item = id.and_then(|id| {
+            self.state
+                .borrow()
+                .session
+                .as_ref()?
+                .vault
+                .get_item(&id)
+                .ok()
+        });
+        let item = item.unwrap_or_else(|| ItemData::new(vault_core::ItemKind::Login, ""));
+        app.set_ed_kind(view::kind_to_int(item.kind).min(2));
+        app.set_ed_title(SharedString::from(item.title.as_str()));
+        app.set_ed_username(SharedString::from(item.username.as_str()));
+        app.set_ed_url(SharedString::from(
+            item.urls.first().map(String::as_str).unwrap_or_default(),
+        ));
+        app.set_ed_totp(SharedString::from(item.totp.as_str()));
+        app.set_ed_notes(SharedString::from(item.notes.as_str()));
+        app.set_ed_favorite(item.favorite);
+        app.set_editor_password_shown(SharedString::new());
+        self.edit_secret(field::ITEM_PASSWORD as i32, |buffer| {
+            buffer.set(&item.password);
+        });
+        self.state.borrow_mut().editing = Some(id);
+        app.set_editor_is_new(id.is_none());
+        app.set_editing_item(true);
+        app.set_panel(Panel::Editor);
+        self.set_error(error::NONE, "");
+    }
+
+    fn close_editor(&self) {
+        self.state.borrow_mut().editing = None;
+        self.clear_secret(field::ITEM_PASSWORD);
+        let app = self.app();
+        app.set_editor_password_shown(SharedString::new());
+        app.set_editing_item(false);
+        app.set_panel(Panel::Detail);
+        self.show_detail();
+    }
+
+    fn save_item(&self) {
+        let app = self.app();
+        let title = app.get_ed_title().trim().to_owned();
+        if title.is_empty() {
+            self.set_error(error::TITLE_REQUIRED, "");
+            return;
+        }
+        let totp = app.get_ed_totp().trim().to_owned();
+        if !totp.is_empty() && Totp::parse(&totp).is_err() {
+            self.set_error(error::BAD_TOTP, "");
+            return;
+        }
+        let Some(editing) = self.state.borrow().editing else {
+            return;
+        };
+        let existing = editing.and_then(|id| {
+            self.state
+                .borrow()
+                .session
+                .as_ref()?
+                .vault
+                .get_item(&id)
+                .ok()
+        });
+        let kind = view::int_to_kind(app.get_ed_kind());
+        let mut item = existing.unwrap_or_else(|| ItemData::new(kind, &title));
+        item.kind = kind;
+        item.title = title;
+        item.username = app.get_ed_username().to_string();
+        item.password = self.state.borrow().secrets[field::ITEM_PASSWORD]
+            .as_str()
+            .to_owned();
+        let url = app.get_ed_url().trim().to_owned();
+        match (url.is_empty(), item.urls.is_empty()) {
+            (true, _) => item.urls.clear(),
+            (false, true) => item.urls.push(url),
+            (false, false) => item.urls[0] = url,
+        }
+        item.totp = totp;
+        item.notes = app.get_ed_notes().to_string();
+        item.favorite = app.get_ed_favorite();
+        item.touch();
+
+        let result = {
+            let mut state = self.state.borrow_mut();
+            let Some(session) = state.session.as_mut() else {
+                return;
+            };
+            match editing {
+                Some(id) => session.vault.update_item(&id, &item).map(|()| id),
+                None => session.vault.add_item(&item),
+            }
+        };
+        match result {
+            Ok(id) => {
+                if self.save_vault() {
+                    self.state.borrow_mut().selected = Some(id);
+                    self.close_editor();
+                    self.refresh_list();
+                    self.show_detail();
+                    self.notify(notice::SAVED, "");
+                }
+            }
+            Err(err) => {
+                let (code, detail) = self.core_error(&err);
+                self.set_error(code, &detail);
+            }
+        }
+    }
+
+    fn toggle_show_password(&self) {
+        let app = self.app();
+        if app.get_editor_password_shown().is_empty() {
+            let text =
+                SharedString::from(self.state.borrow().secrets[field::ITEM_PASSWORD].as_str());
+            app.set_editor_password_shown(text);
+        } else {
+            app.set_editor_password_shown(SharedString::new());
+        }
+    }
+
+    fn generate_for_item(&self) {
+        if let Some(password) = self.generate() {
+            self.edit_secret(field::ITEM_PASSWORD as i32, |buffer| {
+                buffer.set(&password);
+            });
+            self.app()
+                .set_editor_password_shown(SharedString::from(password.as_str()));
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Generator
+    // -----------------------------------------------------------------------------------------
+
+    fn generate(&self) -> Option<Zeroizing<String>> {
+        let app = self.app();
+        let result = if app.get_gen_mode() == 1 {
+            let options = PassphraseOptions {
+                words: usize::try_from(app.get_gen_words()).unwrap_or(6),
+                separator: "-".into(),
+                capitalize: app.get_gen_capitalize(),
+                include_number: app.get_gen_number(),
+            };
+            app.set_gen_bits(options.entropy_bits() as i32);
+            generator::generate_passphrase(&options)
+        } else {
+            let mut options = PasswordOptions {
+                length: usize::try_from(app.get_gen_length()).unwrap_or(24),
+                lowercase: app.get_gen_lowercase(),
+                uppercase: app.get_gen_uppercase(),
+                digits: app.get_gen_digits(),
+                symbols: app.get_gen_symbols(),
+                avoid_ambiguous: app.get_gen_avoid_ambiguous(),
+            };
+            if !(options.lowercase || options.uppercase || options.digits || options.symbols) {
+                options.lowercase = true;
+                app.set_gen_lowercase(true);
+            }
+            app.set_gen_bits(options.entropy_bits() as i32);
+            generator::generate_password(&options)
+        };
+        result.ok()
+    }
+
+    fn regenerate(&self) {
+        if let Some(value) = self.generate() {
+            self.app()
+                .set_gen_result(SharedString::from(value.as_str()));
+            self.state.borrow_mut().generated = Some(value);
+        }
+    }
+
+    fn open_generator(&self) {
+        let app = self.app();
+        app.set_panel(Panel::Generator);
+        if app.get_gen_result().is_empty() {
+            self.regenerate();
+        }
+    }
+
+    fn copy_generated(&self) {
+        let value = self.state.borrow().generated.clone();
+        if let Some(value) = value {
+            self.copy(value, true, notice::GENERATED_COPIED);
+        }
+    }
+
+    fn use_generated(&self) {
+        let value = self.state.borrow().generated.clone();
+        let editing = self.state.borrow().editing.is_some();
+        if let (Some(value), true) = (value, editing) {
+            self.edit_secret(field::ITEM_PASSWORD as i32, |buffer| {
+                buffer.set(&value);
+            });
+            let app = self.app();
+            app.set_editor_password_shown(SharedString::from(value.as_str()));
+            app.set_panel(Panel::Editor);
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Settings
+    // -----------------------------------------------------------------------------------------
+
+    fn open_settings(&self) {
+        let app = self.app();
+        let settings = self.state.borrow().settings.clone();
+        app.set_auto_lock_minutes(settings.auto_lock_minutes as i32);
+        app.set_clipboard_seconds(settings.clipboard_clear_seconds as i32);
+        app.set_kit_secret_key(SharedString::new());
+        app.set_kit_recovery_key(SharedString::new());
+        app.set_panel(Panel::Settings);
+        self.set_error(error::NONE, "");
+    }
+
+    fn save_settings(&self) {
+        let app = self.app();
+        let settings = device::Settings {
+            auto_lock_minutes: u32::try_from(app.get_auto_lock_minutes().clamp(1, 60)).unwrap_or(5),
+            clipboard_clear_seconds: u32::try_from(app.get_clipboard_seconds().clamp(5, 120))
+                .unwrap_or(20),
+        };
+        let mut device_state = DeviceState::load().unwrap_or_default();
+        device_state.settings = settings.clone();
+        if let Err(err) = device_state.save() {
+            self.set_error(error::FILE, &err.to_string());
+        }
+        self.state.borrow_mut().settings = settings;
+        self.restart_auto_lock();
+    }
+
+    fn change_password(&self) {
+        let Some(new_password) = self.new_password_from(field::NEW, field::NEW_AGAIN) else {
+            return;
+        };
+        let current = Zeroizing::new(
+            self.state.borrow().secrets[field::CURRENT]
+                .as_str()
+                .to_owned(),
+        );
+        let Some(session) = self.state.borrow_mut().session.take() else {
+            return;
+        };
+        let path = self.state.borrow().path.clone();
+        self.run_job(move || {
+            let mut session = session;
+            if let Err(failure) = verify_current(&path, &current, &session) {
+                return JobResult::Failed {
+                    code: failure.0,
+                    detail: failure.1,
+                    session: Some(session),
+                };
+            }
+            let kdf = session.vault.kdf_params().clone();
+            let outcome = session
+                .vault
+                .change_password(&new_password, &session.secret_key, &kdf)
+                .and_then(|()| session.vault.to_bytes())
+                .and_then(|bytes| storage::write_atomic(&path, &bytes));
+            match outcome {
+                Ok(()) => {
+                    let _ =
+                        device::record_revision(&session.vault.id_hex(), session.vault.revision());
+                    JobResult::PasswordChanged { session }
+                }
+                Err(err) => JobResult::Failed {
+                    code: error::FILE,
+                    detail: err.to_string(),
+                    session: Some(session),
+                },
+            }
+        });
+    }
+
+    fn verify_then(&self, action: KitAction) {
+        let current = Zeroizing::new(
+            self.state.borrow().secrets[field::CURRENT]
+                .as_str()
+                .to_owned(),
+        );
+        if current.is_empty() {
+            self.set_error(error::WRONG_CURRENT, "");
+            return;
+        }
+        let Some(session) = self.state.borrow_mut().session.take() else {
+            return;
+        };
+        let path = self.state.borrow().path.clone();
+        self.run_job(move || {
+            let mut session = session;
+            if let Err(failure) = verify_current(&path, &current, &session) {
+                return JobResult::Failed {
+                    code: failure.0,
+                    detail: failure.1,
+                    session: Some(session),
+                };
+            }
+            match action {
+                KitAction::Show => JobResult::KitVerified { session },
+                KitAction::NewRecoveryKey => {
+                    let outcome = RecoveryKey::generate().and_then(|key| {
+                        session.vault.set_recovery_key(Some(&key))?;
+                        let bytes = session.vault.to_bytes()?;
+                        storage::write_atomic(&path, &bytes)?;
+                        Ok(key)
+                    });
+                    match outcome {
+                        Ok(recovery_key) => {
+                            let _ = device::record_revision(
+                                &session.vault.id_hex(),
+                                session.vault.revision(),
+                            );
+                            JobResult::RecoveryIssued {
+                                session,
+                                recovery_key,
+                            }
+                        }
+                        Err(err) => JobResult::Failed {
+                            code: error::FILE,
+                            detail: err.to_string(),
+                            session: Some(session),
+                        },
+                    }
+                }
+            }
+        });
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CopyWhat {
+    Username,
+    Password,
+    Totp,
+    Field(i32),
+}
+
+#[derive(Debug, Clone, Copy)]
+enum KitAction {
+    Show,
+    NewRecoveryKey,
+}
+
+/// Re-derives the key from the file with the typed password: proof the person at the keyboard
+/// knows the master password, not just that the vault happens to be open.
+fn verify_current(
+    path: &std::path::Path,
+    password: &str,
+    session: &Session,
+) -> Result<(), (i32, String)> {
+    if password.is_empty() {
+        return Err((error::WRONG_CURRENT, String::new()));
+    }
+    let bytes = storage::read(path).map_err(|e| (error::FILE, e.to_string()))?;
+    Vault::open(
+        &bytes,
+        Unlock::Password {
+            password,
+            secret_key: &session.secret_key,
+        },
+    )
+    .map(drop)
+    .map_err(|e| match e {
+        CoreError::DecryptionFailed => (error::WRONG_CURRENT, String::new()),
+        other => (error::OTHER, other.to_string()),
+    })
+}
