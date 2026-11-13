@@ -17,9 +17,18 @@ missing_debug_implementations = "warn"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 
-# Argon2 is unbearably slow without optimizations, even in debug builds and tests.
+# `cargo run` (debug) should still feel like the real app: every dependency (Slint's renderer,
+# the crypto crates, Argon2) is optimized; only our own crates keep fast-compiling debug code.
+[profile.dev.package."*"]
+opt-level = 2
+
 [profile.dev.package.argon2]
 opt-level = 3
 
 [profile.dev.package.blake2]
 opt-level = 3
+
+# Release: one codegen unit and thin LTO make a smaller, faster binary.
+[profile.release]
+codegen-units = 1
+lto = "thin"
