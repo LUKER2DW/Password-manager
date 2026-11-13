@@ -219,6 +219,62 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_total_items(), 1);
     assert_eq!(app.get_notice_code(), 6);
 
+    // ---- folders and recovery codes ----
+    app.invoke_create_folder("Google".into());
+    assert_eq!(app.get_folders().row_count(), 1);
+    assert_eq!(app.get_category(), 100, "the new folder opens");
+    assert_eq!(app.get_folder_name(), "Google");
+    assert_eq!(app.get_items().row_count(), 0);
+    // A new item made while browsing a folder starts in it.
+    app.invoke_new_item();
+    assert_eq!(app.get_ed_folder(), 1);
+    app.set_ed_title("Gmail".into());
+    app.set_ed_recovery_codes("1. aaaa-1111\n2. bbbb-2222\n3. cccc-3333".into());
+    app.invoke_save_item();
+    assert_eq!(app.get_items().row_count(), 1);
+    assert_eq!(app.get_folders().row_data(0).unwrap().count, 1);
+    assert_eq!(app.get_detail_folder(), "Google");
+    assert_eq!(app.get_detail_codes_total(), 3);
+    assert_eq!(
+        app.get_detail_codes().row_count(),
+        0,
+        "codes hidden until asked"
+    );
+    app.invoke_show_codes();
+    assert_eq!(
+        app.get_detail_codes().row_data(0).unwrap().code,
+        "aaaa-1111"
+    );
+    app.invoke_copy_code(0);
+    assert_eq!(app.get_notice_code(), 18);
+    app.invoke_toggle_code_used(0);
+    assert_eq!(app.get_detail_codes_left(), 2);
+    assert!(
+        app.get_detail_codes().row_data(0).unwrap().used,
+        "still shown, marked"
+    );
+    // Editing keeps the used mark for codes that stay.
+    app.invoke_edit_item();
+    assert!(app.get_ed_recovery_codes().contains("aaaa-1111"));
+    app.set_ed_recovery_codes("aaaa-1111\nbbbb-2222\ndddd-4444".into());
+    app.invoke_save_item();
+    assert_eq!(
+        (app.get_detail_codes_total(), app.get_detail_codes_left()),
+        (3, 2)
+    );
+    app.invoke_rename_folder("Google accounts".into());
+    assert_eq!(app.get_folder_name(), "Google accounts");
+    app.invoke_delete_folder();
+    assert_eq!(app.get_folders().row_count(), 0);
+    assert_eq!(app.get_category(), 0);
+    assert_eq!(app.get_total_items(), 2, "the folder's item stays");
+    let gmail = (0..app.get_items().row_count())
+        .find(|&i| app.get_items().row_data(i).unwrap().title == "Gmail")
+        .unwrap();
+    app.invoke_select(gmail as i32);
+    assert_eq!(app.get_detail_folder(), "");
+    app.invoke_delete_item();
+
     // ---- generator ----
     app.invoke_open_generator();
     assert_eq!(app.get_panel(), Panel::Generator);

@@ -272,15 +272,138 @@ export component LineField inherits VerticalLayout {
     }
 }
 
+// Pick one of a few options (e.g. a folder): looks like a field, opens a list below it.
+export component Dropdown inherits VerticalLayout {
+    in property <string> label;
+    in property <[string]> options;
+    // Shown for an empty option (e.g. "No folder").
+    in property <string> empty-text;
+    in-out property <int> selected;
+    callback changed(int);
+
+    spacing: 6px;
+    forward-focus: focus;
+
+    if root.label != "": FieldLabel { text: root.label; }
+    well := Well {
+        height: Theme.control-height;
+        focused: focus.has-focus;
+        accessible-role: combobox;
+        accessible-label: root.label;
+        accessible-value: root.options[root.selected] != "" ? root.options[root.selected] : root.empty-text;
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 8px;
+            Text {
+                text: root.options[root.selected] != "" ? root.options[root.selected] : root.empty-text;
+                font-size: Theme.body;
+                color: root.options[root.selected] != "" ? Theme.ink : Theme.graphite;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            Path {
+                width: 10px;
+                height: 6px;
+                y: (parent.height - self.height) / 2;
+                viewbox-width: 10;
+                viewbox-height: 6;
+                commands: "M1 1 L5 5 L9 1";
+                stroke: Theme.graphite;
+                stroke-width: 1.4px;
+                fill: transparent;
+            }
+        }
+        TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => {
+                focus.focus();
+                list.show();
+            }
+        }
+        focus := FocusScope {
+            key-pressed(event) => {
+                if (event.text == Key.DownArrow) {
+                    root.selected = Math.min(root.options.length - 1, root.selected + 1);
+                    root.changed(root.selected);
+                    return accept;
+                }
+                if (event.text == Key.UpArrow) {
+                    root.selected = Math.max(0, root.selected - 1);
+                    root.changed(root.selected);
+                    return accept;
+                }
+                if (event.text == " " || event.text == Key.Return) {
+                    list.show();
+                    return accept;
+                }
+                reject
+            }
+        }
+        list := PopupWindow {
+            y: well.height + 4px;
+            width: well.width;
+            close-policy: close-on-click;
+            Rectangle {
+                background: Theme.sheet;
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.rule;
+                drop-shadow-blur: 16px;
+                drop-shadow-color: #00000055;
+                VerticalLayout {
+                    padding: 4px;
+                    for option[index] in root.options: Rectangle {
+                        height: 32px;
+                        border-radius: Theme.radius - 2px;
+                        background: option-touch.has-hover ? Theme.hover : index == root.selected ? Theme.selected : transparent;
+                        Text {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            text: option != "" ? option : root.empty-text;
+                            font-size: Theme.body;
+                            font-weight: index == root.selected ? 600 : 400;
+                            color: Theme.ink;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        option-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => {
+                                root.selected = index;
+                                root.changed(index);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component NotesField inherits VerticalLayout {
     in property <string> label;
     in property <string> hint;
+    in property <string> placeholder;
+    in property <length> field-height: 84px;
+    in property <bool> mono: false;
     in-out property <string> text;
     spacing: 6px;
     FieldLabel { text: root.label; hint: root.hint; }
     Well {
-        height: 84px;
+        height: root.field-height;
         focused: input.has-focus;
+        if root.text == "" && root.placeholder != "": Text {
+            x: 12px;
+            y: 9px;
+            width: parent.width - 24px;
+            text: root.placeholder;
+            font-size: Theme.body;
+            font-family: root.mono ? Theme.mono-font : Theme.ui-font;
+            color: Theme.faint;
+            wrap: word-wrap;
+        }
         input := TextInput {
             x: 12px;
             y: 9px;
@@ -288,6 +411,7 @@ export component NotesField inherits VerticalLayout {
             height: parent.height - 18px;
             text <=> root.text;
             font-size: Theme.body;
+            font-family: root.mono ? Theme.mono-font : Theme.ui-font;
             color: Theme.ink;
             single-line: false;
             wrap: word-wrap;

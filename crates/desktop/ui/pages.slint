@@ -2,8 +2,8 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { DetailField, Messages } from "model.slint";
-import { Button, QuietButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider } from "widgets.slint";
+import { DetailField, CodeRow, Messages } from "model.slint";
+import { Button, QuietButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip } from "kit.slint";
 
 component PageTitle inherits Text {
@@ -108,6 +108,11 @@ export component DetailPage inherits Rectangle {
     in property <[string]> urls;
     in property <string> notes;
     in property <[DetailField]> fields;
+    in property <string> folder;
+    in property <int> codes-total;
+    in property <int> codes-left;
+    // Filled only while the codes are shown.
+    in property <[CodeRow]> codes;
     in-out property <bool> notes-shown;
     in-out property <bool> confirming-delete;
     callback edit();
@@ -119,6 +124,10 @@ export component DetailPage inherits Rectangle {
     callback copy-password();
     callback copy-totp();
     callback copy-field(int);
+    callback show-codes();
+    callback hide-codes();
+    callback copy-code(int);
+    callback toggle-code-used(int);
 
     if !root.has-item: VerticalLayout {
         padding: 48px;
@@ -155,7 +164,9 @@ export component DetailPage inherits Rectangle {
                     alignment: center;
                     PageTitle { text: root.title; }
                     Text {
-                        text: Messages.kind-name(root.kind);
+                        text: root.folder != ""
+                            ? @tr("{} · in {}", Messages.kind-name(root.kind), root.folder)
+                            : Messages.kind-name(root.kind);
                         font-size: Theme.small;
                         color: Theme.graphite;
                     }
@@ -251,6 +262,70 @@ export component DetailPage inherits Rectangle {
                 }
             }
 
+            if root.codes-total > 0: FieldRow {
+                label: @tr("Recovery codes");
+                value: root.codes-left == 0
+                    ? @tr("All {} used — get new ones from the site", root.codes-total)
+                    : @tr("{} of {} left", root.codes-left, root.codes-total);
+                QuietButton {
+                    text: root.codes.length > 0 ? @tr("Hide") : @tr("Show");
+                    clicked => {
+                        if (root.codes.length > 0) { root.hide-codes(); } else { root.show-codes(); }
+                    }
+                }
+            }
+            if root.codes.length > 0: VerticalLayout {
+                padding-top: 6px;
+                padding-bottom: 10px;
+                spacing: 2px;
+                for code[index] in root.codes: Rectangle {
+                    height: 36px;
+                    border-radius: Theme.radius;
+                    background: code-touch.has-hover ? Theme.hover : transparent;
+                    code-touch := TouchArea { }
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 4px;
+                        spacing: 10px;
+                        Text {
+                            width: 26px;
+                            text: index + 1;
+                            font-size: Theme.small;
+                            color: Theme.faint;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            code-text := Text {
+                                x: 0;
+                                text: code.code;
+                                font-family: Theme.mono-font;
+                                font-size: Theme.body;
+                                color: code.used ? Theme.faint : Theme.ink;
+                                vertical-alignment: center;
+                            }
+                            // Spent codes are struck through.
+                            if code.used: Rectangle {
+                                x: 0;
+                                y: parent.height / 2;
+                                width: code-text.preferred-width;
+                                height: 1px;
+                                background: Theme.faint;
+                            }
+                        }
+                        QuietButton {
+                            text: code.used ? @tr("Mark unused") : @tr("Mark used");
+                            tint: Theme.graphite;
+                            clicked => { root.toggle-code-used(index); }
+                        }
+                        if !code.used: QuietButton {
+                            text: @tr("Copy");
+                            clicked => { root.copy-code(index); }
+                        }
+                    }
+                }
+            }
+
             if root.notes != "": VerticalLayout {
                 padding-top: 14px;
                 spacing: 8px;
@@ -333,6 +408,10 @@ export component EditorPage inherits Rectangle {
     in-out property <string> totp;
     in-out property <string> notes;
     in-out property <bool> favorite;
+    // "No folder" first, then every folder; `folder` indexes this list.
+    in property <[string]> folder-options;
+    in-out property <int> folder;
+    in-out property <string> recovery-codes;
     callback save();
     callback cancel();
     callback toggle-show-password();
@@ -356,11 +435,22 @@ export component EditorPage inherits Rectangle {
                     selected <=> root.kind;
                 }
             }
-            LineField {
-                label: @tr("Title");
-                placeholder: root.kind == 1 ? @tr("Visa ending 4242") : root.kind == 2 ? @tr("Home Wi-Fi") : @tr("GitHub");
-                text <=> root.title;
-                error: root.error-code == 9;
+            HorizontalLayout {
+                spacing: 16px;
+                LineField {
+                    horizontal-stretch: 2;
+                    label: @tr("Title");
+                    placeholder: root.kind == 1 ? @tr("Visa ending 4242") : root.kind == 2 ? @tr("Home Wi-Fi") : @tr("GitHub");
+                    text <=> root.title;
+                    error: root.error-code == 9;
+                }
+                Dropdown {
+                    horizontal-stretch: 1;
+                    label: @tr("Folder");
+                    empty-text: @tr("No folder");
+                    options: root.folder-options;
+                    selected <=> root.folder;
+                }
             }
             if root.kind != 2: HorizontalLayout {
                 spacing: 16px;
@@ -412,6 +502,14 @@ export component EditorPage inherits Rectangle {
                     error: root.error-code == 10;
                     text <=> root.totp;
                 }
+            }
+            if root.kind == 0: NotesField {
+                label: @tr("Recovery codes");
+                hint: @tr("The single-use backup codes a site gives you when you turn on two-step sign-in (also called backup codes). They get you in if you lose your phone. Paste them all, one per line; numbering is removed. On the item page you can copy one and mark it as used.");
+                placeholder: @tr("One per line, as the site shows them");
+                mono: true;
+                field-height: 96px;
+                text <=> root.recovery-codes;
             }
             NotesField {
                 label: @tr("Notes");

@@ -170,8 +170,10 @@ fn add_item(
     totp: &str,
     notes: &str,
     favorite: bool,
+    folder: i32,
 ) {
     app.invoke_new_item();
+    app.set_ed_folder(folder);
     app.set_ed_kind(kind);
     app.set_ed_title(title.into());
     app.set_ed_username(username.into());
@@ -265,6 +267,9 @@ fn main() {
     );
     app.invoke_finish_onboarding();
     camera.shot("vault-empty", "Empty vault");
+    app.invoke_create_folder("Email".into());
+    app.invoke_create_folder("Games".into());
+    app.invoke_select_category(0);
 
     // ---- fake data ----
     add_item(
@@ -277,6 +282,7 @@ fn main() {
         "JBSWY3DPEHPK3PXP",
         "Recovery codes are in the safe.",
         true,
+        0,
     );
     add_item(
         &app,
@@ -288,6 +294,7 @@ fn main() {
         "",
         "",
         true,
+        1,
     );
     add_item(
         &app,
@@ -299,6 +306,7 @@ fn main() {
         "",
         "",
         false,
+        0,
     );
     add_item(
         &app,
@@ -310,6 +318,7 @@ fn main() {
         "",
         "",
         false,
+        2,
     );
     add_item(
         &app,
@@ -321,6 +330,7 @@ fn main() {
         "",
         "",
         false,
+        0,
     );
     add_item(
         &app,
@@ -332,6 +342,7 @@ fn main() {
         "",
         "Expires 12/29",
         false,
+        0,
     );
     add_item(
         &app,
@@ -343,6 +354,7 @@ fn main() {
         "",
         "Network DEMO-5G\nPassword on the router label.",
         false,
+        0,
     );
 
     select_title(&app, "GitHub");
@@ -371,6 +383,28 @@ fn main() {
     app.set_confirming_delete(true);
     camera.shot("vault-delete-confirm", "Delete confirmation");
     app.set_confirming_delete(false);
+
+    // Recovery codes on GitHub: one already used.
+    select_title(&app, "GitHub");
+    app.invoke_edit_item();
+    app.set_ed_recovery_codes(
+        "1. 7f3a2-9c1d4\n2. b84e0-26fa1\n3. 0d9c7-e5b32\n4. 5a61f-c0e98\n5. e2b7d-418c6\n6. 9f04a-73d2b".into(),
+    );
+    app.invoke_save_item();
+    app.invoke_show_codes();
+    app.invoke_toggle_code_used(0);
+    camera.shot(
+        "vault-codes",
+        "Recovery codes: shown on request, copy one, mark it used",
+    );
+    app.invoke_hide_codes();
+
+    app.invoke_select_category(101);
+    camera.shot(
+        "vault-folder",
+        "Browsing a folder (rename and delete at the top)",
+    );
+    app.invoke_select_category(0);
 
     select_title(&app, "Home Wi-Fi");
     camera.shot("vault-note", "A secure note");

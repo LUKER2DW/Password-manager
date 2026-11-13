@@ -2,7 +2,7 @@
 
 import { ListView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { ItemRow, Panel, Messages } from "model.slint";
+import { ItemRow, FolderRow, Panel, Messages } from "model.slint";
 import { Button, QuietButton, LineField, MarkStroke, ItemIcon } from "widgets.slint";
 
 component IndexTab inherits Rectangle {
@@ -125,8 +125,10 @@ component ListRow inherits Rectangle {
 export component VaultIndex inherits Rectangle {
     in property <int> category;
     in property <[int]> counts;
+    in property <[FolderRow]> folders;
     in property <Panel> panel;
     callback select-category(int);
+    callback create-folder(string);
     callback open-generator();
     callback open-settings();
     callback open-kit();
@@ -134,6 +136,8 @@ export component VaultIndex inherits Rectangle {
 
     background: Theme.panel;
     property <bool> browsing: root.panel != Panel.generator && root.panel != Panel.settings && root.panel != Panel.kit;
+    property <bool> adding-folder;
+    property <string> new-folder-name;
 
     VerticalLayout {
         padding: 18px;
@@ -147,12 +151,105 @@ export component VaultIndex inherits Rectangle {
             color: Theme.ink;
         }
         Rectangle { height: 18px; }
-        IndexTab { text: @tr("All items"); count: root.counts[0]; active: root.category == 0 && root.browsing; clicked => { root.select-category(0); } }
-        IndexTab { text: @tr("Favorites"); count: root.counts[1]; active: root.category == 1 && root.browsing; clicked => { root.select-category(1); } }
-        IndexTab { text: @tr("Logins"); count: root.counts[2]; active: root.category == 2 && root.browsing; clicked => { root.select-category(2); } }
-        IndexTab { text: @tr("Cards"); count: root.counts[3]; active: root.category == 3 && root.browsing; clicked => { root.select-category(3); } }
-        IndexTab { text: @tr("Secure notes"); count: root.counts[4]; active: root.category == 4 && root.browsing; clicked => { root.select-category(4); } }
-        Rectangle { vertical-stretch: 1; }
+        // Categories and folders scroll together when there are many folders.
+        Flickable {
+            vertical-stretch: 1;
+            viewport-height: tabs.preferred-height;
+            tabs := VerticalLayout {
+                spacing: 2px;
+                alignment: start;
+                IndexTab { text: @tr("All items"); count: root.counts[0]; active: root.category == 0 && root.browsing; clicked => { root.select-category(0); } }
+                IndexTab { text: @tr("Favorites"); count: root.counts[1]; active: root.category == 1 && root.browsing; clicked => { root.select-category(1); } }
+                IndexTab { text: @tr("Logins"); count: root.counts[2]; active: root.category == 2 && root.browsing; clicked => { root.select-category(2); } }
+                IndexTab { text: @tr("Cards"); count: root.counts[3]; active: root.category == 3 && root.browsing; clicked => { root.select-category(3); } }
+                IndexTab { text: @tr("Secure notes"); count: root.counts[4]; active: root.category == 4 && root.browsing; clicked => { root.select-category(4); } }
+
+                Rectangle { height: 16px; }
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 4px;
+                    height: 26px;
+                    Text {
+                        text: @tr("Folders");
+                        font-size: Theme.small;
+                        font-weight: 600;
+                        color: Theme.faint;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    add := Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        border-radius: Theme.radius;
+                        background: add-touch.has-hover ? Theme.hover : transparent;
+                        accessible-role: button;
+                        accessible-label: @tr("New folder");
+                        Text {
+                            text: "+";
+                            font-size: Theme.lead;
+                            color: Theme.graphite;
+                        }
+                        add-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => {
+                                root.new-folder-name = "";
+                                root.adding-folder = true;
+                            }
+                        }
+                    }
+                }
+                for folder[index] in root.folders: IndexTab {
+                    text: folder.name;
+                    count: folder.count;
+                    active: root.category == 100 + index && root.browsing;
+                    clicked => { root.select-category(100 + index); }
+                }
+                if root.folders.length == 0 && !root.adding-folder: HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    Text {
+                        text: @tr("Group items, e.g. all your Google accounts. Click + to add one.");
+                        font-size: Theme.small;
+                        color: Theme.faint;
+                        wrap: word-wrap;
+                    }
+                }
+                if root.adding-folder: VerticalLayout {
+                    padding-top: 4px;
+                    spacing: 6px;
+                    name-field := LineField {
+                        placeholder: @tr("Folder name");
+                        text <=> root.new-folder-name;
+                        accepted => {
+                            if (root.new-folder-name != "") {
+                                root.create-folder(root.new-folder-name);
+                            }
+                            root.adding-folder = false;
+                        }
+                        init => { self.focus(); }
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 4px;
+                        QuietButton {
+                            text: @tr("Add");
+                            clicked => {
+                                if (root.new-folder-name != "") {
+                                    root.create-folder(root.new-folder-name);
+                                }
+                                root.adding-folder = false;
+                            }
+                        }
+                        QuietButton {
+                            text: @tr("Cancel");
+                            tint: Theme.graphite;
+                            clicked => { root.adding-folder = false; }
+                        }
+                    }
+                }
+            }
+        }
+        Rectangle { height: 12px; }
         IndexTab { text: @tr("Password generator"); active: root.panel == Panel.generator; clicked => { root.open-generator(); } }
         IndexTab { text: @tr("Emergency kit"); active: root.panel == Panel.kit; clicked => { root.open-kit(); } }
         IndexTab { text: @tr("Settings"); active: root.panel == Panel.settings; clicked => { root.open-settings(); } }
@@ -165,10 +262,22 @@ export component ItemList inherits Rectangle {
     in property <[ItemRow]> items;
     in property <int> selected;
     in property <int> total;
+    // Name of the folder being browsed, or "" when browsing a category.
+    in property <string> folder-name;
     in-out property <string> search-text;
     callback search(string);
     callback select(int);
     callback new-item();
+    callback rename-folder(string);
+    callback delete-folder();
+
+    property <bool> renaming;
+    property <string> rename-text;
+    property <bool> confirming-delete;
+    changed folder-name => {
+        root.renaming = false;
+        root.confirming-delete = false;
+    }
 
     background: Theme.panel;
 
@@ -191,14 +300,91 @@ export component ItemList inherits Rectangle {
                 clicked => { root.new-item(); }
             }
         }
+        // Folder header: its name, rename and delete.
+        if root.folder-name != "": VerticalLayout {
+            padding-left: 22px;
+            padding-right: 20px;
+            spacing: 8px;
+            if !root.renaming && !root.confirming-delete: HorizontalLayout {
+                spacing: 4px;
+                Text {
+                    text: root.folder-name;
+                    font-size: Theme.lead;
+                    font-weight: 600;
+                    color: Theme.ink;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                QuietButton {
+                    text: @tr("Rename");
+                    tint: Theme.graphite;
+                    clicked => {
+                        root.rename-text = root.folder-name;
+                        root.renaming = true;
+                    }
+                }
+                QuietButton {
+                    text: @tr("Delete");
+                    tint: Theme.graphite;
+                    clicked => { root.confirming-delete = true; }
+                }
+            }
+            if root.renaming: HorizontalLayout {
+                spacing: 6px;
+                LineField {
+                    horizontal-stretch: 1;
+                    text <=> root.rename-text;
+                    accepted => {
+                        root.rename-folder(root.rename-text);
+                        root.renaming = false;
+                    }
+                    init => { self.focus(); }
+                }
+                QuietButton {
+                    text: @tr("Save");
+                    clicked => {
+                        root.rename-folder(root.rename-text);
+                        root.renaming = false;
+                    }
+                }
+            }
+            if root.confirming-delete: VerticalLayout {
+                spacing: 6px;
+                Text {
+                    text: @tr("Delete the folder “{}”? Its items stay in your vault, just without a folder.", root.folder-name);
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 6px;
+                    Button {
+                        text: @tr("Delete folder");
+                        danger: true;
+                        clicked => {
+                            root.confirming-delete = false;
+                            root.delete-folder();
+                        }
+                    }
+                    QuietButton {
+                        text: @tr("Cancel");
+                        clicked => { root.confirming-delete = false; }
+                    }
+                }
+            }
+        }
         if root.items.length == 0: VerticalLayout {
             padding-left: 22px;
             padding-right: 22px;
             alignment: start;
             Text {
                 text: root.total == 0
-                    ? @tr("Nothing here yet. Add your first login with New item. Coming from another password manager? Run the vault import command in a terminal.")
-                    : @tr("Nothing matches “{}”.", root.search-text);
+                    ? @tr("Nothing here yet. Add your first login with New item, or bring everything over from another password manager in Settings → Import.")
+                    : root.search-text != "" ? @tr("Nothing matches “{}”.", root.search-text)
+                    : root.folder-name != "" ? @tr("This folder is empty. Choose it in an item's Folder box to file the item here.")
+                    : @tr("Nothing here yet.");
                 font-size: Theme.body;
                 color: Theme.graphite;
                 wrap: word-wrap;

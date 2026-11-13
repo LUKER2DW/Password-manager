@@ -17,8 +17,8 @@ use slint::{
     TimerMode, VecModel,
 };
 use vault_core::{
-    Error as CoreError, ItemData, ItemId, ItemKind, KdfParams, RecoveryKey, SecretKey, Unlock,
-    Vault,
+    Error as CoreError, FolderId, ItemData, ItemId, ItemKind, KdfParams, RecoveryCode, RecoveryKey,
+    SecretKey, Unlock, Vault,
     generator::{self, PassphraseOptions, PasswordOptions},
     storage,
     totp::Totp,
@@ -33,7 +33,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     favicon::{self, IconCache},
-    ui::{AppWindow, DetailField, ItemRow, Panel, Screen, Secrets, Theme},
+    ui::{AppWindow, CodeRow, DetailField, FolderRow, ItemRow, Panel, Screen, Secrets, Theme},
     view,
 };
 
@@ -99,9 +99,12 @@ mod notice {
     pub const PASSWORD_CHANGED_HELLO_OFF: i32 = 15;
     pub const KIT_OPENED: i32 = 16;
     pub const KIT_SAVED: i32 = 17;
+    pub const RECOVERY_CODE_COPIED: i32 = 18;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
+/// Index categories at or above this value browse a folder (100 = the first folder).
+const FOLDER_CATEGORY: i32 = 100;
 const REVEAL_SECONDS: i32 = 15;
 const NOTICE_DURATION: Duration = Duration::from_millis(3500);
 const KDF_MEMORY_KIB: u32 = 256 * 1024;
@@ -176,6 +179,8 @@ struct State {
     suggestion: Option<Zeroizing<String>>,
     generated: Option<Zeroizing<String>>,
     totp: Option<Totp>,
+    /// The item whose recovery codes are on screen.
+    codes_shown: Option<ItemId>,
     settings: device::Settings,
     /// Website icons for this vault (decrypted cache) and the images built from them.
     icons: IconCache,
@@ -267,6 +272,7 @@ impl Controller {
                 suggestion: None,
                 generated: None,
                 totp: None,
+                codes_shown: None,
                 settings,
                 icons: IconCache::default(),
                 icon_images: HashMap::new(),
@@ -377,6 +383,14 @@ impl Controller {
             }
         });
         on!(on_toggle_favorite, |c| c.toggle_favorite());
+        on!(on_create_folder, |c, name| c.create_folder(&name));
+        on!(on_rename_folder, |c, name| c.rename_folder(&name));
+        on!(on_delete_folder, |c| c.delete_folder());
+        on!(on_show_codes, |c| c.show_codes());
+        on!(on_hide_codes, |c| c.hide_codes());
+        on!(on_copy_code, |c, index| c
+            .copy_from_selected(CopyWhat::RecoveryCode(index)));
+        on!(on_toggle_code_used, |c, index| c.toggle_code_used(index));
         on!(on_delete_item, |c| c.delete_selected());
         on!(on_reveal, |c| c.reveal());
         on!(on_conceal, |c| c.conceal());
@@ -1106,6 +1120,10 @@ impl Controller {
         app.set_ed_url(SharedString::new());
         app.set_ed_totp(SharedString::new());
         app.set_ed_notes(SharedString::new());
+        app.set_ed_recovery_codes(SharedString::new());
+        app.set_detail_codes(ModelRc::default());
+        app.set_folders(ModelRc::default());
+        app.set_folder_name(SharedString::new());
         app.set_search_text(SharedString::new());
         app.set_panel(Panel::Detail);
         self.show_screen(Screen::Unlock);
@@ -1163,7 +1181,53 @@ impl Controller {
             }
         }
         let summaries = std::mem::take(&mut self.state.borrow_mut().summaries);
-        let (visible, counts) = view::filter(&summaries, category, &query);
+
+        // Folders: the index shows each with its count; category 100 + n browses folder n.
+        let folders: Vec<(FolderId, String)> = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .map(|s| {
+                s.vault
+                    .folders()
+                    .iter()
+                    .map(|f| (f.id, f.name.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut category = category;
+        let mut browsing = None;
+        if category >= FOLDER_CATEGORY {
+            match usize::try_from(category - FOLDER_CATEGORY)
+                .ok()
+                .and_then(|i| folders.get(i))
+            {
+                Some((id, name)) => browsing = Some((*id, name.clone())),
+                None => {
+                    category = 0;
+                    app.set_category(0);
+                }
+            }
+        }
+        let folder_rows: Vec<FolderRow> = folders
+            .iter()
+            .map(|(id, name)| FolderRow {
+                name: SharedString::from(name.as_str()),
+                count: i32::try_from(summaries.iter().filter(|s| s.folder == Some(*id)).count())
+                    .unwrap_or(0),
+            })
+            .collect();
+        app.set_folders(ModelRc::from(Rc::new(VecModel::from(folder_rows))));
+        app.set_folder_name(SharedString::from(
+            browsing
+                .as_ref()
+                .map(|(_, name)| name.as_str())
+                .unwrap_or_default(),
+        ));
+
+        let (visible, counts) =
+            view::filter(&summaries, category, browsing.map(|(id, _)| id), &query);
         let rows: Vec<ItemRow> = visible
             .iter()
             .map(|&i| {
@@ -1239,9 +1303,11 @@ impl Controller {
         self.timers.totp.stop();
         app.set_notes_shown(false);
         app.set_confirming_delete(false);
-        let Some((_, item)) = self.selected_item() else {
+        let Some((id, item)) = self.selected_item() else {
             app.set_has_selection(false);
             self.state.borrow_mut().totp = None;
+            self.state.borrow_mut().codes_shown = None;
+            app.set_detail_codes(ModelRc::default());
             return;
         };
         app.set_has_selection(true);
@@ -1272,6 +1338,19 @@ impl Controller {
             })
             .collect();
         app.set_detail_fields(ModelRc::from(Rc::new(VecModel::from(fields))));
+        app.set_detail_folder(SharedString::from(
+            item.folder
+                .and_then(|folder| self.folder_name(&folder))
+                .unwrap_or_default(),
+        ));
+        app.set_detail_codes_total(i32::try_from(item.recovery_codes.len()).unwrap_or(0));
+        app.set_detail_codes_left(i32::try_from(item.recovery_codes_left()).unwrap_or(0));
+        if self.state.borrow().codes_shown == Some(id) {
+            self.fill_codes(&item);
+        } else {
+            self.state.borrow_mut().codes_shown = None;
+            app.set_detail_codes(ModelRc::default());
+        }
 
         let totp = (!item.totp.is_empty())
             .then(|| Totp::parse(&item.totp).ok())
@@ -1361,6 +1440,19 @@ impl Controller {
                     Zeroizing::new(field.value.clone()),
                     field.sensitive,
                     notice::FIELD_COPIED,
+                )
+            }
+            CopyWhat::RecoveryCode(index) => {
+                let Some(code) = usize::try_from(index)
+                    .ok()
+                    .and_then(|i| item.recovery_codes.get(i))
+                else {
+                    return;
+                };
+                (
+                    Zeroizing::new(code.code.clone()),
+                    true,
+                    notice::RECOVERY_CODE_COPIED,
                 )
             }
         };
@@ -1462,6 +1554,138 @@ impl Controller {
     }
 
     // -----------------------------------------------------------------------------------------
+    // Folders
+    // -----------------------------------------------------------------------------------------
+
+    fn folder_name(&self, id: &FolderId) -> Option<String> {
+        let state = self.state.borrow();
+        let vault = &state.session.as_ref()?.vault;
+        vault
+            .folders()
+            .iter()
+            .find(|f| f.id == *id)
+            .map(|f| f.name.clone())
+    }
+
+    /// The folder being browsed in the index, if any.
+    fn browsed_folder(&self) -> Option<FolderId> {
+        let index = usize::try_from(self.app().get_category() - FOLDER_CATEGORY).ok()?;
+        let state = self.state.borrow();
+        state
+            .session
+            .as_ref()?
+            .vault
+            .folders()
+            .get(index)
+            .map(|f| f.id)
+    }
+
+    fn create_folder(&self, name: &str) {
+        let created = self.state.borrow_mut().session.as_mut().map(|s| {
+            s.vault
+                .add_folder(name)
+                .map(|_| s.vault.folders().len() - 1)
+        });
+        match created {
+            Some(Ok(index)) if self.save_vault() => {
+                // Open the new folder right away.
+                self.select_category(FOLDER_CATEGORY + i32::try_from(index).unwrap_or(0));
+            }
+            Some(Err(err)) => {
+                let (code, detail) = self.core_error(&err);
+                self.set_error(code, &detail);
+            }
+            _ => {}
+        }
+    }
+
+    fn rename_folder(&self, name: &str) {
+        let Some(id) = self.browsed_folder() else {
+            return;
+        };
+        let renamed = self
+            .state
+            .borrow_mut()
+            .session
+            .as_mut()
+            .map(|s| s.vault.rename_folder(&id, name));
+        if matches!(renamed, Some(Ok(()))) && self.save_vault() {
+            self.refresh_list();
+            self.show_detail();
+        }
+    }
+
+    fn delete_folder(&self) {
+        let Some(id) = self.browsed_folder() else {
+            return;
+        };
+        let removed = self
+            .state
+            .borrow_mut()
+            .session
+            .as_mut()
+            .map(|s| s.vault.remove_folder(&id));
+        if matches!(removed, Some(Ok(()))) && self.save_vault() {
+            self.app().set_category(0);
+            self.refresh_list();
+            self.show_detail();
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Recovery codes
+    // -----------------------------------------------------------------------------------------
+
+    fn fill_codes(&self, item: &ItemData) {
+        let rows: Vec<CodeRow> = item
+            .recovery_codes
+            .iter()
+            .map(|c| CodeRow {
+                code: SharedString::from(c.code.as_str()),
+                used: c.used,
+            })
+            .collect();
+        self.app()
+            .set_detail_codes(ModelRc::from(Rc::new(VecModel::from(rows))));
+    }
+
+    fn show_codes(&self) {
+        let Some((id, item)) = self.selected_item() else {
+            return;
+        };
+        self.state.borrow_mut().codes_shown = Some(id);
+        self.fill_codes(&item);
+    }
+
+    fn hide_codes(&self) {
+        self.state.borrow_mut().codes_shown = None;
+        self.app().set_detail_codes(ModelRc::default());
+    }
+
+    fn toggle_code_used(&self, index: i32) {
+        let Some((id, mut item)) = self.selected_item() else {
+            return;
+        };
+        let Some(code) = usize::try_from(index)
+            .ok()
+            .and_then(|i| item.recovery_codes.get_mut(i))
+        else {
+            return;
+        };
+        code.used = !code.used;
+        item.touch();
+        let updated = self
+            .state
+            .borrow_mut()
+            .session
+            .as_mut()
+            .map(|s| s.vault.update_item(&id, &item));
+        if matches!(updated, Some(Ok(()))) && self.save_vault() {
+            self.show_detail();
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
     // Editor
     // -----------------------------------------------------------------------------------------
 
@@ -1487,6 +1711,43 @@ impl Controller {
         app.set_ed_totp(SharedString::from(item.totp.as_str()));
         app.set_ed_notes(SharedString::from(item.notes.as_str()));
         app.set_ed_favorite(item.favorite);
+        // Folder picker: "" (shown as "No folder") first, then every folder. A new item
+        // starts in the folder being browsed.
+        let folders: Vec<(FolderId, String)> = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .map(|s| {
+                s.vault
+                    .folders()
+                    .iter()
+                    .map(|f| (f.id, f.name.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut options = vec![SharedString::new()];
+        options.extend(
+            folders
+                .iter()
+                .map(|(_, name)| SharedString::from(name.as_str())),
+        );
+        app.set_ed_folder_options(ModelRc::from(Rc::new(VecModel::from(options))));
+        let current = if id.is_some() {
+            item.folder
+        } else {
+            self.browsed_folder()
+        };
+        let folder_index = current
+            .and_then(|folder| folders.iter().position(|(f, _)| *f == folder))
+            .map_or(0, |i| i + 1);
+        app.set_ed_folder(i32::try_from(folder_index).unwrap_or(0));
+        let codes: Vec<&str> = item
+            .recovery_codes
+            .iter()
+            .map(|c| c.code.as_str())
+            .collect();
+        app.set_ed_recovery_codes(SharedString::from(codes.join("\n")));
         app.set_editor_password_shown(SharedString::new());
         self.edit_secret(field::ITEM_PASSWORD as i32, |buffer| {
             buffer.set(&item.password);
@@ -1503,6 +1764,7 @@ impl Controller {
         self.clear_secret(field::ITEM_PASSWORD);
         let app = self.app();
         app.set_editor_password_shown(SharedString::new());
+        app.set_ed_recovery_codes(SharedString::new());
         app.set_editing_item(false);
         app.set_panel(Panel::Detail);
         self.show_detail();
@@ -1549,6 +1811,21 @@ impl Controller {
         item.totp = totp;
         item.notes = app.get_ed_notes().to_string();
         item.favorite = app.get_ed_favorite();
+        item.folder = usize::try_from(app.get_ed_folder() - 1).ok().and_then(|i| {
+            let state = self.state.borrow();
+            state.session.as_ref()?.vault.folders().get(i).map(|f| f.id)
+        });
+        if kind == ItemKind::Login {
+            // Codes kept from before stay marked as used.
+            let mut codes = RecoveryCode::parse_list(&app.get_ed_recovery_codes());
+            for code in &mut codes {
+                code.used = item
+                    .recovery_codes
+                    .iter()
+                    .any(|old| old.used && old.code == code.code);
+            }
+            item.recovery_codes = codes;
+        }
         item.touch();
 
         let result = {
@@ -2083,6 +2360,7 @@ enum CopyWhat {
     Password,
     Totp,
     Field(i32),
+    RecoveryCode(i32),
 }
 
 #[derive(Debug, Clone, Copy)]

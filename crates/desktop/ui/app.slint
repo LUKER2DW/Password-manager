@@ -1,10 +1,10 @@
 import { Theme, Sketch, Secrets } from "theme.slint";
-import { Screen, Panel, ItemRow, DetailField, Messages } from "model.slint";
+import { Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, Messages } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage } from "pages.slint";
 
-export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, Messages }
+export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, Messages }
 
 // Confirmation messages ("Copied", "Saved"): bottom-right, out of the way of page content.
 component Notice inherits Rectangle {
@@ -78,6 +78,12 @@ export component AppWindow inherits Window {
     in property <int> total-items;
     in property <int> category;
     in property <[int]> counts: [0, 0, 0, 0, 0];
+    in property <[FolderRow]> folders;
+    // The folder being browsed (category >= 100), or "".
+    in property <string> folder-name;
+    callback create-folder(string);
+    callback rename-folder(string);
+    callback delete-folder();
     in-out property <string> search-text;
     callback search(string);
     callback select-category(int);
@@ -105,6 +111,14 @@ export component AppWindow inherits Window {
     in property <[string]> detail-urls;
     in property <string> detail-notes;
     in property <[DetailField]> detail-fields;
+    in property <string> detail-folder;
+    in property <int> detail-codes-total;
+    in property <int> detail-codes-left;
+    in property <[CodeRow]> detail-codes;
+    callback show-codes();
+    callback hide-codes();
+    callback copy-code(int);
+    callback toggle-code-used(int);
     in-out property <bool> notes-shown;
     in-out property <bool> confirming-delete;
     callback edit-item();
@@ -128,6 +142,9 @@ export component AppWindow inherits Window {
     in-out property <string> ed-totp;
     in-out property <string> ed-notes;
     in-out property <bool> ed-favorite;
+    in property <[string]> ed-folder-options: [""];
+    in-out property <int> ed-folder;
+    in-out property <string> ed-recovery-codes;
     callback save-item();
     callback cancel-edit();
     callback toggle-show-password();
@@ -215,8 +232,10 @@ export component AppWindow inherits Window {
             width: 200px;
             category: root.category;
             counts: root.counts;
+            folders: root.folders;
             panel: root.panel;
             select-category(c) => { root.select-category(c); }
+            create-folder(name) => { root.create-folder(name); }
             open-generator => { root.open-generator(); }
             open-settings => { root.open-settings(); }
             open-kit => { root.open-kit(); }
@@ -228,6 +247,9 @@ export component AppWindow inherits Window {
             items: root.items;
             selected: root.selected;
             total: root.total-items;
+            folder-name: root.folder-name;
+            rename-folder(name) => { root.rename-folder(name); }
+            delete-folder => { root.delete-folder(); }
             search-text <=> root.search-text;
             search(text) => { root.search(text); }
             select(index) => { root.select(index); }
@@ -255,6 +277,14 @@ export component AppWindow inherits Window {
                 urls: root.detail-urls;
                 notes: root.detail-notes;
                 fields: root.detail-fields;
+                folder: root.detail-folder;
+                codes-total: root.detail-codes-total;
+                codes-left: root.detail-codes-left;
+                codes: root.detail-codes;
+                show-codes => { root.show-codes(); }
+                hide-codes => { root.hide-codes(); }
+                copy-code(i) => { root.copy-code(i); }
+                toggle-code-used(i) => { root.toggle-code-used(i); }
                 notes-shown <=> root.notes-shown;
                 confirming-delete <=> root.confirming-delete;
                 edit => { root.edit-item(); }
@@ -279,6 +309,9 @@ export component AppWindow inherits Window {
                 totp <=> root.ed-totp;
                 notes <=> root.ed-notes;
                 favorite <=> root.ed-favorite;
+                folder-options: root.ed-folder-options;
+                folder <=> root.ed-folder;
+                recovery-codes <=> root.ed-recovery-codes;
                 save => { root.save-item(); }
                 cancel => { root.cancel-edit(); }
                 toggle-show-password => { root.toggle-show-password(); }

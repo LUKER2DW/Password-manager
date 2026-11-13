@@ -1,6 +1,6 @@
 //! Pure presentation rules (no UI types), so they can be unit-tested.
 
-use vault_core::{ItemKind, ItemSummary};
+use vault_core::{FolderId, ItemKind, ItemSummary};
 
 /// Index tabs: 0 all, 1 favorites, 2 logins, 3 cards, 4 secure notes.
 pub const CATEGORY_COUNT: usize = 5;
@@ -41,10 +41,12 @@ pub fn matches_search(summary: &ItemSummary, query: &str) -> bool {
             .any(|field| field.to_lowercase().contains(&query))
 }
 
-/// Items for the list (sorted by title) plus per-category counts.
+/// Items for the list (sorted by title) plus per-category counts. With a older, the list
+/// shows that folder's items and category is ignored.
 pub fn filter(
     summaries: &[ItemSummary],
     category: i32,
+    folder: Option<FolderId>,
     query: &str,
 ) -> (Vec<usize>, [i32; CATEGORY_COUNT]) {
     let mut counts = [0i32; CATEGORY_COUNT];
@@ -56,7 +58,13 @@ pub fn filter(
         }
     }
     let mut visible: Vec<usize> = (0..summaries.len())
-        .filter(|&i| in_category(&summaries[i], category) && matches_search(&summaries[i], query))
+        .filter(|&i| {
+            let shown = match folder {
+                Some(folder) => summaries[i].folder == Some(folder),
+                None => in_category(&summaries[i], category),
+            };
+            shown && matches_search(&summaries[i], query)
+        })
         .collect();
     visible.sort_by_key(|&i| summaries[i].title.to_lowercase());
     (visible, counts)
@@ -261,7 +269,7 @@ mod tests {
     #[test]
     fn categories_counts_and_order() {
         let all = summaries();
-        let (visible, counts) = filter(&all, 0, "");
+        let (visible, counts) = filter(&all, 0, None, "");
         assert_eq!(counts, [4, 1, 2, 1, 1]);
         let titles: Vec<&str> = visible.iter().map(|&i| all[i].title.as_str()).collect();
         assert_eq!(
@@ -269,17 +277,17 @@ mod tests {
             ["Alarm code", "bank", "GitHub", "Visa"],
             "case-insensitive sort"
         );
-        let (favorites, _) = filter(&all, 1, "");
+        let (favorites, _) = filter(&all, 1, None, "");
         assert_eq!(favorites.len(), 1);
     }
 
     #[test]
     fn search_looks_at_title_username_and_url() {
         let all = summaries();
-        assert_eq!(filter(&all, 0, "OCTO").0.len(), 1);
-        assert_eq!(filter(&all, 0, "bank.example").0.len(), 1);
+        assert_eq!(filter(&all, 0, None, "OCTO").0.len(), 1);
+        assert_eq!(filter(&all, 0, None, "bank.example").0.len(), 1);
         assert_eq!(
-            filter(&all, 2, "visa").0.len(),
+            filter(&all, 2, None, "visa").0.len(),
             0,
             "search respects the category"
         );
