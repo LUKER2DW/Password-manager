@@ -80,8 +80,17 @@ Rules:
   unlock (Secret Key typed once per device), recovery with the Recovery Key
 - ✅ Vault: index tabs, search, list, item page (reveal with countdown, copy with auto-clear,
   live TOTP), editor, favorites, delete with confirmation
-- ✅ Generator (characters / words), settings (auto-lock, clipboard timeout, change master
-  password, show Secret Key, new Recovery Key — all re-verify the master password)
+- ✅ Generator: length slider, "use words instead" checkbox, separator, strength meter and a
+  realistic crack-time estimate (≈10¹² guesses/s on leaked fast hashes) with a light comparison
+- ✅ Settings (appearance, auto-lock, clipboard timeout, Windows Hello, change master password)
+- ✅ Entry screens with a side panel (brand, steps, what is set up) and the form centered
+- ✅ Folders (format v1): index with counts, create/rename/delete, folder picker in the editor
+- ✅ Recovery codes per login (format v1): paste, show on request, copy, mark used
+- ✅ Import & export page: Bitwarden/KeePass/CSV import with preview, duplicate skipping and
+  wiping of the plain-text file; encrypted backup copy; unencrypted export after a password check
+- ✅ Emergency kit page and printable PDF (hand-written, standard fonts; print copies wiped on lock)
+- ✅ Performance: optimized dependencies in dev builds, summaries decrypted once per change,
+  Windows Hello availability checked off the UI thread
 - ✅ Auto-lock, screen-capture blocking, every UI string through `@tr()`
 - ✅ Headless end-to-end test of the whole app flow (Slint testing backend)
 - ✅ Visual review with off-screen screenshots; dark theme by default (light available)
@@ -92,9 +101,8 @@ Rules:
   password change, master password every 14 days (tested with a fake verifier; the real prompt
   needs a manual check)
 - ⬜ YubiKey (FIDO2 `hmac-secret`) slot; optional "master password after every restart"
-- ⬜ Emergency kit as a printable PDF
 - ⬜ `pt-BR` translation file
-- ⬜ Custom fields editing, attachments, tags/folders
+- ⬜ Custom fields editing, attachments, tags; password health (reused/weak/breached)
 - **Done when:** daily use on Windows is possible with a test vault.
 
 ### M5 — Browser extension ⬜

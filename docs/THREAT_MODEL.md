@@ -70,6 +70,14 @@ On top of that:
 - The browser extension stores no secrets; it asks the native app for each credential, and the
   app confirms.
 
+**Files with secrets outside the vault** (each a deliberate, visible choice):
+- Printed emergency kit: the temporary PDF lives in `<app dir>/print` and is overwritten and
+  deleted on lock, on exit and at the next start. A kit saved elsewhere with "Save as PDF" is the
+  user's file.
+- Imports: the app offers to overwrite and delete the plain-text export right after importing.
+- Unencrypted export: only after re-checking the master password, with a warning; the encrypted
+  backup copy is offered first.
+
 > **Honest limit:** malware running as the user while the vault is unlocked can, in theory, read
 > whatever the app decrypts. Complementary defenses outside the vault: passkeys or 2FA on important
 > accounts (so a stolen password is not enough) and general system hygiene.

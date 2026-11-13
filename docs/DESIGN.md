@@ -43,7 +43,9 @@ Scale 12 / 14 / 16 / 21 / 28 / 44 px. Radius 6 px. Controls 38 px tall.
 - **Fields** — a recessed well with a hairline edge; the bottom edge lights up yellow on focus and
   red on error. Labels in sentence case above the well.
 - **SecretField** — same look; keystrokes go to Rust, the UI only draws dots.
-- **Hint "(?)"** — a small circle next to every field and term that needs it. The text says
+- **Hint "(?)"** — a small vector circle, only next to fields and terms that are genuinely
+  unclear (Secret Key, Recovery Key, one-time code secret, recovery codes, passphrase, crack time,
+  website icons, Windows Hello, unencrypted export) — not on obvious fields. The text says
   *what to type* there (and where to find it, e.g. the one-time code key behind "Can't scan
   it?"), not just a definition. Click to open, click anywhere to close; the popup keeps a margin
   from the window edge.
@@ -54,6 +56,14 @@ Scale 12 / 14 / 16 / 21 / 28 / 44 px. Radius 6 px. Controls 38 px tall.
   On the light theme the pale favicon tile gets a hairline edge.
 - **List selection** — a soft background only; no accent bar.
 - **Choice** — a few words; the chosen one gets the hand-drawn marker stroke.
+- **Slider** — a hairline track filled in marker yellow with a round knob; drag, click or use the
+  arrow keys (generator length and word count).
+- **Dropdown** — looks like a field with a chevron; opens a list below it (folder picker).
+- **Entry screens** (lock, new vault, recovery) — a side panel (brand, padlock, steps, what is
+  set up on this computer) and the form centered in the remaining space, never a lone column.
+- **Strength** — a 4 px meter (red < 50 bits, yellow < 70, green above) plus the estimated time to
+  crack and a light historical comparison ("If they'd started while the pyramids were being
+  built, they'd still be at it.").
 - **Notice** — confirmations ("Copied", "Saved") bottom-right, never over content.
 
 ## Rules
