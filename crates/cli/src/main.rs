@@ -31,6 +31,10 @@ struct Cli {
     #[arg(long, global = true)]
     allow_rollback: bool,
 
+    /// The vault's keyfile, when it uses one. Remembered per device after it works once.
+    #[arg(long, global = true, env = "VAULT_KEYFILE", value_name = "PATH")]
+    vault_keyfile: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -83,8 +87,23 @@ enum Command {
     },
     /// Remove this vault's Secret Key from this device's credential store.
     Forget,
+    /// Add, replace or remove the keyfile: a file needed together with the master password.
+    Keyfile {
+        #[command(subcommand)]
+        action: KeyfileCommand,
+    },
     /// Import an export from another password manager or a browser (JSON, CSV or KDBX).
     Import(ImportArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum KeyfileCommand {
+    /// Write a new random keyfile to PATH and require it from now on.
+    Create { path: PathBuf },
+    /// Require an existing file from now on (it must never change).
+    Use { path: PathBuf },
+    /// Stop requiring a keyfile.
+    Remove,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -254,6 +273,7 @@ fn run() -> Result<()> {
     let ctx = commands::Context {
         path,
         allow_rollback: cli.allow_rollback,
+        keyfile: cli.vault_keyfile,
     };
     match cli.command {
         Command::Init(args) => commands::init(
@@ -332,6 +352,15 @@ fn run() -> Result<()> {
         Command::Recover => commands::recover(&ctx, &mut prompter),
         Command::Kit { new_recovery_key } => commands::kit(&ctx, &mut prompter, new_recovery_key),
         Command::Forget => commands::forget(&ctx),
+        Command::Keyfile { action } => commands::keyfile(
+            &ctx,
+            &mut prompter,
+            match action {
+                KeyfileCommand::Create { path } => commands::KeyfileAction::Create(path),
+                KeyfileCommand::Use { path } => commands::KeyfileAction::Use(path),
+                KeyfileCommand::Remove => commands::KeyfileAction::Remove,
+            },
+        ),
         Command::Import(args) => commands::import(
             &ctx,
             &mut prompter,

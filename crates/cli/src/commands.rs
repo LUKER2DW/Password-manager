@@ -22,12 +22,62 @@ const MIN_MASTER_PASSWORD_CHARS: usize = 12;
 pub struct Context {
     pub path: PathBuf,
     pub allow_rollback: bool,
+    /// `--keyfile`: where the vault's keyfile is, when it uses one.
+    pub keyfile: Option<PathBuf>,
 }
 
 impl Context {
     fn unlock(&self, prompter: &mut Prompter) -> Result<Session> {
-        Session::unlock(&self.path, prompter, self.allow_rollback)
+        Session::unlock(
+            &self.path,
+            prompter,
+            self.allow_rollback,
+            self.keyfile.as_deref(),
+        )
     }
+}
+
+/// What `vault keyfile` does.
+pub enum KeyfileAction {
+    /// Write a new random keyfile there and require it from now on.
+    Create(PathBuf),
+    /// Require an existing file from now on.
+    Use(PathBuf),
+    /// Stop requiring a keyfile.
+    Remove,
+}
+
+pub fn keyfile(ctx: &Context, prompter: &mut Prompter, action: KeyfileAction) -> Result<()> {
+    let mut session = ctx.unlock(prompter)?;
+    let (new, path) = match &action {
+        KeyfileAction::Create(path) => (Some(vault_platform::keyfile::create(path)?), Some(path)),
+        KeyfileAction::Use(path) => (Some(vault_platform::keyfile::read(path)?), Some(path)),
+        KeyfileAction::Remove => (None, None),
+    };
+    let kdf = session.vault.kdf_params().clone();
+    session
+        .vault
+        .change_password(&session.password, &session.secret_key, new.as_ref(), &kdf)
+        .map_err(explain)?;
+    session.save()?;
+    vault_platform::keyfile::remember_path(&session.vault.id_hex(), path.map(PathBuf::as_path))?;
+    match action {
+        KeyfileAction::Create(path) => {
+            println!("Keyfile written to {}.", path.display());
+            println!(
+                "From now on the vault needs it together with your master password. Keep a \
+                 copy somewhere safe and apart from the vault: without the file (or your \
+                 Recovery Key) the vault can't be opened."
+            );
+        }
+        KeyfileAction::Use(path) => println!(
+            "The vault now needs {} together with your master password. The file must never \
+             change, not even by one byte.",
+            path.display()
+        ),
+        KeyfileAction::Remove => println!("The vault no longer needs a keyfile."),
+    }
+    Ok(())
 }
 
 pub struct NewItem {
@@ -130,6 +180,14 @@ pub fn info(ctx: &Context) -> Result<()> {
     println!(
         "Recovery Key:   {}",
         if info.has_recovery_key { "yes" } else { "no" }
+    );
+    println!(
+        "Keyfile:        {}",
+        if info.needs_keyfile {
+            "needed"
+        } else {
+            "not used"
+        }
     );
     println!(
         "This device:    {}",
@@ -358,7 +416,12 @@ pub fn passwd(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
     let kdf = session.vault.kdf_params().clone();
     session
         .vault
-        .change_password(&password, &session.secret_key, &kdf)
+        .change_password(
+            &password,
+            &session.secret_key,
+            session.keyfile.as_ref(),
+            &kdf,
+        )
         .map_err(explain)?;
     session.save()?;
     println!("Master password changed.");
@@ -376,8 +439,10 @@ pub fn recover(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
     // The old Secret Key may be lost or exposed, so always issue a new one.
     let secret_key = SecretKey::generate().map_err(explain)?;
     let kdf = vault.kdf_params().clone();
+    // The keyfile may be what was lost: the new lock is the password and Secret Key only.
+    let had_keyfile = vault.needs_keyfile();
     vault
-        .change_password(&password, &secret_key, &kdf)
+        .change_password(&password, &secret_key, None, &kdf)
         .map_err(explain)?;
     let bytes = vault.to_bytes().map_err(explain)?;
     storage::write_atomic(&ctx.path, &bytes).map_err(explain)?;
@@ -385,6 +450,10 @@ pub fn recover(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
     session::record_new_vault(&vault)?;
 
     println!("New master password and Secret Key set. Your Recovery Key still works.");
+    if had_keyfile {
+        let _ = vault_platform::keyfile::remember_path(&vault.id_hex(), None);
+        println!("The keyfile is no longer needed; add one again with `vault keyfile create`.");
+    }
     print_kit(&vault.id_hex(), &ctx.path, &secret_key, None);
     Ok(())
 }

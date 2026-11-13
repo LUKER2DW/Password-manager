@@ -285,3 +285,49 @@ fn generate_needs_no_vault() {
     assert_eq!(password.len(), 40);
     assert!(password.chars().all(|c| c.is_ascii_alphanumeric()));
 }
+
+#[test]
+fn keyfile_as_a_third_factor() {
+    let env = Env::new();
+    env.ok(
+        &["init", "--kdf-target-ms", "50", "--kdf-memory-mib", "64"],
+        &[MASTER],
+    );
+    env.ok(&["add", "Site", "--username", "me"], &[MASTER, "site-pw-1"]);
+    let keyfile = env.vault.with_file_name("test.keyfile");
+    let keyfile_arg = keyfile.to_str().unwrap();
+
+    let out = env.ok(&["keyfile", "create", keyfile_arg], &[MASTER]);
+    assert!(out.contains("Keyfile written"));
+    assert!(keyfile.is_file());
+    assert!(env.ok(&["info"], &[]).contains("Keyfile:        needed"));
+    // Never overwritten.
+    env.fails(&["keyfile", "create", keyfile_arg], &[MASTER]);
+
+    // The location is remembered on this device, so nothing extra to type...
+    assert!(env.ok(&["list"], &[MASTER]).contains("Site"));
+    // ...but without the file the vault stays shut, with or without the right password.
+    let moved = keyfile.with_extension("moved");
+    std::fs::rename(&keyfile, &moved).unwrap();
+    env.fails(&["list"], &[MASTER]);
+    let wrong = keyfile.with_extension("wrong");
+    std::fs::write(&wrong, "vault-keyfile-v1 0000000000000000\n").unwrap();
+    let err = env.fails(
+        &["--vault-keyfile", wrong.to_str().unwrap(), "list"],
+        &[MASTER],
+    );
+    assert!(err.contains("wrong master password"), "{err}");
+    let moved_arg = moved.to_str().unwrap();
+    assert!(
+        env.ok(&["--vault-keyfile", moved_arg, "list"], &[MASTER])
+            .contains("Site")
+    );
+
+    // Changing the master password keeps the keyfile; removing it goes back to two factors.
+    env.ok(&["passwd"], &[MASTER, NEW_MASTER, NEW_MASTER]);
+    assert!(env.ok(&["list"], &[NEW_MASTER]).contains("Site"));
+    env.ok(&["keyfile", "remove"], &[NEW_MASTER]);
+    assert!(env.ok(&["info"], &[]).contains("Keyfile:        not used"));
+    std::fs::remove_file(&moved).unwrap();
+    assert!(env.ok(&["list"], &[NEW_MASTER]).contains("Site"));
+}

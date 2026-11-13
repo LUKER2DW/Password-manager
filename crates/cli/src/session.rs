@@ -3,8 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow, bail};
-use vault_core::{Error as CoreError, SecretKey, Unlock, Vault, storage};
-use vault_platform::{DeviceState, RollbackStatus, device, paths, secret_store};
+use vault_core::{Error as CoreError, Keyfile, SecretKey, Unlock, Vault, storage};
+use vault_platform::{DeviceState, RollbackStatus, device, keyfile, paths, secret_store};
+use zeroize::Zeroizing;
 
 use crate::prompt::Prompter;
 
@@ -20,6 +21,9 @@ pub fn explain(error: CoreError) -> anyhow::Error {
         }
         CoreError::KeyChecksumMismatch => anyhow!("that key has a typo (checksum mismatch)"),
         CoreError::InvalidKeyFormat => anyhow!("that does not look like a valid key"),
+        CoreError::KeyfileRequired => anyhow!(
+            "this vault also needs its keyfile: pass --vault-keyfile <PATH> (or set VAULT_KEYFILE)"
+        ),
         other => anyhow!(other),
     }
 }
@@ -45,13 +49,34 @@ pub struct Session {
     pub path: PathBuf,
     pub vault: Vault,
     pub secret_key: SecretKey,
+    /// The keyfile the vault was opened with, when it uses one.
+    pub keyfile: Option<Keyfile>,
+    /// The master password just typed, kept (wiped on drop) for commands that rewrite the
+    /// password lock without changing the password.
+    pub password: Zeroizing<String>,
 }
 
 impl Session {
-    /// Unlocks with master password + Secret Key (from the OS store, or typed from the kit).
-    pub fn unlock(path: &Path, prompter: &mut Prompter, allow_rollback: bool) -> Result<Self> {
+    /// Unlocks with master password + Secret Key (from the OS store, or typed from the kit),
+    /// plus the keyfile when the vault uses one (`keyfile_path`, else where it was last found).
+    pub fn unlock(
+        path: &Path,
+        prompter: &mut Prompter,
+        allow_rollback: bool,
+        keyfile_path: Option<&Path>,
+    ) -> Result<Self> {
         let bytes = read_vault_file(path)?;
         let info = Vault::inspect(&bytes).map_err(explain)?;
+        let keyfile = if info.needs_keyfile {
+            let path = keyfile_path
+                .map(Path::to_owned)
+                .or_else(|| keyfile::remembered_path(&info.id_hex))
+                .ok_or_else(|| explain(CoreError::KeyfileRequired))?;
+            let key = keyfile::read(&path)?;
+            Some((key, path))
+        } else {
+            None
+        };
 
         let (secret_key, typed) = match secret_store::load(&info.id_hex)? {
             Some(key) => (key, false),
@@ -62,14 +87,22 @@ impl Session {
             }
         };
         let password = prompter.secret("Master password")?;
-        let vault = Vault::open(
-            &bytes,
-            Unlock::Password {
+        let unlock = match &keyfile {
+            Some((keyfile, _)) => Unlock::PasswordAndKeyfile {
+                password: &password,
+                secret_key: &secret_key,
+                keyfile,
+            },
+            None => Unlock::Password {
                 password: &password,
                 secret_key: &secret_key,
             },
-        )
-        .map_err(explain)?;
+        };
+        let vault = Vault::open(&bytes, unlock).map_err(explain)?;
+        if let Some((_, path)) = &keyfile {
+            // It worked: next time the path needn't be typed.
+            let _ = keyfile::remember_path(&info.id_hex, Some(path));
+        }
 
         if typed {
             secret_store::store(&info.id_hex, &secret_key)?;
@@ -100,6 +133,8 @@ impl Session {
             path: path.to_owned(),
             vault,
             secret_key,
+            keyfile: keyfile.map(|(key, _)| key),
+            password,
         })
     }
 
