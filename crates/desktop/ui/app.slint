@@ -2,7 +2,7 @@ import { Theme, Sketch, Secrets } from "theme.slint";
 import { Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, Messages } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
-import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage } from "pages.slint";
+import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage } from "pages.slint";
 
 export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, Messages }
 
@@ -183,6 +183,24 @@ export component AppWindow inherits Window {
     callback new-recovery-key();
     callback open-kit();
     callback print-kit();
+    // ---- import & export ----
+    in property <int> import-stage;
+    in property <string> import-file;
+    in property <int> import-found;
+    in property <int> import-new-folders;
+    in property <int> import-duplicates;
+    in property <string> import-warnings;
+    in property <int> import-added;
+    in property <bool> import-plaintext;
+    in-out property <int> export-format;
+    callback open-transfer();
+    callback import-choose();
+    callback import-open();
+    callback import-confirm();
+    callback import-cancel();
+    callback import-wipe();
+    callback export-backup();
+    callback export-plain();
     callback save-kit();
 
     if root.screen == Screen.onboarding: OnboardingScreen {
@@ -239,6 +257,7 @@ export component AppWindow inherits Window {
             open-generator => { root.open-generator(); }
             open-settings => { root.open-settings(); }
             open-kit => { root.open-kit(); }
+            open-transfer => { root.open-transfer(); }
             lock => { root.lock(); }
         }
         Rectangle { width: 1px; background: Theme.rule; }
@@ -355,6 +374,27 @@ export component AppWindow inherits Window {
                 settings-changed => { root.settings-changed(); }
                 appearance-changed(dark) => { root.appearance-changed(dark); }
                 change-password => { root.change-password(); }
+            }
+            if root.panel == Panel.transfer: TransferPage {
+                error-code: root.error-code;
+                error-detail: root.error-detail;
+                busy: root.busy;
+                import-stage: root.import-stage;
+                import-file: root.import-file;
+                import-found: root.import-found;
+                import-new-folders: root.import-new-folders;
+                import-duplicates: root.import-duplicates;
+                import-warnings: root.import-warnings;
+                import-added: root.import-added;
+                import-plaintext: root.import-plaintext;
+                export-format <=> root.export-format;
+                import-choose => { root.import-choose(); }
+                import-open => { root.import-open(); }
+                import-confirm => { root.import-confirm(); }
+                import-cancel => { root.import-cancel(); }
+                import-wipe => { root.import-wipe(); }
+                export-backup => { root.export-backup(); }
+                export-plain => { root.export-plain(); }
             }
             if root.panel == Panel.kit: KitPage {
                 error-code: root.error-code;

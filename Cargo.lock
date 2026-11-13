@@ -6051,6 +6051,7 @@ dependencies = [
  "tempfile",
  "ureq",
  "vault-core",
+ "vault-import",
  "vault-platform",
  "zeroize",
 ]

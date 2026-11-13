@@ -448,6 +448,30 @@ fn main() {
     click(&app, 729.0, 184.0); // (?) next to "Show website icons"
     camera.shot("settings-icons-hint", "Privacy note for website icons");
     click(&app, 1000.0, 720.0);
+    app.invoke_open_transfer();
+    camera.shot("transfer", "Import & export");
+    let demo_export = temp.path().join("bitwarden_export.json");
+    std::fs::write(
+        &demo_export,
+        r#"{"encrypted": false, "folders": [{"id": "f", "name": "Shopping"}], "items": [
+            {"type": 1, "name": "Shop", "folderId": "f", "login": {"username": "me", "password": "x1"}},
+            {"type": 1, "name": "Forum", "login": {"username": "me", "password": "x2"}},
+            {"type": 1, "name": "GitHub", "login": {"username": "octocat", "password": "Gh-demo-7Kq!vR2#pL9w", "uris": [{"uri": "https://github.com/login"}]}},
+            {"type": 1, "name": "Old site", "login": {"fido2Credentials": [{}]}}]}"#,
+    )
+    .expect("demo export");
+    controller.start_import(demo_export);
+    camera.shot(
+        "transfer-preview",
+        "Import preview: new items, folders, duplicates",
+    );
+    app.invoke_import_confirm();
+    camera.shot(
+        "transfer-done",
+        "Imported: offer to wipe the plain-text file",
+    );
+    app.invoke_import_wipe();
+
     app.invoke_open_kit();
     camera.shot("kit-locked", "Emergency kit page: master password first");
     type_into(&app, 5, PASSWORD);

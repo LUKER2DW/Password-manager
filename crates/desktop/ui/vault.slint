@@ -132,10 +132,11 @@ export component VaultIndex inherits Rectangle {
     callback open-generator();
     callback open-settings();
     callback open-kit();
+    callback open-transfer();
     callback lock();
 
     background: Theme.panel;
-    property <bool> browsing: root.panel != Panel.generator && root.panel != Panel.settings && root.panel != Panel.kit;
+    property <bool> browsing: root.panel != Panel.generator && root.panel != Panel.settings && root.panel != Panel.kit && root.panel != Panel.transfer;
     property <bool> adding-folder;
     property <string> new-folder-name;
 
@@ -252,6 +253,7 @@ export component VaultIndex inherits Rectangle {
         Rectangle { height: 12px; }
         IndexTab { text: @tr("Password generator"); active: root.panel == Panel.generator; clicked => { root.open-generator(); } }
         IndexTab { text: @tr("Emergency kit"); active: root.panel == Panel.kit; clicked => { root.open-kit(); } }
+        IndexTab { text: @tr("Import & export"); active: root.panel == Panel.transfer; clicked => { root.open-transfer(); } }
         IndexTab { text: @tr("Settings"); active: root.panel == Panel.settings; clicked => { root.open-settings(); } }
         Rectangle { height: 8px; }
         IndexTab { text: @tr("Lock now"); clicked => { root.lock(); } }
@@ -381,7 +383,7 @@ export component ItemList inherits Rectangle {
             alignment: start;
             Text {
                 text: root.total == 0
-                    ? @tr("Nothing here yet. Add your first login with New item, or bring everything over from another password manager in Settings → Import.")
+                    ? @tr("Nothing here yet. Add your first login with New item, or bring everything over from another password manager in Import & export.")
                     : root.search-text != "" ? @tr("Nothing matches “{}”.", root.search-text)
                     : root.folder-name != "" ? @tr("This folder is empty. Choose it in an item's Folder box to file the item here.")
                     : @tr("Nothing here yet.");

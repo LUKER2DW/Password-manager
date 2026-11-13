@@ -55,7 +55,8 @@ mod field {
     pub const CURRENT: usize = 5;
     pub const NEW: usize = 6;
     pub const NEW_AGAIN: usize = 7;
-    pub const COUNT: usize = 8;
+    pub const IMPORT: usize = 8;
+    pub const COUNT: usize = 9;
 }
 
 /// Error codes (texts live in model.slint → Messages.error).
@@ -79,6 +80,7 @@ mod error {
     pub const PASSWORD_DUE: i32 = 16;
     pub const HELLO_UNAVAILABLE: i32 = 17;
     pub const HELLO_KEY_GONE: i32 = 18;
+    pub const IMPORT: i32 = 19;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -100,6 +102,10 @@ mod notice {
     pub const KIT_OPENED: i32 = 16;
     pub const KIT_SAVED: i32 = 17;
     pub const RECOVERY_CODE_COPIED: i32 = 18;
+    pub const IMPORTED: i32 = 19;
+    pub const BACKUP_SAVED: i32 = 20;
+    pub const EXPORTED: i32 = 21;
+    pub const SOURCE_WIPED: i32 = 22;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -133,6 +139,12 @@ enum JobResult {
         typed_secret_key: bool,
     },
     QuickUnlockEnabled {
+        session: Session,
+    },
+    ImportParsed {
+        report: vault_import::ImportReport,
+    },
+    ExportVerified {
         session: Session,
     },
     /// `reason` is `None` when the person cancelled the prompt.
@@ -179,6 +191,8 @@ struct State {
     suggestion: Option<Zeroizing<String>>,
     generated: Option<Zeroizing<String>>,
     totp: Option<Totp>,
+    /// A file being imported: chosen, maybe parsed, waiting for confirmation.
+    pending_import: Option<PendingImport>,
     /// The item whose recovery codes are on screen.
     codes_shown: Option<ItemId>,
     settings: device::Settings,
@@ -273,6 +287,7 @@ impl Controller {
                 generated: None,
                 totp: None,
                 codes_shown: None,
+                pending_import: None,
                 settings,
                 icons: IconCache::default(),
                 icon_images: HashMap::new(),
@@ -374,6 +389,14 @@ impl Controller {
         on!(on_open_kit, |c| c.open_kit());
         on!(on_print_kit, |c| c.print_kit());
         on!(on_save_kit, |c| c.save_kit());
+        on!(on_open_transfer, |c| c.open_transfer());
+        on!(on_import_choose, |c| c.import_choose());
+        on!(on_import_open, |c| c.parse_import());
+        on!(on_import_confirm, |c| c.import_confirm());
+        on!(on_import_cancel, |c| c.import_cancel());
+        on!(on_import_wipe, |c| c.import_wipe());
+        on!(on_export_backup, |c| c.export_backup());
+        on!(on_export_plain, |c| c.verify_then(KitAction::Export));
         on!(on_lock, |c| c.lock());
 
         on!(on_edit_item, |c| {
@@ -629,6 +652,8 @@ impl Controller {
                     self.notify(notice::PASSWORD_CHANGED, "");
                 }
             }
+            JobResult::ImportParsed { report } => self.import_parsed(report),
+            JobResult::ExportVerified { session } => self.export_verified(session),
             JobResult::QuickUnlockEnabled { session } => {
                 self.state.borrow_mut().session = Some(session);
                 app.set_quick_unlock_on(true);
@@ -1102,6 +1127,8 @@ impl Controller {
         }
         self.clear_all_secrets();
         files::wipe_print_dir();
+        self.state.borrow_mut().pending_import = None;
+        self.app().set_import_stage(0);
         self.items.set_vec(Vec::new());
         let app = self.app();
         app.set_selected(-1);
@@ -1970,6 +1997,258 @@ impl Controller {
     }
 
     // -----------------------------------------------------------------------------------------
+    // Import & export
+    // -----------------------------------------------------------------------------------------
+
+    fn open_transfer(&self) {
+        let app = self.app();
+        self.clear_secret(field::CURRENT);
+        if self.state.borrow().pending_import.is_none() {
+            app.set_import_stage(0);
+        }
+        app.set_panel(Panel::Transfer);
+        self.set_error(error::NONE, "");
+    }
+
+    fn import_choose(&self) {
+        if self.state.borrow().runner == Runner::Inline {
+            return; // no dialogs in headless tests: they call start_import directly
+        }
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Import from another password manager")
+            .add_filter("Password exports", &["json", "csv", "kdbx"])
+            .add_filter("All files", &["*"])
+            .pick_file()
+        {
+            self.start_import(path);
+        }
+    }
+
+    /// Reads the chosen file; KeePass databases first ask for their password. (The "Choose a
+    /// file" button calls this after its dialog; tests and the screenshot tool call it directly.)
+    pub fn start_import(&self, path: PathBuf) {
+        let app = self.app();
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => Zeroizing::new(bytes),
+            Err(err) => {
+                self.set_error(error::IMPORT, &err.to_string());
+                return;
+            }
+        };
+        let format = vault_import::detect_format(&bytes);
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        app.set_import_file(SharedString::from(name));
+        app.set_import_plaintext(format != vault_import::Format::Kdbx);
+        self.set_error(error::NONE, "");
+        self.state.borrow_mut().pending_import = Some(PendingImport {
+            path,
+            bytes,
+            format,
+            report: None,
+        });
+        if format == vault_import::Format::Kdbx {
+            self.clear_secret(field::IMPORT);
+            app.set_import_stage(1);
+        } else {
+            self.parse_import();
+        }
+    }
+
+    /// Parses the pending file (KeePass: with the typed password) on a worker thread.
+    fn parse_import(&self) {
+        let (bytes, format) = match self.state.borrow().pending_import.as_ref() {
+            Some(pending) => (pending.bytes.clone(), pending.format),
+            None => return,
+        };
+        let password = Zeroizing::new(
+            self.state.borrow().secrets[field::IMPORT]
+                .as_str()
+                .to_owned(),
+        );
+        self.run_job(move || {
+            use vault_import::Format;
+            let parsed = match format {
+                Format::BitwardenJson => vault_import::import_bitwarden_json(&bytes),
+                Format::Csv => vault_import::import_csv(&bytes),
+                Format::Kdbx => vault_import::import_kdbx(&bytes, &password, None),
+            };
+            match parsed {
+                Ok(report) => JobResult::ImportParsed { report },
+                Err(err) => JobResult::Failed {
+                    code: error::IMPORT,
+                    detail: err.to_string(),
+                    session: None,
+                },
+            }
+        });
+    }
+
+    fn import_parsed(&self, report: vault_import::ImportReport) {
+        self.clear_secret(field::IMPORT);
+        let app = self.app();
+        let preview = {
+            let state = self.state.borrow();
+            let Some(session) = state.session.as_ref() else {
+                return;
+            };
+            report.preview(&session.vault)
+        };
+        match preview {
+            Ok(outcome) => {
+                app.set_import_found(i32::try_from(outcome.added).unwrap_or(i32::MAX));
+                app.set_import_new_folders(i32::try_from(outcome.new_folders).unwrap_or(0));
+                app.set_import_duplicates(i32::try_from(outcome.duplicates).unwrap_or(0));
+                let mut warnings: Vec<&str> =
+                    report.warnings.iter().take(4).map(String::as_str).collect();
+                let more = report.warnings.len().saturating_sub(4);
+                let more_text = format!("… and {more} more");
+                if more > 0 {
+                    warnings.push(&more_text);
+                }
+                app.set_import_warnings(SharedString::from(warnings.join("\n")));
+                app.set_import_stage(2);
+            }
+            Err(err) => {
+                let (code, detail) = self.core_error(&err);
+                self.set_error(code, &detail);
+                return;
+            }
+        }
+        if let Some(pending) = self.state.borrow_mut().pending_import.as_mut() {
+            pending.report = Some(report);
+        }
+    }
+
+    fn import_confirm(&self) {
+        let Some(report) = self
+            .state
+            .borrow_mut()
+            .pending_import
+            .as_mut()
+            .and_then(|p| p.report.take())
+        else {
+            return;
+        };
+        let outcome = self
+            .state
+            .borrow_mut()
+            .session
+            .as_mut()
+            .map(|s| report.add_to_vault(&mut s.vault));
+        match outcome {
+            Some(Ok(outcome)) => {
+                if !self.save_vault() {
+                    return;
+                }
+                let app = self.app();
+                app.set_import_added(i32::try_from(outcome.added).unwrap_or(i32::MAX));
+                app.set_import_stage(3);
+                self.refresh_list();
+                self.notify(notice::IMPORTED, &outcome.added.to_string());
+                self.start_icon_fetch();
+            }
+            Some(Err(err)) => {
+                let (code, detail) = self.core_error(&err);
+                self.set_error(code, &detail);
+            }
+            None => {}
+        }
+    }
+
+    fn import_cancel(&self) {
+        self.state.borrow_mut().pending_import = None;
+        self.clear_secret(field::IMPORT);
+        self.app().set_import_stage(0);
+        self.set_error(error::NONE, "");
+    }
+
+    /// Overwrites and deletes the unencrypted export that was just imported.
+    fn import_wipe(&self) {
+        let path = self
+            .state
+            .borrow()
+            .pending_import
+            .as_ref()
+            .map(|p| p.path.clone());
+        if let Some(path) = path {
+            match files::wipe(&path) {
+                Ok(()) => self.notify(notice::SOURCE_WIPED, ""),
+                Err(err) => {
+                    self.set_error(error::FILE, &err.to_string());
+                    return;
+                }
+            }
+        }
+        self.import_cancel();
+    }
+
+    /// A copy of the (encrypted) vault file, wherever the user wants it.
+    fn export_backup(&self) {
+        if self.state.borrow().runner == Runner::Inline {
+            return;
+        }
+        let source = self.state.borrow().path.clone();
+        let Some(target) = rfd::FileDialog::new()
+            .set_title("Save a backup copy of the vault")
+            .set_file_name("vault-backup.vault")
+            .add_filter("Vault", &["vault"])
+            .save_file()
+        else {
+            return;
+        };
+        match storage::read(&source).and_then(|bytes| storage::write_atomic(&target, &bytes)) {
+            Ok(()) => self.notify(notice::BACKUP_SAVED, &target.display().to_string()),
+            Err(err) => {
+                let (code, detail) = self.core_error(&err);
+                self.set_error(code, &detail);
+            }
+        }
+    }
+
+    /// After the master password check: writes the unencrypted export to a file the user picks.
+    fn export_verified(&self, session: Session) {
+        self.clear_secret(field::CURRENT);
+        let app = self.app();
+        let csv = app.get_export_format() == 1;
+        let text = if csv {
+            vault_import::export_csv(&session.vault)
+        } else {
+            vault_import::export_bitwarden_json(&session.vault)
+        };
+        let (runner, vault_path) = {
+            let state = self.state.borrow();
+            (state.runner, state.path.clone())
+        };
+        self.state.borrow_mut().session = Some(session);
+        let text = match text {
+            Ok(text) => text,
+            Err(err) => {
+                let (code, detail) = self.core_error(&err);
+                self.set_error(code, &detail);
+                return;
+            }
+        };
+        let extension = if csv { "csv" } else { "json" };
+        let target = match runner {
+            // Headless tests: next to the test vault.
+            Runner::Inline => Some(vault_path.with_extension(format!("export.{extension}"))),
+            Runner::Thread => rfd::FileDialog::new()
+                .set_title("Export without encryption")
+                .set_file_name(format!("vault-export.{extension}"))
+                .add_filter(if csv { "CSV" } else { "JSON" }, &[extension])
+                .save_file(),
+        };
+        let Some(target) = target else { return };
+        match std::fs::write(&target, text.as_bytes()) {
+            Ok(()) => self.notify(notice::EXPORTED, &target.display().to_string()),
+            Err(err) => self.set_error(error::FILE, &err.to_string()),
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
     // Emergency kit page, printing and PDF
     // -----------------------------------------------------------------------------------------
 
@@ -2324,6 +2603,7 @@ impl Controller {
             }
             match action {
                 KitAction::Show => JobResult::KitVerified { session },
+                KitAction::Export => JobResult::ExportVerified { session },
                 KitAction::NewRecoveryKey => {
                     let outcome = RecoveryKey::generate().and_then(|key| {
                         session.vault.set_recovery_key(Some(&key))?;
@@ -2367,6 +2647,16 @@ enum CopyWhat {
 enum KitAction {
     Show,
     NewRecoveryKey,
+    /// Unencrypted export (the file is chosen after the password check).
+    Export,
+}
+
+/// An import in progress. The file's bytes are wiped when this is dropped.
+struct PendingImport {
+    path: PathBuf,
+    bytes: Zeroizing<Vec<u8>>,
+    format: vault_import::Format,
+    report: Option<vault_import::ImportReport>,
 }
 
 /// Shows a generated secret's strength: bits and the estimated time to crack it.

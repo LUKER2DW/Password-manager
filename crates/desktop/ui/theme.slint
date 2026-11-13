@@ -62,8 +62,9 @@ export global Sketch {
 // the UI only ever learns how many characters each field holds.
 export global Secrets {
     // Field ids: 0 master password, 1 confirmation, 2 Secret Key, 3 Recovery Key,
-    // 4 item password, 5 current password (settings), 6 new password, 7 new password again.
-    in property <[int]> lengths: [0, 0, 0, 0, 0, 0, 0, 0];
+    // 4 item password, 5 current password (settings), 6 new password, 7 new password again,
+    // 8 password of a KeePass database being imported.
+    in property <[int]> lengths: [0, 0, 0, 0, 0, 0, 0, 0, 0];
     callback insert(int, string);
     callback backspace(int);
     callback clear(int);

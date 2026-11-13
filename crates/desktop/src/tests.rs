@@ -95,7 +95,7 @@ fn whole_app_flow_headless() {
     let app = AppWindow::new().unwrap();
     apply_sketches(&app);
     let hello = Arc::new(FakeHello::default());
-    let _controller = Controller::install(
+    let controller = Controller::install(
         &app,
         path.clone(),
         Runner::Inline,
@@ -495,6 +495,60 @@ fn whole_app_flow_headless() {
     app.invoke_finish_onboarding();
     assert_eq!(app.get_screen(), Screen::Vault);
     assert_eq!(app.get_total_items(), 1);
+
+    // ---- import & export ----
+    app.invoke_open_transfer();
+    assert_eq!(app.get_panel(), Panel::Transfer);
+    let export_file = dir.path().join("bitwarden.json");
+    std::fs::write(
+        &export_file,
+        r#"{"encrypted": false,
+            "folders": [{"id": "f1", "name": "Shopping"}],
+            "items": [
+              {"type": 1, "name": "Shop", "folderId": "f1",
+               "login": {"username": "buyer", "password": "shop-pass", "uris": [{"uri": "https://shop.example"}]}},
+              {"type": 1, "name": "GitHub",
+               "login": {"username": "hubot", "password": "gh-item-pass", "uris": [{"uri": "https://github.com"}]}}
+            ]}"#,
+    )
+    .unwrap();
+    controller.start_import(export_file.clone());
+    assert_eq!(
+        app.get_import_stage(),
+        2,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_import_found(), 1, "GitHub is already in the vault");
+    assert_eq!(app.get_import_duplicates(), 1);
+    assert_eq!(app.get_import_new_folders(), 1);
+    app.invoke_import_confirm();
+    assert_eq!(app.get_import_stage(), 3);
+    assert_eq!(app.get_import_added(), 1);
+    assert_eq!(app.get_notice_code(), 19);
+    assert!(app.get_import_plaintext());
+    assert_eq!(app.get_folders().row_count(), 1);
+    app.invoke_import_wipe();
+    assert!(!export_file.exists(), "plain-text export wiped");
+    assert_eq!(app.get_import_stage(), 0);
+
+    // A file that isn't an export is refused with a message.
+    let junk = dir.path().join("junk.csv");
+    std::fs::write(&junk, "a,b\n1,2\n").unwrap();
+    controller.start_import(junk);
+    assert_eq!(app.get_error_code(), 19);
+    app.invoke_import_cancel();
+
+    // Unencrypted export needs the master password.
+    app.invoke_export_plain();
+    assert_eq!(app.get_error_code(), 11);
+    type_into(&app, 5, PASSWORD);
+    app.invoke_export_plain();
+    let exported = path.with_extension("export.json");
+    let text = std::fs::read_to_string(&exported).unwrap();
+    assert!(text.contains("\"Shop\"") && text.contains("Shopping"));
+    assert_eq!(app.get_notice_code(), 21);
+    std::fs::remove_file(exported).unwrap();
 
     // ---- nothing readable on disk ----
     let bytes = std::fs::read(&path).unwrap();

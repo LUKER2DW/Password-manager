@@ -884,6 +884,254 @@ export component SettingsPage inherits Rectangle {
     }
 }
 
+// Import from other password managers, encrypted backup, unencrypted export.
+export component TransferPage inherits Rectangle {
+    in property <int> error-code;
+    in property <string> error-detail;
+    in property <bool> busy;
+    // 0 choose a file, 1 KeePass password, 2 preview, 3 done
+    in property <int> import-stage;
+    in property <string> import-file;
+    in property <int> import-found;
+    in property <int> import-new-folders;
+    in property <int> import-duplicates;
+    in property <string> import-warnings;
+    in property <int> import-added;
+    // The chosen file is an unencrypted export: offer to wipe it after importing.
+    in property <bool> import-plaintext;
+    in-out property <int> export-format;
+    callback import-choose();
+    callback import-open();
+    callback import-confirm();
+    callback import-cancel();
+    callback import-wipe();
+    callback export-backup();
+    callback export-plain();
+
+    // Errors 11 (master password) belong to the export section; the rest to the import one.
+    property <bool> export-error: root.error-code == 11;
+
+    ScrollView {
+        VerticalLayout {
+            padding: 40px;
+            padding-right: 48px;
+            spacing: 14px;
+            alignment: start;
+
+            PageTitle { text: @tr("Import & export"); }
+
+            SectionTitle { text: @tr("Import from another password manager"); }
+            Prose {
+                text: @tr("Bitwarden (unencrypted .json export), KeePass and KeePassXC (.kdbx), Chrome, Edge, Firefox or any CSV with a header row. Folders come along; items already in your vault are skipped.");
+            }
+
+            if root.import-stage == 0: VerticalLayout {
+                spacing: 12px;
+                if !root.export-error: ErrorText {
+                    code: root.error-code;
+                    detail: root.error-detail;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    Button {
+                        text: @tr("Choose a file…");
+                        busy-text: @tr("Reading…");
+                        busy: root.busy;
+                        clicked => { root.import-choose(); }
+                    }
+                }
+            }
+
+            if root.import-stage == 1: VerticalLayout {
+                spacing: 12px;
+                max-width: 460px;
+                Prose {
+                    text: @tr("“{}” is a KeePass database. Type its password to open it; it is only used to read the file.", root.import-file);
+                }
+                SecretField {
+                    field: 8;
+                    label: @tr("KeePass database password");
+                    error: root.error-code == 19;
+                    accepted => { root.import-open(); }
+                }
+                ErrorText {
+                    code: root.error-code;
+                    detail: root.error-detail;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 8px;
+                    Button {
+                        text: @tr("Open");
+                        busy-text: @tr("Opening…");
+                        busy: root.busy;
+                        clicked => { root.import-open(); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        QuietButton {
+                            text: @tr("Cancel");
+                            clicked => { root.import-cancel(); }
+                        }
+                    }
+                }
+            }
+
+            if root.import-stage == 2: Rectangle {
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.rule;
+                background: Theme.panel;
+                max-width: 620px;
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 10px;
+                    Text {
+                        text: root.import-file;
+                        font-size: Theme.lead;
+                        font-weight: 600;
+                        color: Theme.ink;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: root.import-found == 0
+                            ? @tr("Nothing new to import.")
+                            : @tr("{n} item to import" | "{n} items to import" % root.import-found);
+                        font-size: Theme.body;
+                        color: Theme.ink;
+                    }
+                    if root.import-new-folders > 0: Text {
+                        text: @tr("{n} new folder" | "{n} new folders" % root.import-new-folders);
+                        font-size: Theme.body;
+                        color: Theme.graphite;
+                    }
+                    if root.import-duplicates > 0: Text {
+                        text: @tr("{n} already in your vault: skipped" | "{n} already in your vault: skipped" % root.import-duplicates);
+                        font-size: Theme.body;
+                        color: Theme.graphite;
+                    }
+                    if root.import-warnings != "": Text {
+                        text: root.import-warnings;
+                        font-size: Theme.small;
+                        color: Theme.graphite;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 8px;
+                        if root.import-found > 0: Button {
+                            text: @tr("Import {n} item" | "Import {n} items" % root.import-found);
+                            busy-text: @tr("Importing…");
+                            busy: root.busy;
+                            clicked => { root.import-confirm(); }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            QuietButton {
+                                text: @tr("Cancel");
+                                clicked => { root.import-cancel(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.import-stage == 3: VerticalLayout {
+                spacing: 12px;
+                max-width: 620px;
+                Text {
+                    text: @tr("Imported {n} item." | "Imported {n} items." % root.import-added);
+                    font-size: Theme.lead;
+                    font-weight: 600;
+                    color: Theme.ink;
+                }
+                if root.import-plaintext: Rectangle {
+                    border-radius: Theme.radius;
+                    border-width: 1px;
+                    border-color: Theme.seal;
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 10px;
+                        Prose {
+                            text: @tr("“{}” holds your passwords in plain text. Delete it now: it is overwritten with zeros, then removed. Empty it from the recycle bin too if you copied it elsewhere.", root.import-file);
+                            color: Theme.ink;
+                        }
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 8px;
+                            Button {
+                                text: @tr("Delete the file");
+                                danger: true;
+                                clicked => { root.import-wipe(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                QuietButton {
+                                    text: @tr("Keep it");
+                                    clicked => { root.import-cancel(); }
+                                }
+                            }
+                        }
+                    }
+                }
+                if !root.import-plaintext: HorizontalLayout {
+                    alignment: start;
+                    QuietButton {
+                        text: @tr("Import another file");
+                        clicked => { root.import-cancel(); }
+                    }
+                }
+            }
+
+            Rule { }
+            SectionTitle { text: @tr("Backup"); }
+            Prose {
+                text: @tr("A copy of your vault file. It stays encrypted: it opens only with your master password and Secret Key, or with the Recovery Key. Keep one on a USB drive or another disk.");
+            }
+            HorizontalLayout {
+                alignment: start;
+                QuietButton {
+                    text: @tr("Save a backup copy…");
+                    outlined: true;
+                    clicked => { root.export-backup(); }
+                }
+            }
+
+            Rule { }
+            SectionTitle {
+                text: @tr("Export without encryption");
+                hint: @tr("Only for moving to another password manager. The file is NOT encrypted: anyone who gets it can read every password, and malware looks for exactly these files. Import it elsewhere right away, then delete it. Recovery codes go out as a hidden field.");
+            }
+            Choice {
+                options: [@tr("Bitwarden JSON"), @tr("CSV")];
+                selected <=> root.export-format;
+            }
+            VerticalLayout {
+                spacing: 12px;
+                max-width: 460px;
+                SecretField {
+                    field: 5;
+                    label: @tr("Master password");
+                    error: root.export-error;
+                    accepted => { root.export-plain(); }
+                }
+                if root.export-error: ErrorText {
+                    code: root.error-code;
+                    detail: root.error-detail;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    Button {
+                        text: @tr("Export…");
+                        danger: true;
+                        clicked => { root.export-plain(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // The emergency kit: shown after the master password is typed, then printed or saved as a PDF.
 export component KitPage inherits Rectangle {
     in property <int> error-code;
