@@ -149,6 +149,11 @@ export global Messages {
         if (code == 27) { return @tr("A vault name has at most 60 characters."); }
         if (code == 28) { return @tr("Type a website (example.com) or a link to a picture (https://example.com/logo.png)."); }
         if (code == 30) { return @tr("Type a folder name."); }
+        if (code == 32) { return @tr("This vault also needs its keyfile. Choose the file (plug in the drive it is on first)."); }
+        if (code == 33) { return @tr("That file can't be used as a keyfile: {}", detail); }
+        if (code == 34) { return @tr("That master password and keyfile don't open this vault. Check Caps Lock, and that it is the right file."); }
+        if (code == 35) { return detail == "1" ? @tr("That isn't it. One more wrong try locks the vault.") : @tr("That isn't it. {} tries left before the vault locks.", detail); }
+        if (code == 36) { return @tr("A PIN has 4 to 8 digits; an item password at least 6 characters."); }
 
         if (code == 24) { return @tr("The vault file was changed outside this window (another window or program). Your last change was not saved: lock and unlock to load the newest version, then make it again."); }
         if (code == 14) { return @tr("Windows Hello couldn't open the vault ({}). Use your master password.", detail); }
@@ -232,6 +237,10 @@ export global Messages {
         if (code == 32) { return @tr("Folder deleted. Its items are still in All items."); }
         if (code == 33) { return @tr("Website copied."); }
         if (code == 34) { return @tr("Couldn't open {} in a browser.", arg); }
+        if (code == 35) { return @tr("Keyfile set: the vault now needs {} together with your master password. Keep a copy somewhere safe. Windows Hello, if it was on, is off until you turn it on again.", arg); }
+        if (code == 36) { return @tr("The vault no longer needs a keyfile. Windows Hello, if it was on, is off until you turn it on again."); }
+        if (code == 37) { return @tr("Item lock saved."); }
+        if (code == 38) { return @tr("Too many wrong tries: the vault locked itself. Unlock it with your master password."); }
         return "";
     }
 

@@ -489,6 +489,10 @@ export component UnlockScreen inherits Rectangle {
     in property <int> error-code;
     in property <string> error-detail;
     in property <bool> needs-secret-key;
+    // The vault uses a keyfile; `keyfile-path` is where it is (remembered, or just chosen).
+    in property <bool> needs-keyfile;
+    in property <string> keyfile-path;
+    callback choose-keyfile();
     in property <string> vault-path;
     // Windows Hello: usable on this computer / set up for this vault / prompt open now.
     in property <bool> quick-available;
@@ -626,6 +630,42 @@ export component UnlockScreen inherits Rectangle {
                     error: root.error-code == 1;
                     init => { self.focus(); }
                     accepted => { root.unlock(); }
+                }
+                if root.needs-keyfile: VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: @tr("Keyfile");
+                        font-size: Theme.small;
+                        color: Theme.graphite;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: Theme.control-height;
+                            border-radius: Theme.radius;
+                            background: Theme.field;
+                            border-width: 1px;
+                            border-color: root.error-code == 32 || root.error-code == 33 ? Theme.seal : Theme.rule;
+                            Text {
+                                x: 12px;
+                                width: parent.width - 24px;
+                                text: root.keyfile-path != "" ? root.keyfile-path : @tr("No file chosen");
+                                font-size: Theme.small;
+                                color: root.keyfile-path != "" ? Theme.ink : Theme.faint;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            QuietButton {
+                                outlined: true;
+                                text: @tr("Choose…");
+                                clicked => { root.choose-keyfile(); }
+                            }
+                        }
+                    }
                 }
                 ErrorLine {
                     code: root.error-code;

@@ -191,6 +191,14 @@ export component DetailPage inherits Rectangle {
     callback reveal-field(int);
     callback open-url(int);
     callback copy-url(int);
+    // The item's secrets (password, codes, hidden fields) wait for a check; `check` says which:
+    // 0 the master password, 1 a PIN, 2 another password.
+    in property <bool> locked;
+    in property <int> check;
+    in property <bool> busy;
+    in property <int> error-code;
+    in property <string> error-detail;
+    callback unlock-item();
 
     if !root.has-item: VerticalLayout {
         padding: 48px;
@@ -273,6 +281,71 @@ export component DetailPage inherits Rectangle {
                 QuietButton {
                     text: @tr("Copy");
                     clicked => { root.copy-username(); }
+                }
+            }
+
+            if root.locked: Rectangle {
+                height: lock-box.preferred-height + 28px;
+                VerticalLayout {
+                    padding-top: 14px;
+                    padding-bottom: 14px;
+                    Rectangle {
+                        border-radius: Theme.radius + 2px;
+                        border-width: 1px;
+                        border-color: Theme.rule;
+                        background: Theme.panel;
+                        lock-box := VerticalLayout {
+                            padding: 18px;
+                            spacing: 12px;
+                            HorizontalLayout {
+                                spacing: 10px;
+                                alignment: start;
+                                VerticalLayout {
+                                    alignment: center;
+                                    FieldIcon { name: "lock"; size: 26px; }
+                                }
+                                Text {
+                                    text: @tr("Secrets locked");
+                                    font-size: Theme.lead;
+                                    font-weight: 600;
+                                    color: Theme.ink;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            Text {
+                                text: root.check == 1 ? @tr("The password, codes and hidden fields of this item open with your PIN.")
+                                    : root.check == 2 ? @tr("The password, codes and hidden fields of this item open with your item password.")
+                                    : @tr("The password, codes and hidden fields of this item open with your master password.");
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                                wrap: word-wrap;
+                            }
+                            HorizontalLayout {
+                                spacing: 10px;
+                                alignment: start;
+                                SecretField {
+                                    width: root.check == 1 ? 180px : 320px;
+                                    field: 11;
+                                    placeholder: root.check == 1 ? @tr("PIN") : root.check == 2 ? @tr("Item password") : @tr("Master password");
+                                    error: root.error-code == 35;
+                                    accepted => { root.unlock-item(); }
+                                    init => { self.focus(); }
+                                }
+                                Button {
+                                    text: @tr("Unlock");
+                                    busy-text: @tr("Checking…");
+                                    busy: root.busy;
+                                    clicked => { root.unlock-item(); }
+                                }
+                            }
+                            if root.error-code != 0: Text {
+                                text: Messages.error(root.error-code, root.error-detail);
+                                font-size: Theme.small;
+                                color: Theme.seal;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -591,12 +664,14 @@ export component DetailPage inherits Rectangle {
                 QuietButton {
                     outlined: true;
                     text: @tr("Edit");
+                    enabled: !root.locked;
                     clicked => { root.edit(); }
                 }
                 QuietButton {
                     outlined: true;
                     text: @tr("Delete");
                     tint: Theme.seal;
+                    enabled: !root.locked;
                     clicked => { root.confirming-delete = true; }
                 }
             }
@@ -704,6 +779,7 @@ export component EditorPage inherits Rectangle {
     in-out property <string> totp;
     in-out property <string> notes;
     in-out property <bool> favorite;
+    in-out property <bool> reprompt;
     // "No folder" first, then every folder; `folder` indexes this list.
     in property <[string]> folder-options;
     in-out property <int> folder;
@@ -960,6 +1036,20 @@ export component EditorPage inherits Rectangle {
                         text: @tr("+ Add a field");
                         tint: Theme.graphite;
                         clicked => { root.field-add(); }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Check {
+                    text: @tr("Lock this item's secrets");
+                    checked <=> root.reprompt;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Hint {
+                        text: @tr("For the accounts that matter most (bank, main email). The item still shows its name, username and website, but its password, codes and hidden fields open only after a second check: your master password, or the PIN or password chosen in Settings → Item lock. Editing and deleting need it too. Settings can also lock every item at once.");
                     }
                 }
             }
@@ -1362,6 +1452,19 @@ export component SettingsPage inherits Rectangle {
     in property <bool> kdf-failed;
     in property <string> unlock-time;
     callback change-kdf();
+    // Item lock: every item or only marked ones; what opens them (0 master password, 1 PIN,
+    // 2 another password); what the vault uses now.
+    in-out property <bool> guard-all;
+    in-out property <int> guard-check;
+    in property <int> guard-current-check;
+    in property <bool> guard-failed;
+    callback save-guard();
+    // Keyfile: whether the vault needs one, where it is, the file for the next action.
+    in property <bool> keyfile-on;
+    in property <string> keyfile-path;
+    in property <bool> keyfile-failed;
+    // 0 = create a new file, 1 = use an existing file, 2 = remove.
+    callback keyfile-action(int);
 
     ScrollView {
         VerticalLayout {
@@ -1516,7 +1619,7 @@ export component SettingsPage inherits Rectangle {
                         error: root.error-code == 4;
                     }
                 }
-                if !root.kdf-failed: ErrorText {
+                if !root.kdf-failed && !root.keyfile-failed && !root.guard-failed: ErrorText {
                     code: root.error-code;
                     detail: root.error-detail;
                 }
@@ -1527,6 +1630,100 @@ export component SettingsPage inherits Rectangle {
                         busy-text: @tr("Working…");
                         busy: root.busy;
                         clicked => { root.change-password(); }
+                    }
+                }
+            }
+
+            SettingsCard {
+                icon: "pin";
+                title: @tr("Item lock");
+                summary: @tr("A second check before an open vault shows passwords, codes and hidden fields. Names, usernames and websites stay visible so you can find the account.");
+                hint: @tr("This protects an unlocked computer you stepped away from, or someone looking over your shoulder. After 5 wrong tries the whole vault locks and asks for the master password, which is why a short PIN is acceptable here. It is not extra encryption: malware already running on your computer can read an open vault either way. The PIN or password is stored only as a hash inside the encrypted vault.");
+                Choice {
+                    options: [@tr("Master password"), @tr("PIN"), @tr("Another password")];
+                    selected <=> root.guard-check;
+                }
+                Check {
+                    text: @tr("Lock every item (otherwise only items marked “Lock this item's secrets”)");
+                    checked <=> root.guard-all;
+                }
+                if root.guard-check != 0: SecretField {
+                    field: 12;
+                    label: root.guard-check == 1
+                        ? (root.guard-current-check == 1 ? @tr("New PIN (leave empty to keep the current one)") : @tr("PIN: 4 to 8 digits"))
+                        : (root.guard-current-check == 2 ? @tr("New item password (leave empty to keep the current one)") : @tr("Item password: at least 6 characters"));
+                    required: root.guard-check != root.guard-current-check;
+                    error: root.guard-failed && root.error-code == 36;
+                }
+                SecretField {
+                    field: 13;
+                    label: @tr("Current master password");
+                    required: true;
+                    error: root.guard-failed && (root.error-code == 11 || root.error-code == 34);
+                }
+                if root.guard-failed: ErrorText {
+                    code: root.error-code;
+                    detail: root.error-detail;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    Button {
+                        text: @tr("Save item lock");
+                        busy-text: @tr("Working…");
+                        busy: root.busy;
+                        clicked => { root.save-guard(); }
+                    }
+                }
+            }
+
+            SettingsCard {
+                icon: "note";
+                title: @tr("Keyfile");
+                summary: root.keyfile-on
+                    ? @tr("On: the vault opens only with your master password and this file.")
+                    : @tr("Off. A keyfile is a file the vault needs together with your master password.");
+                hint: @tr("Keep the keyfile on a USB stick or another place apart from the vault. Someone who steals the vault file, your master password and even this computer's Secret Key still can't open it without the file. The file must never change, not even by one byte, and losing it (with no Recovery Key) locks you out for good: keep a second copy. Any file works, but one made here holds a full-strength random key. Setting or removing it turns Windows Hello off until you turn it on again.");
+                if root.keyfile-on: Fact {
+                    label: @tr("File");
+                    value: root.keyfile-path != "" ? root.keyfile-path : @tr("Not found on this computer");
+                }
+                SecretField {
+                    field: 10;
+                    label: @tr("Current master password");
+                    required: true;
+                    error: root.keyfile-failed && (root.error-code == 11 || root.error-code == 34);
+                }
+                if root.keyfile-failed: ErrorText {
+                    code: root.error-code;
+                    detail: root.error-detail;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 8px;
+                    if !root.keyfile-on: Button {
+                        text: @tr("Create a keyfile…");
+                        busy-text: @tr("Working…");
+                        busy: root.busy;
+                        clicked => { root.keyfile-action(0); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        QuietButton {
+                            outlined: true;
+                            text: root.keyfile-on ? @tr("Use another file…") : @tr("Use an existing file…");
+                            enabled: !root.busy;
+                            clicked => { root.keyfile-action(1); }
+                        }
+                    }
+                    if root.keyfile-on: VerticalLayout {
+                        alignment: center;
+                        QuietButton {
+                            outlined: true;
+                            text: @tr("Remove the keyfile");
+                            tint: Theme.seal;
+                            enabled: !root.busy;
+                            clicked => { root.keyfile-action(2); }
+                        }
                     }
                 }
             }

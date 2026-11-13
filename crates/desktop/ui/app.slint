@@ -71,6 +71,24 @@ export component AppWindow inherits Window {
 
     // ---- unlock / recover ----
     in property <bool> needs-secret-key;
+    in property <bool> needs-keyfile;
+    // Where the vault's keyfile is (unlock screen and settings).
+    in-out property <string> keyfile-path;
+    callback choose-keyfile();
+    in property <bool> keyfile-on;
+    in property <bool> keyfile-failed;
+    // File for the next keyfile action (filled by the file dialog).
+    in-out property <string> keyfile-target;
+    callback keyfile-action(int);
+    // The selected item's secrets wait for a check (0 master password, 1 PIN, 2 password).
+    in property <bool> detail-locked;
+    in property <int> detail-check;
+    in-out property <bool> guard-all;
+    in-out property <int> guard-check;
+    in property <int> guard-current-check;
+    in property <bool> guard-failed;
+    callback save-guard();
+    callback unlock-item();
     // Windows Hello: usable on this computer / set up for this vault / prompt open now.
     in property <bool> quick-unlock-available;
     in-out property <bool> quick-unlock-on;
@@ -225,6 +243,7 @@ export component AppWindow inherits Window {
     in-out property <string> ed-totp;
     in-out property <string> ed-notes;
     in-out property <bool> ed-favorite;
+    in-out property <bool> ed-reprompt;
     in property <[string]> ed-folder-options: [""];
     in-out property <int> ed-folder;
     in-out property <string> ed-recovery-codes;
@@ -372,6 +391,9 @@ export component AppWindow inherits Window {
         error-code: root.error-code;
         error-detail: root.error-detail;
         needs-secret-key: root.needs-secret-key;
+        needs-keyfile: root.needs-keyfile;
+        keyfile-path: root.keyfile-path;
+        choose-keyfile => { root.choose-keyfile(); }
         vault-path: root.vault-path;
         quick-available: root.quick-unlock-available;
         quick-unlock: root.quick-unlock-on;
@@ -462,6 +484,12 @@ export component AppWindow inherits Window {
 
             if root.panel == Panel.detail: DetailPage {
                 has-item: root.has-selection;
+                locked: root.detail-locked;
+                check: root.detail-check;
+                busy: root.busy;
+                error-code: root.error-code;
+                error-detail: root.error-detail;
+                unlock-item => { root.unlock-item(); }
                 title: root.detail-title;
                 kind: root.detail-kind;
                 favorite: root.detail-favorite;
@@ -532,6 +560,7 @@ export component AppWindow inherits Window {
                 totp <=> root.ed-totp;
                 notes <=> root.ed-notes;
                 favorite <=> root.ed-favorite;
+                reprompt <=> root.ed-reprompt;
                 folder-options: root.ed-folder-options;
                 folder <=> root.ed-folder;
                 recovery-codes <=> root.ed-recovery-codes;
@@ -618,6 +647,15 @@ export component AppWindow inherits Window {
                 kdf-failed: root.kdf-failed;
                 unlock-time: root.unlock-time;
                 change-kdf => { root.change-kdf(); }
+                keyfile-on: root.keyfile-on;
+                keyfile-path: root.keyfile-path;
+                keyfile-failed: root.keyfile-failed;
+                keyfile-action(what) => { root.keyfile-action(what); }
+                guard-all <=> root.guard-all;
+                guard-check <=> root.guard-check;
+                guard-current-check: root.guard-current-check;
+                guard-failed: root.guard-failed;
+                save-guard => { root.save-guard(); }
             }
             if root.panel == Panel.authenticator: AuthenticatorPage {
                 rows: root.auth-rows;
@@ -778,13 +816,13 @@ export component AppWindow inherits Window {
             MenuEntry {
                 text: root.detail-kind == 1 ? @tr("Copy PIN") : @tr("Copy password");
                 icon: "key";
-                enabled: root.detail-has-password;
+                enabled: root.detail-has-password && !root.detail-locked;
                 clicked => { root.copy-password(); }
             }
             MenuEntry {
                 text: @tr("Copy one-time code");
                 icon: "clock";
-                enabled: root.totp-code != "";
+                enabled: root.totp-code != "" && !root.detail-locked;
                 clicked => { root.copy-totp(); }
             }
             MenuEntry {
@@ -797,6 +835,7 @@ export component AppWindow inherits Window {
             MenuEntry {
                 text: @tr("Edit");
                 icon: "pencil";
+                enabled: !root.detail-locked;
                 clicked => { root.edit-item(); }
             }
             MenuEntry {
@@ -809,6 +848,7 @@ export component AppWindow inherits Window {
                 text: @tr("Delete…");
                 icon: "trash";
                 danger: true;
+                enabled: !root.detail-locked;
                 clicked => { root.confirming-delete = true; }
             }
         }

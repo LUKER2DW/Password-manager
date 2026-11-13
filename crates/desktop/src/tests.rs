@@ -693,6 +693,206 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_screen(), Screen::Vault);
     assert_eq!(app.get_total_items(), 1);
 
+    // ---- item lock: secrets wait for a second check, the rest stays visible ----
+    let relock = |app: &AppWindow| {
+        app.invoke_lock();
+        type_into(app, 0, NEW_PASSWORD);
+        app.invoke_unlock();
+        assert_eq!(app.get_screen(), Screen::Vault);
+    };
+    app.invoke_select(0);
+    assert_eq!(app.get_totp_count(), 1);
+    app.invoke_edit_item();
+    app.set_ed_reprompt(true);
+    app.invoke_save_item();
+    assert!(!app.get_detail_locked(), "just saved: still open");
+    relock(&app);
+    app.invoke_select(0);
+    assert!(app.get_detail_locked());
+    assert_eq!(app.get_detail_check(), 0, "the master password by default");
+    assert_eq!(app.get_detail_title(), "GitHub");
+    assert_ne!(
+        app.get_detail_username(),
+        "",
+        "who the account is stays visible"
+    );
+    assert!(app.get_detail_urls().row_count() > 0);
+    assert!(!app.get_detail_has_password());
+    assert_eq!(app.get_totp_code(), "");
+    assert_eq!(app.get_detail_codes_total(), 0);
+    assert_eq!(
+        app.get_totp_count(),
+        0,
+        "its code is off the Authenticator page"
+    );
+    app.invoke_copy_username();
+    assert_eq!(app.get_notice_code(), 2, "what is visible can be copied");
+    // No route reaches the secrets: reveal, copy, edit and delete do nothing.
+    app.invoke_reveal();
+    assert_eq!(app.get_revealed_password(), "");
+    app.invoke_copy_password();
+    assert_ne!(app.get_notice_code(), 1);
+    app.invoke_copy_totp();
+    assert_ne!(app.get_notice_code(), 3);
+    app.invoke_edit_item();
+    assert_eq!(app.get_panel(), Panel::Detail);
+    app.invoke_delete_item();
+    assert_eq!(app.get_total_items(), 1);
+    type_into(&app, 11, "not the master password");
+    app.invoke_unlock_item();
+    assert_eq!(app.get_error_code(), 35);
+    assert_eq!(app.get_error_detail(), "4", "tries left");
+    assert!(app.get_detail_locked());
+    type_into(&app, 11, NEW_PASSWORD);
+    app.invoke_unlock_item();
+    assert_eq!(app.get_error_code(), 0);
+    assert!(!app.get_detail_locked());
+    assert!(app.get_detail_has_password());
+    assert_eq!(length(&app, 11), 0, "what was typed is cleared");
+    app.invoke_edit_item();
+    assert_eq!(app.get_panel(), Panel::Editor);
+    app.set_ed_reprompt(false);
+    app.invoke_save_item();
+    assert_eq!(app.get_totp_count(), 1);
+
+    // A PIN for every item, set after a master password check.
+    app.invoke_open_settings();
+    assert_eq!(
+        (app.get_guard_all(), app.get_guard_current_check()),
+        (false, 0)
+    );
+    app.set_guard_check(1);
+    app.set_guard_all(true);
+    type_into(&app, 12, "12");
+    type_into(&app, 13, "not the current one");
+    app.invoke_save_guard();
+    assert_eq!(app.get_error_code(), 11);
+    assert!(app.get_guard_failed(), "the error shows on that card");
+    type_into(&app, 13, NEW_PASSWORD);
+    app.invoke_save_guard();
+    assert_eq!(app.get_error_code(), 36, "two digits are not a PIN");
+    type_into(&app, 12, "4821");
+    type_into(&app, 13, NEW_PASSWORD);
+    app.invoke_save_guard();
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_notice_code(), 37);
+    assert_eq!(app.get_guard_current_check(), 1);
+    assert_eq!((length(&app, 12), length(&app, 13)), (0, 0));
+    app.invoke_select_category(0);
+    app.invoke_select(0);
+    assert!(app.get_detail_locked(), "every item is locked now");
+    assert_eq!(app.get_detail_check(), 1);
+    type_into(&app, 11, "4821");
+    app.invoke_unlock_item();
+    assert!(!app.get_detail_locked());
+    assert!(app.get_detail_has_password());
+    // The PIN survives a save and a reopen; five wrong tries lock the whole vault.
+    relock(&app);
+    app.invoke_select(0);
+    for left in ["4", "3", "2", "1"] {
+        type_into(&app, 11, "0000");
+        app.invoke_unlock_item();
+        assert_eq!(app.get_error_code(), 35);
+        assert_eq!(app.get_error_detail(), left);
+        assert_eq!(app.get_screen(), Screen::Vault);
+    }
+    type_into(&app, 11, "0000");
+    app.invoke_unlock_item();
+    assert_eq!(app.get_screen(), Screen::Unlock, "locked out");
+    assert_eq!(app.get_notice_code(), 38);
+    type_into(&app, 0, NEW_PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_screen(), Screen::Vault);
+    app.invoke_open_settings();
+    app.set_guard_check(0);
+    app.set_guard_all(false);
+    type_into(&app, 13, NEW_PASSWORD);
+    app.invoke_save_guard();
+    assert_eq!(app.get_notice_code(), 37);
+    app.invoke_select_category(0);
+    app.invoke_select(0);
+    assert!(!app.get_detail_locked(), "back to no lock");
+    assert_eq!(app.get_totp_count(), 1);
+
+    // ---- keyfile: a file needed together with the master password ----
+    app.invoke_open_settings();
+    assert!(!app.get_keyfile_on());
+    let keyfile = dir.path().join("test.keyfile");
+    app.set_keyfile_target(keyfile.to_str().unwrap().into());
+    type_into(&app, 10, "not the current one");
+    app.invoke_keyfile_action(0);
+    assert_eq!(app.get_error_code(), 11);
+    assert!(app.get_keyfile_failed(), "the error shows on that card");
+    assert!(!keyfile.exists(), "nothing written before the check");
+    type_into(&app, 10, NEW_PASSWORD);
+    app.invoke_keyfile_action(0);
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_notice_code(), 35);
+    assert!(app.get_keyfile_on());
+    assert!(keyfile.is_file());
+    assert_eq!(length(&app, 10), 0);
+    // The master password still checks out (it now needs the keyfile behind the scenes).
+    type_into(&app, 5, NEW_PASSWORD);
+    app.invoke_show_kit();
+    assert_eq!(app.get_kit_secret_key(), secret_key.as_str());
+    app.invoke_hide_kit();
+
+    app.invoke_lock();
+    assert!(app.get_needs_keyfile());
+    assert_eq!(
+        app.get_keyfile_path().as_str(),
+        keyfile.to_str().unwrap(),
+        "this computer remembers where the file is"
+    );
+    app.set_keyfile_path("".into());
+    type_into(&app, 0, NEW_PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_error_code(), 32, "no keyfile, no vault");
+    let other = dir.path().join("other.keyfile");
+    std::fs::write(&other, "vault-keyfile-v1 not the right one\n").unwrap();
+    app.set_keyfile_path(other.to_str().unwrap().into());
+    type_into(&app, 0, NEW_PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(
+        app.get_error_code(),
+        34,
+        "the right password with the wrong file"
+    );
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    app.set_keyfile_path(keyfile.to_str().unwrap().into());
+    type_into(&app, 0, NEW_PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_screen(), Screen::Vault);
+
+    app.invoke_open_settings();
+    assert!(app.get_keyfile_on());
+    type_into(&app, 10, NEW_PASSWORD);
+    app.invoke_keyfile_action(2);
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_notice_code(), 36);
+    assert!(!app.get_keyfile_on());
+    app.invoke_lock();
+    assert!(!app.get_needs_keyfile());
+    type_into(&app, 0, NEW_PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_screen(), Screen::Vault);
+    assert_eq!(app.get_total_items(), 1);
+
     // ---- quick unlock (fake Windows Hello) ----
     let id = app.get_vault_id().to_string();
     let home = dir.path().join("home");

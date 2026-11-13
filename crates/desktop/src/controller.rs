@@ -45,6 +45,7 @@ use crate::{
 mod features;
 mod folders;
 mod navigation;
+mod protection;
 
 /// What to draw next to an item.
 struct IconVisual {
@@ -67,7 +68,14 @@ mod field {
     pub const IMPORT: usize = 8;
     /// Current master password on the "Unlock protection" card.
     pub const KDF_CURRENT: usize = 9;
-    pub const COUNT: usize = 10;
+    /// Current master password on the "Keyfile" card.
+    pub const KEYFILE_CURRENT: usize = 10;
+    /// Master password asked by a protected item.
+    pub const REPROMPT: usize = 11;
+    /// New PIN or password for the item lock, and the master password that allows the change.
+    pub const GUARD_NEW: usize = 12;
+    pub const GUARD_CURRENT: usize = 13;
+    pub const COUNT: usize = 14;
 }
 
 /// Error codes (texts live in model.slint → Messages.error).
@@ -102,6 +110,11 @@ mod error {
     pub const VAULT_NAME: i32 = 27;
     pub const FOLDER_LINK: i32 = 28;
     pub const FOLDER_NAME: i32 = 30;
+    pub const KEYFILE_NEEDED: i32 = 32;
+    pub const KEYFILE_UNREADABLE: i32 = 33;
+    pub const WRONG_WITH_KEYFILE: i32 = 34;
+    pub const GUARD_WRONG: i32 = 35;
+    pub const GUARD_SECRET: i32 = 36;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -139,6 +152,10 @@ mod notice {
     pub const FOLDER_DELETED: i32 = 32;
     pub const WEBSITE_COPIED: i32 = 33;
     pub const LINK_FAILED: i32 = 34;
+    pub const KEYFILE_SET: i32 = 35;
+    pub const KEYFILE_REMOVED: i32 = 36;
+    pub const GUARD_SAVED: i32 = 37;
+    pub const GUARD_LOCKED_OUT: i32 = 38;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -159,6 +176,9 @@ pub enum Runner {
 struct Session {
     vault: Vault,
     secret_key: SecretKey,
+    /// The keyfile the vault was opened with (or found where this device remembers it, after
+    /// a Windows Hello unlock); needed to check or change the master password.
+    keyfile: Option<vault_core::Keyfile>,
 }
 
 /// Results of background work, sent back to the UI thread.
@@ -200,10 +220,31 @@ enum JobResult {
         session: Session,
         kdf_seconds: Option<f64>,
     },
-    /// Changing the Argon2id cost failed; the error belongs on that card.
+    /// Changing the Argon2id cost (or with `keyfile`, the keyfile) failed; the error belongs
+    /// on that card.
     KdfFailed {
         code: i32,
         detail: String,
+        session: Session,
+        /// 1 unlock protection, 2 keyfile, 3 item lock.
+        card: i32,
+    },
+    /// The keyfile was set (`path`) or removed.
+    KeyfileChanged {
+        session: Session,
+        path: Option<PathBuf>,
+    },
+    /// The check was right: the guarded item opens.
+    ItemUnlocked {
+        session: Session,
+        id: ItemId,
+    },
+    /// A wrong PIN or password for a guarded item (counted; too many lock the vault).
+    ItemRefused {
+        session: Session,
+    },
+    /// The master password was right: the item lock settings may change.
+    GuardVerified {
         session: Session,
     },
     KitVerified {
@@ -282,6 +323,10 @@ struct State {
     dialog_folder: Option<FolderId>,
     /// How long the last unlock took on this computer.
     unlock_seconds: Option<f64>,
+    /// The guarded item whose check was just passed.
+    unlocked_item: Option<ItemId>,
+    /// Wrong tries at a guarded item since the last right one.
+    guard_attempts: u32,
 }
 
 #[derive(Default)]
@@ -391,6 +436,8 @@ impl Controller {
                 history: navigation::History::default(),
                 dialog_folder: None,
                 unlock_seconds: None,
+                unlocked_item: None,
+                guard_attempts: 0,
             }),
             timers: Timers::default(),
             lengths: Rc::new(VecModel::from(vec![0; field::COUNT])),
@@ -536,6 +583,10 @@ impl Controller {
         on!(on_open_url, |c, index| c.open_url(index));
         on!(on_copy_url, |c, index| c.copy_url(index));
         on!(on_change_kdf, |c| c.change_kdf());
+        on!(on_choose_keyfile, |c| c.choose_keyfile());
+        on!(on_keyfile_action, |c, what| c.keyfile_action(what));
+        on!(on_unlock_item, |c| c.unlock_item());
+        on!(on_save_guard, |c| c.save_guard());
         on!(on_show_codes, |c| c.show_codes());
         on!(on_hide_codes, |c| c.hide_codes());
         on!(on_copy_code, |c, index| c
@@ -687,6 +738,13 @@ impl Controller {
                 app.set_quick_unlock_on(
                     self.state.borrow().quick_available && quick_unlock::is_enrolled(&info.id_hex),
                 );
+                app.set_needs_keyfile(info.needs_keyfile);
+                app.set_keyfile_path(SharedString::from(
+                    vault_platform::keyfile::remembered_path(&info.id_hex)
+                        .filter(|_| info.needs_keyfile)
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default(),
+                ));
                 app.set_vault_id(SharedString::from(info.id_hex));
                 app.set_needs_secret_key(!known);
                 self.show_screen(Screen::Unlock);
@@ -714,8 +772,10 @@ impl Controller {
         let app = self.app();
         app.set_error_code(code);
         app.set_error_detail(SharedString::from(detail));
-        // Set again by `change_kdf` when the error is its own.
+        // Set again by `change_kdf` / `keyfile_action` when the error is their own.
         app.set_kdf_failed(false);
+        app.set_keyfile_failed(false);
+        app.set_guard_failed(false);
     }
 
     /// A notice that stays longer (something went wrong and needs reading).
@@ -854,10 +914,54 @@ impl Controller {
                 code,
                 detail,
                 session,
+                card,
             } => {
                 self.state.borrow_mut().session = Some(session);
                 self.set_error(code, &detail);
-                app.set_kdf_failed(true);
+                app.set_kdf_failed(card == 1);
+                app.set_keyfile_failed(card == 2);
+                app.set_guard_failed(card == 3);
+            }
+            JobResult::KeyfileChanged { session, path } => {
+                self.clear_secret(field::KEYFILE_CURRENT);
+                // Like a password change, the rewritten lock revokes the device unlock.
+                let id = session.vault.id_hex();
+                let had_quick_unlock = quick_unlock::is_enrolled(&id);
+                self.state.borrow_mut().session = Some(session);
+                self.remember_file();
+                if had_quick_unlock {
+                    self.turn_off_quick_unlock(&id);
+                }
+                self.show_vault_settings();
+                match path {
+                    Some(path) => self.notify_long(
+                        notice::KEYFILE_SET,
+                        &path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default(),
+                    ),
+                    None => self.notify_long(notice::KEYFILE_REMOVED, ""),
+                }
+            }
+            JobResult::ItemUnlocked { session, id } => {
+                self.clear_secret(field::REPROMPT);
+                {
+                    let mut state = self.state.borrow_mut();
+                    state.session = Some(session);
+                    state.unlocked_item = Some(id);
+                    state.guard_attempts = 0;
+                }
+                self.set_error(error::NONE, "");
+                self.show_detail();
+            }
+            JobResult::ItemRefused { session } => {
+                self.state.borrow_mut().session = Some(session);
+                self.item_refused();
+            }
+            JobResult::GuardVerified { session } => {
+                self.state.borrow_mut().session = Some(session);
+                self.apply_guard();
             }
             JobResult::PasswordChanged {
                 session,
@@ -1007,7 +1111,11 @@ impl Controller {
                     .map_err(|e| (error::FILE, e.to_string()))?;
                 let _ = quick_unlock::record_password_unlock(&vault);
                 Ok(JobResult::Created {
-                    session: Session { vault, secret_key },
+                    session: Session {
+                        vault,
+                        secret_key,
+                        keyfile: None,
+                    },
                     recovery_key,
                 })
             })();
@@ -1100,24 +1208,53 @@ impl Controller {
         if password.is_empty() {
             return;
         }
+        let keyfile = if info.needs_keyfile {
+            match self.keyfile_for_unlock() {
+                Ok(found) => Some(found),
+                Err((code, detail)) => {
+                    self.set_error(code, &detail);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         self.run_job(move || {
             let started = std::time::Instant::now();
-            match Vault::open(
-                &bytes,
-                Unlock::Password {
+            let unlock = match &keyfile {
+                Some((keyfile, _)) => Unlock::PasswordAndKeyfile {
+                    password: &password,
+                    secret_key: &secret_key,
+                    keyfile,
+                },
+                None => Unlock::Password {
                     password: &password,
                     secret_key: &secret_key,
                 },
-            ) {
+            };
+            match Vault::open(&bytes, unlock) {
                 Ok(vault) => {
                     let seconds = started.elapsed().as_secs_f64();
                     let _ = quick_unlock::record_password_unlock(&vault);
+                    if let Some((_, path)) = &keyfile {
+                        // It worked: this device remembers where the file is.
+                        let _ = vault_platform::keyfile::remember_path(&vault.id_hex(), Some(path));
+                    }
                     JobResult::Unlocked {
-                        session: Session { vault, secret_key },
+                        session: Session {
+                            vault,
+                            secret_key,
+                            keyfile: keyfile.map(|(key, _)| key),
+                        },
                         typed_secret_key: typed,
                         seconds: Some(seconds),
                     }
                 }
+                Err(CoreError::DecryptionFailed) if keyfile.is_some() => JobResult::Failed {
+                    code: error::WRONG_WITH_KEYFILE,
+                    detail: String::new(),
+                    session: None,
+                },
                 Err(CoreError::DecryptionFailed) => JobResult::Failed {
                     code: error::WRONG_PASSWORD,
                     detail: String::new(),
@@ -1159,9 +1296,11 @@ impl Controller {
                 let secret_key =
                     SecretKey::generate().map_err(|e| (error::OTHER, e.to_string()))?;
                 let kdf = vault.kdf_params().clone();
+                // The keyfile may be what was lost: the new lock is password + Secret Key.
                 vault
-                    .change_password(&password, &secret_key, &kdf)
+                    .change_password(&password, &secret_key, None, &kdf)
                     .map_err(|e| (error::OTHER, e.to_string()))?;
+                let _ = vault_platform::keyfile::remember_path(&vault.id_hex(), None);
                 let bytes = vault
                     .to_bytes()
                     .map_err(|e| (error::OTHER, e.to_string()))?;
@@ -1174,7 +1313,11 @@ impl Controller {
                 quick_unlock::forget(&vault.id_hex());
                 let _ = quick_unlock::record_password_unlock(&vault);
                 Ok(JobResult::Recovered {
-                    session: Session { vault, secret_key },
+                    session: Session {
+                        vault,
+                        secret_key,
+                        keyfile: None,
+                    },
                 })
             })();
             result.unwrap_or_else(|(code, detail)| JobResult::Failed {
@@ -1247,11 +1390,24 @@ impl Controller {
                 }
             };
             match Vault::open_with_device(&bytes, &secret, &sealed) {
-                Ok(vault) if quick_unlock::password_is_recent(&vault) => JobResult::Unlocked {
-                    session: Session { vault, secret_key },
-                    typed_secret_key: false,
-                    seconds: None,
-                },
+                Ok(vault) if quick_unlock::password_is_recent(&vault) => {
+                    // Windows Hello holds the vault key itself; the keyfile is only needed
+                    // later, to check or change the master password.
+                    let keyfile = vault
+                        .needs_keyfile()
+                        .then(|| vault_platform::keyfile::remembered_path(&vault.id_hex()))
+                        .flatten()
+                        .and_then(|path| vault_platform::keyfile::read(&path).ok());
+                    JobResult::Unlocked {
+                        session: Session {
+                            vault,
+                            secret_key,
+                            keyfile,
+                        },
+                        typed_secret_key: false,
+                        seconds: None,
+                    }
+                }
                 Ok(_) => failed(
                     error::PASSWORD_DUE,
                     quick_unlock::PASSWORD_INTERVAL_DAYS.to_string(),
@@ -1343,6 +1499,7 @@ impl Controller {
             state.editing = None;
             state.health = None;
             state.leaks.clear();
+            state.unlocked_item = None;
         }
         app.set_leaks_checked(false);
         app.set_search_text(SharedString::new());
@@ -1374,6 +1531,25 @@ impl Controller {
             timer.stop();
         }
         {
+            // The lock screen asks for the keyfile again when the vault uses one.
+            let keyfile = self.state.borrow().session.as_ref().map(|s| {
+                let id = s.vault.id_hex();
+                (
+                    s.vault.needs_keyfile(),
+                    vault_platform::keyfile::remembered_path(&id),
+                )
+            });
+            if let Some((needed, path)) = keyfile {
+                let app = self.app();
+                app.set_needs_keyfile(needed);
+                app.set_keyfile_path(SharedString::from(
+                    path.filter(|_| needed)
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default(),
+                ));
+            }
+        }
+        {
             let mut state = self.state.borrow_mut();
             state.session = None;
             state.pending = None;
@@ -1396,6 +1572,8 @@ impl Controller {
             state.import_include.clear();
             state.history = navigation::History::default();
             state.dialog_folder = None;
+            state.unlocked_item = None;
+            state.guard_attempts = 0;
         }
         self.clear_all_secrets();
         {
@@ -1599,13 +1777,14 @@ impl Controller {
         self.items.set_vec(rows);
         app.set_counts(ModelRc::from(Rc::new(VecModel::from(counts.to_vec()))));
         app.set_total_items(self.state.borrow().summaries.len() as i32);
+        let guard_all = self.guards_every_item();
         app.set_totp_count(
             i32::try_from(
                 self.state
                     .borrow()
                     .summaries
                     .iter()
-                    .filter(|s| s.has_totp)
+                    .filter(|s| s.has_totp && !(guard_all || s.reprompt))
                     .count(),
             )
             .unwrap_or(0),
@@ -1651,7 +1830,15 @@ impl Controller {
         self.show_detail();
     }
 
+    /// The selected item, for showing or copying its secrets and for changing it. `None` while
+    /// a guarded item still waits for its check, so nothing reaches the secrets by another
+    /// route (the right-click menu, a shortcut).
     fn selected_item(&self) -> Option<(ItemId, ItemData)> {
+        let (id, item) = self.selected_item_raw()?;
+        (!self.item_locked(&id, &item)).then_some((id, item))
+    }
+
+    fn selected_item_raw(&self) -> Option<(ItemId, ItemData)> {
         let state = self.state.borrow();
         let id = state.selected?;
         let item = state.session.as_ref()?.vault.get_item(&id).ok()?;
@@ -1664,21 +1851,49 @@ impl Controller {
         self.timers.totp.stop();
         app.set_notes_shown(false);
         app.set_confirming_delete(false);
-        let Some((id, item)) = self.selected_item() else {
+        app.set_detail_locked(false);
+        let Some((id, item)) = self.selected_item_raw() else {
             app.set_has_selection(false);
             self.state.borrow_mut().totp = None;
             self.state.borrow_mut().codes_shown = None;
             app.set_detail_codes(ModelRc::default());
             return;
         };
+        {
+            // The check opens one item; picking another closes it again.
+            let mut state = self.state.borrow_mut();
+            if state.unlocked_item.is_some_and(|open| open != id) {
+                state.unlocked_item = None;
+            }
+        }
+        // Guarded and not opened yet: the page shows who the account is (title, username,
+        // website, plain fields, notes) and nothing secret leaves Rust.
+        let locked = self.item_locked(&id, &item);
+        app.set_detail_locked(locked);
+        app.set_detail_check(
+            self.state
+                .borrow()
+                .session
+                .as_ref()
+                .map_or(0, |s| protection::check_code(s.vault.item_guard().check)),
+        );
+        if locked {
+            self.clear_secret(field::REPROMPT);
+        }
         app.set_has_selection(true);
         app.set_detail_title(SharedString::from(item.title.as_str()));
         app.set_detail_kind(view::kind_to_int(item.kind));
         self.apply_detail_icon(&item);
         app.set_detail_favorite(item.favorite);
         app.set_detail_username(SharedString::from(item.username.as_str()));
-        app.set_detail_has_password(!item.password.is_empty());
-        app.set_detail_notes(SharedString::from(item.notes.as_str()));
+        app.set_detail_has_password(!locked && !item.password.is_empty());
+        // A secure note's text is its secret.
+        let notes_hidden = locked && item.kind == ItemKind::SecureNote;
+        app.set_detail_notes(SharedString::from(if notes_hidden {
+            ""
+        } else {
+            item.notes.as_str()
+        }));
         let urls: Vec<SharedString> = item
             .urls
             .iter()
@@ -1687,6 +1902,7 @@ impl Controller {
         app.set_detail_urls(ModelRc::from(Rc::new(VecModel::from(urls))));
         let fields: Vec<DetailField> = view::detail_fields(&item, view::now_month_year())
             .into_iter()
+            .filter(|f| !locked || !f.hideable)
             .map(|f| DetailField {
                 label: SharedString::from(f.label),
                 value: SharedString::from(f.value),
@@ -1703,17 +1919,22 @@ impl Controller {
                 .and_then(|folder| self.folder_name(&folder))
                 .unwrap_or_default(),
         ));
-        app.set_detail_codes_total(i32::try_from(item.recovery_codes.len()).unwrap_or(0));
+        let codes = if locked { 0 } else { item.recovery_codes.len() };
+        app.set_detail_codes_total(i32::try_from(codes).unwrap_or(0));
         app.set_detail_codes_left(i32::try_from(item.recovery_codes_left()).unwrap_or(0));
-        if self.state.borrow().codes_shown == Some(id) {
+        if !locked && self.state.borrow().codes_shown == Some(id) {
             self.fill_codes(&item);
         } else {
             self.state.borrow_mut().codes_shown = None;
             app.set_detail_codes(ModelRc::default());
         }
 
-        self.show_password_details(id, &item);
-        let totp = (!item.totp.is_empty())
+        if locked {
+            app.set_detail_history_count(0);
+        } else {
+            self.show_password_details(id, &item);
+        }
+        let totp = (!locked && !item.totp.is_empty())
             .then(|| Totp::parse(&item.totp).ok())
             .flatten();
         self.state.borrow_mut().totp = totp;
@@ -1810,7 +2031,7 @@ impl Controller {
 
     /// Opens one of the selected item's websites in the default browser.
     fn open_url(&self, index: i32) {
-        let Some((_, item)) = self.selected_item() else {
+        let Some((_, item)) = self.selected_item_raw() else {
             return;
         };
         let Some(url) = usize::try_from(index).ok().and_then(|i| item.urls.get(i)) else {
@@ -1822,7 +2043,7 @@ impl Controller {
     }
 
     fn copy_url(&self, index: i32) {
-        let Some((_, item)) = self.selected_item() else {
+        let Some((_, item)) = self.selected_item_raw() else {
             return;
         };
         if let Some(url) = usize::try_from(index).ok().and_then(|i| item.urls.get(i)) {
@@ -1831,9 +2052,20 @@ impl Controller {
     }
 
     fn copy_from_selected(&self, what: CopyWhat) {
-        let Some((_, item)) = self.selected_item() else {
+        let Some((id, item)) = self.selected_item_raw() else {
             return;
         };
+        // What a locked item still shows can be copied; its secrets cannot.
+        let visible = match what {
+            CopyWhat::Username => true,
+            CopyWhat::Field(index) => view::detail_fields(&item, view::now_month_year())
+                .iter()
+                .any(|f| i32::try_from(f.index) == Ok(index) && !f.hideable),
+            _ => false,
+        };
+        if !visible && self.item_locked(&id, &item) {
+            return;
+        }
         let (value, secret, code) = match what {
             CopyWhat::Username => (
                 Zeroizing::new(item.username.clone()),
@@ -1974,7 +2206,7 @@ impl Controller {
     }
 
     fn toggle_favorite(&self) {
-        let Some((id, mut item)) = self.selected_item() else {
+        let Some((id, mut item)) = self.selected_item_raw() else {
             return;
         };
         item.favorite = !item.favorite;
@@ -2164,12 +2396,14 @@ impl Controller {
     // -----------------------------------------------------------------------------------------
 
     fn open_authenticator(&self) {
+        let guard_all = self.guards_every_item();
         let ids: Vec<ItemId> = self
             .state
             .borrow()
             .summaries
             .iter()
-            .filter(|s| s.has_totp)
+            // Guarded items keep their codes behind their check.
+            .filter(|s| s.has_totp && !(guard_all || s.reprompt))
             .map(|s| s.id)
             .collect();
         let mut entries = Vec::with_capacity(ids.len());
@@ -2388,6 +2622,17 @@ impl Controller {
     fn open_editor(&self, id: Option<ItemId>) {
         let app = self.app();
         self.conceal();
+        if let Some(id) = id {
+            let item = self
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .and_then(|s| s.vault.get_item(&id).ok());
+            if item.is_some_and(|item| self.item_locked(&id, &item)) {
+                return; // its check first
+            }
+        }
         let item = id.and_then(|id| {
             self.state
                 .borrow()
@@ -2408,6 +2653,7 @@ impl Controller {
         app.set_ed_totp(SharedString::from(item.totp.as_str()));
         app.set_ed_notes(SharedString::from(item.notes.as_str()));
         app.set_ed_favorite(item.favorite);
+        app.set_ed_reprompt(item.reprompt);
         // Folder picker: "" (shown as "No folder") first, then every folder. A new item
         // starts in the folder being browsed.
         let folders: Vec<(FolderId, String)> = self
@@ -2535,6 +2781,7 @@ impl Controller {
         item.icon_url = view::icon_site(&app.get_ed_icon_url());
         item.notes = app.get_ed_notes().to_string();
         item.favorite = app.get_ed_favorite();
+        item.reprompt = app.get_ed_reprompt();
         item.folder = usize::try_from(app.get_ed_folder() - 1).ok().and_then(|i| {
             let state = self.state.borrow();
             state.session.as_ref()?.vault.folders().get(i).map(|f| f.id)
@@ -2602,7 +2849,12 @@ impl Controller {
         match result {
             Ok(id) => {
                 if self.save_vault() {
-                    self.state.borrow_mut().selected = Some(id);
+                    {
+                        // Just typed or already opened: no need to ask right away.
+                        let mut state = self.state.borrow_mut();
+                        state.selected = Some(id);
+                        state.unlocked_item = Some(id);
+                    }
                     self.close_editor();
                     self.refresh_list();
                     self.show_detail();
@@ -3297,7 +3549,12 @@ impl Controller {
             let kdf = session.vault.kdf_params().clone();
             let outcome = session
                 .vault
-                .change_password(&new_password, &session.secret_key, &kdf)
+                .change_password(
+                    &new_password,
+                    &session.secret_key,
+                    session.keyfile.as_ref(),
+                    &kdf,
+                )
                 .and_then(|()| session.vault.to_bytes())
                 .and_then(|bytes| storage::write_atomic(&path, &bytes));
             match outcome {
@@ -3439,16 +3696,21 @@ fn verify_current(
         return Err((error::WRONG_CURRENT, String::new()));
     }
     let bytes = storage::read(path).map_err(|e| (error::FILE, e.to_string()))?;
-    Vault::open(
-        &bytes,
-        Unlock::Password {
+    let unlock = match &session.keyfile {
+        Some(keyfile) => Unlock::PasswordAndKeyfile {
+            password,
+            secret_key: &session.secret_key,
+            keyfile,
+        },
+        None => Unlock::Password {
             password,
             secret_key: &session.secret_key,
         },
-    )
-    .map(drop)
-    .map_err(|e| match e {
+    };
+    Vault::open(&bytes, unlock).map(drop).map_err(|e| match e {
         CoreError::DecryptionFailed => (error::WRONG_CURRENT, String::new()),
+        // Opened with Windows Hello and the keyfile isn't where this device remembers it.
+        CoreError::KeyfileRequired => (error::KEYFILE_NEEDED, String::new()),
         other => (error::OTHER, other.to_string()),
     })
 }

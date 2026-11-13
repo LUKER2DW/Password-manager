@@ -623,6 +623,37 @@ fn main() {
     camera.shot("light-settings", "Light theme: settings");
     app.invoke_appearance_changed(true);
 
+    // ---- item lock: a PIN before any item's secrets show ----
+    select_title(&app, "Netflix");
+    app.invoke_edit_item();
+    app.set_ed_reprompt(true);
+    camera.shot("editor-protected", "Editor: lock this item's secrets");
+    app.invoke_cancel_edit();
+    app.invoke_open_settings();
+    app.set_guard_check(1);
+    app.set_guard_all(true);
+    type_into(&app, 12, "4821");
+    type_into(&app, 13, PASSWORD);
+    app.invoke_save_guard();
+    app.invoke_select_category(0);
+    select_title(&app, "Netflix");
+    camera.shot(
+        "vault-protected",
+        "Item lock: who the account is stays visible, secrets wait for the PIN",
+    );
+    type_into(&app, 11, "0000");
+    app.invoke_unlock_item();
+    camera.shot(
+        "vault-protected-wrong",
+        "Item lock: a wrong PIN, tries left",
+    );
+    app.invoke_open_settings();
+    app.set_guard_check(0);
+    app.set_guard_all(false);
+    type_into(&app, 13, PASSWORD);
+    app.invoke_save_guard();
+    app.invoke_select_category(0);
+
     // ---- locked ----
     app.invoke_lock();
     camera.shot("unlock", "Locked, with Windows Hello set up");
@@ -636,6 +667,14 @@ fn main() {
     app.set_error_code(0);
     type_into(&app, 0, "");
     camera.shot("unlock-password-only", "Locked, without Windows Hello");
+    app.set_needs_keyfile(true);
+    app.set_keyfile_path(r"E:\vault.keyfile".into());
+    camera.shot(
+        "unlock-keyfile",
+        "Locked: this vault also needs its keyfile",
+    );
+    app.set_needs_keyfile(false);
+    app.set_keyfile_path("".into());
     let _ = vault_platform::secret_store::forget(&vault_id);
     app.set_needs_secret_key(true);
     type_into(&app, 0, "");

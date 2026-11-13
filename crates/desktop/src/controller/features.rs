@@ -1042,22 +1042,31 @@ impl Controller {
                     code,
                     detail,
                     session,
+                    card: 1,
                 };
             }
             let outcome = (|| -> vault_core::Result<f64> {
                 let params = level.params()?;
-                session
-                    .vault
-                    .change_password(&current, &session.secret_key, &params)?;
+                session.vault.change_password(
+                    &current,
+                    &session.secret_key,
+                    session.keyfile.as_ref(),
+                    &params,
+                )?;
                 let bytes = session.vault.to_bytes()?;
                 let started = std::time::Instant::now();
-                Vault::open(
-                    &bytes,
-                    Unlock::Password {
+                let unlock = match &session.keyfile {
+                    Some(keyfile) => Unlock::PasswordAndKeyfile {
+                        password: &current,
+                        secret_key: &session.secret_key,
+                        keyfile,
+                    },
+                    None => Unlock::Password {
                         password: &current,
                         secret_key: &session.secret_key,
                     },
-                )?;
+                };
+                Vault::open(&bytes, unlock)?;
                 let seconds = started.elapsed().as_secs_f64();
                 vault_core::storage::write_atomic(&path, &bytes)?;
                 Ok(seconds)
@@ -1077,6 +1086,7 @@ impl Controller {
                     code: error::FILE,
                     detail: err.to_string(),
                     session,
+                    card: 1,
                 },
             }
         });
@@ -1111,6 +1121,19 @@ impl Controller {
                 .unwrap_or_default(),
         ));
         app.set_vault_has_recovery(session.vault.has_recovery_key());
+        let guard = session.vault.item_guard();
+        app.set_guard_all(guard.all_items);
+        let check = super::protection::check_code(guard.check);
+        app.set_guard_check(check);
+        app.set_guard_current_check(check);
+        let keyfile_on = session.vault.needs_keyfile();
+        app.set_keyfile_on(keyfile_on);
+        app.set_keyfile_path(SharedString::from(
+            vault_platform::keyfile::remembered_path(&session.vault.id_hex())
+                .filter(|_| keyfile_on)
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+        ));
         app.set_vault_file_name(SharedString::from(
             state
                 .path
