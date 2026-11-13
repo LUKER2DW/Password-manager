@@ -103,9 +103,87 @@ impl Browser {
     }
 }
 
+/// A saved website tidied into a link that is safe to hand to the shell: `https://` added when
+/// no scheme is given, only `http` and `https` accepted, and no spaces, control characters or
+/// quotes (which could otherwise turn into extra command-line arguments). `None` otherwise.
+pub fn web_link(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty()
+        || text.chars().any(|c| {
+            c.is_whitespace() || c.is_control() || matches!(c, '"' | '<' | '>' | '\\' | '^' | '`')
+        })
+    {
+        return None;
+    }
+    let link = match text.split_once("://") {
+        Some((scheme, rest))
+            if scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("http") =>
+        {
+            if rest.is_empty() {
+                return None;
+            }
+            text.to_owned()
+        }
+        Some(_) => return None,
+        None => {
+            // "mailto:x", "ms-settings:y", "javascript:z": a scheme without slashes is not a
+            // website. "host:port" is (the part before ':' then looks like a host).
+            if let Some((before, _)) = text.split_once(':') {
+                let looks_like_host = before.contains('.') || before == "localhost";
+                if !looks_like_host || before.contains('/') {
+                    return None;
+                }
+            }
+            format!("https://{text}")
+        }
+    };
+    let host = link
+        .split_once("://")?
+        .1
+        .split(['/', '?', '#'])
+        .next()?
+        .rsplit('@')
+        .next()?;
+    (!host.is_empty() && !host.starts_with(':')).then_some(link)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn web_links_are_tidied_and_limited_to_http() {
+        assert_eq!(
+            web_link("github.com").as_deref(),
+            Some("https://github.com")
+        );
+        assert_eq!(
+            web_link(" https://bank.example/login?x=1 ").as_deref(),
+            Some("https://bank.example/login?x=1")
+        );
+        assert_eq!(
+            web_link("http://intranet.example:8080").as_deref(),
+            Some("http://intranet.example:8080")
+        );
+        assert_eq!(
+            web_link("localhost:3000").as_deref(),
+            Some("https://localhost:3000")
+        );
+        for bad in [
+            "",
+            "file:///C:/Windows/system32/calc.exe",
+            "javascript:alert(1)",
+            "mailto:me@example.com",
+            "ms-settings:privacy",
+            "android://hash@com.example.app/",
+            "https://",
+            "https://exa mple.com",
+            "https://example.com\" --flag\"",
+            r"C:\Windows\notepad.exe",
+        ] {
+            assert_eq!(web_link(bad), None, "{bad}");
+        }
+    }
 
     #[test]
     fn every_browser_has_a_page_and_locations() {

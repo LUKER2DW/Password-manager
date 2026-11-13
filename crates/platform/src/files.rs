@@ -53,15 +53,26 @@ pub fn wipe_print_dir() {
 }
 
 /// Opens a file with the app Windows associates with it (e.g. the PDF viewer, to print).
-#[allow(unsafe_code)]
 pub fn open_with_default_app(path: &Path) -> Result<()> {
+    shell_open(path.as_os_str()).with_context(|| format!("no app could open {}", path.display()))
+}
+
+/// Opens a web address in the default browser. Only `http(s)://` links pass
+/// (see [`crate::browsers::web_link`]); anything else is refused before reaching the shell.
+pub fn open_web_link(text: &str) -> Result<()> {
+    let link = crate::browsers::web_link(text).context("not a web address")?;
+    shell_open(link.as_ref()).context("no browser could open it")
+}
+
+#[allow(unsafe_code)]
+fn shell_open(target: &std::ffi::OsStr) -> Result<()> {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
         let wide = |s: &std::ffi::OsStr| s.encode_wide().chain(Some(0)).collect::<Vec<u16>>();
         let verb = wide("open".as_ref());
-        let file = wide(path.as_os_str());
+        let file = wide(target);
         // SAFETY: both strings are NUL-terminated UTF-16 buffers alive for the whole call; null
         // parameters/directory are allowed. The result is a status code, checked below.
         let result = unsafe {
@@ -78,16 +89,16 @@ pub fn open_with_default_app(path: &Path) -> Result<()> {
         if result as usize > 32 {
             Ok(())
         } else {
-            anyhow::bail!("no app could open {}", path.display())
+            anyhow::bail!("the shell refused to open it")
         }
     }
     #[cfg(not(windows))]
     {
         std::process::Command::new("xdg-open")
-            .arg(path)
+            .arg(target)
             .spawn()
             .map(drop)
-            .context("cannot open the file")
+            .context("cannot open it")
     }
 }
 
