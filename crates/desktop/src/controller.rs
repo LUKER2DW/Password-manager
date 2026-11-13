@@ -20,7 +20,8 @@ use vault_core::{
     CustomField, Error as CoreError, FolderId, ItemData, ItemId, ItemKind, KdfParams, RecoveryCode,
     RecoveryKey, SecretKey, Unlock, Vault,
     card::{self, CardDetails, CardProblem},
-    generator::{self, PassphraseOptions, PasswordOptions},
+    generator::{self, PassphraseOptions},
+    health::HealthReport,
     storage,
     totp::Totp,
 };
@@ -40,6 +41,8 @@ use crate::{
     },
     view,
 };
+
+mod features;
 
 /// What to draw next to an item.
 struct IconVisual {
@@ -90,6 +93,9 @@ mod error {
     pub const CARD_CODE: i32 = 22;
     pub const CARD_PIN: i32 = 23;
     pub const CHANGED_OUTSIDE: i32 = 24;
+    pub const WORDLIST: i32 = 25;
+    pub const LEAK_CHECK: i32 = 26;
+    pub const VAULT_NAME: i32 = 27;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -116,6 +122,12 @@ mod notice {
     pub const BACKUP_SAVED: i32 = 20;
     pub const EXPORTED: i32 = 21;
     pub const SOURCE_WIPED: i32 = 22;
+    pub const HISTORY_CLEARED: i32 = 24;
+    pub const OLD_PASSWORD_COPIED: i32 = 25;
+    pub const VAULT_SETTINGS_SAVED: i32 = 26;
+    pub const WORDLIST_ADDED: i32 = 27;
+    pub const LEAKS_CHECKED: i32 = 28;
+    pub const BROWSER_OPENED: i32 = 29;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -153,6 +165,9 @@ enum JobResult {
     },
     ImportParsed {
         report: vault_import::ImportReport,
+    },
+    LeaksChecked {
+        result: Result<Vec<(ItemId, u64)>, String>,
     },
     ExportVerified {
         session: Session,
@@ -222,6 +237,20 @@ struct State {
     /// Windows Hello (or a fake in tests); `quick_available` caches whether it is set up.
     verifier: Option<Arc<dyn DeviceVerifier>>,
     quick_available: bool,
+    /// Word lists the user added (the bundled EFF list is not in here).
+    wordlists: Vec<features::UserWordlist>,
+    /// The item whose password history is on screen, and which entries are revealed.
+    history_shown: Option<ItemId>,
+    history_revealed: Vec<usize>,
+    /// Last password health report, the items behind its rows, and leak counts from the last
+    /// check (kept only while unlocked).
+    health: Option<HealthReport>,
+    health_stale: bool,
+    health_ids: Vec<ItemId>,
+    leaks: HashMap<ItemId, u64>,
+    /// Import: the place chosen, and which reviewed entries are ticked.
+    import_source: Option<vault_import::Source>,
+    import_include: Vec<bool>,
 }
 
 #[derive(Default)]
@@ -318,6 +347,15 @@ impl Controller {
                 fetching_icons: false,
                 verifier,
                 quick_available,
+                wordlists: Vec::new(),
+                history_shown: None,
+                history_revealed: Vec::new(),
+                health: None,
+                health_stale: false,
+                health_ids: Vec::new(),
+                leaks: HashMap::new(),
+                import_source: None,
+                import_include: Vec::new(),
             }),
             timers: Timers::default(),
             lengths: Rc::new(VecModel::from(vec![0; field::COUNT])),
@@ -333,6 +371,7 @@ impl Controller {
         app.global::<Theme>()
             .set_dark(controller.state.borrow().settings.dark_theme);
         controller.wire(app);
+        controller.load_generator_prefs();
         controller.show_start_screen();
         Ok(controller)
     }
@@ -388,6 +427,21 @@ impl Controller {
             secrets.on_clear(move |field| {
                 if let Some(c) = weak.upgrade() {
                     c.edit_secret(field, SecretBuffer::clear);
+                }
+            });
+        }
+        {
+            let weak = Rc::downgrade(self);
+            secrets.on_paste(move |field, replace| {
+                if let Some(c) = weak.upgrade()
+                    && let Some(text) = clipboard::paste_text()
+                {
+                    c.edit_secret(field, |buffer| {
+                        if replace {
+                            buffer.clear();
+                        }
+                        buffer.push_str(&text);
+                    });
                 }
             });
         }
@@ -450,9 +504,23 @@ impl Controller {
             .copy_from_selected(CopyWhat::Field(index)));
 
         on!(on_save_item, |c| c.save_item());
-        on!(on_card_number_edited, |c, text| c.app().set_ed_card_brand(
-            SharedString::from(card::detect_brand(&card::digits(&text)).name())
-        ));
+        on!(on_card_number_edited, |c, text| c.card_number_edited(&text));
+        on!(on_show_history, |c| c.show_history());
+        on!(on_hide_history, |c| c.hide_history());
+        on!(on_reveal_history, |c, index| c.reveal_history(index));
+        on!(on_copy_history, |c, index| c.copy_history(index));
+        on!(on_clear_history, |c| c.clear_history());
+        on!(on_open_health, |c| c.open_health());
+        on!(on_health_filter_changed, |c, _filter| c.show_health());
+        on!(on_check_leaks, |c| c.check_leaks());
+        on!(on_health_open, |c, index| c.health_open(index));
+        on!(on_add_wordlist, |c| c.add_wordlist());
+        on!(on_remove_wordlist, |c| c.remove_wordlist());
+        on!(on_vault_settings_changed, |c| c.vault_settings_changed());
+        on!(on_pick_source, |c, index| c.pick_source(index));
+        on!(on_open_browser, |c| c.open_browser());
+        on!(on_import_toggle, |c, index, on| c.import_toggle(index, on));
+        on!(on_import_select_all, |c, on| c.import_select_all(on));
         on!(on_open_authenticator, |c| c.open_authenticator());
         on!(on_pick_vault, |c, index| c.pick_vault(index));
         on!(on_field_edited, |c, index, is_name, text| c.edit_field(
@@ -528,6 +596,9 @@ impl Controller {
         };
         self.lengths
             .set_row_data(index, i32::try_from(length).unwrap_or(i32::MAX));
+        if index == field::ITEM_PASSWORD {
+            self.update_editor_strength();
+        }
         // A shown password in the editor must follow the buffer.
         if index == field::ITEM_PASSWORD && !self.app().get_editor_password_shown().is_empty() {
             let text = SharedString::from(self.state.borrow().secrets[index].as_str());
@@ -741,6 +812,7 @@ impl Controller {
                 }
             }
             JobResult::ImportParsed { report } => self.import_parsed(report),
+            JobResult::LeaksChecked { result } => self.finish_leak_check(result),
             JobResult::ExportVerified { session } => self.export_verified(session),
             JobResult::QuickUnlockEnabled { session } => {
                 self.state.borrow_mut().session = Some(session);
@@ -1181,11 +1253,15 @@ impl Controller {
             state.file_hash = None;
             state.selected = None;
             state.editing = None;
+            state.health = None;
+            state.leaks.clear();
         }
+        app.set_leaks_checked(false);
         app.set_search_text(SharedString::new());
         app.set_category(0);
         app.set_panel(Panel::Detail);
         self.remember_file();
+        self.show_vault_name();
         if let Ok(mut device_state) = DeviceState::load() {
             device_state.remember_vault(&self.state.borrow().path);
             let _ = device_state.save();
@@ -1196,6 +1272,7 @@ impl Controller {
         self.show_screen(Screen::Vault);
         self.restart_auto_lock();
         self.start_icon_fetch();
+        self.refresh_health();
     }
 
     fn lock(&self) {
@@ -1222,8 +1299,23 @@ impl Controller {
             state.file_hash = None;
             state.icons = IconCache::default();
             state.icon_images.clear();
+            state.health = None;
+            state.health_ids.clear();
+            state.leaks.clear();
+            state.history_shown = None;
+            state.history_revealed.clear();
+            state.import_include.clear();
         }
         self.clear_all_secrets();
+        {
+            let app = self.app();
+            app.set_detail_history(ModelRc::default());
+            app.set_detail_history_shown(false);
+            app.set_health_rows(ModelRc::default());
+            app.set_import_rows(ModelRc::default());
+            app.set_leaks_checked(false);
+            app.set_vault_name(SharedString::new());
+        }
         files::wipe_print_dir();
         self.state.borrow_mut().pending_import = None;
         self.app().set_import_stage(0);
@@ -1372,6 +1464,7 @@ impl Controller {
                     has_icon: visual.has_image,
                     initial: visual.initial,
                     tint: visual.tint,
+                    brand: view::brand_mark(s.card_brand),
                 }
             })
             .collect();
@@ -1400,6 +1493,10 @@ impl Controller {
             .unwrap_or(0),
         );
         app.set_selected(selected_index);
+        let stale = std::mem::take(&mut self.state.borrow_mut().health_stale);
+        if stale {
+            self.refresh_health();
+        }
     }
 
     fn select_category(&self, category: i32) {
@@ -1407,7 +1504,12 @@ impl Controller {
         app.set_category(category);
         if matches!(
             app.get_panel(),
-            Panel::Generator | Panel::Settings | Panel::Kit
+            Panel::Generator
+                | Panel::Settings
+                | Panel::Kit
+                | Panel::Health
+                | Panel::Transfer
+                | Panel::Authenticator
         ) {
             app.set_panel(Panel::Detail);
         }
@@ -1473,6 +1575,7 @@ impl Controller {
                 sensitive: f.sensitive,
                 index: i32::try_from(f.index).unwrap_or(-1),
                 warning: f.warning,
+                icon: SharedString::from(f.icon),
             })
             .collect();
         app.set_detail_fields(ModelRc::from(Rc::new(VecModel::from(fields))));
@@ -1490,6 +1593,7 @@ impl Controller {
             app.set_detail_codes(ModelRc::default());
         }
 
+        self.show_password_details(id, &item);
         let totp = (!item.totp.is_empty())
             .then(|| Totp::parse(&item.totp).ok())
             .flatten();
@@ -1654,6 +1758,8 @@ impl Controller {
             Ok((id, revision, hash)) => {
                 self.state.borrow_mut().file_hash = Some(hash);
                 let _ = device::record_revision(&id, revision);
+                // Keep the index's count of problems current (cheap: no network).
+                self.state.borrow_mut().health_stale = true;
                 if self.app().get_error_code() == error::CHANGED_OUTSIDE {
                     self.set_error(error::NONE, "");
                 }
@@ -2232,9 +2338,7 @@ impl Controller {
             card::parse_expiry(&details.expiry).map_or(details.expiry.clone(), card::format_expiry),
         ));
         app.set_ed_card_code(SharedString::from(details.security_code.as_str()));
-        app.set_ed_card_brand(SharedString::from(
-            card::detect_brand(&details.number).name(),
-        ));
+        self.card_number_edited(&details.number);
         app.set_editor_password_shown(SharedString::new());
         self.edit_secret(field::ITEM_PASSWORD as i32, |buffer| {
             buffer.set(&item.password);
@@ -2410,42 +2514,6 @@ impl Controller {
     // Generator
     // -----------------------------------------------------------------------------------------
 
-    fn generate(&self) -> Option<Zeroizing<String>> {
-        let app = self.app();
-        let result = if app.get_gen_mode() == 1 {
-            let options = PassphraseOptions {
-                words: usize::try_from(app.get_gen_words()).unwrap_or(6),
-                separator: match app.get_gen_separator() {
-                    1 => ".",
-                    2 => "_",
-                    3 => " ",
-                    _ => "-",
-                }
-                .into(),
-                capitalize: app.get_gen_capitalize(),
-                include_number: app.get_gen_number(),
-            };
-            set_strength(&app, options.entropy_bits());
-            generator::generate_passphrase(&options)
-        } else {
-            let mut options = PasswordOptions {
-                length: usize::try_from(app.get_gen_length()).unwrap_or(24),
-                lowercase: app.get_gen_lowercase(),
-                uppercase: app.get_gen_uppercase(),
-                digits: app.get_gen_digits(),
-                symbols: app.get_gen_symbols(),
-                avoid_ambiguous: app.get_gen_avoid_ambiguous(),
-            };
-            if !(options.lowercase || options.uppercase || options.digits || options.symbols) {
-                options.lowercase = true;
-                app.set_gen_lowercase(true);
-            }
-            set_strength(&app, options.entropy_bits());
-            generator::generate_password(&options)
-        };
-        result.ok()
-    }
-
     fn regenerate(&self) {
         if let Some(value) = self.generate() {
             self.app()
@@ -2457,6 +2525,7 @@ impl Controller {
     fn open_generator(&self) {
         let app = self.app();
         app.set_panel(Panel::Generator);
+        self.set_error(error::NONE, "");
         if app.get_gen_result().is_empty() {
             self.regenerate();
         }
@@ -2492,6 +2561,7 @@ impl Controller {
         app.set_auto_lock_minutes(settings.auto_lock_minutes as i32);
         app.set_clipboard_seconds(settings.clipboard_clear_seconds as i32);
         app.set_website_icons(settings.website_icons);
+        self.show_vault_settings();
         app.set_kit_secret_key(SharedString::new());
         app.set_kit_recovery_key(SharedString::new());
         app.set_panel(Panel::Settings);
@@ -2508,6 +2578,7 @@ impl Controller {
         if self.state.borrow().pending_import.is_none() {
             app.set_import_stage(0);
         }
+        self.show_sources();
         app.set_panel(Panel::Transfer);
         self.set_error(error::NONE, "");
     }
@@ -2518,7 +2589,7 @@ impl Controller {
         }
         if let Some(path) = rfd::FileDialog::new()
             .set_title("Import from another password manager")
-            .add_filter("Password exports", &["json", "csv", "kdbx"])
+            .add_filter("Password exports", self.source_extensions())
             .add_filter("All files", &["*"])
             .pick_file()
         {
@@ -2571,12 +2642,7 @@ impl Controller {
                 .to_owned(),
         );
         self.run_job(move || {
-            use vault_import::Format;
-            let parsed = match format {
-                Format::BitwardenJson => vault_import::import_bitwarden_json(&bytes),
-                Format::Csv => vault_import::import_csv(&bytes),
-                Format::Kdbx => vault_import::import_kdbx(&bytes, &password, None),
-            };
+            let parsed = vault_import::import(&bytes, format, &password, None);
             match parsed {
                 Ok(report) => JobResult::ImportParsed { report },
                 Err(err) => JobResult::Failed {
@@ -2599,10 +2665,10 @@ impl Controller {
             report.preview(&session.vault)
         };
         match preview {
-            Ok(outcome) => {
-                app.set_import_found(i32::try_from(outcome.added).unwrap_or(i32::MAX));
-                app.set_import_new_folders(i32::try_from(outcome.new_folders).unwrap_or(0));
-                app.set_import_duplicates(i32::try_from(outcome.duplicates).unwrap_or(0));
+            Ok(_) => {
+                if !self.show_review(&report) {
+                    return;
+                }
                 let mut warnings: Vec<&str> =
                     report.warnings.iter().take(4).map(String::as_str).collect();
                 let more = report.warnings.len().saturating_sub(4);
@@ -2634,12 +2700,14 @@ impl Controller {
         else {
             return;
         };
+        let target = self.import_target();
+        let include = std::mem::take(&mut self.state.borrow_mut().import_include);
         let outcome = self
             .state
             .borrow_mut()
             .session
             .as_mut()
-            .map(|s| report.add_to_vault(&mut s.vault));
+            .map(|s| report.add_selected(&mut s.vault, &include, &target));
         match outcome {
             Some(Ok(outcome)) => {
                 if !self.save_vault() {
@@ -2714,11 +2782,11 @@ impl Controller {
     fn export_verified(&self, session: Session) {
         self.clear_secret(field::CURRENT);
         let app = self.app();
-        let csv = app.get_export_format() == 1;
+        let csv = app.get_export_format() == 2;
         let text = if csv {
             vault_import::export_csv(&session.vault)
         } else {
-            vault_import::export_bitwarden_json(&session.vault)
+            vault_import::export_json(&session.vault)
         };
         let (runner, vault_path) = {
             let state = self.state.borrow();
@@ -2842,6 +2910,7 @@ impl Controller {
                 .unwrap_or(20),
             dark_theme: app.global::<Theme>().get_dark(),
             website_icons: app.get_website_icons(),
+            generator: self.state.borrow().settings.generator.clone(),
         };
         let mut device_state = DeviceState::load().unwrap_or_default();
         device_state.settings = settings.clone();

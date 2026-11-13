@@ -68,4 +68,6 @@ export global Secrets {
     callback insert(int, string);
     callback backspace(int);
     callback clear(int);
+    // Pastes the clipboard's first line; `replace` drops what the field held first.
+    callback paste(int, bool);
 }

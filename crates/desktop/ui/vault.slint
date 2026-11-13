@@ -4,9 +4,12 @@ import { ListView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
 import { ItemRow, FolderRow, Panel, Messages } from "model.slint";
 import { Button, QuietButton, LineField, MarkStroke, ItemIcon } from "widgets.slint";
+import { BrandMark, Glyph } from "icons.slint";
 
 component IndexTab inherits Rectangle {
     in property <string> text;
+    // icons.slint name; "" for none.
+    in property <string> icon;
     in property <int> count: -1;
     in property <bool> active;
     callback clicked;
@@ -20,6 +23,16 @@ component IndexTab inherits Rectangle {
     HorizontalLayout {
         padding-left: 10px;
         padding-right: 10px;
+        spacing: 10px;
+        if root.icon != "": VerticalLayout {
+            alignment: center;
+            Glyph {
+                width: 16px;
+                height: 16px;
+                name: root.icon;
+                opacity: root.active ? 1 : 0.8;
+            }
+        }
         Rectangle {
             horizontal-stretch: 1;
             label := Text {
@@ -75,12 +88,17 @@ component ListRow inherits Rectangle {
             spacing: 12px;
             VerticalLayout {
                 alignment: center;
-                ItemIcon {
+                width: 34px;
+                if root.item.kind != 1 || root.item.brand == 0: ItemIcon {
                     icon: root.item.icon;
                     has-icon: root.item.has-icon;
                     initial: root.item.initial;
                     tint: root.item.tint;
                     kind: root.item.kind;
+                }
+                if root.item.kind == 1 && root.item.brand != 0: BrandMark {
+                    brand: root.item.brand;
+                    size: 34px;
                 }
             }
             VerticalLayout {
@@ -127,7 +145,10 @@ export component VaultIndex inherits Rectangle {
     in property <[int]> counts;
     in property <[FolderRow]> folders;
     in property <int> totp-count;
+    in property <int> health-count;
+    in property <string> vault-name;
     in property <Panel> panel;
+    callback open-health();
     callback select-category(int);
     callback create-folder(string);
     callback open-generator();
@@ -139,7 +160,7 @@ export component VaultIndex inherits Rectangle {
     callback switch-vault();
 
     background: Theme.panel;
-    property <bool> browsing: root.panel != Panel.generator && root.panel != Panel.settings && root.panel != Panel.kit && root.panel != Panel.transfer && root.panel != Panel.authenticator;
+    property <bool> browsing: root.panel != Panel.generator && root.panel != Panel.settings && root.panel != Panel.kit && root.panel != Panel.transfer && root.panel != Panel.authenticator && root.panel != Panel.health;
     property <bool> adding-folder;
     property <string> new-folder-name;
 
@@ -149,10 +170,12 @@ export component VaultIndex inherits Rectangle {
         spacing: 2px;
         Text {
             x: 10px;
-            text: @tr("Vault");
+            width: parent.width - 10px;
+            text: root.vault-name != "" ? root.vault-name : @tr("Vault");
             font-size: Theme.title;
             font-weight: 600;
             color: Theme.ink;
+            overflow: elide;
         }
         Rectangle { height: 18px; }
         // Categories and folders scroll together when there are many folders.
@@ -162,12 +185,12 @@ export component VaultIndex inherits Rectangle {
             tabs := VerticalLayout {
                 spacing: 2px;
                 alignment: start;
-                IndexTab { text: @tr("All items"); count: root.counts[0]; active: root.category == 0 && root.browsing; clicked => { root.select-category(0); } }
-                IndexTab { text: @tr("Favorites"); count: root.counts[1]; active: root.category == 1 && root.browsing; clicked => { root.select-category(1); } }
-                IndexTab { text: @tr("Logins"); count: root.counts[2]; active: root.category == 2 && root.browsing; clicked => { root.select-category(2); } }
-                IndexTab { text: @tr("Cards"); count: root.counts[3]; active: root.category == 3 && root.browsing; clicked => { root.select-category(3); } }
-                IndexTab { text: @tr("Secure notes"); count: root.counts[4]; active: root.category == 4 && root.browsing; clicked => { root.select-category(4); } }
-                IndexTab { text: @tr("Authenticator"); count: root.totp-count; active: root.panel == Panel.authenticator; clicked => { root.open-authenticator(); } }
+                IndexTab { text: @tr("All items"); icon: "stack"; count: root.counts[0]; active: root.category == 0 && root.browsing; clicked => { root.select-category(0); } }
+                IndexTab { text: @tr("Favorites"); icon: "star"; count: root.counts[1]; active: root.category == 1 && root.browsing; clicked => { root.select-category(1); } }
+                IndexTab { text: @tr("Logins"); icon: "key"; count: root.counts[2]; active: root.category == 2 && root.browsing; clicked => { root.select-category(2); } }
+                IndexTab { text: @tr("Cards"); icon: "card"; count: root.counts[3]; active: root.category == 3 && root.browsing; clicked => { root.select-category(3); } }
+                IndexTab { text: @tr("Secure notes"); icon: "note"; count: root.counts[4]; active: root.category == 4 && root.browsing; clicked => { root.select-category(4); } }
+                IndexTab { text: @tr("Authenticator"); icon: "clock"; count: root.totp-count; active: root.panel == Panel.authenticator; clicked => { root.open-authenticator(); } }
 
                 Rectangle { height: 16px; }
                 HorizontalLayout {
@@ -205,6 +228,7 @@ export component VaultIndex inherits Rectangle {
                 }
                 for folder[index] in root.folders: IndexTab {
                     text: folder.name;
+                    icon: "folder";
                     count: folder.count;
                     active: root.category == 100 + index && root.browsing;
                     clicked => { root.select-category(100 + index); }
@@ -255,13 +279,14 @@ export component VaultIndex inherits Rectangle {
             }
         }
         Rectangle { height: 12px; }
-        IndexTab { text: @tr("Password generator"); active: root.panel == Panel.generator; clicked => { root.open-generator(); } }
-        IndexTab { text: @tr("Emergency kit"); active: root.panel == Panel.kit; clicked => { root.open-kit(); } }
-        IndexTab { text: @tr("Import & export"); active: root.panel == Panel.transfer; clicked => { root.open-transfer(); } }
-        IndexTab { text: @tr("Settings"); active: root.panel == Panel.settings; clicked => { root.open-settings(); } }
+        IndexTab { text: @tr("Password health"); icon: "heart"; count: root.health-count; active: root.panel == Panel.health; clicked => { root.open-health(); } }
+        IndexTab { text: @tr("Password generator"); icon: "sparkle"; active: root.panel == Panel.generator; clicked => { root.open-generator(); } }
+        IndexTab { text: @tr("Emergency kit"); icon: "lifebuoy"; active: root.panel == Panel.kit; clicked => { root.open-kit(); } }
+        IndexTab { text: @tr("Import & export"); icon: "swap"; active: root.panel == Panel.transfer; clicked => { root.open-transfer(); } }
+        IndexTab { text: @tr("Settings"); icon: "gear"; active: root.panel == Panel.settings; clicked => { root.open-settings(); } }
         Rectangle { height: 8px; }
-        IndexTab { text: @tr("Lock now"); clicked => { root.lock(); } }
-        IndexTab { text: @tr("Switch vault"); clicked => { root.switch-vault(); } }
+        IndexTab { text: @tr("Lock now"); icon: "lock"; clicked => { root.lock(); } }
+        IndexTab { text: @tr("Switch vault"); icon: "vault"; clicked => { root.switch-vault(); } }
     }
 }
 

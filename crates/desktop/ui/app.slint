@@ -1,10 +1,10 @@
 import { Theme, Sketch, Secrets } from "theme.slint";
-import { Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, Messages } from "model.slint";
+import { Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
-import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage } from "pages.slint";
+import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage } from "pages.slint";
 
-export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, Messages }
+export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, SourceRow, Messages }
 
 // Confirmation messages ("Copied", "Saved"): bottom-right, out of the way of page content.
 component Notice inherits Rectangle {
@@ -89,6 +89,20 @@ export component AppWindow inherits Window {
     in property <[int]> counts: [0, 0, 0, 0, 0];
     in property <[FolderRow]> folders;
     in property <int> totp-count;
+    in property <string> vault-name;
+    // ---- password health ----
+    in property <[HealthRow]> health-rows;
+    in property <[int]> health-counts: [0, 0, 0, 0, 0];
+    in property <int> health-total: -1;
+    in property <int> health-logins;
+    in property <int> health-score;
+    in property <bool> leaks-checked;
+    in property <bool> leaks-checking;
+    in-out property <int> health-filter: -1;
+    callback open-health();
+    callback health-filter-changed(int);
+    callback check-leaks();
+    callback health-open(int);
     // ---- authenticator ----
     in property <[AuthRow]> auth-rows;
     in-out property <string> auth-search;
@@ -147,6 +161,22 @@ export component AppWindow inherits Window {
     callback copy-password();
     callback copy-totp();
     callback copy-field(int);
+    in property <int> detail-brand;
+    in property <bool> detail-username-is-email;
+    in property <int> detail-strength-bits;
+    in property <int> detail-strength-score;
+    in property <int> detail-weakness;
+    in property <int> detail-reused-by;
+    in property <int> detail-age-unit;
+    in property <int> detail-age-amount;
+    in property <int> detail-history-count;
+    in property <[HistoryRow]> detail-history;
+    in property <bool> detail-history-shown;
+    callback show-history();
+    callback hide-history();
+    callback reveal-history(int);
+    callback copy-history(int);
+    callback clear-history();
 
     // ---- editor ----
     in property <bool> editing-item;
@@ -166,6 +196,11 @@ export component AppWindow inherits Window {
     in-out property <string> ed-card-expiry;
     in-out property <string> ed-card-code;
     in property <string> ed-card-brand;
+    in property <int> ed-card-brand-mark;
+    in property <int> ed-strength-bits;
+    in property <int> ed-crack-unit;
+    in property <int> ed-crack-amount;
+    in property <int> ed-weakness;
     in property <[EditField]> ed-fields;
     callback card-number-edited(string);
     callback field-edited(int, bool, string);
@@ -191,17 +226,33 @@ export component AppWindow inherits Window {
     in-out property <bool> gen-digits: true;
     in-out property <bool> gen-symbols: true;
     in-out property <bool> gen-avoid-ambiguous;
-    in-out property <bool> gen-capitalize;
+    in-out property <bool> gen-extended;
+    in-out property <string> gen-also-use;
+    in-out property <string> gen-never-use;
+    in property <int> gen-alphabet;
+    in-out property <int> gen-word-case;
     in-out property <bool> gen-number;
-    in-out property <int> gen-separator;
+    in-out property <string> gen-separator: "-";
+    in property <[string]> gen-wordlists: [""];
+    in-out property <int> gen-wordlist;
+    in property <bool> gen-wordlist-removable;
     callback regenerate();
     callback copy-generated();
     callback use-generated();
+    callback add-wordlist();
+    callback remove-wordlist();
 
     // ---- settings ----
     in-out property <int> auto-lock-minutes: 5;
     in-out property <int> clipboard-seconds: 20;
     in-out property <bool> website-icons;
+    in property <string> vault-file-name;
+    in-out property <string> vault-name-edit;
+    in-out property <int> history-limit: 10;
+    in property <int> vault-folders;
+    in property <string> vault-kdf;
+    in property <bool> vault-has-recovery;
+    callback vault-settings-changed();
     callback settings-changed();
     callback appearance-changed(bool);
     callback change-password();
@@ -212,17 +263,28 @@ export component AppWindow inherits Window {
     callback print-kit();
     // ---- import & export ----
     in property <int> import-stage;
+    in property <[SourceRow]> import-sources;
+    in property <[string]> import-source-names: [""];
+    in-out property <int> import-source: -1;
     in property <string> import-file;
-    in property <int> import-found;
-    in property <int> import-new-folders;
+    in property <[ImportRow]> import-rows;
+    in property <int> import-selected;
     in property <int> import-duplicates;
     in property <string> import-warnings;
     in property <int> import-added;
+    in-out property <int> import-target;
+    in property <[string]> import-folders: [""];
+    in-out property <int> import-folder;
+    in-out property <string> import-new-folder;
     in property <bool> import-plaintext;
     in-out property <int> export-format;
     callback open-transfer();
+    callback pick-source(int);
+    callback open-browser();
     callback import-choose();
     callback import-open();
+    callback import-toggle(int, bool);
+    callback import-select-all(bool);
     callback import-confirm();
     callback import-cancel();
     callback import-wipe();
@@ -293,7 +355,10 @@ export component AppWindow inherits Window {
             counts: root.counts;
             folders: root.folders;
             totp-count: root.totp-count;
+            health-count: root.health-total;
+            vault-name: root.vault-name;
             panel: root.panel;
+            open-health => { root.open-health(); }
             select-category(c) => { root.select-category(c); }
             create-folder(name) => { root.create-folder(name); }
             open-generator => { root.open-generator(); }
@@ -304,8 +369,10 @@ export component AppWindow inherits Window {
             lock => { root.lock(); }
             switch-vault => { root.switch-vault(); }
         }
+        // Tool pages (generator, health, kit, import, settings, authenticator) take the whole
+        // width next to the index; the item list belongs to browsing items only.
         Rectangle { width: 1px; background: Theme.rule; }
-        ItemList {
+        if root.panel == Panel.detail || root.panel == Panel.editor: ItemList {
             width: 320px;
             items: root.items;
             selected: root.selected;
@@ -318,6 +385,7 @@ export component AppWindow inherits Window {
             select(index) => { root.select(index); }
             new-item => { root.new-item(); }
         }
+        if root.panel == Panel.detail || root.panel == Panel.editor: Rectangle { width: 1px; background: Theme.rule; }
         Rectangle {
             horizontal-stretch: 1;
             background: Theme.sheet;
@@ -359,6 +427,22 @@ export component AppWindow inherits Window {
                 copy-password => { root.copy-password(); }
                 copy-totp => { root.copy-totp(); }
                 copy-field(i) => { root.copy-field(i); }
+                brand: root.detail-brand;
+                username-is-email: root.detail-username-is-email;
+                strength-bits: root.detail-strength-bits;
+                strength-score: root.detail-strength-score;
+                weakness: root.detail-weakness;
+                reused-by: root.detail-reused-by;
+                age-unit: root.detail-age-unit;
+                age-amount: root.detail-age-amount;
+                history-count: root.detail-history-count;
+                history: root.detail-history;
+                history-shown: root.detail-history-shown;
+                show-history => { root.show-history(); }
+                hide-history => { root.hide-history(); }
+                reveal-history(i) => { root.reveal-history(i); }
+                copy-history(i) => { root.copy-history(i); }
+                clear-history => { root.clear-history(); }
             }
             if root.panel == Panel.editor: EditorPage {
                 is-new: root.editor-is-new;
@@ -379,6 +463,11 @@ export component AppWindow inherits Window {
                 card-expiry <=> root.ed-card-expiry;
                 card-code <=> root.ed-card-code;
                 card-brand: root.ed-card-brand;
+                card-brand-mark: root.ed-card-brand-mark;
+                strength-bits: root.ed-strength-bits;
+                crack-unit: root.ed-crack-unit;
+                crack-amount: root.ed-crack-amount;
+                weakness: root.ed-weakness;
                 card-number-edited(text) => { root.card-number-edited(text); }
                 fields: root.ed-fields;
                 field-edited(i, is-name, text) => { root.field-edited(i, is-name, text); }
@@ -405,12 +494,23 @@ export component AppWindow inherits Window {
                 digits <=> root.gen-digits;
                 symbols <=> root.gen-symbols;
                 avoid-ambiguous <=> root.gen-avoid-ambiguous;
-                capitalize <=> root.gen-capitalize;
+                extended <=> root.gen-extended;
+                also-use <=> root.gen-also-use;
+                never-use <=> root.gen-never-use;
+                alphabet: root.gen-alphabet;
+                word-case <=> root.gen-word-case;
                 number <=> root.gen-number;
                 separator <=> root.gen-separator;
+                wordlists: root.gen-wordlists;
+                wordlist <=> root.gen-wordlist;
+                wordlist-removable: root.gen-wordlist-removable;
+                error-code: root.error-code;
+                error-detail: root.error-detail;
                 regenerate => { root.regenerate(); }
                 copy => { root.copy-generated(); }
                 use-for-item => { root.use-generated(); }
+                add-wordlist => { root.add-wordlist(); }
+                remove-wordlist => { root.remove-wordlist(); }
             }
             if root.panel == Panel.settings: SettingsPage {
                 error-code: root.error-code;
@@ -422,6 +522,14 @@ export component AppWindow inherits Window {
                 auto-lock-minutes <=> root.auto-lock-minutes;
                 clipboard-seconds <=> root.clipboard-seconds;
                 website-icons <=> root.website-icons;
+                vault-file-name: root.vault-file-name;
+                vault-name <=> root.vault-name-edit;
+                history-limit <=> root.history-limit;
+                vault-items: root.counts[0];
+                vault-folders: root.vault-folders;
+                vault-kdf: root.vault-kdf;
+                vault-has-recovery: root.vault-has-recovery;
+                vault-settings-changed => { root.vault-settings-changed(); }
                 quick-unlock-available: root.quick-unlock-available;
                 quick-unlock-on <=> root.quick-unlock-on;
                 quick-unlock-toggled(on) => { root.quick-unlock-toggled(on); }
@@ -442,21 +550,46 @@ export component AppWindow inherits Window {
                 error-detail: root.error-detail;
                 busy: root.busy;
                 import-stage: root.import-stage;
+                sources: root.import-sources;
+                source-names: root.import-source-names;
+                source <=> root.import-source;
                 import-file: root.import-file;
-                import-found: root.import-found;
-                import-new-folders: root.import-new-folders;
+                import-rows: root.import-rows;
+                import-selected: root.import-selected;
                 import-duplicates: root.import-duplicates;
                 import-warnings: root.import-warnings;
                 import-added: root.import-added;
+                import-target <=> root.import-target;
+                import-folders: root.import-folders;
+                import-folder <=> root.import-folder;
+                import-new-folder <=> root.import-new-folder;
                 import-plaintext: root.import-plaintext;
                 export-format <=> root.export-format;
+                pick-source(i) => { root.pick-source(i); }
+                open-browser => { root.open-browser(); }
                 import-choose => { root.import-choose(); }
                 import-open => { root.import-open(); }
+                import-toggle(i, on) => { root.import-toggle(i, on); }
+                import-select-all(on) => { root.import-select-all(on); }
                 import-confirm => { root.import-confirm(); }
                 import-cancel => { root.import-cancel(); }
                 import-wipe => { root.import-wipe(); }
                 export-backup => { root.export-backup(); }
                 export-plain => { root.export-plain(); }
+            }
+            if root.panel == Panel.health: HealthPage {
+                rows: root.health-rows;
+                counts: root.health-counts;
+                logins: root.health-logins;
+                score: root.health-score;
+                leaks-checked: root.leaks-checked;
+                checking: root.leaks-checking;
+                error-code: root.error-code;
+                error-detail: root.error-detail;
+                filter <=> root.health-filter;
+                filter-changed(f) => { root.health-filter-changed(f); }
+                check-leaks => { root.check-leaks(); }
+                open-row(i) => { root.health-open(i); }
             }
             if root.panel == Panel.kit: KitPage {
                 error-code: root.error-code;

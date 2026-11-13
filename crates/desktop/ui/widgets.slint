@@ -1,4 +1,5 @@
 import { Theme, Sketch, Secrets } from "theme.slint";
+import { Glyph } from "icons.slint";
 
 // The one recurring hand-drawn detail: a short marker stroke under a chosen label.
 // `reveal` (0–1) draws it in from the left.
@@ -212,8 +213,18 @@ export component Hint inherits Rectangle {
 component FieldLabel inherits HorizontalLayout {
     in property <string> text;
     in property <string> hint;
+    // A field icon name from icons.slint ("key", "user"…), or "" for none.
+    in property <string> icon;
     spacing: 6px;
     alignment: start;
+    if root.icon != "": VerticalLayout {
+        alignment: center;
+        Glyph {
+            width: 14px;
+            height: 14px;
+            name: root.icon;
+        }
+    }
     Text {
         text: root.text;
         font-size: Theme.small;
@@ -228,6 +239,7 @@ component FieldLabel inherits HorizontalLayout {
 
 export component LineField inherits VerticalLayout {
     in property <string> label;
+    in property <string> icon;
     in property <string> hint;
     in property <string> placeholder;
     in-out property <string> text;
@@ -239,7 +251,7 @@ export component LineField inherits VerticalLayout {
     forward-focus: input;
     spacing: 6px;
 
-    if root.label != "": FieldLabel { text: root.label; hint: root.hint; }
+    if root.label != "": FieldLabel { text: root.label; hint: root.hint; icon: root.icon; }
     Well {
         height: Theme.control-height;
         focused: input.has-focus;
@@ -275,6 +287,7 @@ export component LineField inherits VerticalLayout {
 // Pick one of a few options (e.g. a folder): looks like a field, opens a list below it.
 export component Dropdown inherits VerticalLayout {
     in property <string> label;
+    in property <string> icon;
     in property <[string]> options;
     // Shown for an empty option (e.g. "No folder").
     in property <string> empty-text;
@@ -284,7 +297,7 @@ export component Dropdown inherits VerticalLayout {
     spacing: 6px;
     forward-focus: focus;
 
-    if root.label != "": FieldLabel { text: root.label; }
+    if root.label != "": FieldLabel { text: root.label; icon: root.icon; }
     well := Well {
         height: Theme.control-height;
         focused: focus.has-focus;
@@ -384,13 +397,14 @@ export component Dropdown inherits VerticalLayout {
 
 export component NotesField inherits VerticalLayout {
     in property <string> label;
+    in property <string> icon;
     in property <string> hint;
     in property <string> placeholder;
     in property <length> field-height: 84px;
     in property <bool> mono: false;
     in-out property <string> text;
     spacing: 6px;
-    FieldLabel { text: root.label; hint: root.hint; }
+    FieldLabel { text: root.label; hint: root.hint; icon: root.icon; }
     Well {
         height: root.field-height;
         focused: input.has-focus;
@@ -427,6 +441,7 @@ export component NotesField inherits VerticalLayout {
 export component SecretField inherits VerticalLayout {
     in property <int> field;
     in property <string> label;
+    in property <string> icon;
     in property <string> hint;
     in property <string> placeholder;
     in property <bool> error: false;
@@ -435,10 +450,12 @@ export component SecretField inherits VerticalLayout {
     callback accepted();
 
     property <int> length: Secrets.lengths[root.field];
+    // Ctrl+A or a double click selects everything; the next key replaces or deletes it.
+    property <bool> all-selected: false;
     forward-focus: scope;
     spacing: 6px;
 
-    if root.label != "": FieldLabel { text: root.label; hint: root.hint; }
+    if root.label != "": FieldLabel { text: root.label; hint: root.hint; icon: root.icon; }
     Well {
         height: Theme.control-height;
         focused: scope.has-focus;
@@ -448,27 +465,79 @@ export component SecretField inherits VerticalLayout {
 
         TouchArea {
             mouse-cursor: MouseCursor.text;
-            clicked => { scope.focus(); }
+            clicked => {
+                root.all-selected = false;
+                scope.focus();
+            }
+            double-clicked => {
+                scope.focus();
+                root.all-selected = root.length > 0;
+            }
         }
         scope := FocusScope {
+            focus-changed-event => {
+                if (!self.has-focus) { root.all-selected = false; }
+            }
             key-pressed(event) => {
                 if (event.text == Key.Return) {
                     root.accepted();
                     return accept;
                 }
-                if (event.text == Key.Backspace) {
-                    Secrets.backspace(root.field);
-                    return accept;
-                }
-                if (event.text == Key.Escape) {
-                    Secrets.clear(root.field);
-                    return accept;
-                }
                 if (event.text == Key.Tab) {
                     return reject;
                 }
-                if (event.modifiers.meta || event.modifiers.control != event.modifiers.alt) {
+                // Shortcuts. Copying and cutting are left out on purpose: the field's secret
+                // never goes to the clipboard from here.
+                if (event.modifiers.control && !event.modifiers.alt) {
+                    if (event.text == "a" || event.text == "A") {
+                        root.all-selected = root.length > 0;
+                        return accept;
+                    }
+                    if (event.text == "v" || event.text == "V") {
+                        Secrets.paste(root.field, root.all-selected);
+                        root.all-selected = false;
+                        return accept;
+                    }
+                    if (event.text == Key.Backspace || event.text == Key.Delete) {
+                        Secrets.clear(root.field);
+                        root.all-selected = false;
+                        return accept;
+                    }
                     return accept;
+                }
+                if (event.modifiers.shift && event.text == Key.Insert) {
+                    Secrets.paste(root.field, root.all-selected);
+                    root.all-selected = false;
+                    return accept;
+                }
+                if (event.text == Key.Backspace || event.text == Key.Delete) {
+                    if (root.all-selected) {
+                        Secrets.clear(root.field);
+                        root.all-selected = false;
+                    } else if (event.text == Key.Backspace) {
+                        Secrets.backspace(root.field);
+                    }
+                    return accept;
+                }
+                if (event.text == Key.Escape) {
+                    if (root.all-selected) {
+                        root.all-selected = false;
+                    } else {
+                        Secrets.clear(root.field);
+                    }
+                    return accept;
+                }
+                if (event.text == Key.LeftArrow || event.text == Key.RightArrow
+                    || event.text == Key.Home || event.text == Key.End) {
+                    root.all-selected = false;
+                    return accept;
+                }
+                if (event.modifiers.meta || event.modifiers.alt) {
+                    return accept;
+                }
+                if (root.all-selected) {
+                    Secrets.clear(root.field);
+                    root.all-selected = false;
                 }
                 Secrets.insert(root.field, event.text);
                 accept
@@ -492,19 +561,31 @@ export component SecretField inherits VerticalLayout {
                 color: Theme.faint;
                 vertical-alignment: center;
             }
-            if root.revealed == "": HorizontalLayout {
-                spacing: 5px;
-                for index in Math.min(root.length, 40): VerticalLayout {
-                    alignment: center;
-                    Rectangle {
-                        width: 6px;
-                        height: 6px;
-                        border-radius: 3px;
-                        background: Theme.ink;
+            if root.revealed == "": VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    // The selection: the dots on a marker band.
+                    border-radius: 3px;
+                    background: root.all-selected ? Theme.marker : transparent;
+                    HorizontalLayout {
+                        padding-left: root.all-selected ? 4px : 0px;
+                        padding-right: root.all-selected ? 4px : 0px;
+                        padding-top: 5px;
+                        padding-bottom: 5px;
+                        spacing: 5px;
+                        for index in Math.min(root.length, 40): VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 6px;
+                                height: 6px;
+                                border-radius: 3px;
+                                background: root.all-selected ? Theme.on-marker : Theme.ink;
+                            }
+                        }
                     }
                 }
             }
-            if scope.has-focus: VerticalLayout {
+            if scope.has-focus && !root.all-selected: VerticalLayout {
                 alignment: center;
                 Rectangle {
                     width: 1.5px;
@@ -791,16 +872,14 @@ export component ItemIcon inherits Rectangle {
     width: root.size;
     height: root.size;
     border-radius: root.size * 0.26;
-    background: root.has-icon ? #F4F6F9 : root.tint;
-    // On the light theme the pale favicon tile needs an edge to separate it from the page.
-    border-width: root.has-icon && !Theme.dark ? 1px : 0px;
-    border-color: Theme.rule;
+    // A site's own icon is shown as it is, without a tile; otherwise its initial on a colour.
+    background: root.has-icon ? transparent : root.tint;
     clip: true;
     accessible-role: image;
 
     if root.has-icon: Image {
-        width: parent.width * 0.7;
-        height: parent.height * 0.7;
+        width: parent.width * 0.86;
+        height: parent.height * 0.86;
         source: root.icon;
         image-fit: contain;
     }

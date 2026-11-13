@@ -432,7 +432,16 @@ fn main() {
     click(&app, 800.0, 640.0); // anywhere closes it
     app.invoke_toggle_show_password();
     camera.shot("editor-password-shown", "Editing with the password shown");
-    app.invoke_cancel_edit();
+    type_into(&app, 4, "summer2024");
+    app.invoke_toggle_show_password();
+    camera.shot("editor-weak", "Typing a weak password: strength and why");
+    // A new password: the old one goes to the history.
+    type_into(&app, 4, "Gh-new-9!xQ2#rTz8wLm");
+    app.invoke_save_item();
+    app.invoke_show_history();
+    app.invoke_reveal_history(0);
+    camera.shot("vault-history", "Password history, one entry shown");
+    app.invoke_hide_history();
     app.invoke_new_item();
     app.invoke_save_item();
     camera.shot("editor-new-error", "New item: title required");
@@ -442,23 +451,83 @@ fn main() {
     app.invoke_open_generator();
     camera.shot("generator", "Generator: random characters");
     app.set_gen_mode(1);
+    app.set_gen_word_case(2);
     app.invoke_regenerate();
-    camera.shot("generator-words", "Generator: words");
+    camera.shot("generator-words", "Generator: words, Title Case");
+    app.set_gen_word_case(0);
+    app.set_gen_mode(0);
+    app.invoke_regenerate();
 
     // ---- settings ----
     app.invoke_open_settings();
     app.set_quick_unlock_on(true);
     app.invoke_quick_unlock_toggled(true);
     camera.shot("settings", "Settings, Windows Hello just turned on");
-    click(&app, 729.0, 184.0); // (?) next to "Show website icons"
-    camera.shot("settings-icons-hint", "Privacy note for website icons");
-    click(&app, 1000.0, 720.0);
     app.invoke_open_authenticator();
     camera.shot("authenticator", "Authenticator: every one-time code, live");
 
+    // ---- password health: one weak, two sharing a password ----
+    add_item(
+        &app,
+        0,
+        "Forum",
+        "me",
+        "https://forum.example",
+        "letmein1",
+        "",
+        "",
+        false,
+        0,
+    );
+    add_item(
+        &app,
+        0,
+        "Old shop",
+        "me",
+        "https://oldshop.example",
+        "Shared-pass-2019!",
+        "",
+        "",
+        false,
+        0,
+    );
+    add_item(
+        &app,
+        0,
+        "Newsletter",
+        "me",
+        "https://news.example",
+        "Shared-pass-2019!",
+        "",
+        "",
+        false,
+        0,
+    );
+    app.invoke_open_health();
+    camera.shot("health", "Password health: weak, reused, old, expired");
+    app.set_health_filter(2);
+    app.invoke_health_filter_changed(2);
+    camera.shot("health-reused", "Password health: reused only");
+    app.set_health_filter(-1);
+
     app.invoke_open_transfer();
-    camera.shot("transfer", "Import & export");
-    let demo_export = temp.path().join("bitwarden_export.json");
+    camera.shot("transfer", "Import & export: where from");
+    app.set_import_source(0);
+    app.invoke_pick_source(0);
+    camera.shot("transfer-source", "Import from Chrome: how to export");
+    click(&app, 410.0, 260.0);
+    camera.shot(
+        "transfer-browsers",
+        "Browsers, with the ones on this computer marked",
+    );
+    click(&app, 900.0, 700.0);
+    app.set_import_source(8);
+    app.invoke_pick_source(8);
+    click(&app, 410.0, 260.0);
+    camera.shot("transfer-managers", "Password managers and files");
+    click(&app, 900.0, 700.0);
+    app.set_import_source(-1);
+    let demo_export = temp.path().join("export.json");
     std::fs::write(
         &demo_export,
         r#"{"encrypted": false, "folders": [{"id": "f", "name": "Shopping"}], "items": [
@@ -471,8 +540,11 @@ fn main() {
     controller.start_import(demo_export);
     camera.shot(
         "transfer-preview",
-        "Import preview: new items, folders, duplicates",
+        "Import review: every entry, passwords hidden, duplicates unticked",
     );
+    app.set_import_target(2);
+    camera.shot("transfer-target", "Import review: all into one folder");
+    app.set_import_target(0);
     app.invoke_import_confirm();
     camera.shot(
         "transfer-done",

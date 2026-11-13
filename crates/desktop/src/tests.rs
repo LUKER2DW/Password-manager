@@ -372,6 +372,69 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_error_code(), 0, "saves again once the file matches");
     app.invoke_toggle_favorite();
 
+    // ---- password history: the old password is kept when it changes ----
+    assert_eq!(app.get_detail_title(), "GitHub");
+    assert_eq!(app.get_detail_history_count(), 0);
+    assert!(app.get_detail_strength_score() >= 1);
+    app.invoke_edit_item();
+    type_into(&app, 4, "password123");
+    assert!(
+        app.get_ed_strength_bits() > 0,
+        "strength shown while typing"
+    );
+    assert_eq!(app.get_ed_weakness(), 3, "a very common password");
+    app.invoke_save_item();
+    assert_eq!(app.get_detail_history_count(), 1);
+    assert_eq!(app.get_detail_strength_score(), 0);
+    assert_eq!(app.get_detail_age_unit(), 0, "changed today");
+    app.invoke_show_history();
+    assert!(app.get_detail_history_shown());
+    assert_eq!(app.get_detail_history().row_data(0).unwrap().password, "");
+    app.invoke_reveal_history(0);
+    assert_eq!(
+        app.get_detail_history().row_data(0).unwrap().password,
+        "gh-item-pass"
+    );
+    app.invoke_reveal_history(0);
+    assert_eq!(app.get_detail_history().row_data(0).unwrap().password, "");
+
+    // ---- password health ----
+    app.invoke_open_health();
+    assert_eq!(app.get_panel(), Panel::Health);
+    assert!(app.get_health_logins() >= 1);
+    assert!(
+        app.get_health_counts().row_data(1).unwrap() >= 1,
+        "a weak one"
+    );
+    assert!(app.get_health_score() < 100);
+    app.set_health_filter(1);
+    app.invoke_health_filter_changed(1);
+    let weak = app.get_health_rows();
+    let github_row = (0..weak.row_count())
+        .find(|&i| weak.row_data(i).unwrap().title == "GitHub")
+        .expect("GitHub listed as weak");
+    assert_eq!(weak.row_data(github_row).unwrap().problem, 2);
+    app.invoke_health_open(i32::try_from(github_row).unwrap());
+    assert_eq!(app.get_panel(), Panel::Detail);
+    assert_eq!(app.get_detail_title(), "GitHub");
+    app.set_health_filter(-1);
+    app.invoke_clear_history();
+    assert_eq!(app.get_detail_history_count(), 0);
+    assert_eq!(app.get_notice_code(), 24);
+
+    // ---- vault settings ----
+    app.invoke_open_settings();
+    assert_eq!(app.get_history_limit(), 10);
+    app.set_vault_name_edit("x".repeat(61).into());
+    app.invoke_vault_settings_changed();
+    assert_eq!(app.get_error_code(), 27);
+    app.set_vault_name_edit("Home".into());
+    app.set_history_limit(3);
+    app.invoke_vault_settings_changed();
+    assert_eq!(app.get_vault_name(), "Home");
+    assert_eq!(app.get_notice_code(), 26);
+    assert!(app.get_vault_kdf().contains("Argon2id"));
+
     // ---- generator ----
     app.invoke_open_generator();
     assert_eq!(app.get_panel(), Panel::Generator);
@@ -380,6 +443,62 @@ fn whole_app_flow_headless() {
     app.invoke_regenerate();
     assert!(app.get_gen_result().split('-').count() >= 6);
     assert!(app.get_gen_bits() >= 77);
+    // Word case and separator.
+    app.set_gen_word_case(1);
+    app.set_gen_separator(".".into());
+    app.invoke_regenerate();
+    let phrase = app.get_gen_result().to_string();
+    assert!(phrase.split('.').count() >= 6, "{phrase}");
+    assert_eq!(phrase, phrase.to_uppercase());
+    // A word list of one's own.
+    let list = dir.path().join("palavras.txt");
+    std::fs::write(
+        &list,
+        (0..600)
+            .map(|i| format!("palavra{i}\n"))
+            .collect::<String>(),
+    )
+    .unwrap();
+    controller.add_wordlist_file(&list);
+    assert_eq!(app.get_gen_wordlist(), 1);
+    assert!(app.get_gen_wordlist_removable());
+    assert!(
+        app.get_gen_result()
+            .to_lowercase()
+            .split('.')
+            .all(|w| w.starts_with("palavra"))
+    );
+    let short = dir.path().join("short.txt");
+    std::fs::write(&short, "um\ndois\n").unwrap();
+    controller.add_wordlist_file(&short);
+    assert_eq!(app.get_error_code(), 25);
+    app.invoke_remove_wordlist();
+    assert_eq!(app.get_gen_wordlist(), 0);
+    app.set_gen_word_case(0);
+    app.set_gen_separator("-".into());
+    // Random characters: extended ASCII plus extra characters, minus excluded ones.
+    app.set_gen_mode(0);
+    app.set_gen_lowercase(false);
+    app.set_gen_uppercase(false);
+    app.set_gen_digits(false);
+    app.set_gen_symbols(false);
+    app.set_gen_extended(true);
+    app.set_gen_also_use("xyz".into());
+    app.set_gen_never_use("é".into());
+    app.invoke_regenerate();
+    assert_eq!(app.get_gen_alphabet(), 96);
+    assert!(
+        app.get_gen_result()
+            .chars()
+            .all(|c| "xyz".contains(c) || ('\u{a1}'..='\u{ff}').contains(&c))
+    );
+    app.set_gen_lowercase(true);
+    app.set_gen_uppercase(true);
+    app.set_gen_digits(true);
+    app.set_gen_symbols(true);
+    app.set_gen_extended(false);
+    app.set_gen_also_use("".into());
+    app.set_gen_never_use("".into());
 
     // ---- settings: master password and kit ----
     app.invoke_open_settings();
@@ -596,7 +715,7 @@ fn whole_app_flow_headless() {
     // ---- import & export ----
     app.invoke_open_transfer();
     assert_eq!(app.get_panel(), Panel::Transfer);
-    let export_file = dir.path().join("bitwarden.json");
+    let export_file = dir.path().join("export.json");
     std::fs::write(
         &export_file,
         r#"{"encrypted": false,
@@ -605,7 +724,7 @@ fn whole_app_flow_headless() {
               {"type": 1, "name": "Shop", "folderId": "f1",
                "login": {"username": "buyer", "password": "shop-pass", "uris": [{"uri": "https://shop.example"}]}},
               {"type": 1, "name": "GitHub",
-               "login": {"username": "hubot", "password": "gh-item-pass", "uris": [{"uri": "https://github.com"}]}}
+               "login": {"username": "hubot", "password": "password123", "uris": [{"uri": "https://github.com"}]}}
             ]}"#,
     )
     .unwrap();
@@ -616,9 +735,26 @@ fn whole_app_flow_headless() {
         "detail: {}",
         app.get_error_detail()
     );
-    assert_eq!(app.get_import_found(), 1, "GitHub is already in the vault");
+    // Review: every entry listed, passwords never shown, duplicates unticked.
+    let rows = app.get_import_rows();
+    assert_eq!(rows.row_count(), 2);
+    let shop = rows.row_data(0).unwrap();
+    assert_eq!(
+        (shop.title.as_str(), shop.folder.as_str()),
+        ("Shop", "Shopping")
+    );
+    assert!(shop.include && shop.has_password && !shop.duplicate);
+    assert!(rows.row_data(1).unwrap().duplicate);
+    assert_eq!(
+        app.get_import_selected(),
+        1,
+        "GitHub is already in the vault"
+    );
     assert_eq!(app.get_import_duplicates(), 1);
-    assert_eq!(app.get_import_new_folders(), 1);
+    app.invoke_import_select_all(false);
+    assert_eq!(app.get_import_selected(), 0);
+    app.invoke_import_toggle(0, true);
+    assert_eq!(app.get_import_selected(), 1);
     app.invoke_import_confirm();
     assert_eq!(app.get_import_stage(), 3);
     assert_eq!(app.get_import_added(), 1);
@@ -683,7 +819,13 @@ fn whole_app_flow_headless() {
 
     // ---- nothing readable on disk ----
     let bytes = std::fs::read(&path).unwrap();
-    for needle in ["GitHub", "hubot", "gh-item-pass", "github.com"] {
+    for needle in [
+        "GitHub",
+        "hubot",
+        "gh-item-pass",
+        "password123",
+        "github.com",
+    ] {
         assert!(
             !bytes.windows(needle.len()).any(|w| w == needle.as_bytes()),
             "{needle} leaked"

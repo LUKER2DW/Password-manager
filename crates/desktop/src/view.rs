@@ -1,6 +1,6 @@
 //! Pure presentation rules (no UI types), so they can be unit-tested.
 
-use vault_core::{FolderId, ItemData, ItemKind, ItemSummary, card};
+use vault_core::{FolderId, ItemData, ItemKind, ItemSummary, card, health};
 
 /// One extra field as shown on the item page.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,6 +13,8 @@ pub struct FieldView {
     pub index: usize,
     /// Show in red (an expired card).
     pub warning: bool,
+    /// Icon name (icons.slint).
+    pub icon: &'static str,
 }
 
 /// The item's extra fields for the item page. Cards get friendly labels: the number masked with
@@ -37,15 +39,18 @@ pub fn detail_fields(item: &ItemData, now: (u32, u32)) -> Vec<FieldView> {
                 sensitive: f.sensitive,
                 index,
                 warning: false,
+                icon: if f.sensitive { "shield" } else { "tag" },
             };
             if named(f, card::NUMBER) {
                 view.label = "Card number".into();
+                view.icon = "card";
                 view.value = card::masked(&card::digits(&f.value));
                 view.sensitive = false; // masked; Copy still copies the full number as a secret
             } else if named(f, card::EXPIRY)
                 && let Some(expiry) = card::parse_expiry(&f.value)
             {
                 view.label = "Expires".into();
+                view.icon = "calendar";
                 let expired = card::is_expired(expiry, now);
                 view.value = if expired {
                     format!("{} · expired", card::format_expiry(expiry))
@@ -57,6 +62,79 @@ pub fn detail_fields(item: &ItemData, now: (u32, u32)) -> Vec<FieldView> {
             view
         })
         .collect()
+}
+
+/// The card network mark index used by icons.slint `BrandMark` (0 = unknown).
+pub fn brand_mark(brand: card::Brand) -> i32 {
+    match brand {
+        card::Brand::Visa => 1,
+        card::Brand::Mastercard => 2,
+        card::Brand::Amex => 3,
+        card::Brand::Elo => 4,
+        card::Brand::Hipercard => 5,
+        card::Brand::Discover => 6,
+        card::Brand::Diners => 7,
+        card::Brand::Jcb => 8,
+        card::Brand::Maestro => 9,
+        card::Brand::Unknown => 0,
+    }
+}
+
+/// Code for `Messages.weakness` (0 = nothing to say).
+pub fn weakness_code(strength: &health::Strength) -> i32 {
+    use health::Pattern;
+    match strength.pattern {
+        Pattern::KeyboardPattern => 1,
+        Pattern::Repeats => 2,
+        Pattern::Common => 3,
+        Pattern::SimilarToCommon => 4,
+        Pattern::Sequence => 5,
+        Pattern::Dates => 6,
+        Pattern::SingleWord => 7,
+        Pattern::Names => 8,
+        Pattern::None if strength.is_weak() => 9,
+        Pattern::None => 0,
+    }
+}
+
+/// How long ago, for `Messages.ago`: (unit, amount) with unit 0 today, 1 days, 2 months,
+/// 3 years; (-1, 0) when unknown.
+pub fn ago(then: i64, now: i64) -> (i32, i32) {
+    if then <= 0 {
+        return (-1, 0);
+    }
+    let days = (now - then).max(0) / 86_400;
+    match days {
+        0 => (0, 0),
+        1..=59 => (1, days as i32),
+        60..=729 => (2, (days / 30) as i32),
+        _ => (3, (days / 365) as i32),
+    }
+}
+
+/// `YYYY-MM-DD` in UTC (language-neutral).
+pub fn date(unix: i64) -> String {
+    if unix <= 0 {
+        return String::from("—");
+    }
+    let days = unix.div_euclid(86_400);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// Current Unix time in seconds.
+pub fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
 /// Current (month, year) in UTC.
@@ -168,23 +246,24 @@ pub fn initial(title: &str) -> String {
 }
 
 /// Muted colours that read well behind white text in both themes.
+/// Clear, saturated tones that keep white initials readable (no muddy olives or browns).
 const TINTS: [(u8, u8, u8); 8] = [
-    (0x3B, 0x5B, 0x8C),
-    (0x5B, 0x4B, 0x8A),
-    (0x2F, 0x6B, 0x5A),
-    (0x8A, 0x5A, 0x3B),
-    (0x7A, 0x3E, 0x5E),
-    (0x2E, 0x6A, 0x7A),
-    (0x6E, 0x63, 0x2C),
-    (0x4E, 0x64, 0x34),
+    (0x3D, 0x6F, 0xD6), // blue
+    (0x7B, 0x5C, 0xD6), // violet
+    (0x16, 0x93, 0x72), // green
+    (0xD2, 0x63, 0x35), // orange
+    (0xC0, 0x4A, 0x84), // magenta
+    (0x17, 0x8A, 0xB0), // cyan
+    (0xC8, 0x45, 0x45), // red
+    (0x5B, 0x7F, 0x2E), // leaf
 ];
 
 /// Stable fallback colour: cards, notes and passkeys get fixed tones; logins hash their site
 /// (or title) so the same service always gets the same colour.
 pub fn tint(kind: ItemKind, key: &str) -> (u8, u8, u8) {
     match kind {
-        ItemKind::Card => (0x3D, 0x4F, 0x6B),
-        ItemKind::SecureNote => (0x3C, 0x5E, 0x54),
+        ItemKind::Card => (0x4A, 0x5D, 0x7E),
+        ItemKind::SecureNote => (0x2F, 0x7D, 0x68),
         ItemKind::Passkey => (0x5C, 0x4B, 0x7A),
         ItemKind::Login => {
             // FNV-1a: tiny, stable across runs and platforms.
@@ -378,6 +457,20 @@ mod tests {
         assert_eq!(group_code("12345678"), "1234 5678");
         assert_eq!(group_code("1234567"), "1234567");
         assert_eq!(int_to_kind(kind_to_int(ItemKind::Card)), ItemKind::Card);
+    }
+
+    #[test]
+    fn dates_and_ages() {
+        assert_eq!(date(0), "—");
+        assert_eq!(date(1_700_000_000), "2023-11-14");
+        assert_eq!(date(951_782_400), "2000-02-29");
+        let now = 1_700_000_000;
+        assert_eq!(ago(0, now), (-1, 0));
+        assert_eq!(ago(now - 3_600, now), (0, 0));
+        assert_eq!(ago(now - 5 * 86_400, now), (1, 5));
+        assert_eq!(ago(now - 90 * 86_400, now), (2, 3));
+        assert_eq!(ago(now - 800 * 86_400, now), (3, 2));
+        assert_eq!(brand_mark(card::Brand::Elo), 4);
     }
 
     #[test]

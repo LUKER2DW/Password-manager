@@ -2,7 +2,8 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { DetailField, CodeRow, AuthRow, EditField, Messages } from "model.slint";
+import { DetailField, CodeRow, AuthRow, EditField, HistoryRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
+import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker } from "icons.slint";
 import { Button, QuietButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip } from "kit.slint";
 
@@ -52,6 +53,8 @@ component ErrorText inherits Text {
 // One labelled value on the item page, with its actions on the right.
 component FieldRow inherits VerticalLayout {
     in property <string> label;
+    // Icon name from icons.slint ("key", "user"…).
+    in property <string> icon: "tag";
     in property <string> hint;
     in property <string> value;
     in property <bool> mono: false;
@@ -64,9 +67,13 @@ component FieldRow inherits VerticalLayout {
         padding-bottom: 10px;
         spacing: 12px;
         HorizontalLayout {
-            width: 150px;
-            spacing: 6px;
+            width: 186px;
+            spacing: 10px;
             alignment: start;
+            VerticalLayout {
+                alignment: center;
+                FieldIcon { name: root.icon; size: 26px; }
+            }
             Text {
                 text: root.label;
                 font-size: Theme.body;
@@ -117,6 +124,24 @@ export component DetailPage inherits Rectangle {
     in property <[CodeRow]> codes;
     in-out property <bool> notes-shown;
     in-out property <bool> confirming-delete;
+    in property <int> brand;
+    in property <bool> username-is-email;
+    // Password health, shown under the password.
+    in property <int> strength-bits;
+    in property <int> strength-score;
+    in property <int> weakness;
+    in property <int> reused-by;
+    in property <int> age-unit;
+    in property <int> age-amount;
+    // Earlier passwords: count always, rows only while shown.
+    in property <int> history-count;
+    in property <[HistoryRow]> history;
+    in property <bool> history-shown;
+    callback show-history();
+    callback hide-history();
+    callback reveal-history(int);
+    callback copy-history(int);
+    callback clear-history();
     callback edit();
     callback toggle-favorite();
     callback delete();
@@ -151,13 +176,17 @@ export component DetailPage inherits Rectangle {
                 spacing: 16px;
                 VerticalLayout {
                     alignment: center;
-                    ItemIcon {
+                    if root.kind != 1 || root.brand == 0: ItemIcon {
                         size: 48px;
                         icon: root.icon;
                         has-icon: root.has-icon;
                         initial: root.initial;
                         tint: root.tint;
                         kind: root.kind;
+                    }
+                    if root.kind == 1 && root.brand != 0: BrandMark {
+                        brand: root.brand;
+                        size: 64px;
                     }
                 }
                 VerticalLayout {
@@ -202,7 +231,8 @@ export component DetailPage inherits Rectangle {
             Rule { }
 
             if root.username != "": FieldRow {
-                label: root.kind == 1 ? @tr("Name on card") : @tr("Username");
+                label: root.kind == 1 ? @tr("Name on card") : root.username-is-email ? @tr("Email") : @tr("Username");
+                icon: root.username-is-email ? "mail" : "user";
                 value: root.username;
                 QuietButton {
                     text: @tr("Copy");
@@ -212,6 +242,7 @@ export component DetailPage inherits Rectangle {
 
             if root.has-password: FieldRow {
                 label: root.kind == 1 ? @tr("PIN") : @tr("Password");
+                icon: root.kind == 1 ? "pin" : "key";
                 value: root.revealed-password != "" ? root.revealed-password : "••••••••••••";
                 mono: root.revealed-password != "";
                 if root.revealed-password != "": Text {
@@ -231,9 +262,133 @@ export component DetailPage inherits Rectangle {
                     clicked => { root.copy-password(); }
                 }
             }
+            // How safe the password is, and when it last changed.
+            if root.has-password && root.kind == 0: HorizontalLayout {
+                padding-top: 2px;
+                padding-bottom: 12px;
+                padding-left: 198px;
+                VerticalLayout {
+                    spacing: 6px;
+                    horizontal-stretch: 1;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        height: 18px;
+                        HorizontalLayout {
+                            spacing: 3px;
+                            for i in 4: VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 22px;
+                                    height: 4px;
+                                    border-radius: 2px;
+                                    background: i < Math.max(1, root.strength-score)
+                                        ? (root.strength-score >= 4 ? Theme.good : root.strength-score >= 3 ? Theme.marker : Theme.seal)
+                                        : Theme.rule;
+                                }
+                            }
+                        }
+                        Text {
+                            text: root.strength-score >= 4 ? @tr("Strong")
+                                : root.strength-score == 3 ? @tr("Good")
+                                : root.strength-score == 2 ? @tr("Weak")
+                                : @tr("Very weak");
+                            font-size: Theme.small;
+                            color: root.strength-score >= 3 ? Theme.graphite : Theme.seal;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: "·";
+                            font-size: Theme.small;
+                            color: Theme.faint;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: root.age-unit < 0 ? "" : @tr("changed {}", Messages.ago(root.age-unit, root.age-amount));
+                            font-size: Theme.small;
+                            color: Theme.faint;
+                            vertical-alignment: center;
+                        }
+                    }
+                    if root.weakness != 0: Text {
+                        text: Messages.weakness(root.weakness);
+                        font-size: Theme.small;
+                        color: Theme.seal;
+                        wrap: word-wrap;
+                    }
+                    if root.reused-by > 0: Text {
+                        text: @tr("Also used by {n} other item: a leak at one site opens both." | "Also used by {n} other items: a leak at one site opens them all." % root.reused-by);
+                        font-size: Theme.small;
+                        color: Theme.seal;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+            if root.history-count > 0: FieldRow {
+                label: @tr("Password history");
+                icon: "history";
+                value: @tr("{n} earlier password" | "{n} earlier passwords" % root.history-count);
+                QuietButton {
+                    text: root.history-shown ? @tr("Hide") : @tr("Show");
+                    clicked => {
+                        if (root.history-shown) { root.hide-history(); } else { root.show-history(); }
+                    }
+                }
+            }
+            if root.history-shown: VerticalLayout {
+                padding-top: 6px;
+                padding-bottom: 10px;
+                spacing: 2px;
+                for entry[index] in root.history: Rectangle {
+                    height: 36px;
+                    border-radius: Theme.radius;
+                    background: entry-touch.has-hover ? Theme.hover : transparent;
+                    entry-touch := TouchArea { }
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 4px;
+                        spacing: 10px;
+                        Text {
+                            width: 176px;
+                            text: entry.date;
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: entry.password != "" ? entry.password : "••••••••••••";
+                            font-family: entry.password != "" ? Theme.mono-font : Theme.ui-font;
+                            font-size: Theme.body;
+                            color: Theme.ink;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        QuietButton {
+                            text: entry.password != "" ? @tr("Hide") : @tr("Show");
+                            tint: Theme.graphite;
+                            clicked => { root.reveal-history(index); }
+                        }
+                        QuietButton {
+                            text: @tr("Copy");
+                            clicked => { root.copy-history(index); }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    padding-top: 4px;
+                    QuietButton {
+                        text: @tr("Clear history");
+                        tint: Theme.seal;
+                        clicked => { root.clear-history(); }
+                    }
+                }
+            }
 
             if root.totp-code != "": FieldRow {
                 label: @tr("One-time code");
+                icon: "clock";
                 hint: @tr("The code for two-step sign-in, made from the secret saved in this item. It changes every 30 seconds.");
                 value: root.totp-code;
                 mono: true;
@@ -252,11 +407,13 @@ export component DetailPage inherits Rectangle {
 
             for url in root.urls: FieldRow {
                 label: @tr("Website");
+                icon: "globe";
                 value: url;
             }
 
             for field in root.fields: FieldRow {
                 label: field.label;
+                icon: field.icon;
                 value: field.sensitive ? "••••••••" : field.value;
                 warning: field.warning;
                 QuietButton {
@@ -267,6 +424,7 @@ export component DetailPage inherits Rectangle {
 
             if root.codes-total > 0: FieldRow {
                 label: @tr("Recovery codes");
+                icon: "list";
                 value: root.codes-left == 0
                     ? @tr("All {} used — get new ones from the site", root.codes-total)
                     : @tr("{} of {} left", root.codes-left, root.codes-total);
@@ -332,10 +490,16 @@ export component DetailPage inherits Rectangle {
             if root.notes != "": VerticalLayout {
                 padding-top: 14px;
                 spacing: 8px;
-                Text {
-                    text: @tr("Notes");
-                    font-size: Theme.body;
-                    color: Theme.graphite;
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: start;
+                    FieldIcon { name: "note"; size: 26px; }
+                    Text {
+                        text: @tr("Notes");
+                        font-size: Theme.body;
+                        color: Theme.graphite;
+                        vertical-alignment: center;
+                    }
                 }
                 if root.notes-shown: Text {
                     text: root.notes;
@@ -399,6 +563,67 @@ export component DetailPage inherits Rectangle {
     }
 }
 
+// Strength of a password: a thin meter that fills up to 128 bits, the time to crack it and a
+// light comparison. Used by the generator and the editor.
+export component StrengthMeter inherits VerticalLayout {
+    in property <int> bits;
+    in property <int> crack-unit;
+    in property <int> crack-amount;
+    in property <int> crack-comparison;
+    // A short reason the password is easy to guess (see Messages.weakness), 0 for none.
+    in property <int> weakness;
+    in property <bool> compact: false;
+    spacing: 8px;
+    property <color> level: root.bits >= 70 ? Theme.good : root.bits >= 50 ? Theme.marker : Theme.seal;
+    Rectangle {
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.rule;
+        Rectangle {
+            x: 0;
+            width: parent.width * Math.min(1, root.bits / 128);
+            border-radius: 2px;
+            background: root.level;
+            animate width { duration: 160ms; easing: ease-out; }
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Text {
+            text: Messages.crack-time(root.crack-unit, root.crack-amount);
+            font-size: root.compact ? Theme.small : Theme.body;
+            font-weight: 600;
+            color: root.bits >= 70 ? Theme.good : root.bits >= 50 ? Theme.ink : Theme.seal;
+            vertical-alignment: center;
+        }
+        Text {
+            text: @tr("· {} bits", root.bits);
+            font-size: Theme.small;
+            color: Theme.faint;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            alignment: center;
+            Hint {
+                text: @tr("Worst realistic case: a site you use is breached and its password list leaks with fast (MD5) hashes. An attacker runs hashcat on six RTX 4090 graphics cards, about a trillion guesses per second, and on average finds the password halfway through. Sites that store passwords properly (bcrypt, Argon2) make this millions of times slower. Each extra bit doubles the time.");
+            }
+        }
+    }
+    if root.weakness != 0: Text {
+        text: Messages.weakness(root.weakness);
+        font-size: Theme.small;
+        color: Theme.seal;
+        wrap: word-wrap;
+    }
+    if !root.compact: Text {
+        text: Messages.crack-comparison(root.crack-comparison);
+        font-size: Theme.small;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+}
+
 export component EditorPage inherits Rectangle {
     in property <bool> is-new;
     in property <int> error-code;
@@ -419,7 +644,13 @@ export component EditorPage inherits Rectangle {
     in-out property <string> card-expiry;
     in-out property <string> card-code;
     in property <string> card-brand;
+    in property <int> card-brand-mark;
     in property <[EditField]> fields;
+    // Strength of the password being typed (logins only; 0 bits = empty).
+    in property <int> strength-bits;
+    in property <int> crack-unit;
+    in property <int> crack-amount;
+    in property <int> weakness;
     callback card-number-edited(string);
     callback field-edited(int, bool, string);  // index, true = name / false = value, text
     callback field-hidden(int, bool);
@@ -453,6 +684,7 @@ export component EditorPage inherits Rectangle {
                 LineField {
                     horizontal-stretch: 2;
                     label: @tr("Title");
+                    icon: "tag";
                     placeholder: root.kind == 1 ? @tr("Visa ending 4242") : root.kind == 2 ? @tr("Home Wi-Fi") : @tr("GitHub");
                     text <=> root.title;
                     error: root.error-code == 9;
@@ -460,6 +692,7 @@ export component EditorPage inherits Rectangle {
                 Dropdown {
                     horizontal-stretch: 1;
                     label: @tr("Folder");
+                    icon: "folder";
                     empty-text: @tr("No folder");
                     options: root.folder-options;
                     selected <=> root.folder;
@@ -470,12 +703,14 @@ export component EditorPage inherits Rectangle {
                 LineField {
                     horizontal-stretch: 1;
                     label: root.kind == 1 ? @tr("Name on card") : @tr("Username or email");
+                    icon: "user";
                     placeholder: root.kind == 1 ? "" : @tr("you@example.com");
                     text <=> root.username;
                 }
                 if root.kind == 0: LineField {
                     horizontal-stretch: 1;
                     label: @tr("Website");
+                    icon: "globe";
                     placeholder: "https://";
                     text <=> root.url;
                 }
@@ -484,14 +719,33 @@ export component EditorPage inherits Rectangle {
                 spacing: 16px;
                 VerticalLayout {
                     horizontal-stretch: 1;
-                    spacing: 4px;
-                    LineField {
-                        label: @tr("Card number");
-                        placeholder: "1234 5678 9012 3456";
-                        mono: true;
-                        error: root.error-code == 20;
-                        text <=> root.card-number;
-                        edited(text) => { root.card-number-edited(text); }
+                    spacing: 6px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        LineField {
+                            horizontal-stretch: 1;
+                            label: @tr("Card number");
+                            icon: "card";
+                            placeholder: "1234 5678 9012 3456";
+                            mono: true;
+                            error: root.error-code == 20;
+                            text <=> root.card-number;
+                            edited(text) => { root.card-number-edited(text); }
+                        }
+                        // The network, recognised from the first digits as they are typed.
+                        VerticalLayout {
+                            alignment: end;
+                            Rectangle {
+                                height: Theme.control-height;
+                                width: 56px;
+                                BrandMark {
+                                    brand: root.card-brand-mark;
+                                    size: 52px;
+                                    opacity: root.card-number == "" ? 0.35 : 1;
+                                    animate opacity { duration: Theme.quick; }
+                                }
+                            }
+                        }
                     }
                     Text {
                         text: root.card-brand;
@@ -505,6 +759,7 @@ export component EditorPage inherits Rectangle {
                     width: 140px;
                     LineField {
                         label: @tr("Expires");
+                        icon: "calendar";
                         placeholder: @tr("MM/YY");
                         mono: true;
                         error: root.error-code == 21;
@@ -521,6 +776,7 @@ export component EditorPage inherits Rectangle {
                         horizontal-stretch: 1;
                         field: 4;
                         label: root.kind == 1 ? @tr("PIN") : @tr("Password");
+                        icon: root.kind == 1 ? "pin" : "key";
                         placeholder: root.kind == 1 ? @tr("Digits only, as the bank gave it") : "";
                         error: root.error-code == 23;
                         revealed: root.password-shown;
@@ -544,6 +800,7 @@ export component EditorPage inherits Rectangle {
                 if root.kind == 1: LineField {
                     width: 140px;
                     label: @tr("Security code");
+                    icon: "shield";
                     placeholder: "CVV";
                     mono: true;
                     error: root.error-code == 22;
@@ -552,6 +809,7 @@ export component EditorPage inherits Rectangle {
                 if root.kind == 0: LineField {
                     horizontal-stretch: 1;
                     label: @tr("One-time code secret");
+                    icon: "clock";
                     hint: @tr("Optional. Only for sites with two-step sign-in through an authenticator app. When you turn it on, the site shows a QR code and a text key (often under “Can't scan it?”): paste that key here, or an otpauth:// link. This item will then show the 6-digit codes.");
                     placeholder: @tr("otpauth:// link or key");
                     mono: true;
@@ -559,8 +817,16 @@ export component EditorPage inherits Rectangle {
                     text <=> root.totp;
                 }
             }
+            if root.kind == 0 && root.strength-bits > 0: StrengthMeter {
+                compact: true;
+                bits: root.strength-bits;
+                crack-unit: root.crack-unit;
+                crack-amount: root.crack-amount;
+                weakness: root.weakness;
+            }
             if root.kind == 0: NotesField {
                 label: @tr("Recovery codes");
+                icon: "list";
                 hint: @tr("The single-use backup codes a site gives you when you turn on two-step sign-in (also called backup codes). They get you in if you lose your phone. Paste them all, one per line; numbering is removed. On the item page you can copy one and mark it as used.");
                 placeholder: @tr("One per line, as the site shows them");
                 mono: true;
@@ -569,6 +835,7 @@ export component EditorPage inherits Rectangle {
             }
             NotesField {
                 label: @tr("Notes");
+                icon: "note";
                 text <=> root.notes;
             }
             // Extra fields: anything the item needs that has no box of its own.
@@ -654,6 +921,7 @@ export component GeneratorPage inherits Rectangle {
     in property <int> crack-amount;
     in property <int> crack-comparison;
     in property <bool> editing;
+    in property <int> alphabet;
     in-out property <int> mode;
     in-out property <int> length;
     in-out property <int> words;
@@ -661,13 +929,23 @@ export component GeneratorPage inherits Rectangle {
     in-out property <bool> uppercase;
     in-out property <bool> digits;
     in-out property <bool> symbols;
+    in-out property <bool> extended;
     in-out property <bool> avoid-ambiguous;
-    in-out property <bool> capitalize;
+    in-out property <string> also-use;
+    in-out property <string> never-use;
+    in-out property <int> word-case;
     in-out property <bool> number;
-    in-out property <int> separator;
+    in-out property <string> separator;
+    in property <[string]> wordlists;
+    in-out property <int> wordlist;
+    in property <bool> wordlist-removable;
+    in property <int> error-code;
+    in property <string> error-detail;
     callback regenerate();
     callback copy();
     callback use-for-item();
+    callback add-wordlist();
+    callback remove-wordlist();
 
     ScrollView {
         VerticalLayout {
@@ -679,62 +957,27 @@ export component GeneratorPage inherits Rectangle {
             PageTitle { text: @tr("Password generator"); }
 
             Rectangle {
-                min-height: output.preferred-height + 36px;
+                height: output.preferred-height + 20px;
                 border-radius: Theme.radius;
                 background: Theme.field;
                 border-width: 1px;
                 border-color: Theme.rule;
                 output := Text {
-                    x: 18px;
-                    width: parent.width - 36px;
+                    x: 16px;
+                    width: parent.width - 32px;
                     text: root.result;
                     font-family: Theme.mono-font;
-                    font-size: Theme.title;
+                    font-size: Theme.lead + 2px;
                     color: Theme.ink;
                     wrap: word-wrap;
-                }
-            }
-            // Strength: a thin meter that fills up to 128 bits.
-            Rectangle {
-                height: 4px;
-                border-radius: 2px;
-                background: Theme.rule;
-                Rectangle {
-                    x: 0;
-                    width: parent.width * Math.min(1, root.bits / 128);
-                    border-radius: 2px;
-                    background: root.bits >= 70 ? Theme.good : root.bits >= 50 ? Theme.marker : Theme.seal;
-                    animate width { duration: 160ms; easing: ease-out; }
-                }
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                Text {
-                    text: Messages.crack-time(root.crack-unit, root.crack-amount);
-                    font-size: Theme.body;
-                    font-weight: 600;
-                    color: root.bits >= 70 ? Theme.good : root.bits >= 50 ? Theme.ink : Theme.seal;
                     vertical-alignment: center;
                 }
-                Text {
-                    text: @tr("· {} bits", root.bits);
-                    font-size: Theme.small;
-                    color: Theme.faint;
-                    vertical-alignment: center;
-                }
-                VerticalLayout {
-                    alignment: center;
-                    Hint {
-                        text: @tr("Worst realistic case: a site you use is breached and its password list leaks with fast (MD5) hashes. An attacker runs hashcat on six RTX 4090 graphics cards, about a trillion guesses per second, and on average finds the password halfway through. Sites that store passwords properly (bcrypt, Argon2) make this millions of times slower. Each extra bit doubles the time.");
-                    }
-                }
             }
-            Text {
-                text: Messages.crack-comparison(root.crack-comparison);
-                font-size: Theme.small;
-                color: Theme.graphite;
-                wrap: word-wrap;
+            StrengthMeter {
+                bits: root.bits;
+                crack-unit: root.crack-unit;
+                crack-amount: root.crack-amount;
+                crack-comparison: root.crack-comparison;
             }
             HorizontalLayout {
                 alignment: start;
@@ -761,6 +1004,12 @@ export component GeneratorPage inherits Rectangle {
 
             Rule { }
 
+            Choice {
+                options: [@tr("Random characters"), @tr("Words (passphrase)")];
+                selected <=> root.mode;
+                changed => { root.regenerate(); }
+            }
+
             // Length (or number of words): drag the bar.
             HorizontalLayout {
                 spacing: 16px;
@@ -773,15 +1022,15 @@ export component GeneratorPage inherits Rectangle {
                 }
                 if root.mode == 0: Slider {
                     label: @tr("Length");
-                    minimum: 8;
-                    maximum: 100;
+                    minimum: 4;
+                    maximum: 128;
                     value <=> root.length;
                     changed => { root.regenerate(); }
                 }
                 if root.mode == 1: Slider {
                     label: @tr("Words");
                     minimum: 3;
-                    maximum: 12;
+                    maximum: 20;
                     value <=> root.words;
                     changed => { root.regenerate(); }
                 }
@@ -796,67 +1045,211 @@ export component GeneratorPage inherits Rectangle {
                 }
             }
 
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                Check {
-                    text: @tr("Use words instead (a passphrase)");
-                    checked: root.mode == 1;
-                    toggled(on) => {
-                        root.mode = on ? 1 : 0;
-                        root.regenerate();
-                    }
-                }
-                VerticalLayout {
-                    alignment: center;
-                    Hint {
-                        text: @tr("A passphrase is a few random words, like correct-horse-battery-staple: as strong as a long random password but much easier to read and type. Good for passwords you type by hand, such as a computer login.");
-                    }
-                }
-            }
-
-            if root.mode == 0: GridLayout {
-                spacing-horizontal: 24px;
-                spacing-vertical: 10px;
-                Row {
-                    Check { text: @tr("Lowercase (a–z)"); checked <=> root.lowercase; toggled => { root.regenerate(); } }
-                    Check { text: @tr("Capitals (A–Z)"); checked <=> root.uppercase; toggled => { root.regenerate(); } }
-                }
-                Row {
-                    Check { text: @tr("Digits (0–9)"); checked <=> root.digits; toggled => { root.regenerate(); } }
-                    Check { text: @tr("Symbols (!@#$…)"); checked <=> root.symbols; toggled => { root.regenerate(); } }
-                }
-                Row {
-                    Check { text: @tr("Leave out look-alikes (I l 1 O 0 o)"); checked <=> root.avoid-ambiguous; toggled => { root.regenerate(); } colspan: 2; }
-                }
-            }
-            if root.mode == 1: VerticalLayout {
-                spacing: 10px;
+            if root.mode == 0: VerticalLayout {
+                spacing: 14px;
                 GridLayout {
                     spacing-horizontal: 24px;
+                    spacing-vertical: 10px;
                     Row {
-                        Check { text: @tr("Capitalize each word"); checked <=> root.capitalize; toggled => { root.regenerate(); } }
-                        Check { text: @tr("Add a digit"); checked <=> root.number; toggled => { root.regenerate(); } }
+                        Check { text: @tr("A–Z capitals"); checked <=> root.uppercase; toggled => { root.regenerate(); } }
+                        Check { text: @tr("a–z lowercase"); checked <=> root.lowercase; toggled => { root.regenerate(); } }
+                    }
+                    Row {
+                        Check { text: @tr("0–9 digits"); checked <=> root.digits; toggled => { root.regenerate(); } }
+                        Check { text: @tr("!@#$%^&* symbols"); checked <=> root.symbols; toggled => { root.regenerate(); } }
+                    }
+                    Row {
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Check { text: @tr("Extended ASCII (é ß ¿ µ…)"); checked <=> root.extended; toggled => { root.regenerate(); } }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("Adds 94 accented letters and signs (Latin-1). Stronger per character, but many sites refuse them and they are hard to type on another keyboard. Use only where you paste the password.");
+                                }
+                            }
+                        }
+                        Check { text: @tr("Leave out look-alikes (I l 1 O 0 o |)"); checked <=> root.avoid-ambiguous; toggled => { root.regenerate(); } }
                     }
                 }
                 HorizontalLayout {
                     spacing: 16px;
-                    alignment: start;
-                    Text {
-                        text: @tr("Between words");
-                        font-size: Theme.body;
-                        color: Theme.ink;
-                        vertical-alignment: center;
-                        width: 120px;
+                    LineField {
+                        horizontal-stretch: 1;
+                        label: @tr("Also use");
+                        hint: @tr("Type extra characters to mix in, exactly as they should appear, for example ;:~ or ñ. At least one of them will be in the password.");
+                        placeholder: @tr("e.g. ñ€");
+                        mono: true;
+                        text <=> root.also-use;
+                        edited => { root.regenerate(); }
                     }
-                    Choice {
-                        options: [@tr("- dash"), @tr(". dot"), @tr("_ underscore"), @tr("space")];
-                        selected <=> root.separator;
+                    LineField {
+                        horizontal-stretch: 1;
+                        label: @tr("Never use");
+                        hint: @tr("Type characters a site does not accept, for example <>'\"\\. They are left out even when a box above includes them.");
+                        placeholder: @tr("e.g. <>'\"");
+                        mono: true;
+                        text <=> root.never-use;
+                        edited => { root.regenerate(); }
+                    }
+                }
+                Text {
+                    text: @tr("{n} different character" | "{n} different characters" % root.alphabet);
+                    font-size: Theme.small;
+                    color: Theme.faint;
+                }
+            }
+
+            if root.mode == 1: VerticalLayout {
+                spacing: 14px;
+                HorizontalLayout {
+                    spacing: 16px;
+                    Dropdown {
+                        horizontal-stretch: 1;
+                        label: @tr("Word case");
+                        options: [@tr("lower case"), @tr("UPPER CASE"), @tr("Title Case"), @tr("MIXED case")];
+                        selected <=> root.word-case;
                         changed => { root.regenerate(); }
                     }
+                    VerticalLayout {
+                        spacing: 6px;
+                        width: 220px;
+                        LineField {
+                            label: @tr("Word separator");
+                            placeholder: @tr("none");
+                            mono: true;
+                            text <=> root.separator;
+                            edited => { root.regenerate(); }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    Text {
+                        text: @tr("Separator:");
+                        font-size: Theme.small;
+                        color: Theme.graphite;
+                        vertical-alignment: center;
+                    }
+                    for preset[i] in [{ shown: "-", value: "-" }, { shown: ".", value: "." }, { shown: "_", value: "_" }, { shown: "/", value: "/" }, { shown: @tr("space"), value: " " }, { shown: @tr("none"), value: "" }]: QuietButton {
+                        text: preset.shown;
+                        outlined: root.separator == preset.value;
+                        clicked => {
+                            root.separator = preset.value;
+                            root.regenerate();
+                        }
+                    }
+                }
+                Check { text: @tr("Add a digit to one word"); checked <=> root.number; toggled => { root.regenerate(); } }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Dropdown {
+                        horizontal-stretch: 1;
+                        label: @tr("Word list");
+                        options: root.wordlists;
+                        selected <=> root.wordlist;
+                        changed => { root.regenerate(); }
+                    }
+                    VerticalLayout {
+                        alignment: end;
+                        HorizontalLayout {
+                            spacing: 4px;
+                            height: Theme.control-height;
+                            QuietButton {
+                                text: @tr("Add a list…");
+                                clicked => { root.add-wordlist(); }
+                            }
+                            if root.wordlist-removable: QuietButton {
+                                text: @tr("Remove");
+                                tint: Theme.seal;
+                                clicked => { root.remove-wordlist(); }
+                            }
+                        }
+                    }
+                }
+                Prose {
+                    text: @tr("A word list is a text file with one word per line (Diceware lists with numbers work too). Use your own language's list for passphrases you can remember; it needs at least 500 different words.");
+                    font-size: Theme.small;
+                }
+                ErrorText {
+                    code: root.error-code;
+                    detail: root.error-detail;
                 }
             }
         }
+    }
+}
+
+// A settings group: a card with an icon, a title and a line about what it covers.
+component SettingsCard inherits Rectangle {
+    in property <string> icon;
+    in property <string> title;
+    in property <string> summary;
+    in property <string> hint;
+    border-radius: Theme.radius + 2px;
+    border-width: 1px;
+    border-color: Theme.rule;
+    background: Theme.panel;
+    VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+        HorizontalLayout {
+            spacing: 12px;
+            VerticalLayout {
+                alignment: start;
+                FieldIcon { name: root.icon; size: 32px; }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 2px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Text {
+                        text: root.title;
+                        font-size: Theme.lead;
+                        font-weight: 600;
+                        color: Theme.ink;
+                        vertical-alignment: center;
+                    }
+                    if root.hint != "": VerticalLayout {
+                        alignment: center;
+                        Hint { text: root.hint; }
+                    }
+                }
+                Text {
+                    text: root.summary;
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
+                }
+            }
+        }
+        @children
+    }
+}
+
+// A label and value pair inside a settings card.
+component Fact inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+    in property <bool> mono: false;
+    spacing: 12px;
+    Text {
+        width: 170px;
+        text: root.label;
+        font-size: Theme.small;
+        color: Theme.graphite;
+    }
+    Text {
+        horizontal-stretch: 1;
+        text: root.value;
+        font-size: Theme.small;
+        font-family: root.mono ? Theme.mono-font : Theme.ui-font;
+        color: Theme.ink;
+        wrap: word-wrap;
     }
 }
 
@@ -867,6 +1260,13 @@ export component SettingsPage inherits Rectangle {
     in property <bool> dark;
     in property <string> vault-path;
     in property <string> vault-id;
+    in property <string> vault-file-name;
+    in-out property <string> vault-name;
+    in-out property <int> history-limit;
+    in property <int> vault-items;
+    in property <int> vault-folders;
+    in property <string> vault-kdf;
+    in property <bool> vault-has-recovery;
     in-out property <int> auto-lock-minutes;
     in-out property <int> clipboard-seconds;
     in-out property <bool> website-icons;
@@ -874,6 +1274,7 @@ export component SettingsPage inherits Rectangle {
     in-out property <bool> quick-unlock-on;
     callback quick-unlock-toggled(bool);
     callback settings-changed();
+    callback vault-settings-changed();
     callback appearance-changed(bool);
     callback change-password();
 
@@ -881,110 +1282,166 @@ export component SettingsPage inherits Rectangle {
         VerticalLayout {
             padding: 40px;
             padding-right: 48px;
-            spacing: 14px;
+            spacing: 16px;
             alignment: start;
 
             PageTitle { text: @tr("Settings"); }
 
-            SectionTitle { text: @tr("Appearance"); }
-            Choice {
-                options: [@tr("Dark"), @tr("Light")];
-                selected: root.dark ? 0 : 1;
-                changed(index) => { root.appearance-changed(index == 0); }
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                Check {
-                    text: @tr("Show website icons");
-                    checked <=> root.website-icons;
-                    toggled => { root.settings-changed(); }
+            SettingsCard {
+                icon: "vault";
+                title: @tr("This vault");
+                summary: @tr("Stored inside the vault, encrypted: they follow it to every computer.");
+                HorizontalLayout {
+                    spacing: 16px;
+                    LineField {
+                        horizontal-stretch: 1;
+                        label: @tr("Name");
+                        icon: "tag";
+                        placeholder: root.vault-file-name;
+                        error: root.error-code == 27;
+                        text <=> root.vault-name;
+                        accepted => { root.vault-settings-changed(); }
+                    }
+                    VerticalLayout {
+                        alignment: end;
+                        QuietButton {
+                            outlined: true;
+                            text: @tr("Rename");
+                            clicked => { root.vault-settings-changed(); }
+                        }
+                    }
                 }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Stepper {
+                        label: @tr("Old passwords kept per item");
+                        value <=> root.history-limit;
+                        minimum: 0;
+                        maximum: 100;
+                        changed => { root.vault-settings-changed(); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Hint {
+                            text: @tr("When you change an item's password, the old one is kept in its Password history, newest last, so you can go back if the change didn't take on the site. 0 keeps none. Lowering the number trims each item's history the next time its password changes.");
+                        }
+                    }
+                }
+                Rule { }
                 VerticalLayout {
-                    alignment: center;
-                    Hint {
-                        text: @tr("Downloads each site's own icon directly from that site, once, over a secure connection, and keeps it encrypted with your vault. Nothing else is sent. Trade-off: someone watching your network (your provider, a public Wi-Fi) could see which sites were contacted, which hints at where you have accounts. Leave it off for maximum privacy.");
+                    spacing: 6px;
+                    Fact { label: @tr("Items"); value: @tr("{} items in {} folders", root.vault-items, root.vault-folders); }
+                    Fact { label: @tr("Encryption"); value: root.vault-kdf; }
+                    Fact {
+                        label: @tr("Recovery Key");
+                        value: root.vault-has-recovery ? @tr("Set: the emergency kit can open this vault") : @tr("None: a forgotten master password can't be recovered");
+                    }
+                    Fact { label: @tr("File"); value: root.vault-path; }
+                    Fact { label: @tr("Vault ID"); value: root.vault-id; mono: true; }
+                }
+            }
+
+            SettingsCard {
+                icon: "sliders";
+                title: @tr("Appearance");
+                summary: @tr("How the app looks on this computer.");
+                Choice {
+                    options: [@tr("Dark"), @tr("Light")];
+                    selected: root.dark ? 0 : 1;
+                    changed(index) => { root.appearance-changed(index == 0); }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Check {
+                        text: @tr("Show website icons");
+                        checked <=> root.website-icons;
+                        toggled => { root.settings-changed(); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Hint {
+                            text: @tr("Downloads each site's own icon directly from that site, once, over a secure connection, and keeps it encrypted with your vault. Nothing else is sent. Trade-off: someone watching your network (your provider, a public Wi-Fi) could see which sites were contacted, which hints at where you have accounts. Leave it off for maximum privacy.");
+                        }
                     }
                 }
             }
 
-            Rule { }
-            SectionTitle {
-                text: @tr("Locking");
-            }
-            Stepper {
-                label: @tr("Lock after");
-                unit: @tr("min");
-                value <=> root.auto-lock-minutes;
-                minimum: 1;
-                maximum: 60;
-                changed => { root.settings-changed(); }
-            }
-            Stepper {
-                label: @tr("Clear copied secrets after");
-                unit: @tr("s");
-                value <=> root.clipboard-seconds;
-                minimum: 5;
-                maximum: 120;
-                changed => { root.settings-changed(); }
-            }
-            if root.quick-unlock-available: HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                Check {
-                    text: @tr("Unlock with Windows Hello");
-                    checked <=> root.quick-unlock-on;
-                    toggled(on) => { root.quick-unlock-toggled(on); }
+            SettingsCard {
+                icon: "shield";
+                title: @tr("Locking and clipboard");
+                summary: @tr("When the vault closes itself, and how long copied secrets stay on the clipboard.");
+                Stepper {
+                    label: @tr("Lock after");
+                    unit: @tr("min");
+                    value <=> root.auto-lock-minutes;
+                    minimum: 1;
+                    maximum: 60;
+                    changed => { root.settings-changed(); }
                 }
-                VerticalLayout {
-                    alignment: center;
-                    Hint {
-                        text: @tr("Open this vault with your face, fingerprint or Windows PIN instead of typing the master password. The key is made inside this computer's security chip and only works here, after Windows Hello checks it's you. Every 14 days the master password is asked once, so you don't forget it, and changing the master password turns this off. Anyone who knows your Windows PIN could open the vault on this computer.");
+                Stepper {
+                    label: @tr("Clear copied secrets after");
+                    unit: @tr("s");
+                    value <=> root.clipboard-seconds;
+                    minimum: 5;
+                    maximum: 120;
+                    changed => { root.settings-changed(); }
+                }
+                if root.quick-unlock-available: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Check {
+                        text: @tr("Unlock with Windows Hello");
+                        checked <=> root.quick-unlock-on;
+                        toggled(on) => { root.quick-unlock-toggled(on); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Hint {
+                            text: @tr("Open this vault with your face, fingerprint or Windows PIN instead of typing the master password. The key is made inside this computer's security chip and only works here, after Windows Hello checks it's you. Every 14 days the master password is asked once, so you don't forget it, and changing the master password turns this off. Anyone who knows your Windows PIN could open the vault on this computer.");
+                        }
                     }
                 }
             }
 
-            Rule { }
-            SectionTitle {
-                text: @tr("Master password");
-                hint: @tr("Changing it re-checks your current master password against the vault file, so someone using a computer you left unlocked can't do it. Your items, Secret Key and Recovery Key stay the same.");
-            }
-            SecretField {
-                field: 5;
-                label: @tr("Current master password");
-                error: root.error-code == 11;
-            }
-            HorizontalLayout {
-                spacing: 16px;
+            SettingsCard {
+                icon: "key";
+                title: @tr("Master password");
+                summary: @tr("Your items, Secret Key and Recovery Key stay the same.");
+                hint: @tr("Changing it re-checks your current master password against the vault file, so someone using a computer you left unlocked can't do it.");
                 SecretField {
-                    field: 6;
-                    label: @tr("New master password");
-                    error: root.error-code == 4 || root.error-code == 5;
+                    field: 5;
+                    label: @tr("Current master password");
+                    error: root.error-code == 11;
                 }
-                SecretField {
-                    field: 7;
-                    label: @tr("Type it again");
-                    error: root.error-code == 4;
+                HorizontalLayout {
+                    spacing: 16px;
+                    SecretField {
+                        field: 6;
+                        label: @tr("New master password");
+                        error: root.error-code == 4 || root.error-code == 5;
+                    }
+                    SecretField {
+                        field: 7;
+                        label: @tr("Type it again");
+                        error: root.error-code == 4;
+                    }
+                }
+                ErrorText {
+                    code: root.error-code;
+                    detail: root.error-detail;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    Button {
+                        text: @tr("Change master password");
+                        busy-text: @tr("Working…");
+                        busy: root.busy;
+                        clicked => { root.change-password(); }
+                    }
                 }
             }
-            ErrorText {
-                code: root.error-code;
-                detail: root.error-detail;
-            }
-            HorizontalLayout {
-                alignment: start;
-                Button {
-                    text: @tr("Change master password");
-                    busy-text: @tr("Working…");
-                    busy: root.busy;
-                    clicked => { root.change-password(); }
-                }
-            }
-
-            Rule { }
-            SectionTitle { text: @tr("This vault"); }
-            Prose { text: @tr("File: {}", root.vault-path); }
-            Prose { text: @tr("Vault ID: {}", root.vault-id); }
         }
     }
 }
@@ -1118,19 +1575,35 @@ export component TransferPage inherits Rectangle {
     in property <int> error-code;
     in property <string> error-detail;
     in property <bool> busy;
-    // 0 choose a file, 1 KeePass password, 2 preview, 3 done
+    // 0 choose where from, 1 KDBX password, 2 review, 3 done
     in property <int> import-stage;
+    in property <[SourceRow]> sources;
+    // "" (nothing chosen) then every source name, for the "From" selector.
+    in property <[string]> source-names: [""];
+    in-out property <int> source: -1;
+    // 0 from a browser (sources 0–7), 1 from a password manager or a file (8–15).
+    in-out property <int> import-mode: root.source >= 8 ? 1 : 0;
     in property <string> import-file;
-    in property <int> import-found;
-    in property <int> import-new-folders;
+    in property <[ImportRow]> import-rows;
+    in property <int> import-selected;
     in property <int> import-duplicates;
     in property <string> import-warnings;
     in property <int> import-added;
+    // 0 keep the file's folders, 1 no folder, 2 all in one folder (`import-folder`).
+    in-out property <int> import-target;
+    // "" (a new folder) then every folder of the vault.
+    in property <[string]> import-folders: [""];
+    in-out property <int> import-folder;
+    in-out property <string> import-new-folder;
     // The chosen file is an unencrypted export: offer to wipe it after importing.
     in property <bool> import-plaintext;
     in-out property <int> export-format;
+    callback pick-source(int);
+    callback open-browser();
     callback import-choose();
     callback import-open();
+    callback import-toggle(int, bool);
+    callback import-select-all(bool);
     callback import-confirm();
     callback import-cancel();
     callback import-wipe();
@@ -1139,6 +1612,25 @@ export component TransferPage inherits Rectangle {
 
     // Errors 11 (master password) belong to the export section; the rest to the import one.
     property <bool> export-error: root.error-code == 11;
+
+    // How to make the export, for each place (same order as vault_import::Source::ALL).
+    pure function steps(index: int) -> string {
+        if (index == 0) { return @tr("In Chrome open Google Password Manager (button below), then Settings → Export passwords → Download file. Chrome asks for your Windows PIN and saves a .csv file."); }
+        if (index == 1) { return @tr("In Edge open Passwords (button below), click … (More actions) → Export passwords, confirm with your Windows PIN and save the .csv file."); }
+        if (index == 2) { return @tr("In Firefox open Passwords (button below), click … (menu) → Export passwords…, confirm, and save the .csv file."); }
+        if (index == 3) { return @tr("In Brave open the Password Manager (button below), then Settings → Export passwords → Download file."); }
+        if (index == 4 || index == 5) { return @tr("In Opera open the passwords settings (button below), click ⋮ next to “Saved passwords” → Export passwords, and save the .csv file."); }
+        if (index == 6) { return @tr("In Vivaldi open the Password Manager (button below), then Settings → Export passwords, and save the .csv file."); }
+        if (index == 7) { return @tr("On the Mac: in Safari choose File → Export → Passwords…, or in the Passwords app File → Export All Passwords. Copy the .csv file to this computer."); }
+        if (index == 8) { return @tr("In Bitwarden: Tools (or Settings) → Export vault, format “.json” (not the encrypted one), confirm with your master password."); }
+        if (index == 9) { return @tr("In 1Password 8: File → Export → pick the account → format CSV, and confirm with your password."); }
+        if (index == 10) { return @tr("In LastPass: Advanced options → Export → confirm with your master password. A .csv file is downloaded."); }
+        if (index == 11) { return @tr("Choose the .kdbx database itself (you'll type its password next), or a CSV from KeePassXC: Database → Export → CSV file."); }
+        if (index == 12) { return @tr("In Dashlane (web app): My account → Settings → Export data → CSV. Unzip it and choose credentials.csv."); }
+        if (index == 13) { return @tr("In Proton Pass: Settings → Export → format CSV, confirm with your password."); }
+        if (index == 14) { return @tr("In NordPass: Settings → Export items → confirm with your master password. A .csv file is saved."); }
+        return @tr("Any CSV with a header row (name, url, username, password…) or an unencrypted .json export from another manager.");
+    }
 
     ScrollView {
         VerticalLayout {
@@ -1149,21 +1641,61 @@ export component TransferPage inherits Rectangle {
 
             PageTitle { text: @tr("Import & export"); }
 
-            SectionTitle { text: @tr("Import from another password manager"); }
-            Prose {
-                text: @tr("Bitwarden (unencrypted .json export), KeePass and KeePassXC (.kdbx), Chrome, Edge, Firefox or any CSV with a header row. Folders come along; items already in your vault are skipped.");
-            }
+            SectionTitle { text: @tr("Import"); }
 
             if root.import-stage == 0: VerticalLayout {
-                spacing: 12px;
-                if !root.export-error: ErrorText {
-                    code: root.error-code;
+                spacing: 14px;
+                Prose {
+                    text: @tr("Bring in passwords from a browser or another password manager. Nothing is read from them directly: you export a file there, review it here, and only then is it added to this vault.");
+                }
+                Choice {
+                    options: [@tr("From a browser"), @tr("From a password manager or file")];
+                    selected <=> root.import-mode;
+                    changed => {
+                        root.source = -1;
+                        root.pick-source(-1);
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 16px;
+                    SourcePicker {
+                        width: 340px;
+                        label: root.import-mode == 0 ? @tr("Browser") : @tr("Password manager or file");
+                        sources: root.sources;
+                        first: root.import-mode == 0 ? 0 : 8;
+                        count: 8;
+                        selected <=> root.source;
+                        changed(i) => { root.pick-source(i); }
+                    }
+                    if root.source >= 0 && root.sources[root.source].browser: VerticalLayout {
+                        alignment: end;
+                        Text {
+                            height: Theme.control-height + 4px;
+                            vertical-alignment: center;
+                            text: root.sources[root.source].installed ? @tr("Installed on this computer") : @tr("Not found on this computer");
+                            font-size: Theme.small;
+                            color: root.sources[root.source].installed ? Theme.good : Theme.faint;
+                        }
+                    }
+                }
+                if root.source >= 0: Prose {
+                    text: root.steps(root.source);
+                    color: Theme.ink;
+                }
+                ErrorText {
+                    code: root.export-error ? 0 : root.error-code;
                     detail: root.error-detail;
                 }
                 HorizontalLayout {
                     alignment: start;
+                    spacing: 8px;
+                    if root.source >= 0 && root.sources[root.source].browser && root.sources[root.source].installed: QuietButton {
+                        outlined: true;
+                        text: @tr("Open {} passwords", root.sources[root.source].name);
+                        clicked => { root.open-browser(); }
+                    }
                     Button {
-                        text: @tr("Choose a file…");
+                        text: @tr("Choose the exported file…");
                         busy-text: @tr("Reading…");
                         busy: root.busy;
                         clicked => { root.import-choose(); }
@@ -1175,11 +1707,12 @@ export component TransferPage inherits Rectangle {
                 spacing: 12px;
                 max-width: 460px;
                 Prose {
-                    text: @tr("“{}” is a KeePass database. Type its password to open it; it is only used to read the file.", root.import-file);
+                    text: @tr("“{}” is a KeePass-format database. Type its password to open it; it is only used to read the file.", root.import-file);
                 }
                 SecretField {
                     field: 8;
-                    label: @tr("KeePass database password");
+                    label: @tr("Database password");
+                    icon: "key";
                     error: root.error-code == 19;
                     accepted => { root.import-open(); }
                 }
@@ -1206,60 +1739,222 @@ export component TransferPage inherits Rectangle {
                 }
             }
 
-            if root.import-stage == 2: Rectangle {
-                border-radius: Theme.radius;
-                border-width: 1px;
-                border-color: Theme.rule;
-                background: Theme.panel;
-                max-width: 620px;
-                VerticalLayout {
-                    padding: 18px;
+            // Review: every entry, passwords hidden; pick what to add and where.
+            if root.import-stage == 2: VerticalLayout {
+                spacing: 12px;
+                HorizontalLayout {
                     spacing: 10px;
-                    Text {
-                        text: root.import-file;
-                        font-size: Theme.lead;
-                        font-weight: 600;
-                        color: Theme.ink;
-                        overflow: elide;
-                    }
-                    Text {
-                        text: root.import-found == 0
-                            ? @tr("Nothing new to import.")
-                            : @tr("{n} item to import" | "{n} items to import" % root.import-found);
-                        font-size: Theme.body;
-                        color: Theme.ink;
-                    }
-                    if root.import-new-folders > 0: Text {
-                        text: @tr("{n} new folder" | "{n} new folders" % root.import-new-folders);
-                        font-size: Theme.body;
-                        color: Theme.graphite;
-                    }
-                    if root.import-duplicates > 0: Text {
-                        text: @tr("{n} already in your vault: skipped" | "{n} already in your vault: skipped" % root.import-duplicates);
-                        font-size: Theme.body;
-                        color: Theme.graphite;
-                    }
-                    if root.import-warnings != "": Text {
-                        text: root.import-warnings;
-                        font-size: Theme.small;
-                        color: Theme.graphite;
-                        wrap: word-wrap;
-                    }
-                    HorizontalLayout {
-                        alignment: start;
-                        spacing: 8px;
-                        if root.import-found > 0: Button {
-                            text: @tr("Import {n} item" | "Import {n} items" % root.import-found);
-                            busy-text: @tr("Importing…");
-                            busy: root.busy;
-                            clicked => { root.import-confirm(); }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 2px;
+                        Text {
+                            text: @tr("Review “{}”", root.import-file);
+                            font-size: Theme.lead;
+                            font-weight: 600;
+                            color: Theme.ink;
+                            overflow: elide;
                         }
-                        VerticalLayout {
-                            alignment: center;
+                        Text {
+                            text: root.import-duplicates > 0
+                                ? @tr("{} entries · {} already in your vault (unticked)", root.import-rows.length, root.import-duplicates)
+                                : @tr("{n} entry" | "{n} entries" % root.import-rows.length);
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        HorizontalLayout {
+                            spacing: 4px;
                             QuietButton {
-                                text: @tr("Cancel");
-                                clicked => { root.import-cancel(); }
+                                text: @tr("Select all");
+                                clicked => { root.import-select-all(true); }
                             }
+                            QuietButton {
+                                text: @tr("Select none");
+                                clicked => { root.import-select-all(false); }
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    border-radius: Theme.radius;
+                    border-width: 1px;
+                    border-color: Theme.rule;
+                    height: Math.min(380px, 44px + root.import-rows.length * 44px);
+                    clip: true;
+                    VerticalLayout {
+                        // Header
+                        Rectangle {
+                            height: 36px;
+                            background: Theme.panel;
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 12px;
+                                Rectangle { width: 18px; }
+                                for heading[i] in [@tr("Title"), @tr("Username"), @tr("Password"), @tr("Folder")]: Text {
+                                    horizontal-stretch: i < 2 ? 3 : 2;
+                                    min-width: 0px;
+                                    preferred-width: 0px;
+                                    overflow: elide;
+                                    text: heading;
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                        ScrollView {
+                            VerticalLayout {
+                                for row[index] in root.import-rows: Rectangle {
+                                    height: 44px;
+                                    background: review-touch.has-hover ? Theme.hover : transparent;
+                                    opacity: row.include ? 1 : 0.55;
+                                    review-touch := TouchArea {
+                                        mouse-cursor: MouseCursor.pointer;
+                                        clicked => { root.import-toggle(index, !row.include); }
+                                    }
+                                    HorizontalLayout {
+                                        padding-left: 12px;
+                                        padding-right: 12px;
+                                        spacing: 12px;
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Rectangle {
+                                                width: 18px;
+                                                height: 18px;
+                                                border-radius: 4px;
+                                                background: row.include ? Theme.marker : Theme.field;
+                                                border-width: row.include ? 0px : 1px;
+                                                border-color: Theme.graphite;
+                                                if row.include: Path {
+                                                    width: 14px;
+                                                    height: 14px;
+                                                    viewbox-width: 24;
+                                                    viewbox-height: 24;
+                                                    commands: Sketch.check;
+                                                    stroke: Theme.on-marker;
+                                                    stroke-width: 2px;
+                                                    fill: transparent;
+                                                }
+                                            }
+                                        }
+                                        VerticalLayout {
+                                            horizontal-stretch: 3;
+                                            min-width: 0px;
+                                            preferred-width: 0px;
+                                            alignment: center;
+                                            Text {
+                                                text: row.title;
+                                                font-size: Theme.body;
+                                                color: Theme.ink;
+                                                overflow: elide;
+                                            }
+                                            Text {
+                                                text: row.duplicate ? @tr("Already in your vault") : row.site;
+                                                font-size: Theme.small;
+                                                color: row.duplicate ? Theme.accent-stroke : Theme.faint;
+                                                overflow: elide;
+                                                height: self.text != "" ? self.preferred-height : 0px;
+                                            }
+                                        }
+                                        Text {
+                                            horizontal-stretch: 3;
+                                            min-width: 0px;
+                                            preferred-width: 0px;
+                                            text: row.username;
+                                            font-size: Theme.body;
+                                            color: Theme.graphite;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                        HorizontalLayout {
+                                            horizontal-stretch: 2;
+                                            min-width: 0px;
+                                            preferred-width: 0px;
+                                            spacing: 6px;
+                                            alignment: start;
+                                            Text {
+                                                text: row.has-password ? "••••••••" : @tr("none");
+                                                font-size: Theme.body;
+                                                color: row.has-password ? Theme.ink : Theme.faint;
+                                                vertical-alignment: center;
+                                            }
+                                            if row.has-totp: VerticalLayout {
+                                                alignment: center;
+                                                Glyph { name: "clock"; width: 14px; height: 14px; }
+                                            }
+                                        }
+                                        Text {
+                                            horizontal-stretch: 2;
+                                            min-width: 0px;
+                                            preferred-width: 0px;
+                                            text: row.folder;
+                                            font-size: Theme.small;
+                                            color: Theme.graphite;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 10px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: start;
+                        Glyph { name: "folder"; width: 16px; height: 16px; y: (parent.height - self.height) / 2; }
+                        Choice {
+                            options: [@tr("Keep the file's folders"), @tr("No folder"), @tr("All in one folder")];
+                            selected <=> root.import-target;
+                        }
+                    }
+                    if root.import-target == 2: HorizontalLayout {
+                        spacing: 16px;
+                        Dropdown {
+                            horizontal-stretch: 1;
+                            label: @tr("Folder");
+                            empty-text: @tr("A new folder…");
+                            options: root.import-folders;
+                            selected <=> root.import-folder;
+                        }
+                        if root.import-folder == 0: LineField {
+                            horizontal-stretch: 1;
+                            label: @tr("New folder name");
+                            placeholder: @tr("e.g. From Chrome");
+                            text <=> root.import-new-folder;
+                        }
+                    }
+                }
+                if root.import-warnings != "": Text {
+                    text: root.import-warnings;
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
+                }
+                ErrorText {
+                    code: root.error-code;
+                    detail: root.error-detail;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 8px;
+                    Button {
+                        enabled: root.import-selected > 0;
+                        text: root.import-selected == 0 ? @tr("Nothing selected") : @tr("Import {n} item" | "Import {n} items" % root.import-selected);
+                        busy-text: @tr("Importing…");
+                        busy: root.busy;
+                        clicked => { root.import-confirm(); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        QuietButton {
+                            text: @tr("Cancel");
+                            clicked => { root.import-cancel(); }
                         }
                     }
                 }
@@ -1313,47 +2008,333 @@ export component TransferPage inherits Rectangle {
             }
 
             Rule { }
-            SectionTitle { text: @tr("Backup"); }
-            Prose {
-                text: @tr("A copy of your vault file. It stays encrypted: it opens only with your master password and Secret Key, or with the Recovery Key. Keep one on a USB drive or another disk.");
+            SectionTitle {
+                text: @tr("Export");
+                hint: @tr("An encrypted backup is a copy of your vault file: it opens only with your master password and Secret Key, or the Recovery Key. JSON and CSV are NOT encrypted: anyone who gets the file can read every password, and malware looks for exactly these files. Use them only to move to another password manager, then delete the file.");
             }
             HorizontalLayout {
-                alignment: start;
-                QuietButton {
-                    text: @tr("Save a backup copy…");
-                    outlined: true;
-                    clicked => { root.export-backup(); }
+                spacing: 16px;
+                Dropdown {
+                    width: 320px;
+                    label: @tr("Format");
+                    icon: "download";
+                    options: [@tr("Encrypted backup (.vault)"), @tr("JSON, not encrypted"), @tr("CSV, not encrypted")];
+                    selected <=> root.export-format;
                 }
-            }
-
-            Rule { }
-            SectionTitle {
-                text: @tr("Export without encryption");
-                hint: @tr("Only for moving to another password manager. The file is NOT encrypted: anyone who gets it can read every password, and malware looks for exactly these files. Import it elsewhere right away, then delete it. Recovery codes go out as a hidden field.");
-            }
-            Choice {
-                options: [@tr("Bitwarden JSON"), @tr("CSV")];
-                selected <=> root.export-format;
-            }
-            VerticalLayout {
-                spacing: 12px;
-                max-width: 460px;
-                SecretField {
+                if root.export-format > 0: SecretField {
+                    horizontal-stretch: 1;
                     field: 5;
                     label: @tr("Master password");
+                    icon: "key";
                     error: root.export-error;
                     accepted => { root.export-plain(); }
                 }
-                if root.export-error: ErrorText {
-                    code: root.error-code;
-                    detail: root.error-detail;
+            }
+            Prose {
+                text: root.export-format == 0
+                    ? @tr("Keep a copy on a USB drive or another disk. It stays encrypted.")
+                    : root.export-format == 1
+                        ? @tr("Keeps folders, cards and extra fields. Most password managers can read it.")
+                        : @tr("Logins and notes only, one per row. Any program can read it.");
+            }
+            if root.export-error: ErrorText {
+                code: root.error-code;
+                detail: root.error-detail;
+            }
+            HorizontalLayout {
+                alignment: start;
+                Button {
+                    text: root.export-format == 0 ? @tr("Save a backup copy…") : @tr("Export…");
+                    danger: root.export-format > 0;
+                    clicked => {
+                        if (root.export-format == 0) { root.export-backup(); } else { root.export-plain(); }
+                    }
                 }
-                HorizontalLayout {
+            }
+        }
+    }
+}
+
+// Password health: what to fix first. Leaks (checked on request), weak, reused and old
+// passwords, expired cards.
+component HealthTile inherits Rectangle {
+    in property <string> label;
+    in property <int> count;
+    in property <string> icon;
+    in property <bool> active;
+    in property <bool> pending: false;
+    callback clicked();
+    horizontal-stretch: 1;
+    min-width: 96px;
+    height: 78px;
+    border-radius: Theme.radius;
+    background: root.active ? Theme.selected : tile-touch.has-hover ? Theme.hover : Theme.panel;
+    border-width: 1px;
+    border-color: root.active ? FieldColors.of(root.icon) : Theme.rule;
+    accessible-role: button;
+    accessible-label: root.label;
+    tile-touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+    VerticalLayout {
+        padding: 12px;
+        spacing: 4px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: root.pending ? "–" : root.count;
+                font-size: Theme.headline;
+                font-weight: 600;
+                color: root.count > 0 && !root.pending ? Theme.ink : Theme.faint;
+                horizontal-stretch: 1;
+            }
+            VerticalLayout {
+                alignment: start;
+                FieldIcon { name: root.icon; size: 24px; }
+            }
+        }
+        Text {
+            text: root.label;
+            font-size: Theme.small;
+            color: Theme.graphite;
+            overflow: elide;
+        }
+    }
+}
+
+export component HealthPage inherits Rectangle {
+    in property <[HealthRow]> rows;
+    // 0 leaked, 1 weak, 2 reused, 3 old, 4 expired cards
+    in property <[int]> counts: [0, 0, 0, 0, 0];
+    in property <int> logins;
+    in property <int> score;
+    in property <bool> leaks-checked;
+    in property <bool> checking;
+    in property <int> error-code;
+    in property <string> error-detail;
+    in-out property <int> filter: -1;
+    callback filter-changed(int);
+    callback check-leaks();
+    callback open-row(int);
+
+    ScrollView {
+        VerticalLayout {
+            padding: 40px;
+            padding-right: 48px;
+            spacing: 18px;
+            alignment: start;
+
+            HorizontalLayout {
+                spacing: 20px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 6px;
+                    PageTitle { text: @tr("Password health"); }
+                    Prose {
+                        text: root.logins == 0
+                            ? @tr("Add some logins and their passwords are checked here.")
+                            : @tr("{n} login checked on this computer. Fix the red ones first: a leaked or reused password is the usual way accounts are taken over." | "{n} logins checked on this computer. Fix the red ones first: a leaked or reused password is the usual way accounts are taken over." % root.logins);
+                    }
+                }
+                // Overall score: share of logins with no problem.
+                VerticalLayout {
                     alignment: start;
-                    Button {
-                        text: @tr("Export…");
-                        danger: true;
-                        clicked => { root.export-plain(); }
+                    Rectangle {
+                        width: 96px;
+                        height: 96px;
+                        border-radius: 48px;
+                        border-width: 6px;
+                        border-color: root.score >= 80 ? Theme.good : root.score >= 50 ? Theme.marker : Theme.seal;
+                        VerticalLayout {
+                            alignment: center;
+                            Text {
+                                text: root.logins == 0 ? "–" : root.score;
+                                font-size: Theme.headline;
+                                font-weight: 600;
+                                color: Theme.ink;
+                                horizontal-alignment: center;
+                            }
+                            Text {
+                                text: @tr("score");
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+                HealthTile {
+                    label: @tr("Leaked");
+                    icon: "warning";
+                    count: root.counts[0];
+                    pending: !root.leaks-checked;
+                    active: root.filter == 0;
+                    clicked => { root.filter = root.filter == 0 ? -1 : 0; root.filter-changed(root.filter); }
+                }
+                HealthTile {
+                    label: @tr("Weak");
+                    icon: "key";
+                    count: root.counts[1];
+                    active: root.filter == 1;
+                    clicked => { root.filter = root.filter == 1 ? -1 : 1; root.filter-changed(root.filter); }
+                }
+                HealthTile {
+                    label: @tr("Reused");
+                    icon: "pin";
+                    count: root.counts[2];
+                    active: root.filter == 2;
+                    clicked => { root.filter = root.filter == 2 ? -1 : 2; root.filter-changed(root.filter); }
+                }
+                HealthTile {
+                    label: @tr("Over a year old");
+                    icon: "history";
+                    count: root.counts[3];
+                    active: root.filter == 3;
+                    clicked => { root.filter = root.filter == 3 ? -1 : 3; root.filter-changed(root.filter); }
+                }
+                HealthTile {
+                    label: @tr("Expired cards");
+                    icon: "calendar";
+                    count: root.counts[4];
+                    active: root.filter == 4;
+                    clicked => { root.filter = root.filter == 4 ? -1 : 4; root.filter-changed(root.filter); }
+                }
+            }
+
+            Rectangle {
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.rule;
+                background: Theme.panel;
+                HorizontalLayout {
+                    padding: 16px;
+                    spacing: 16px;
+                    VerticalLayout {
+                        alignment: center;
+                        FieldIcon { name: "shield"; size: 34px; }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Text {
+                                text: root.leaks-checked ? @tr("Leak check done") : @tr("Check for leaked passwords");
+                                font-size: Theme.body;
+                                font-weight: 600;
+                                color: Theme.ink;
+                                vertical-alignment: center;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("Asks the Have I Been Pwned service (haveibeenpwned.com) whether each password appeared in a known breach. Your passwords never leave this computer: only the first 5 characters of each one's SHA-1 fingerprint are sent, and the service answers with hundreds of fingerprints that start the same way. The match is made here. Runs only when you click.");
+                                }
+                            }
+                        }
+                        Prose {
+                            text: @tr("Compares your passwords with 900+ million leaked ones without sending them. Takes a few seconds.");
+                            font-size: Theme.small;
+                        }
+                        ErrorText {
+                            code: root.error-code;
+                            detail: root.error-detail;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: root.leaks-checked ? @tr("Check again") : @tr("Check now");
+                            busy-text: @tr("Checking…");
+                            busy: root.checking;
+                            clicked => { root.check-leaks(); }
+                        }
+                    }
+                }
+            }
+
+            if root.rows.length == 0 && root.logins > 0: Prose {
+                text: root.filter == -1 ? @tr("Nothing to fix. Well kept!") : @tr("Nothing here.");
+            }
+            VerticalLayout {
+                spacing: 2px;
+                for row[index] in root.rows: Rectangle {
+                    height: 56px;
+                    border-radius: Theme.radius;
+                    background: row-touch.has-hover ? Theme.hover : transparent;
+                    row-touch := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.open-row(index); }
+                    }
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 12px;
+                        spacing: 12px;
+                        VerticalLayout {
+                            alignment: center;
+                            if row.kind != 1 || row.brand == 0: ItemIcon {
+                                size: 34px;
+                                icon: row.icon;
+                                has-icon: row.has-icon;
+                                initial: row.initial;
+                                tint: row.tint;
+                                kind: row.kind;
+                            }
+                            if row.kind == 1 && row.brand != 0: BrandMark { brand: row.brand; size: 40px; }
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 2px;
+                            Text {
+                                text: row.title;
+                                font-size: Theme.body;
+                                font-weight: 600;
+                                color: Theme.ink;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: row.problem == 2 && row.weakness != 0 ? Messages.weakness(row.weakness) : row.subtitle;
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                                overflow: elide;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                height: 26px;
+                                width: badge.preferred-width + 40px;
+                                border-radius: 13px;
+                                property <string> icon: row.problem == 1 ? "warning" : row.problem == 2 ? "key" : row.problem == 3 ? "pin" : row.problem == 4 ? "history" : "calendar";
+                                background: FieldColors.of(self.icon).with-alpha(Theme.dark ? 0.12 : 0.1);
+                                border-width: 1px;
+                                border-color: FieldColors.of(self.icon).with-alpha(0.55);
+                                Glyph {
+                                    x: 10px;
+                                    width: 13px;
+                                    height: 13px;
+                                    name: parent.icon;
+                                }
+                                badge := Text {
+                                    x: 29px;
+                                    text: row.problem == 1 ? @tr("Leaked {}", row.detail)
+                                        : row.problem == 2 ? @tr("Weak")
+                                        : row.problem == 3 ? @tr("Reused {}", row.detail)
+                                        : row.problem == 4 ? @tr("Changed {}", Messages.ago(row.age-unit, row.age-amount))
+                                        : @tr("Expired {}", row.detail);
+                                    font-size: Theme.small;
+                                    font-weight: 600;
+                                    color: FieldColors.of(parent.icon);
+                                }
+                            }
+                        }
                     }
                 }
             }
