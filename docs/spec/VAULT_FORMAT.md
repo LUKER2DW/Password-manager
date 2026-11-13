@@ -1,6 +1,6 @@
-# Vault File Format — v3
+# Vault File Format — v4
 
-> Status: **draft v3**, not stable. v0, v1 and v2 files are still read and upgraded to v3 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
+> Status: **draft v4**, not stable. v0–v3 files are still read and upgraded to v4 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
 > Structures are serialized with [postcard](https://postcard.jamesmunns.com/wire-format) 1.x
 > (stable wire format). Integers in the file envelope are little-endian.
 
@@ -70,8 +70,17 @@ struct Folder {
     name: String,            // encrypted with the body like everything else
     icon: String,            // v3: icon name chosen by the user, "" = plain folder
     color: u8,               // v3: colour index 0–15, 0 = default
+    icon_url: String,        // v4: website or picture link whose image replaces the icon, "" = none
 }
+```
 
+`folders` is in the user's order (the index shows them as stored; dragging one rewrites the
+order). `icon_url` is at most 2 048 characters without whitespace or control characters. A link
+whose path ends in `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.ico` or `.bmp` is a picture;
+anything else is a website whose own icon is used. Pictures are downloaded by the client over
+HTTPS only, once, and cached encrypted with the vault key outside the vault file.
+
+```rust
 struct ItemRecord {
     id: [u8; 16],
     revision: u64,           // incremented on every change to the item
@@ -103,7 +112,7 @@ struct ItemData {
     recovery_codes: Vec<RecoveryCode>, // v1: the account's two-step backup codes
     password_history: Vec<PasswordChange>, // v2: earlier passwords, oldest first
     password_changed_at: i64,              // v2: when the password was set; 0 = unknown
-    icon_url: String,                      // v3: website whose icon stands for the item; "" = urls[0]
+    icon_url: String,                      // v3: website (or picture link) whose image stands for the item; "" = urls[0]
 }
 
 struct PasswordChange {
@@ -127,9 +136,10 @@ struct CustomField {
 
 A v0 file has no `folders` in the body and its items end after `updated_at`; a v1 file has no
 `settings` and its items end after `recovery_codes`; a v2 file's folders end after `name` and its
-items after `password_changed_at`. When one is opened, every item is decrypted
-with its old layout and re-encrypted with the v3 layout in memory (same ids and revisions, new
-item keys); the next save writes a v3 file. Fixtures for every version are committed
+items after `password_changed_at`; a v3 file's folders end after `color` (its items already have
+the current layout). When a v0–v2 file is opened, every item is decrypted with its old layout and
+re-encrypted with the current layout in memory (same ids and revisions, new item keys); the next
+save writes a v4 file. Fixtures for every version are committed
 (`crates/core/tests/fixtures`) and must keep opening.
 
 When an item's password changes, `Vault::update_item` moves the old one into

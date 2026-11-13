@@ -90,6 +90,20 @@ AAD_device    = "vault-v0/device" ‖ vault_id ‖ SHA-256(password slot's wrapp
 
 - The floor stops downgrade attacks (a tampered header cannot make cracking cheap); the
   ceiling stops memory-exhaustion attacks through a crafted file.
+- The user can pick a level (`KdfStrength`); all use 4 lanes and stay inside the limits above.
+  Changing it rewrites only the password slot (fresh salt), after the current master password
+  is checked against the file; the new file is opened once in memory before it is written.
+
+  | Level | memory | iterations |
+  |---|---|---|
+  | Light | 64 MiB | 3 |
+  | Standard (default) | 256 MiB | 3 |
+  | Strong | 512 MiB | 4 |
+  | Maximum | 1 GiB | 5 |
+
+  Only Argon2id is offered. PBKDF2 and bcrypt need almost no memory per guess, so graphics
+  cards and ASICs attack them far more cheaply; scrypt is memory-hard but older and easier to
+  misconfigure. A second algorithm would also double the code that must be right.
 - `salt` is 32 random bytes, regenerated whenever the password slot is rewritten.
 
 ## 5. Sealing (AEAD with key commitment)

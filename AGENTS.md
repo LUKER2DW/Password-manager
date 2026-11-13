@@ -102,7 +102,9 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | File | Role |
 |---|---|
 | `src/controller.rs` | Wires every callback, background jobs, timers, state |
-| `src/controller/features.rs` | Generator, password history, health, leak check, import review, folders, vault settings |
+| `src/controller/features.rs` | Generator, password history, health, leak check, import review, vault settings, unlock protection (Argon2id level) |
+| `src/controller/folders.rs` | Folder dialog (create, settings, picture preview, delete) and reordering |
+| `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
 | `src/view.rs` | Pure presentation rules (unit-tested): filters, tints, crack times, dates |
 | `src/favicon.rs` | Opt-in website icons, fetched directly from each site |
 | `src/sketch.rs` | Hand-drawn strokes generated in Rust |
@@ -112,7 +114,8 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `ui/model.slint` | Structs shared with Rust and **every user-facing message** |
 | `ui/widgets.slint` | Buttons, fields, secure field, dropdown, slider… |
 | `ui/icons.slint` | Field icons (Lucide), card network marks, import source icons |
-| `ui/welcome.slint`, `vault.slint`, `pages.slint`, `kit.slint`, `app.slint` | Screens |
+| `ui/dialogs.slint` | Dialogs over the whole window (`Modal`, `FolderDialog`) |
+| `ui/welcome.slint`, `vault.slint`, `pages.slint`, `kit.slint`, `app.slint` | Screens; right-click menus live in `app.slint` |
 
 ## 3. Build, run, test
 
@@ -173,7 +176,9 @@ to review layout; do not drive the real desktop to check UI.
    `#[allow(unsafe_code)]` and a `// SAFETY:` comment. `core`, `import` and `cli` forbid it.
 5. **No network in `core`.** Network use anywhere is opt-in and per action: website icons
    (setting, off by default), the leak check (button; k-anonymous, 5 hex chars of SHA-1,
-   padded), an item's chosen icon site. Nothing is sent to a third-party service for icons.
+   padded), an icon site or picture link chosen for an item or folder. Nothing is sent to a
+   third-party service for icons. Links handed to the OS to open are `http(s)` only
+   (`vault_platform::browsers::web_link`).
 6. **Browser stores are read only on an explicit click**, in memory, for the signed-in user.
    Plain-text exports the app reads are offered for secure wiping afterwards.
 7. **Never overwrite a vault changed by someone else.** Saves compare the file's hash with the
@@ -269,6 +274,14 @@ drawn.
 - Text without `overflow: elide` has a minimum width equal to its text, which can push a
   layout wider than the window.
 - Popups need `close-policy` and stay inside the window; leave a margin at the edge.
+- A `FocusScope` placed on top of a `TouchArea` takes the first click to grab focus, so the
+  button needs two clicks. Give such scopes `focus-on-click: false` and focus them from the
+  touch area when needed.
+- A `TouchArea` loses `has-hover` to any element drawn on top of it. Something shown on hover
+  (the folder pencil) must be a child of that touch area, or it hides itself and flickers.
+- Every UI callback goes through the `on!` macro, which also records the place for back and
+  forward (`note_place`). Code that changes the page outside a callback (a finished job) calls
+  `note_place` or `reset_history` itself.
 - Some `.slint` files have mixed line endings: when editing with scripts, match both `\n` and
   `\r\n`.
 

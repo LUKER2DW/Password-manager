@@ -146,6 +146,19 @@ Rules:
 - ✅ An item's icon can come from another website ("Icon from", format v3), fetched once even
   when website icons are off for the rest of the vault
 - ✅ Required fields marked with a red asterisk
+- ✅ Folders (format v4): created and edited in a dialog (name, icon, colour, a picture from a
+  website or an image link, previewed before saving), right-click menu (open, settings, move
+  up/down, delete), drag to reorder; the pencil in the index no longer flickers
+- ✅ Back and forward through the places visited: arrows in the index, mouse buttons 4/5,
+  Alt+Left/Right and the keyboard's Back/Forward keys; Ctrl+N new item, Ctrl+L lock
+- ✅ Right-click menu on items: copy username, password or code, open the website, edit,
+  favourite, delete
+- ✅ Websites on the item page open in the default browser (http/https only); every hidden
+  value (hidden fields, card number, security code, notes) has Show and Hide
+- ✅ Unlock protection: the Argon2id level (Light, Standard, Strong, Maximum) chosen in
+  Settings, applied after a master password check, with the unlock time on this computer
+- ✅ Buttons, checkboxes and dropdowns react to the first click (a focus scope on top used to
+  take it)
 - ⬜ Attachments, tags; passkeys
 - **Done when:** daily use on Windows is possible with a test vault.
 

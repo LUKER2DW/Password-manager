@@ -59,6 +59,16 @@ Scale 12 / 14 / 16 / 21 / 28 / 44 px. Radius 6 px. Controls 38 px tall.
 - **Slider** — a hairline track filled in marker yellow with a round knob; drag, click or use the
   arrow keys (generator length and word count).
 - **Dropdown** — looks like a field with a chevron; opens a list below it (folder picker).
+- **Dialog** — a card centered on a dimmed window (folder settings, delete a folder). Clicking
+  outside does nothing, so typing isn't lost by a stray click; Escape or Cancel closes it. The
+  main action sits bottom right, a destructive one bottom left in red text.
+- **Right-click menu** — a small card at the pointer: an icon and a few words per entry, rules
+  between groups, the destructive entry last in red. Items get copy, open, edit, favourite and
+  delete; folders get open, settings, move up/down and delete.
+- **Links** — a website on the item page reads as text with a hairline underline that turns
+  yellow on hover; clicking it (or Open) opens the browser.
+- **Back and forward** — two small chevrons next to the vault name, faint when there is nowhere
+  to go; the mouse's side buttons and Alt+arrows do the same.
 - **Entry screens** (lock, new vault, recovery) — a side panel (brand, padlock, steps, what is
   set up on this computer) and the form centered in the remaining space, never a lone column.
 - **Strength** — a 4 px meter (red < 50 bits, yellow < 70, green above) plus the estimated time to
