@@ -3,6 +3,8 @@ import { Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, Recen
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage } from "pages.slint";
+import { FolderDialog } from "dialogs.slint";
+import { MenuCard, MenuEntry, MenuRule } from "widgets.slint";
 
 export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, SourceRow, Messages }
 
@@ -114,11 +116,35 @@ export component AppWindow inherits Window {
     in property <string> folder-name;
     in property <string> folder-icon;
     in property <int> folder-color;
-    in-out property <bool> editing-folder;
-    callback save-folder(string, string, int);
-    callback create-folder(string);
-    callback rename-folder(string);
-    callback delete-folder();
+    in property <image> folder-image;
+    in property <bool> folder-has-image;
+    // Folder dialog: -1 closed, 0 new, 1 settings, 2 delete?
+    in-out property <int> folder-dialog: -1;
+    in-out property <string> fd-name;
+    in-out property <string> fd-icon;
+    in-out property <int> fd-color;
+    in-out property <string> fd-link;
+    in property <image> fd-preview;
+    in property <bool> fd-has-preview;
+    in property <int> fd-preview-state;
+    in property <int> fd-items;
+    callback new-folder();
+    callback edit-folder(int);
+    callback ask-delete-folder(int);
+    callback move-folder(int, int);
+    callback folder-dialog-save();
+    callback folder-dialog-fetch();
+    callback folder-dialog-delete();
+    callback folder-dialog-cancel();
+    // Back and forward through the places visited (also mouse buttons 4/5 and Alt+arrows).
+    in property <bool> can-go-back;
+    in property <bool> can-go-forward;
+    callback go-back();
+    callback go-forward();
+    // Right-click menus: where they open and which folder they are for.
+    property <length> menu-x;
+    property <length> menu-y;
+    property <int> menu-folder;
     in-out property <string> search-text;
     callback search(string);
     callback select-category(int);
@@ -165,6 +191,11 @@ export component AppWindow inherits Window {
     callback copy-password();
     callback copy-totp();
     callback copy-field(int);
+    in property <int> revealed-field: -1;
+    in property <string> revealed-field-value;
+    callback reveal-field(int);
+    callback open-url(int);
+    callback copy-url(int);
     in property <int> detail-brand;
     in property <bool> detail-username-is-email;
     in property <int> detail-strength-bits;
@@ -255,12 +286,19 @@ export component AppWindow inherits Window {
     in-out property <string> vault-name-edit;
     in-out property <int> history-limit: 10;
     in property <int> vault-folders;
-    in property <string> vault-kdf;
+    // Argon2id cost of the vault: memory in MiB and passes.
+    in property <int> kdf-memory;
+    in property <int> kdf-passes;
     in property <bool> vault-has-recovery;
     callback vault-settings-changed();
     callback settings-changed();
     callback appearance-changed(bool);
     callback change-password();
+    in-out property <int> kdf-level: 1;
+    in property <int> kdf-current: 1;
+    in property <bool> kdf-failed;
+    in property <string> unlock-time;
+    callback change-kdf();
     callback show-kit();
     callback hide-kit();
     callback new-recovery-key();
@@ -360,7 +398,7 @@ export component AppWindow inherits Window {
 
     if root.screen == Screen.vault: HorizontalLayout {
         VaultIndex {
-            width: 200px;
+            width: 216px;
             category: root.category;
             counts: root.counts;
             folders: root.folders;
@@ -368,13 +406,21 @@ export component AppWindow inherits Window {
             health-count: root.health-total;
             vault-name: root.vault-name;
             panel: root.panel;
+            can-go-back: root.can-go-back;
+            can-go-forward: root.can-go-forward;
+            go-back => { root.go-back(); }
+            go-forward => { root.go-forward(); }
             open-health => { root.open-health(); }
-            edit-folder(i) => {
-                root.select-category(100 + i);
-                root.editing-folder = true;
+            new-folder => { root.new-folder(); }
+            edit-folder(i) => { root.edit-folder(i); }
+            folder-menu(i, x, y) => {
+                root.menu-folder = i;
+                root.menu-x = x;
+                root.menu-y = y;
+                folder-menu.show();
             }
+            move-folder(from, to) => { root.move-folder(from, to); }
             select-category(c) => { root.select-category(c); }
-            create-folder(name) => { root.create-folder(name); }
             open-generator => { root.open-generator(); }
             open-settings => { root.open-settings(); }
             open-kit => { root.open-kit(); }
@@ -394,10 +440,16 @@ export component AppWindow inherits Window {
             folder-name: root.folder-name;
             folder-icon: root.folder-icon;
             folder-color: root.folder-color;
-            editing-folder <=> root.editing-folder;
-            save-folder(name, icon, color) => { root.save-folder(name, icon, color); }
-            rename-folder(name) => { root.rename-folder(name); }
-            delete-folder => { root.delete-folder(); }
+            folder-image: root.folder-image;
+            folder-has-image: root.folder-has-image;
+            edit-folder => { root.edit-folder(root.category - 100); }
+            delete-folder => { root.ask-delete-folder(root.category - 100); }
+            item-menu(index, x, y) => {
+                root.select(index);
+                root.menu-x = x;
+                root.menu-y = y;
+                item-menu.show();
+            }
             search-text <=> root.search-text;
             search(text) => { root.search(text); }
             select(index) => { root.select(index); }
@@ -445,6 +497,11 @@ export component AppWindow inherits Window {
                 copy-password => { root.copy-password(); }
                 copy-totp => { root.copy-totp(); }
                 copy-field(i) => { root.copy-field(i); }
+                revealed-field: root.revealed-field;
+                revealed-field-value: root.revealed-field-value;
+                reveal-field(i) => { root.reveal-field(i); }
+                open-url(i) => { root.open-url(i); }
+                copy-url(i) => { root.copy-url(i); }
                 brand: root.detail-brand;
                 username-is-email: root.detail-username-is-email;
                 strength-bits: root.detail-strength-bits;
@@ -546,7 +603,8 @@ export component AppWindow inherits Window {
                 history-limit <=> root.history-limit;
                 vault-items: root.counts[0];
                 vault-folders: root.vault-folders;
-                vault-kdf: root.vault-kdf;
+                kdf-memory: root.kdf-memory;
+                kdf-passes: root.kdf-passes;
                 vault-has-recovery: root.vault-has-recovery;
                 vault-settings-changed => { root.vault-settings-changed(); }
                 quick-unlock-available: root.quick-unlock-available;
@@ -555,6 +613,11 @@ export component AppWindow inherits Window {
                 settings-changed => { root.settings-changed(); }
                 appearance-changed(dark) => { root.appearance-changed(dark); }
                 change-password => { root.change-password(); }
+                kdf-level <=> root.kdf-level;
+                kdf-current: root.kdf-current;
+                kdf-failed: root.kdf-failed;
+                unlock-time: root.unlock-time;
+                change-kdf => { root.change-kdf(); }
             }
             if root.panel == Panel.authenticator: AuthenticatorPage {
                 rows: root.auth-rows;
@@ -634,6 +697,119 @@ export component AppWindow inherits Window {
                 x: parent.width - self.width - 28px;
                 y: parent.height - self.height - 24px;
                 text: Messages.notice(root.notice-code, root.notice-arg);
+            }
+        }
+    }
+
+    if root.screen == Screen.vault && root.folder-dialog >= 0: FolderDialog {
+        width: root.width;
+        height: root.height;
+        mode: root.folder-dialog;
+        name <=> root.fd-name;
+        icon <=> root.fd-icon;
+        color-index <=> root.fd-color;
+        link <=> root.fd-link;
+        preview: root.fd-preview;
+        has-preview: root.fd-has-preview;
+        preview-state: root.fd-preview-state;
+        item-count: root.fd-items;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        save => { root.folder-dialog-save(); }
+        fetch-preview => { root.folder-dialog-fetch(); }
+        delete => { root.folder-dialog-delete(); }
+        ask-delete => { root.folder-dialog = 2; }
+        cancel => { root.folder-dialog-cancel(); }
+    }
+
+    // Right-click on a folder in the index.
+    folder-menu := PopupWindow {
+        x: root.menu-x;
+        y: root.menu-y;
+        width: 210px;
+        close-policy: close-on-click;
+        MenuCard {
+            MenuEntry {
+                text: @tr("Open");
+                icon: "folder";
+                clicked => { root.select-category(100 + root.menu-folder); }
+            }
+            MenuEntry {
+                text: @tr("Folder settings…");
+                icon: "pencil";
+                clicked => { root.edit-folder(root.menu-folder); }
+            }
+            MenuRule { }
+            MenuEntry {
+                text: @tr("Move up");
+                icon: "arrow-up";
+                enabled: root.menu-folder > 0;
+                clicked => { root.move-folder(root.menu-folder, root.menu-folder - 1); }
+            }
+            MenuEntry {
+                text: @tr("Move down");
+                icon: "arrow-down";
+                enabled: root.menu-folder < root.folders.length - 1;
+                clicked => { root.move-folder(root.menu-folder, root.menu-folder + 1); }
+            }
+            MenuRule { }
+            MenuEntry {
+                text: @tr("Delete folder…");
+                icon: "trash";
+                danger: true;
+                clicked => { root.ask-delete-folder(root.menu-folder); }
+            }
+        }
+    }
+
+    // Right-click on an item in the list (the item is selected first).
+    item-menu := PopupWindow {
+        x: root.menu-x;
+        y: root.menu-y;
+        width: 230px;
+        close-policy: close-on-click;
+        MenuCard {
+            MenuEntry {
+                text: root.detail-kind == 1 ? @tr("Copy name on card") : @tr("Copy username");
+                icon: "user";
+                enabled: root.detail-username != "";
+                clicked => { root.copy-username(); }
+            }
+            MenuEntry {
+                text: root.detail-kind == 1 ? @tr("Copy PIN") : @tr("Copy password");
+                icon: "key";
+                enabled: root.detail-has-password;
+                clicked => { root.copy-password(); }
+            }
+            MenuEntry {
+                text: @tr("Copy one-time code");
+                icon: "clock";
+                enabled: root.totp-code != "";
+                clicked => { root.copy-totp(); }
+            }
+            MenuEntry {
+                text: @tr("Open website");
+                icon: "external";
+                enabled: root.detail-urls.length > 0;
+                clicked => { root.open-url(0); }
+            }
+            MenuRule { }
+            MenuEntry {
+                text: @tr("Edit");
+                icon: "pencil";
+                clicked => { root.edit-item(); }
+            }
+            MenuEntry {
+                text: root.detail-favorite ? @tr("Remove from favorites") : @tr("Add to favorites");
+                icon: "star";
+                clicked => { root.toggle-favorite(); }
+            }
+            MenuRule { }
+            MenuEntry {
+                text: @tr("Delete…");
+                icon: "trash";
+                danger: true;
+                clicked => { root.confirming-delete = true; }
             }
         }
     }

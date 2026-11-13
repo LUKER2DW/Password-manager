@@ -115,15 +115,67 @@ pub fn cache_key(host: &str) -> String {
     host.strip_prefix("www.").unwrap_or(host).to_owned()
 }
 
-/// Fetches and decodes the best icon for `host`. Blocking; call from a worker thread.
-pub fn fetch(host: &str) -> Option<Vec<u8>> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
+/// Where a chosen icon comes from: a website (its own icon) or a direct link to a picture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IconSource {
+    /// A host whose icon is looked up like any saved site.
+    Site(String),
+    /// An `https://` link to a PNG, JPEG, GIF, WebP, BMP or ICO file.
+    Image(String),
+}
+
+const IMAGE_EXTENSIONS: [&str; 7] = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp"];
+
+impl IconSource {
+    /// Reads what the user typed: a link whose path ends in a picture extension is a picture,
+    /// anything else with a usable host is a website. HTTP links are upgraded to HTTPS.
+    pub fn parse(text: &str) -> Option<Self> {
+        let text = text.trim();
+        let lower = text.to_ascii_lowercase();
+        let path = lower.split(['?', '#']).next().unwrap_or_default();
+        let after_host = path.split_once("://").map_or(path, |(_, rest)| rest);
+        let has_path = after_host.contains('/');
+        if has_path && IMAGE_EXTENSIONS.iter().any(|ext| path.ends_with(ext)) {
+            host_of(text)?;
+            let rest = match text.split_once("://") {
+                Some((_, rest)) => rest,
+                None => text,
+            };
+            return Some(Self::Image(format!("https://{rest}")));
+        }
+        host_of(text).map(Self::Site)
+    }
+
+    /// Key in the icon cache.
+    pub fn key(&self) -> String {
+        match self {
+            Self::Site(host) => cache_key(host),
+            Self::Image(url) => format!("img:{url}"),
+        }
+    }
+
+    /// Downloads and decodes the picture. Blocking; call from a worker thread.
+    pub fn fetch(&self) -> Option<Vec<u8>> {
+        match self {
+            Self::Site(host) => fetch(host),
+            Self::Image(url) => get(&agent(), url).and_then(|bytes| decode(&bytes)),
+        }
+    }
+}
+
+fn agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
         .https_only(true)
         .max_redirects(5)
         .timeout_global(Some(Duration::from_secs(8)))
         .user_agent(USER_AGENT)
         .build()
-        .into();
+        .into()
+}
+
+/// Fetches and decodes the best icon for `host`. Blocking; call from a worker thread.
+pub fn fetch(host: &str) -> Option<Vec<u8>> {
+    let agent = agent();
 
     let origin = format!("https://{host}");
     let mut candidates: Vec<String> = Vec::new();
@@ -298,6 +350,43 @@ mod tests {
         assert_eq!(host_of("Expires 12/29"), None);
         assert_eq!(host_of("localhost"), None);
         assert_eq!(cache_key("www.github.com"), "github.com");
+    }
+
+    #[test]
+    fn icon_sources() {
+        assert_eq!(
+            IconSource::parse("github.com"),
+            Some(IconSource::Site("github.com".into()))
+        );
+        assert_eq!(
+            IconSource::parse("https://nubank.com.br/login"),
+            Some(IconSource::Site("nubank.com.br".into()))
+        );
+        assert_eq!(
+            IconSource::parse("http://cdn.example/a/logo.PNG?v=2"),
+            Some(IconSource::Image(
+                "https://cdn.example/a/logo.PNG?v=2".into()
+            ))
+        );
+        assert_eq!(
+            IconSource::parse("cdn.example/logo.webp"),
+            Some(IconSource::Image("https://cdn.example/logo.webp".into()))
+        );
+        // A host that merely ends like an extension is still a website.
+        assert_eq!(
+            IconSource::parse("logo.png"),
+            Some(IconSource::Site("logo.png".into()))
+        );
+        assert_eq!(IconSource::parse("ftp://x.example/a.png"), None);
+        assert_eq!(IconSource::parse(""), None);
+        assert_eq!(
+            IconSource::parse("https://www.github.com").unwrap().key(),
+            "github.com"
+        );
+        assert_eq!(
+            IconSource::parse("https://a.example/i.png").unwrap().key(),
+            "img:https://a.example/i.png"
+        );
     }
 
     #[test]

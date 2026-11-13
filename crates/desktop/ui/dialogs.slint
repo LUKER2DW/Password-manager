@@ -1,0 +1,277 @@
+// Dialogs that open over the whole window.
+
+import { Theme } from "theme.slint";
+import { Messages } from "model.slint";
+import { Button, QuietButton, LineField, Hint } from "widgets.slint";
+import { Glyph, FolderLook, FieldColors } from "icons.slint";
+
+// The dimmed backdrop and a centered card. Clicks outside the card do nothing (the dialog closes
+// with its own buttons or Escape), so a stray click can't throw away what was typed.
+component Modal inherits Rectangle {
+    in property <length> card-width: 480px;
+    // Off when a field inside takes the focus itself (its keys still reach Escape here).
+    in property <bool> focus-on-open: true;
+    callback dismissed();
+    background: #0000008C;
+    TouchArea { }
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.dismissed();
+                return accept;
+            }
+            reject
+        }
+        Rectangle {
+            x: (root.width - self.width) / 2;
+            y: Math.max(24px, (root.height - self.height) / 2);
+            width: root.card-width;
+            height: card.preferred-height;
+            background: Theme.sheet;
+            border-radius: Theme.radius + 4px;
+            border-width: 1px;
+            border-color: Theme.rule;
+            drop-shadow-blur: 40px;
+            drop-shadow-offset-y: 10px;
+            drop-shadow-color: #00000070;
+            card := VerticalLayout {
+                padding: 24px;
+                spacing: 14px;
+                @children
+            }
+        }
+    }
+    init => {
+        if (root.focus-on-open) {
+            keys.focus();
+        }
+    }
+}
+
+// Create a folder, change its name and look, or confirm deleting it.
+//   mode 0 = new folder, 1 = folder settings, 2 = delete?
+export component FolderDialog inherits Modal {
+    in property <int> mode;
+    in-out property <string> name;
+    // Icon name ("" = plain folder) and colour index.
+    in-out property <string> icon;
+    in-out property <int> color-index;
+    // A website or picture link whose picture replaces the icon.
+    in-out property <string> link;
+    in property <image> preview;
+    in property <bool> has-preview;
+    // 0 nothing asked yet, 1 looking, 2 found, 3 not found.
+    in property <int> preview-state;
+    in property <int> error-code;
+    in property <string> error-detail;
+    in property <int> item-count;
+    callback save();
+    callback fetch-preview();
+    callback delete();
+    callback ask-delete();
+    callback cancel();
+
+    card-width: root.mode == 2 ? 440px : 500px;
+    focus-on-open: root.mode == 2;
+    dismissed => { root.cancel(); }
+
+    Text {
+        text: root.mode == 0 ? @tr("New folder") : root.mode == 1 ? @tr("Folder settings") : @tr("Delete this folder?");
+        font-size: Theme.title;
+        font-weight: 600;
+        color: Theme.ink;
+    }
+
+    if root.mode == 2: Text {
+        text: root.item-count == 0
+            ? @tr("“{}” is empty. Deleting it can't be undone.", root.name)
+            : root.item-count == 1
+            ? @tr("“{}” holds 1 item. It stays in your vault, just without a folder.", root.name)
+            : @tr("“{}” holds {} items. They stay in your vault, just without a folder.", root.name, root.item-count);
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    if root.mode == 2: HorizontalLayout {
+        alignment: end;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            QuietButton {
+                text: @tr("Keep it");
+                clicked => { root.cancel(); }
+            }
+        }
+        Button {
+            text: @tr("Delete folder");
+            danger: true;
+            clicked => { root.delete(); }
+        }
+    }
+
+    if root.mode != 2: HorizontalLayout {
+        spacing: 14px;
+        // What the folder will look like in the index.
+        VerticalLayout {
+            alignment: end;
+            Rectangle {
+                width: 44px;
+                height: 44px;
+                border-radius: Theme.radius + 2px;
+                background: Theme.panel;
+                border-width: 1px;
+                border-color: Theme.rule;
+                if root.has-preview: Image {
+                    width: 28px;
+                    height: 28px;
+                    source: root.preview;
+                    image-fit: contain;
+                }
+                if !root.has-preview: Glyph {
+                    width: 22px;
+                    height: 22px;
+                    name: root.icon != "" ? root.icon : "folder";
+                    tint: FolderLook.tint(root.icon, root.color-index);
+                }
+            }
+        }
+        LineField {
+            horizontal-stretch: 1;
+            label: @tr("Name");
+            icon: "tag";
+            required: true;
+            placeholder: @tr("e.g. Google accounts");
+            error: root.error-code == 30;
+            text <=> root.name;
+            accepted => { root.save(); }
+            init => { self.focus(); }
+        }
+    }
+
+    if root.mode != 2: VerticalLayout {
+        spacing: 8px;
+        opacity: root.has-preview ? 0.45 : 1;
+        Text {
+            text: root.has-preview ? @tr("Icon (the picture below is used instead)") : @tr("Icon");
+            font-size: Theme.small;
+            color: Theme.graphite;
+        }
+        for row in 2: HorizontalLayout {
+            spacing: 4px;
+            alignment: start;
+            for k in 8: Rectangle {
+                property <string> glyph: FolderLook.icons[row * 8 + k];
+                property <bool> chosen: (root.icon == "" ? "folder" : root.icon) == self.glyph;
+                width: 34px;
+                height: 34px;
+                border-radius: Theme.radius;
+                background: self.chosen ? Theme.selected : icon-touch.has-hover ? Theme.hover : transparent;
+                border-width: self.chosen ? 1px : 0px;
+                border-color: Theme.marker;
+                accessible-role: button;
+                accessible-label: self.glyph;
+                Glyph {
+                    width: 17px;
+                    height: 17px;
+                    name: parent.glyph;
+                    tint: FolderLook.tint(parent.glyph, root.color-index);
+                }
+                icon-touch := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { root.icon = parent.glyph == "folder" ? "" : parent.glyph; }
+                }
+            }
+        }
+        Text {
+            text: @tr("Colour");
+            font-size: Theme.small;
+            color: Theme.graphite;
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            for c[i] in FolderLook.colors: Rectangle {
+                width: 24px;
+                height: 24px;
+                border-radius: 12px;
+                border-width: i == root.color-index ? 2px : 0px;
+                border-color: Theme.ink;
+                accessible-role: button;
+                accessible-label: i == 0 ? @tr("Default colour") : @tr("Colour {}", i);
+                Rectangle {
+                    width: 15px;
+                    height: 15px;
+                    border-radius: 7.5px;
+                    background: i == 0 ? FieldColors.of(root.icon == "" ? "folder" : root.icon) : c;
+                }
+                TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { root.color-index = i; }
+                }
+            }
+        }
+    }
+
+    if root.mode != 2: VerticalLayout {
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 8px;
+            LineField {
+                horizontal-stretch: 1;
+                label: @tr("Picture from a website or link");
+                icon: "globe";
+                hint: @tr("Type a website (github.com) to use its own icon, or a link to a PNG, JPEG, WebP, GIF or ICO picture. It is downloaded once, from that address only, and kept encrypted with your vault. Leave it empty to use the icon above.");
+                placeholder: @tr("github.com or https://…/logo.png");
+                error: root.error-code == 28 || root.error-code == 29;
+                text <=> root.link;
+                accepted => { root.fetch-preview(); }
+            }
+            VerticalLayout {
+                alignment: end;
+                QuietButton {
+                    outlined: true;
+                    text: root.preview-state == 1 ? @tr("Looking…") : @tr("Preview");
+                    enabled: root.link != "" && root.preview-state != 1;
+                    clicked => { root.fetch-preview(); }
+                }
+            }
+        }
+        if root.preview-state == 3 && root.error-code == 0: Text {
+            text: @tr("No picture found there yet. Saving keeps the link and tries again later.");
+            font-size: Theme.small;
+            color: Theme.graphite;
+            wrap: word-wrap;
+        }
+    }
+
+    if root.mode != 2 && root.error-code != 0 && root.error-code != 30: Text {
+        text: Messages.error(root.error-code, root.error-detail);
+        font-size: Theme.small;
+        color: Theme.seal;
+        wrap: word-wrap;
+    }
+
+    if root.mode != 2: HorizontalLayout {
+        spacing: 8px;
+        if root.mode == 1: VerticalLayout {
+            alignment: center;
+            QuietButton {
+                text: @tr("Delete folder…");
+                tint: Theme.seal;
+                clicked => { root.ask-delete(); }
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        VerticalLayout {
+            alignment: center;
+            QuietButton {
+                text: @tr("Cancel");
+                clicked => { root.cancel(); }
+            }
+        }
+        Button {
+            text: root.mode == 0 ? @tr("Create folder") : @tr("Save");
+            clicked => { root.save(); }
+        }
+    }
+}

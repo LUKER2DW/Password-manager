@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use slint::{Model, ModelRc, SharedString, VecModel};
 use vault_core::{
-    ItemData, ItemId, ItemKind, VaultSettings,
+    ItemData, ItemId, ItemKind, KdfStrength, Unlock, Vault, VaultSettings,
     card::{self, CardDetails},
     generator::{self, PassphraseOptions, PasswordOptions, WordCase, Wordlist},
     health::{self, BreachQuery},
@@ -1006,29 +1006,80 @@ impl Controller {
     // Folders: name, icon, colour
     // -----------------------------------------------------------------------------------------
 
-    pub(super) fn save_folder(&self, name: &str, icon: &str, color: i32) {
-        let Some(id) = self.browsed_folder() else {
+    // -----------------------------------------------------------------------------------------
+    // Unlock protection (Argon2id cost)
+    // -----------------------------------------------------------------------------------------
+
+    /// Rewrites the password slot at the chosen Argon2id level, after checking the current
+    /// master password against the file. The new file is opened once before it is written, so
+    /// a slot that wouldn't open never reaches the disk; that open is also the timing shown.
+    pub(super) fn change_kdf(&self) {
+        let app = self.app();
+        let Some(level) = usize::try_from(app.get_kdf_level())
+            .ok()
+            .and_then(|i| KdfStrength::ALL.get(i).copied())
+        else {
             return;
         };
-        let color = u8::try_from(color.clamp(0, 15)).unwrap_or(0);
-        let result = self.state.borrow_mut().session.as_mut().map(|s| {
-            s.vault
-                .rename_folder(&id, name)
-                .and_then(|()| s.vault.style_folder(&id, icon, color))
-        });
-        match result {
-            Some(Ok(())) => {
-                if self.save_vault() {
-                    self.refresh_list();
-                    self.notify(notice::SAVED, "");
-                }
-            }
-            Some(Err(err)) => {
-                let (code, detail) = self.core_error(&err);
-                self.set_error(code, &detail);
-            }
-            None => {}
+        let current = Zeroizing::new(
+            self.state.borrow().secrets[field::KDF_CURRENT]
+                .as_str()
+                .to_owned(),
+        );
+        if current.is_empty() {
+            self.set_error(error::WRONG_CURRENT, "");
+            app.set_kdf_failed(true);
+            return;
         }
+        let Some(session) = self.state.borrow_mut().session.take() else {
+            return;
+        };
+        let path = self.state.borrow().path.clone();
+        self.run_job(move || {
+            let mut session = session;
+            if let Err((code, detail)) = super::verify_current(&path, &current, &session) {
+                return JobResult::KdfFailed {
+                    code,
+                    detail,
+                    session,
+                };
+            }
+            let outcome = (|| -> vault_core::Result<f64> {
+                let params = level.params()?;
+                session
+                    .vault
+                    .change_password(&current, &session.secret_key, &params)?;
+                let bytes = session.vault.to_bytes()?;
+                let started = std::time::Instant::now();
+                Vault::open(
+                    &bytes,
+                    Unlock::Password {
+                        password: &current,
+                        secret_key: &session.secret_key,
+                    },
+                )?;
+                let seconds = started.elapsed().as_secs_f64();
+                vault_core::storage::write_atomic(&path, &bytes)?;
+                Ok(seconds)
+            })();
+            match outcome {
+                Ok(seconds) => {
+                    let _ = vault_platform::device::record_revision(
+                        &session.vault.id_hex(),
+                        session.vault.revision(),
+                    );
+                    JobResult::PasswordChanged {
+                        session,
+                        kdf_seconds: Some(seconds),
+                    }
+                }
+                Err(err) => JobResult::KdfFailed {
+                    code: error::FILE,
+                    detail: err.to_string(),
+                    session,
+                },
+            }
+        });
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1046,11 +1097,19 @@ impl Controller {
         app.set_history_limit(i32::from(settings.history_limit));
         app.set_vault_folders(i32::try_from(session.vault.folders().len()).unwrap_or(0));
         let kdf = session.vault.kdf_params();
-        app.set_vault_kdf(SharedString::from(format!(
-            "XChaCha20-Poly1305 · Argon2id, {} MiB × {}",
-            kdf.memory_kib() / 1024,
-            kdf.iterations()
-        )));
+        app.set_kdf_memory(i32::try_from(kdf.memory_kib() / 1024).unwrap_or(i32::MAX));
+        app.set_kdf_passes(i32::try_from(kdf.iterations()).unwrap_or(i32::MAX));
+        let level = KdfStrength::of(kdf)
+            .and_then(|level| KdfStrength::ALL.iter().position(|l| *l == level))
+            .map_or(-1, |i| i32::try_from(i).unwrap_or(-1));
+        app.set_kdf_current(level);
+        app.set_kdf_level(if level < 0 { 1 } else { level });
+        app.set_unlock_time(SharedString::from(
+            state
+                .unlock_seconds
+                .map(|s| format!("{s:.1}"))
+                .unwrap_or_default(),
+        ));
         app.set_vault_has_recovery(session.vault.has_recovery_key());
         app.set_vault_file_name(SharedString::from(
             state

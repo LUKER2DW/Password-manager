@@ -43,6 +43,8 @@ use crate::{
 };
 
 mod features;
+mod folders;
+mod navigation;
 
 /// What to draw next to an item.
 struct IconVisual {
@@ -63,7 +65,9 @@ mod field {
     pub const NEW: usize = 6;
     pub const NEW_AGAIN: usize = 7;
     pub const IMPORT: usize = 8;
-    pub const COUNT: usize = 9;
+    /// Current master password on the "Unlock protection" card.
+    pub const KDF_CURRENT: usize = 9;
+    pub const COUNT: usize = 10;
 }
 
 /// Error codes (texts live in model.slint → Messages.error).
@@ -96,6 +100,8 @@ mod error {
     pub const WORDLIST: i32 = 25;
     pub const LEAK_CHECK: i32 = 26;
     pub const VAULT_NAME: i32 = 27;
+    pub const FOLDER_LINK: i32 = 28;
+    pub const FOLDER_NAME: i32 = 30;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -128,6 +134,11 @@ mod notice {
     pub const WORDLIST_ADDED: i32 = 27;
     pub const LEAKS_CHECKED: i32 = 28;
     pub const BROWSER_OPENED: i32 = 29;
+    pub const KDF_CHANGED: i32 = 30;
+    pub const KDF_CHANGED_HELLO_OFF: i32 = 31;
+    pub const FOLDER_DELETED: i32 = 32;
+    pub const WEBSITE_COPIED: i32 = 33;
+    pub const LINK_FAILED: i32 = 34;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -159,6 +170,9 @@ enum JobResult {
     Unlocked {
         session: Session,
         typed_secret_key: bool,
+        /// How long opening took (Argon2id), shown on the Settings page; `None` for Windows
+        /// Hello, which skips it.
+        seconds: Option<f64>,
     },
     QuickUnlockEnabled {
         session: Session,
@@ -180,7 +194,16 @@ enum JobResult {
     Recovered {
         session: Session,
     },
+    /// The password slot was rewritten: a new master password, or (with `kdf_seconds`) the
+    /// same one at a new Argon2id cost, which took that long to open again.
     PasswordChanged {
+        session: Session,
+        kdf_seconds: Option<f64>,
+    },
+    /// Changing the Argon2id cost failed; the error belongs on that card.
+    KdfFailed {
+        code: i32,
+        detail: String,
         session: Session,
     },
     KitVerified {
@@ -253,6 +276,12 @@ struct State {
     import_include: Vec<bool>,
     /// Profiles of the chosen browser that have a password store.
     browser_profiles: Vec<vault_import::browser::BrowserProfile>,
+    /// Places visited, for back and forward.
+    history: navigation::History,
+    /// The folder the folder dialog is about (`None` while creating one).
+    dialog_folder: Option<FolderId>,
+    /// How long the last unlock took on this computer.
+    unlock_seconds: Option<f64>,
 }
 
 #[derive(Default)]
@@ -359,6 +388,9 @@ impl Controller {
                 import_source: None,
                 import_include: Vec::new(),
                 browser_profiles: Vec::new(),
+                history: navigation::History::default(),
+                dialog_folder: None,
+                unlock_seconds: None,
             }),
             timers: Timers::default(),
             lengths: Rc::new(VecModel::from(vec![0; field::COUNT])),
@@ -374,6 +406,7 @@ impl Controller {
         app.global::<Theme>()
             .set_dark(controller.state.borrow().settings.dark_theme);
         controller.wire(app);
+        controller.install_shortcuts(app);
         controller.load_generator_prefs();
         controller.show_start_screen();
         Ok(controller)
@@ -400,7 +433,9 @@ impl Controller {
                 app.$setter(move |$($arg),*| {
                     if let Some($c) = weak.upgrade() {
                         $c.touch_activity();
-                        $body
+                        $body;
+                        // Back/forward remember wherever the action led.
+                        $c.note_place();
                     }
                 });
             }};
@@ -487,9 +522,20 @@ impl Controller {
             }
         });
         on!(on_toggle_favorite, |c| c.toggle_favorite());
-        on!(on_create_folder, |c, name| c.create_folder(&name));
-        on!(on_rename_folder, |c, name| c.rename_folder(&name));
-        on!(on_delete_folder, |c| c.delete_folder());
+        on!(on_new_folder, |c| c.new_folder());
+        on!(on_edit_folder, |c, index| c.edit_folder(index));
+        on!(on_ask_delete_folder, |c, index| c.ask_delete_folder(index));
+        on!(on_move_folder, |c, from, to| c.move_folder(from, to));
+        on!(on_folder_dialog_save, |c| c.save_folder_dialog());
+        on!(on_folder_dialog_fetch, |c| c.fetch_folder_preview());
+        on!(on_folder_dialog_delete, |c| c.delete_folder_dialog());
+        on!(on_folder_dialog_cancel, |c| c.close_folder_dialog());
+        on!(on_go_back, |c| c.go(false));
+        on!(on_go_forward, |c| c.go(true));
+        on!(on_reveal_field, |c, index| c.reveal_field(index));
+        on!(on_open_url, |c, index| c.open_url(index));
+        on!(on_copy_url, |c, index| c.copy_url(index));
+        on!(on_change_kdf, |c| c.change_kdf());
         on!(on_show_codes, |c| c.show_codes());
         on!(on_hide_codes, |c| c.hide_codes());
         on!(on_copy_code, |c, index| c
@@ -523,8 +569,6 @@ impl Controller {
         on!(on_pick_source, |c, index| c.pick_source(index));
         on!(on_open_browser, |c| c.open_browser());
         on!(on_import_direct, |c| c.import_direct());
-        on!(on_save_folder, |c, name, icon, color| c
-            .save_folder(&name, &icon, color));
         on!(on_import_toggle, |c, index, on| c.import_toggle(index, on));
         on!(on_import_select_all, |c, on| c.import_select_all(on));
         on!(on_open_authenticator, |c| c.open_authenticator());
@@ -670,6 +714,8 @@ impl Controller {
         let app = self.app();
         app.set_error_code(code);
         app.set_error_detail(SharedString::from(detail));
+        // Set again by `change_kdf` when the error is its own.
+        app.set_kdf_failed(false);
     }
 
     /// A notice that stays longer (something went wrong and needs reading).
@@ -776,7 +822,11 @@ impl Controller {
             JobResult::Unlocked {
                 session,
                 typed_secret_key,
+                seconds,
             } => {
+                if seconds.is_some() {
+                    self.state.borrow_mut().unlock_seconds = seconds;
+                }
                 let id = session.vault.id_hex();
                 let revision = session.vault.revision();
                 let mut device_state = DeviceState::load().unwrap_or_default();
@@ -800,8 +850,25 @@ impl Controller {
                 self.clear_secret(field::SECRET_KEY);
                 self.enter_vault(session);
             }
-            JobResult::PasswordChanged { session } => {
-                for index in [field::CURRENT, field::NEW, field::NEW_AGAIN] {
+            JobResult::KdfFailed {
+                code,
+                detail,
+                session,
+            } => {
+                self.state.borrow_mut().session = Some(session);
+                self.set_error(code, &detail);
+                app.set_kdf_failed(true);
+            }
+            JobResult::PasswordChanged {
+                session,
+                kdf_seconds,
+            } => {
+                for index in [
+                    field::CURRENT,
+                    field::NEW,
+                    field::NEW_AGAIN,
+                    field::KDF_CURRENT,
+                ] {
                     self.clear_secret(index);
                 }
                 // The device unlock is bound to the old password slot and no longer opens the
@@ -812,6 +879,17 @@ impl Controller {
                 self.remember_file();
                 if had_quick_unlock {
                     self.turn_off_quick_unlock(&id);
+                }
+                if let Some(seconds) = kdf_seconds {
+                    self.state.borrow_mut().unlock_seconds = Some(seconds);
+                    self.show_vault_settings();
+                    let shown = format!("{seconds:.1}");
+                    if had_quick_unlock {
+                        self.notify(notice::KDF_CHANGED_HELLO_OFF, &shown);
+                    } else {
+                        self.notify(notice::KDF_CHANGED, &shown);
+                    }
+                } else if had_quick_unlock {
                     self.notify(notice::PASSWORD_CHANGED_HELLO_OFF, "");
                 } else {
                     self.notify(notice::PASSWORD_CHANGED, "");
@@ -1023,6 +1101,7 @@ impl Controller {
             return;
         }
         self.run_job(move || {
+            let started = std::time::Instant::now();
             match Vault::open(
                 &bytes,
                 Unlock::Password {
@@ -1031,10 +1110,12 @@ impl Controller {
                 },
             ) {
                 Ok(vault) => {
+                    let seconds = started.elapsed().as_secs_f64();
                     let _ = quick_unlock::record_password_unlock(&vault);
                     JobResult::Unlocked {
                         session: Session { vault, secret_key },
                         typed_secret_key: typed,
+                        seconds: Some(seconds),
                     }
                 }
                 Err(CoreError::DecryptionFailed) => JobResult::Failed {
@@ -1169,6 +1250,7 @@ impl Controller {
                 Ok(vault) if quick_unlock::password_is_recent(&vault) => JobResult::Unlocked {
                     session: Session { vault, secret_key },
                     typed_secret_key: false,
+                    seconds: None,
                 },
                 Ok(_) => failed(
                     error::PASSWORD_DUE,
@@ -1276,6 +1358,7 @@ impl Controller {
         self.refresh_list();
         self.show_detail();
         self.show_screen(Screen::Vault);
+        self.reset_history();
         self.restart_auto_lock();
         self.start_icon_fetch();
         self.refresh_health();
@@ -1311,6 +1394,8 @@ impl Controller {
             state.history_shown = None;
             state.history_revealed.clear();
             state.import_include.clear();
+            state.history = navigation::History::default();
+            state.dialog_folder = None;
         }
         self.clear_all_secrets();
         {
@@ -1321,6 +1406,9 @@ impl Controller {
             app.set_import_rows(ModelRc::default());
             app.set_leaks_checked(false);
             app.set_vault_name(SharedString::new());
+            app.set_folder_dialog(-1);
+            app.set_can_go_back(false);
+            app.set_can_go_forward(false);
         }
         files::wipe_print_dir();
         self.state.borrow_mut().pending_import = None;
@@ -1411,7 +1499,7 @@ impl Controller {
         let summaries = std::mem::take(&mut self.state.borrow_mut().summaries);
 
         // Folders: the index shows each with its count; category 100 + n browses folder n.
-        let folders: Vec<(FolderId, String, String, u8)> = self
+        let folders: Vec<(FolderId, String, String, u8, String)> = self
             .state
             .borrow()
             .session
@@ -1420,7 +1508,15 @@ impl Controller {
                 s.vault
                     .folders()
                     .iter()
-                    .map(|f| (f.id, f.name.clone(), f.icon.clone(), f.color))
+                    .map(|f| {
+                        (
+                            f.id,
+                            f.name.clone(),
+                            f.icon.clone(),
+                            f.color,
+                            f.icon_url.clone(),
+                        )
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -1431,10 +1527,13 @@ impl Controller {
                 .ok()
                 .and_then(|i| folders.get(i))
             {
-                Some((id, name, icon, color)) => {
+                Some((id, name, icon, color, link)) => {
                     browsing = Some((*id, name.clone()));
                     app.set_folder_icon(SharedString::from(icon.as_str()));
                     app.set_folder_color(i32::from(*color));
+                    let picture = self.folder_picture(link);
+                    app.set_folder_has_image(picture.is_some());
+                    app.set_folder_image(picture.unwrap_or_default());
                 }
                 None => {
                     category = 0;
@@ -1444,12 +1543,19 @@ impl Controller {
         }
         let folder_rows: Vec<FolderRow> = folders
             .iter()
-            .map(|(id, name, icon, color)| FolderRow {
-                icon: SharedString::from(icon.as_str()),
-                color: i32::from(*color),
-                name: SharedString::from(name.as_str()),
-                count: i32::try_from(summaries.iter().filter(|s| s.folder == Some(*id)).count())
+            .map(|(id, name, icon, color, link)| {
+                let picture = self.folder_picture(link);
+                FolderRow {
+                    has_image: picture.is_some(),
+                    image: picture.unwrap_or_default(),
+                    icon: SharedString::from(icon.as_str()),
+                    color: i32::from(*color),
+                    name: SharedString::from(name.as_str()),
+                    count: i32::try_from(
+                        summaries.iter().filter(|s| s.folder == Some(*id)).count(),
+                    )
                     .unwrap_or(0),
+                }
             })
             .collect();
         app.set_folders(ModelRc::from(Rc::new(VecModel::from(folder_rows))));
@@ -1588,6 +1694,7 @@ impl Controller {
                 index: i32::try_from(f.index).unwrap_or(-1),
                 warning: f.warning,
                 icon: SharedString::from(f.icon),
+                hideable: f.hideable,
             })
             .collect();
         app.set_detail_fields(ModelRc::from(Rc::new(VecModel::from(fields))));
@@ -1638,8 +1745,43 @@ impl Controller {
         let Some((_, item)) = self.selected_item() else {
             return;
         };
+        self.conceal();
         let app = self.app();
         app.set_revealed_password(SharedString::from(item.password.as_str()));
+        self.start_reveal_countdown();
+    }
+
+    /// Shows one hidden extra field (a hidden custom field, a card's number or security code),
+    /// or hides it again when it is the one on screen. Only one secret is visible at a time.
+    fn reveal_field(&self, index: i32) {
+        let app = self.app();
+        if app.get_revealed_field() == index {
+            self.conceal();
+            return;
+        }
+        let Some((_, item)) = self.selected_item() else {
+            return;
+        };
+        let Some(field) = usize::try_from(index)
+            .ok()
+            .and_then(|i| item.custom_fields.get(i))
+        else {
+            return;
+        };
+        let shown = if item.kind == ItemKind::Card && field.name.eq_ignore_ascii_case(card::NUMBER)
+        {
+            card::group(&card::digits(&field.value))
+        } else {
+            field.value.clone()
+        };
+        self.conceal();
+        app.set_revealed_field(index);
+        app.set_revealed_field_value(SharedString::from(shown.as_str()));
+        self.start_reveal_countdown();
+    }
+
+    fn start_reveal_countdown(&self) {
+        let app = self.app();
         app.set_reveal_left(REVEAL_SECONDS);
         let weak = self.weak();
         self.timers
@@ -1661,7 +1803,31 @@ impl Controller {
         self.timers.reveal.stop();
         let app = self.app();
         app.set_revealed_password(SharedString::new());
+        app.set_revealed_field(-1);
+        app.set_revealed_field_value(SharedString::new());
         app.set_reveal_left(0);
+    }
+
+    /// Opens one of the selected item's websites in the default browser.
+    fn open_url(&self, index: i32) {
+        let Some((_, item)) = self.selected_item() else {
+            return;
+        };
+        let Some(url) = usize::try_from(index).ok().and_then(|i| item.urls.get(i)) else {
+            return;
+        };
+        if let Err(err) = files::open_web_link(url) {
+            self.notify_long(notice::LINK_FAILED, &format!("{url} ({err:#})"));
+        }
+    }
+
+    fn copy_url(&self, index: i32) {
+        let Some((_, item)) = self.selected_item() else {
+            return;
+        };
+        if let Some(url) = usize::try_from(index).ok().and_then(|i| item.urls.get(i)) {
+            self.copy(Zeroizing::new(url.clone()), false, notice::WEBSITE_COPIED);
+        }
     }
 
     fn copy_from_selected(&self, what: CopyWhat) {
@@ -2160,58 +2326,6 @@ impl Controller {
             .folders()
             .get(index)
             .map(|f| f.id)
-    }
-
-    fn create_folder(&self, name: &str) {
-        let created = self.state.borrow_mut().session.as_mut().map(|s| {
-            s.vault
-                .add_folder(name)
-                .map(|_| s.vault.folders().len() - 1)
-        });
-        match created {
-            Some(Ok(index)) if self.save_vault() => {
-                // Open the new folder right away.
-                self.select_category(FOLDER_CATEGORY + i32::try_from(index).unwrap_or(0));
-            }
-            Some(Err(err)) => {
-                let (code, detail) = self.core_error(&err);
-                self.set_error(code, &detail);
-            }
-            _ => {}
-        }
-    }
-
-    fn rename_folder(&self, name: &str) {
-        let Some(id) = self.browsed_folder() else {
-            return;
-        };
-        let renamed = self
-            .state
-            .borrow_mut()
-            .session
-            .as_mut()
-            .map(|s| s.vault.rename_folder(&id, name));
-        if matches!(renamed, Some(Ok(()))) && self.save_vault() {
-            self.refresh_list();
-            self.show_detail();
-        }
-    }
-
-    fn delete_folder(&self) {
-        let Some(id) = self.browsed_folder() else {
-            return;
-        };
-        let removed = self
-            .state
-            .borrow_mut()
-            .session
-            .as_mut()
-            .map(|s| s.vault.remove_folder(&id));
-        if matches!(removed, Some(Ok(()))) && self.save_vault() {
-            self.app().set_category(0);
-            self.refresh_list();
-            self.show_detail();
-        }
     }
 
     // -----------------------------------------------------------------------------------------
@@ -2955,9 +3069,11 @@ impl Controller {
     /// website icons are off, since the user asked for that icon.
     fn icon_for(&self, kind: ItemKind, url: &str, icon_url: &str, title: &str) -> IconVisual {
         let chosen = !icon_url.trim().is_empty();
-        let url = if chosen { icon_url } else { url };
-        let host = favicon::host_of(url);
-        let key = host.as_deref().map(favicon::cache_key);
+        let key = if chosen {
+            favicon::IconSource::parse(icon_url).map(|source| source.key())
+        } else {
+            favicon::host_of(url).map(|host| favicon::cache_key(&host))
+        };
         let (r, g, b) = view::tint(kind, key.as_deref().unwrap_or(title));
         let mut visual = IconVisual {
             image: Image::default(),
@@ -2965,25 +3081,32 @@ impl Controller {
             initial: SharedString::from(view::initial(title)),
             tint: slint::Color::from_rgb_u8(r, g, b),
         };
-        let mut state = self.state.borrow_mut();
-        if !chosen && (kind != ItemKind::Login || !state.settings.website_icons) {
-            return visual;
-        }
-        let Some(key) = key else { return visual };
-        if let Some(image) = state.icon_images.get(&key) {
-            visual.image = image.clone();
-            visual.has_image = true;
-        } else if let Some(pixels) = state.icons.get(&key).map(<[u8]>::to_vec) {
-            let image = Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
-                &pixels,
-                favicon::ICON_SIZE,
-                favicon::ICON_SIZE,
-            ));
-            state.icon_images.insert(key, image.clone());
+        let wanted =
+            chosen || (kind == ItemKind::Login && self.state.borrow().settings.website_icons);
+        if let Some(image) = key
+            .filter(|_| wanted)
+            .and_then(|key| self.cached_icon(&key))
+        {
             visual.image = image;
             visual.has_image = true;
         }
         visual
+    }
+
+    /// A downloaded icon from the encrypted cache, as an image (built once per key).
+    fn cached_icon(&self, key: &str) -> Option<Image> {
+        let mut state = self.state.borrow_mut();
+        if let Some(image) = state.icon_images.get(key) {
+            return Some(image.clone());
+        }
+        let pixels = state.icons.get(key)?.to_vec();
+        let image = Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+            &pixels,
+            favicon::ICON_SIZE,
+            favicon::ICON_SIZE,
+        ));
+        state.icon_images.insert(key.to_owned(), image.clone());
+        Some(image)
     }
 
     fn apply_detail_icon(&self, item: &ItemData) {
@@ -3060,23 +3183,40 @@ impl Controller {
             }
             let all_sites = state.settings.website_icons;
             let mut seen = std::collections::BTreeSet::new();
-            // Every login's site when website icons are on; the icons chosen per item always.
-            let hosts: Vec<(String, String)> = state
+            // Every login's site when website icons are on; the icons chosen per item and per
+            // folder always (the user asked for those).
+            let folder_links: Vec<String> = state
+                .session
+                .as_ref()
+                .map(|s| {
+                    s.vault
+                        .folders()
+                        .iter()
+                        .map(|f| f.icon_url.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let hosts: Vec<(String, favicon::IconSource)> = state
                 .summaries
                 .iter()
                 .filter_map(|s| {
                     if !s.icon_url.trim().is_empty() {
-                        favicon::host_of(&s.icon_url)
+                        favicon::IconSource::parse(&s.icon_url)
                     } else if all_sites && s.kind == ItemKind::Login {
-                        favicon::host_of(&s.url)
+                        favicon::host_of(&s.url).map(favicon::IconSource::Site)
                     } else {
                         None
                     }
                 })
-                .filter_map(|host| {
-                    let key = favicon::cache_key(&host);
+                .chain(
+                    folder_links
+                        .iter()
+                        .filter_map(|link| favicon::IconSource::parse(link)),
+                )
+                .filter_map(|source| {
+                    let key = source.key();
                     (state.icons.needs_fetch(&key) && seen.insert(key.clone()))
-                        .then_some((key, host))
+                        .then_some((key, source))
                 })
                 .collect();
             (hosts, state.runner)
@@ -3087,16 +3227,16 @@ impl Controller {
         self.state.borrow_mut().fetching_icons = true;
         match runner {
             Runner::Inline => {
-                for (key, host) in hosts {
-                    let icon = favicon::fetch(&host);
+                for (key, source) in hosts {
+                    let icon = source.fetch();
                     self.icon_fetched(key, icon);
                 }
                 self.icons_done();
             }
             Runner::Thread => {
                 std::thread::spawn(move || {
-                    for (key, host) in hosts {
-                        let icon = favicon::fetch(&host);
+                    for (key, source) in hosts {
+                        let icon = source.fetch();
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
                                 controller.icon_fetched(key, icon);
@@ -3164,7 +3304,10 @@ impl Controller {
                 Ok(()) => {
                     let _ =
                         device::record_revision(&session.vault.id_hex(), session.vault.revision());
-                    JobResult::PasswordChanged { session }
+                    JobResult::PasswordChanged {
+                        session,
+                        kdf_seconds: None,
+                    }
                 }
                 Err(err) => JobResult::Failed {
                     code: error::FILE,

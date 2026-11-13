@@ -267,8 +267,11 @@ fn main() {
     );
     app.invoke_finish_onboarding();
     camera.shot("vault-empty", "Empty vault");
-    app.invoke_create_folder("Email".into());
-    app.invoke_create_folder("Games".into());
+    for name in ["Email", "Games"] {
+        app.invoke_new_folder();
+        app.set_fd_name(name.into());
+        app.invoke_folder_dialog_save();
+    }
     app.invoke_select_category(0);
 
     // ---- fake data ----
@@ -349,6 +352,9 @@ fn main() {
     );
     app.invoke_save_item();
     camera.shot("vault-card", "A card: masked number with its brand");
+    app.invoke_reveal_field(0);
+    camera.shot("vault-card-shown", "A card's number shown on request");
+    app.invoke_conceal();
     add_item(
         &app,
         2,
@@ -409,10 +415,26 @@ fn main() {
         "vault-folder",
         "Browsing a folder (edit and delete at the top)",
     );
-    app.set_editing_folder(true);
-    camera.shot("vault-folder-edit", "Folder settings: name, icon, colour");
-    app.invoke_save_folder("Games".into(), "star".into(), 2);
-    app.set_editing_folder(false);
+    app.invoke_edit_folder(1);
+    app.set_fd_icon("star".into());
+    app.set_fd_color(2);
+    camera.shot(
+        "vault-folder-edit",
+        "Folder settings dialog: name, icon, colour, picture link",
+    );
+    app.invoke_folder_dialog_save();
+    app.invoke_ask_delete_folder(1);
+    camera.shot("vault-folder-delete", "Deleting a folder asks first");
+    app.invoke_folder_dialog_cancel();
+    app.invoke_new_folder();
+    app.set_fd_name("Bank".into());
+    app.set_fd_link("nope nope".into());
+    app.invoke_folder_dialog_save();
+    camera.shot(
+        "vault-folder-new",
+        "New folder: a bad picture link is caught",
+    );
+    app.invoke_folder_dialog_cancel();
     app.invoke_select_category(0);
 
     select_title(&app, "Home Wi-Fi");
@@ -467,6 +489,18 @@ fn main() {
     app.set_quick_unlock_on(true);
     app.invoke_quick_unlock_toggled(true);
     camera.shot("settings", "Settings, Windows Hello just turned on");
+    // The whole page at once, with a stronger unlock protection chosen.
+    let normal = camera.window.size();
+    camera
+        .window
+        .set_size(PhysicalSize::new(normal.width, normal.height * 2 + 300));
+    app.set_kdf_level(2);
+    camera.shot(
+        "settings-full",
+        "Settings, whole page: unlock protection level",
+    );
+    app.set_kdf_level(app.get_kdf_current().max(0));
+    camera.window.set_size(normal);
     app.invoke_open_authenticator();
     camera.shot("authenticator", "Authenticator: every one-time code, live");
 

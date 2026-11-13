@@ -68,6 +68,8 @@ export struct FolderRow {
     count: int,
     icon: string,     // icons.slint name; "" = the plain folder
     color: int,       // FolderLook colour index; 0 = default
+    image: image,     // the picture from its link, once downloaded
+    has-image: bool,
 }
 
 // An extra field in the editor.
@@ -112,6 +114,7 @@ export struct DetailField {
     index: int,       // position in the item's fields (what Copy copies)
     warning: bool,    // e.g. an expired card date
     icon: string,     // icons.slint name
+    hideable: bool,   // hidden or masked: offers Show
 }
 
 export global Messages {
@@ -144,6 +147,9 @@ export global Messages {
         if (code == 25) { return @tr("That word list couldn't be used: it needs at least 500 different words, one per line. {}", detail); }
         if (code == 26) { return @tr("The leak check couldn't reach the service: {}. Nothing was sent except the first five characters of each password's fingerprint.", detail); }
         if (code == 27) { return @tr("A vault name has at most 60 characters."); }
+        if (code == 28) { return @tr("Type a website (example.com) or a link to a picture (https://example.com/logo.png)."); }
+        if (code == 30) { return @tr("Type a folder name."); }
+
         if (code == 24) { return @tr("The vault file was changed outside this window (another window or program). Your last change was not saved: lock and unlock to load the newest version, then make it again."); }
         if (code == 14) { return @tr("Windows Hello couldn't open the vault ({}). Use your master password.", detail); }
         if (code == 15) { return @tr("The master password changed, so Windows Hello was turned off on this computer. Unlock with the master password, then turn it on again in Settings."); }
@@ -221,6 +227,11 @@ export global Messages {
         if (code == 27) { return @tr("Word list added: {}.", arg); }
         if (code == 28) { return arg == "0" ? @tr("Leak check done: none of your passwords is in a known breach.") : @tr("Leak check done: {} found in known breaches. Change them first.", arg); }
         if (code == 29) { return @tr("Opened {}. Export the passwords as CSV there, then choose the file here.", arg); }
+        if (code == 30) { return @tr("Unlock protection changed. Unlocking now takes about {} s on this computer.", arg); }
+        if (code == 31) { return @tr("Unlock protection changed (about {} s per unlock here). Windows Hello was turned off: turn it on again in Settings.", arg); }
+        if (code == 32) { return @tr("Folder deleted. Its items are still in All items."); }
+        if (code == 33) { return @tr("Website copied."); }
+        if (code == 34) { return @tr("Couldn't open {} in a browser.", arg); }
         return "";
     }
 

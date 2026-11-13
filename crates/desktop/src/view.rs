@@ -15,6 +15,8 @@ pub struct FieldView {
     pub warning: bool,
     /// Icon name (icons.slint).
     pub icon: &'static str,
+    /// Hidden or masked on the page: offers Show.
+    pub hideable: bool,
 }
 
 /// The item's extra fields for the item page. Cards get friendly labels: the number masked with
@@ -40,12 +42,14 @@ pub fn detail_fields(item: &ItemData, now: (u32, u32)) -> Vec<FieldView> {
                 index,
                 warning: false,
                 icon: if f.sensitive { "shield" } else { "tag" },
+                hideable: f.sensitive,
             };
             if named(f, card::NUMBER) {
                 view.label = "Card number".into();
                 view.icon = "card";
                 view.value = card::masked(&card::digits(&f.value));
                 view.sensitive = false; // masked; Copy still copies the full number as a secret
+                view.hideable = true;
             } else if named(f, card::EXPIRY)
                 && let Some(expiry) = card::parse_expiry(&f.value)
             {

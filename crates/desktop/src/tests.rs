@@ -220,7 +220,19 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_notice_code(), 6);
 
     // ---- folders and recovery codes ----
-    app.invoke_create_folder("Google".into());
+    // The folder dialog: a name is required, a picture link must look like one.
+    app.invoke_new_folder();
+    assert_eq!(app.get_folder_dialog(), 0);
+    app.invoke_folder_dialog_save();
+    assert_eq!(app.get_error_code(), 30, "a folder needs a name");
+    assert_eq!(app.get_folder_dialog(), 0, "the dialog stays open");
+    app.set_fd_name("Google".into());
+    app.set_fd_link("not a link".into());
+    app.invoke_folder_dialog_save();
+    assert_eq!(app.get_error_code(), 28);
+    app.set_fd_link("".into());
+    app.invoke_folder_dialog_save();
+    assert_eq!(app.get_folder_dialog(), -1, "closed once saved");
     assert_eq!(app.get_folders().row_count(), 1);
     assert_eq!(app.get_category(), 100, "the new folder opens");
     assert_eq!(app.get_folder_name(), "Google");
@@ -262,18 +274,62 @@ fn whole_app_flow_headless() {
         (app.get_detail_codes_total(), app.get_detail_codes_left()),
         (3, 2)
     );
-    app.invoke_rename_folder("Google accounts".into());
+    // Folder settings: name, icon, colour and a picture link in one go (the picture itself is
+    // only downloaded by the app, not in this test).
+    app.invoke_edit_folder(0);
+    assert_eq!(app.get_folder_dialog(), 1);
+    assert_eq!(app.get_fd_name(), "Google");
+    app.set_fd_name("Google accounts".into());
+    app.set_fd_icon("globe".into());
+    app.set_fd_color(3);
+    app.invoke_folder_dialog_save();
     assert_eq!(app.get_folder_name(), "Google accounts");
-    // Folder settings: name, icon and colour in one go.
-    app.invoke_save_folder("Google".into(), "globe".into(), 3);
-    assert_eq!(app.get_folder_name(), "Google");
     assert_eq!(app.get_folder_icon(), "globe");
     assert_eq!(app.get_folder_color(), 3);
     let row = app.get_folders().row_data(0).unwrap();
     assert_eq!((row.icon.as_str(), row.color), ("globe", 3));
-    app.invoke_save_folder("".into(), "globe".into(), 3);
-    assert_ne!(app.get_error_code(), 0, "a folder needs a name");
-    app.invoke_delete_folder();
+    assert!(!row.has_image);
+    app.invoke_edit_folder(0);
+    app.set_fd_name("".into());
+    app.invoke_folder_dialog_save();
+    assert_eq!(app.get_error_code(), 30, "a folder needs a name");
+    app.invoke_folder_dialog_cancel();
+    assert_eq!(
+        app.get_folder_name(),
+        "Google accounts",
+        "cancel keeps the folder"
+    );
+
+    // Reordering keeps the browsed folder selected.
+    app.invoke_new_folder();
+    app.set_fd_name("Work".into());
+    app.invoke_folder_dialog_save();
+    assert_eq!(app.get_category(), 101, "the new folder opens");
+    app.invoke_move_folder(1, 0);
+    assert_eq!(app.get_folders().row_data(0).unwrap().name, "Work");
+    assert_eq!(app.get_category(), 100, "still browsing Work");
+    assert_eq!(app.get_folder_name(), "Work");
+    app.invoke_ask_delete_folder(0);
+    assert_eq!(app.get_folder_dialog(), 2);
+    app.invoke_folder_dialog_delete();
+    assert_eq!(app.get_folders().row_count(), 1);
+    assert_eq!(app.get_notice_code(), 32);
+
+    // Back and forward through the places visited.
+    app.invoke_select_category(0);
+    app.invoke_open_generator();
+    assert!(app.get_can_go_back());
+    app.invoke_go_back();
+    assert_eq!(app.get_panel(), Panel::Detail);
+    assert_eq!(app.get_category(), 0);
+    assert!(app.get_can_go_forward());
+    app.invoke_go_forward();
+    assert_eq!(app.get_panel(), Panel::Generator);
+    assert!(!app.get_can_go_forward());
+    app.invoke_select_category(100);
+
+    app.invoke_ask_delete_folder(0);
+    app.invoke_folder_dialog_delete();
     assert_eq!(app.get_folders().row_count(), 0);
     assert_eq!(app.get_category(), 0);
     assert_eq!(app.get_total_items(), 2, "the folder's item stays");
@@ -319,6 +375,20 @@ fn whole_app_flow_headless() {
     assert_eq!(fields.row_data(1).unwrap().value, "08/29");
     assert!(fields.row_data(2).unwrap().sensitive);
     assert_eq!(fields.row_count(), 3, "the brand is not repeated");
+    // The masked number and the hidden security code can be shown, one at a time.
+    assert!(fields.row_data(0).unwrap().hideable);
+    assert!(!fields.row_data(1).unwrap().hideable);
+    let number = fields.row_data(0).unwrap().index;
+    app.invoke_reveal_field(number);
+    assert_eq!(app.get_revealed_field_value(), "4111 1111 1111 1111");
+    assert!(app.get_reveal_left() > 0);
+    let code = fields.row_data(2).unwrap().index;
+    app.invoke_reveal_field(code);
+    assert_eq!(app.get_revealed_field(), code);
+    assert_eq!(app.get_revealed_field_value(), "123");
+    app.invoke_reveal_field(code);
+    assert_eq!(app.get_revealed_field(), -1, "a second click hides it");
+    assert_eq!(app.get_revealed_field_value(), "");
     let visa = (0..app.get_items().row_count())
         .find(|&i| app.get_items().row_data(i).unwrap().title == "Visa")
         .unwrap();
@@ -361,6 +431,19 @@ fn whole_app_flow_headless() {
     assert_eq!(fields.row_count(), 1);
     assert_eq!(fields.row_data(0).unwrap().label, "Customer no.");
     assert!(fields.row_data(0).unwrap().sensitive);
+    assert_eq!(
+        fields.row_data(0).unwrap().value,
+        "",
+        "hidden values stay in Rust"
+    );
+    app.invoke_reveal_field(0);
+    assert_eq!(app.get_revealed_field_value(), "C-42");
+    app.invoke_reveal();
+    assert_eq!(
+        app.get_revealed_field(),
+        -1,
+        "one secret on screen at a time"
+    );
     app.invoke_edit_item();
     assert_eq!(app.get_ed_fields().row_data(0).unwrap().value, "C-42");
     app.invoke_field_remove(0);
@@ -451,7 +534,7 @@ fn whole_app_flow_headless() {
     app.invoke_vault_settings_changed();
     assert_eq!(app.get_vault_name(), "Home");
     assert_eq!(app.get_notice_code(), 26);
-    assert!(app.get_vault_kdf().contains("Argon2id"));
+    assert_eq!((app.get_kdf_memory(), app.get_kdf_passes()), (64, 2));
 
     // ---- generator ----
     app.invoke_open_generator();
@@ -534,6 +617,31 @@ fn whole_app_flow_headless() {
         app.get_error_detail()
     );
     assert_eq!(app.get_notice_code(), 7);
+
+    // ---- unlock protection: Argon2id level, checked with the current password ----
+    app.invoke_open_settings();
+    assert_eq!(
+        app.get_kdf_current(),
+        -1,
+        "the test vault uses the minimum cost"
+    );
+    app.set_kdf_level(0);
+    type_into(&app, 9, "not the current one");
+    app.invoke_change_kdf();
+    assert_eq!(app.get_error_code(), 11);
+    assert!(app.get_kdf_failed(), "the error shows on that card");
+    type_into(&app, 9, NEW_PASSWORD);
+    app.invoke_change_kdf();
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_notice_code(), 30);
+    assert_eq!(app.get_kdf_current(), 0);
+    assert_eq!(length(&app, 9), 0, "the password field is cleared");
+    assert_ne!(app.get_unlock_time(), "");
 
     type_into(&app, 5, NEW_PASSWORD);
     app.invoke_show_kit();

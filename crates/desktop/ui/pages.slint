@@ -61,6 +61,9 @@ component FieldRow inherits VerticalLayout {
     in property <bool> large: false;
     // Shown in red (an expired card, for example).
     in property <bool> warning: false;
+    // A website: the value is a link that opens in the browser.
+    in property <bool> link: false;
+    callback activated();
     spacing: 0px;
     HorizontalLayout {
         padding-top: 10px;
@@ -85,7 +88,7 @@ component FieldRow inherits VerticalLayout {
                 Hint { text: root.hint; }
             }
         }
-        Text {
+        if !root.link: Text {
             horizontal-stretch: 1;
             text: root.value;
             font-family: root.mono ? Theme.mono-font : Theme.ui-font;
@@ -93,6 +96,33 @@ component FieldRow inherits VerticalLayout {
             color: root.warning ? Theme.seal : Theme.ink;
             vertical-alignment: center;
             overflow: elide;
+        }
+        if root.link: Rectangle {
+            horizontal-stretch: 1;
+            link-text := Text {
+                x: 0;
+                width: Math.min(self.preferred-width, parent.width);
+                text: root.value;
+                font-size: Theme.body;
+                color: link-touch.has-hover ? Theme.accent-stroke : Theme.ink;
+                vertical-alignment: center;
+                overflow: elide;
+                accessible-role: button;
+                accessible-label: root.value;
+            }
+            Rectangle {
+                x: 0;
+                y: parent.height / 2 + 10px;
+                width: link-text.width;
+                height: 1px;
+                background: link-touch.has-hover ? Theme.accent-stroke : Theme.rule;
+            }
+            link-touch := TouchArea {
+                x: 0;
+                width: link-text.width;
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.activated(); }
+            }
         }
         @children
     }
@@ -155,6 +185,12 @@ export component DetailPage inherits Rectangle {
     callback hide-codes();
     callback copy-code(int);
     callback toggle-code-used(int);
+    // One hidden extra field (card number, security code, a hidden field) shown on request.
+    in property <int> revealed-field: -1;
+    in property <string> revealed-field-value;
+    callback reveal-field(int);
+    callback open-url(int);
+    callback copy-url(int);
 
     if !root.has-item: VerticalLayout {
         padding: 48px;
@@ -405,17 +441,39 @@ export component DetailPage inherits Rectangle {
                 }
             }
 
-            for url in root.urls: FieldRow {
+            for url[index] in root.urls: FieldRow {
                 label: @tr("Website");
                 icon: "globe";
                 value: url;
+                link: true;
+                activated => { root.open-url(index); }
+                QuietButton {
+                    text: @tr("Open");
+                    clicked => { root.open-url(index); }
+                }
+                QuietButton {
+                    text: @tr("Copy");
+                    clicked => { root.copy-url(index); }
+                }
             }
 
-            for field in root.fields: FieldRow {
+            for field in root.fields: field-row := FieldRow {
+                property <bool> shown: field.index == root.revealed-field && root.revealed-field-value != "";
                 label: field.label;
                 icon: field.icon;
-                value: field.sensitive ? "••••••••" : field.value;
+                value: self.shown ? root.revealed-field-value : field.sensitive ? "••••••••" : field.value;
+                mono: self.shown;
                 warning: field.warning;
+                if field-row.shown: Text {
+                    text: @tr("hides in {} s", root.reveal-left);
+                    font-size: Theme.small;
+                    color: Theme.faint;
+                    vertical-alignment: center;
+                }
+                if field.hideable: QuietButton {
+                    text: field-row.shown ? @tr("Hide") : @tr("Show");
+                    clicked => { root.reveal-field(field.index); }
+                }
                 QuietButton {
                     text: @tr("Copy");
                     clicked => { root.copy-field(field.index); }
@@ -506,6 +564,14 @@ export component DetailPage inherits Rectangle {
                     font-size: Theme.body;
                     color: Theme.ink;
                     wrap: word-wrap;
+                }
+                if root.notes-shown: HorizontalLayout {
+                    alignment: start;
+                    QuietButton {
+                        outlined: true;
+                        text: @tr("Hide notes");
+                        clicked => { root.notes-shown = false; }
+                    }
                 }
                 if !root.notes-shown: HorizontalLayout {
                     alignment: start;
@@ -1275,7 +1341,9 @@ export component SettingsPage inherits Rectangle {
     in-out property <int> history-limit;
     in property <int> vault-items;
     in property <int> vault-folders;
-    in property <string> vault-kdf;
+    in property <int> kdf-memory;
+    in property <int> kdf-passes;
+    property <string> vault-kdf: @tr("Argon2id · {} MiB · {} passes", root.kdf-memory, root.kdf-passes);
     in property <bool> vault-has-recovery;
     in-out property <int> auto-lock-minutes;
     in-out property <int> clipboard-seconds;
@@ -1287,6 +1355,13 @@ export component SettingsPage inherits Rectangle {
     callback vault-settings-changed();
     callback appearance-changed(bool);
     callback change-password();
+    // Unlock protection (Argon2id cost): the level chosen on screen, the vault's current one
+    // (-1 = custom values), whether the last error came from changing it.
+    in-out property <int> kdf-level: 1;
+    in property <int> kdf-current: 1;
+    in property <bool> kdf-failed;
+    in property <string> unlock-time;
+    callback change-kdf();
 
     ScrollView {
         VerticalLayout {
@@ -1342,7 +1417,7 @@ export component SettingsPage inherits Rectangle {
                 VerticalLayout {
                     spacing: 6px;
                     Fact { label: @tr("Items"); value: @tr("{} items in {} folders", root.vault-items, root.vault-folders); }
-                    Fact { label: @tr("Encryption"); value: root.vault-kdf; }
+                    Fact { label: @tr("Encryption"); value: "XChaCha20-Poly1305 · " + root.vault-kdf; }
                     Fact {
                         label: @tr("Recovery Key");
                         value: root.vault-has-recovery ? @tr("Set: the emergency kit can open this vault") : @tr("None: a forgotten master password can't be recovered");
@@ -1441,7 +1516,7 @@ export component SettingsPage inherits Rectangle {
                         error: root.error-code == 4;
                     }
                 }
-                ErrorText {
+                if !root.kdf-failed: ErrorText {
                     code: root.error-code;
                     detail: root.error-detail;
                 }
@@ -1452,6 +1527,62 @@ export component SettingsPage inherits Rectangle {
                         busy-text: @tr("Working…");
                         busy: root.busy;
                         clicked => { root.change-password(); }
+                    }
+                }
+            }
+
+            SettingsCard {
+                icon: "lock";
+                title: @tr("Unlock protection");
+                summary: @tr("How much work each guess at your master password costs, for you once per unlock and for anyone with a copy of the vault file every time they guess.");
+                hint: @tr("Your master password is stretched with Argon2id, the method recommended today (RFC 9106, OWASP). It needs a lot of memory for every guess, which is what makes graphics cards and special chips slow at guessing. Older methods such as PBKDF2 or bcrypt need almost none, so they are not offered. Higher levels use more memory and passes. Changing the level rewrites only the password lock of the vault, never your items.");
+                Choice {
+                    options: [@tr("Light"), @tr("Standard"), @tr("Strong"), @tr("Maximum")];
+                    selected <=> root.kdf-level;
+                }
+                Text {
+                    text: root.kdf-level == 0 ? @tr("64 MiB of memory, 3 passes. For older computers or ones with little memory.")
+                        : root.kdf-level == 1 ? @tr("256 MiB of memory, 3 passes. The default, a good balance on most computers.")
+                        : root.kdf-level == 2 ? @tr("512 MiB of memory, 4 passes. Guessing gets about three times as slow; so does unlocking.")
+                        : @tr("1 GiB of memory, 5 passes. The slowest to guess. Unlocking can take a few seconds and needs 1 GiB of free memory on every device that opens the vault.");
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
+                }
+                Fact {
+                    label: @tr("Now");
+                    value: root.kdf-current < 0 ? @tr("Custom: {}", root.vault-kdf)
+                        : root.unlock-time != "" ? @tr("{} · about {} s per unlock on this computer", root.vault-kdf, root.unlock-time)
+                        : root.vault-kdf;
+                }
+                if root.kdf-level != root.kdf-current: VerticalLayout {
+                    spacing: 12px;
+                    SecretField {
+                        field: 9;
+                        label: @tr("Current master password");
+                        required: true;
+                        error: root.kdf-failed && root.error-code == 11;
+                    }
+                    if root.kdf-failed: ErrorText {
+                        code: root.error-code;
+                        detail: root.error-detail;
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 8px;
+                        Button {
+                            text: @tr("Apply");
+                            busy-text: @tr("Working…");
+                            busy: root.busy;
+                            clicked => { root.change-kdf(); }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            QuietButton {
+                                text: @tr("Cancel");
+                                clicked => { root.kdf-level = root.kdf-current; }
+                            }
+                        }
                     }
                 }
             }
