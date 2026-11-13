@@ -64,6 +64,10 @@ Scale 12 / 14 / 16 / 21 / 28 / 44 px. Radius 6 px. Controls 38 px tall.
 - **Strength** — a 4 px meter (red < 50 bits, yellow < 70, green above) plus the estimated time to
   crack and a light historical comparison ("If they'd started while the pyramids were being
   built, they'd still be at it.").
+- **Authenticator row** — icon, title and account, the code in large monospaced digit groups,
+  seconds left, Copy; a thin yellow bar under the row drains with the period.
+- **Vault chooser** — replaces the unlock form in place: recent vaults (current one marked,
+  missing files greyed out with Forget), then "Open a vault file…" and "Create a new vault…".
 - **Notice** — confirmations ("Copied", "Saved") bottom-right, never over content.
 
 ## Rules

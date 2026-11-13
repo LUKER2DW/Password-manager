@@ -86,6 +86,17 @@ Rules:
 - ✅ Entry screens with a side panel (brand, steps, what is set up) and the form centered
 - ✅ Folders (format v1): index with counts, create/rename/delete, folder picker in the editor
 - ✅ Recovery codes per login (format v1): paste, show on request, copy, mark used
+- ✅ Cards: number checked with Luhn and grouped as typed, brand detected (Visa, Mastercard,
+  Amex, Elo, Hipercard, …), expiry validated and flagged when past, security code and PIN
+  checked as digits; the PIN is never generated (the bank issues it); the list shows
+  "Visa •••• 4242"
+- ✅ Authenticator page: every one-time code in the vault with title, live countdown, search,
+  copy and a jump to the item
+- ✅ Extra fields on any item (name, value, hidden or not), stored as custom fields
+- ✅ Several vaults: recent vaults remembered per device (no secrets, only the path), a chooser
+  on the lock and new-vault screens, "Switch vault" in the index; the app opens the last one
+- ✅ A vault file changed by something else while open (another window, a sync tool) is never
+  overwritten: the save is refused with an explanation until it matches again
 - ✅ Import & export page: Bitwarden/KeePass/CSV import with preview, duplicate skipping and
   wiping of the plain-text file; encrypted backup copy; unencrypted export after a password check
 - ✅ Emergency kit page and printable PDF (hand-written, standard fonts; print copies wiped on lock)
@@ -102,7 +113,7 @@ Rules:
   needs a manual check)
 - ⬜ YubiKey (FIDO2 `hmac-secret`) slot; optional "master password after every restart"
 - ⬜ `pt-BR` translation file
-- ⬜ Custom fields editing, attachments, tags; password health (reused/weak/breached)
+- ⬜ Attachments, tags; password health (reused/weak/breached)
 - **Done when:** daily use on Windows is possible with a test vault.
 
 ### M5 — Browser extension ⬜
