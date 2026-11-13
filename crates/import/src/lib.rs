@@ -10,10 +10,12 @@
 mod bitwarden;
 mod csv_import;
 mod dates;
+mod export;
 mod kdbx;
 
 pub use bitwarden::import_bitwarden_json;
 pub use csv_import::import_csv;
+pub use export::{export_bitwarden_json, export_csv};
 pub use kdbx::import_kdbx;
 
 use vault_core::{ItemData, Vault};
