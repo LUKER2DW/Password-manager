@@ -16,7 +16,8 @@ pub use bitwarden::import_bitwarden_json;
 pub use csv_import::import_csv;
 pub use kdbx::import_kdbx;
 
-use vault_core::ItemData;
+use vault_core::{ItemData, Vault};
+use zeroize::Zeroizing;
 
 /// File formats the importer understands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,8 +44,109 @@ pub fn detect_format(bytes: &[u8]) -> Format {
 #[derive(Debug, Default)]
 pub struct ImportReport {
     pub items: Vec<ItemData>,
+    /// Folder name for each item (same order as `items`); nested folders as `Parent/Child`.
+    pub folders: Vec<Option<String>>,
     /// Human-readable warnings (skipped rows, unsupported data such as passkeys).
     pub warnings: Vec<String>,
+}
+
+impl ImportReport {
+    pub(crate) fn push(&mut self, item: ItemData, folder: Option<String>) {
+        self.items.push(item);
+        self.folders.push(folder.filter(|f| !f.trim().is_empty()));
+    }
+
+    /// What [`ImportReport::add_to_vault`] would do, without changing the vault.
+    pub fn preview(&self, vault: &Vault) -> Result<ImportOutcome, vault_core::Error> {
+        let mut known = known_fingerprints(vault)?;
+        let mut outcome = ImportOutcome::default();
+        let mut new_folders: Vec<String> = Vec::new();
+        for (item, folder) in self.items.iter().zip(&self.folders) {
+            if !known.insert(fingerprint(item)) {
+                outcome.duplicates += 1;
+                continue;
+            }
+            if let Some(name) = folder {
+                let lower = name.trim().to_lowercase();
+                if find_folder(vault, &lower).is_none() && !new_folders.contains(&lower) {
+                    new_folders.push(lower);
+                }
+            }
+            outcome.titles.push(item.title.clone());
+            outcome.added += 1;
+        }
+        outcome.new_folders = new_folders.len();
+        Ok(outcome)
+    }
+
+    /// Adds the items to `vault`, skipping ones it already has (same title, username, password
+    /// and first URL) and creating missing folders (an existing folder with the same name,
+    /// ignoring case, is reused).
+    pub fn add_to_vault(self, vault: &mut Vault) -> Result<ImportOutcome, vault_core::Error> {
+        let mut known = known_fingerprints(vault)?;
+        let mut outcome = ImportOutcome::default();
+        for (mut item, folder) in self.items.into_iter().zip(self.folders) {
+            if !known.insert(fingerprint(&item)) {
+                outcome.duplicates += 1;
+                continue;
+            }
+            if let Some(name) = folder {
+                let name = name.trim();
+                item.folder = Some(match find_folder(vault, &name.to_lowercase()) {
+                    Some(id) => id,
+                    None => {
+                        outcome.new_folders += 1;
+                        vault.add_folder(name)?
+                    }
+                });
+            }
+            vault.add_item(&item)?;
+            outcome.titles.push(item.title.clone());
+            outcome.added += 1;
+        }
+        Ok(outcome)
+    }
+}
+
+/// Counts from adding an import to a vault.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ImportOutcome {
+    pub added: usize,
+    pub duplicates: usize,
+    pub new_folders: usize,
+    /// Titles of the items added (or that would be added), in order.
+    pub titles: Vec<String>,
+}
+
+fn find_folder(vault: &Vault, lowercase_name: &str) -> Option<vault_core::FolderId> {
+    vault
+        .folders()
+        .iter()
+        .find(|f| f.name.to_lowercase() == lowercase_name)
+        .map(|f| f.id)
+}
+
+/// Identity of an item for duplicate detection: a SHA-256 digest, so the set of known items
+/// holds no copy of any password.
+fn fingerprint(item: &ItemData) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let text = Zeroizing::new(format!(
+        "{}\u{1f}{}\u{1f}{}\u{1f}{}",
+        item.title.to_lowercase(),
+        item.username,
+        item.password,
+        item.urls.first().map(String::as_str).unwrap_or_default()
+    ));
+    Sha256::digest(text.as_bytes()).into()
+}
+
+fn known_fingerprints(
+    vault: &Vault,
+) -> Result<std::collections::HashSet<[u8; 32]>, vault_core::Error> {
+    vault
+        .item_ids()
+        .map(|id| vault.get_item(&id).map(|item| fingerprint(&item)))
+        .collect()
 }
 
 #[derive(Debug, thiserror::Error)]

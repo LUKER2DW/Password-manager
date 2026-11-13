@@ -14,6 +14,8 @@ const TOTP: &[&str] = &["totp", "logintotp", "otpauth", "otp"];
 const FAVORITE: &[&str] = &["favorite", "fav"];
 const KIND: &[&str] = &["type"];
 const FIELDS: &[&str] = &["fields"];
+/// Bitwarden CSV "folder", LastPass "grouping".
+const FOLDER: &[&str] = &["folder", "grouping", "group"];
 /// Firefox: milliseconds since the Unix epoch.
 const CREATED_MS: &[&str] = &["timecreated"];
 const CHANGED_MS: &[&str] = &["timepasswordchanged"];
@@ -28,6 +30,7 @@ struct Columns {
     favorite: Option<usize>,
     kind: Option<usize>,
     fields: Option<usize>,
+    folder: Option<usize>,
     created_ms: Option<usize>,
     changed_ms: Option<usize>,
 }
@@ -53,6 +56,7 @@ impl Columns {
             favorite: find(FAVORITE),
             kind: find(KIND),
             fields: find(FIELDS),
+            folder: find(FOLDER),
             created_ms: find(CREATED_MS),
             changed_ms: find(CHANGED_MS),
         }
@@ -130,7 +134,7 @@ pub fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
                 });
             }
         }
-        report.items.push(item);
+        report.push(item, get(columns.folder));
     }
     Ok(report)
 }

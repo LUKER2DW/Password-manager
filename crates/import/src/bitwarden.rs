@@ -12,6 +12,14 @@ struct Export {
     encrypted: bool,
     #[serde(default)]
     items: Vec<Item>,
+    #[serde(default)]
+    folders: Vec<BitwardenFolder>,
+}
+
+#[derive(Deserialize)]
+struct BitwardenFolder {
+    id: String,
+    name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -20,6 +28,7 @@ struct Item {
     #[serde(rename = "type")]
     kind: u8,
     name: Option<String>,
+    folder_id: Option<String>,
     notes: Option<String>,
     #[serde(default)]
     favorite: bool,
@@ -78,6 +87,13 @@ pub fn import_bitwarden_json(bytes: &[u8]) -> Result<ImportReport, ImportError> 
 
     let mut report = ImportReport::default();
     for source in export.items {
+        let folder = source.folder_id.as_ref().and_then(|id| {
+            export
+                .folders
+                .iter()
+                .find(|f| &f.id == id)
+                .and_then(|f| non_empty(f.name.clone()))
+        });
         let title = non_empty(source.name.clone()).unwrap_or_else(|| "Untitled".into());
         let kind = match source.kind {
             1 => ItemKind::Login,
@@ -159,7 +175,7 @@ pub fn import_bitwarden_json(bytes: &[u8]) -> Result<ImportReport, ImportError> 
             push_field(&mut item, &name, field.value, field.kind == 1);
         }
 
-        report.items.push(item);
+        report.push(item, folder);
     }
     Ok(report)
 }

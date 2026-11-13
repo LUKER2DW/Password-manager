@@ -1,5 +1,7 @@
 //! KeePass / KeePassXC databases (KDBX 3.1 and 4).
 
+use std::collections::HashMap;
+
 use keepass::{Database, DatabaseKey, db::fields};
 use vault_core::{CustomField, ItemData, ItemKind};
 
@@ -28,12 +30,16 @@ pub fn import_kdbx(
     if let Some(bin) = db.recycle_bin() {
         collect_entry_ids(bin, &mut deleted);
     }
+    // KeePass groups become folders: "Parent/Child", the root group itself left out.
+    let mut group_paths = HashMap::new();
+    collect_group_paths(db.root(), "", &mut group_paths);
 
     let mut report = ImportReport::default();
     for entry in db.iter_all_entries() {
         if deleted.contains(&entry.id()) {
             continue;
         }
+        let folder = group_paths.get(&entry.id()).cloned();
 
         let get = |name: &str| non_empty(entry.get(name).map(str::to_owned));
         let url = get(fields::URL);
@@ -90,9 +96,30 @@ pub fn import_kdbx(
                 "\"{title}\": {attachments} attachment(s) not imported yet (attachments come in a later version)"
             ));
         }
-        report.items.push(item);
+        report.push(item, folder);
     }
     Ok(report)
+}
+
+fn collect_group_paths(
+    group: keepass::db::GroupRef<'_>,
+    path: &str,
+    out: &mut HashMap<keepass::db::EntryId, String>,
+) {
+    if !path.is_empty() {
+        for entry in group.entries() {
+            out.insert(entry.id(), path.to_owned());
+        }
+    }
+    for child in group.groups() {
+        let name = child.name.trim();
+        let child_path = match (path.is_empty(), name.is_empty()) {
+            (_, true) => path.to_owned(),
+            (true, false) => name.to_owned(),
+            (false, false) => format!("{path}/{name}"),
+        };
+        collect_group_paths(child, &child_path, out);
+    }
 }
 
 fn collect_entry_ids(group: keepass::db::GroupRef<'_>, out: &mut Vec<keepass::db::EntryId>) {
@@ -161,6 +188,14 @@ mod tests {
             .find(|i| i.title == "Nested note")
             .unwrap();
         assert_eq!(note.kind, ItemKind::SecureNote);
+
+        // Groups become folders; entries in the root group have none.
+        let folder_of = |title: &str| {
+            let index = report.items.iter().position(|i| i.title == title).unwrap();
+            report.folders[index].clone()
+        };
+        assert_eq!(folder_of("Mail"), None);
+        assert_eq!(folder_of("Nested note").as_deref(), Some("Sub"));
     }
 
     #[test]

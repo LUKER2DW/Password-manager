@@ -466,50 +466,28 @@ pub fn import(ctx: &Context, prompter: &mut Prompter, request: ImportRequest) ->
         }
     };
 
-    // Skip entries that already exist (same title, username, password and first URL).
-    let fingerprint = |item: &ItemData| {
-        Zeroizing::new(format!(
-            "{}\u{1f}{}\u{1f}{}\u{1f}{}",
-            item.title.to_lowercase(),
-            item.username,
-            item.password,
-            item.urls.first().map(String::as_str).unwrap_or_default()
-        ))
-    };
-    let mut known: Vec<Zeroizing<String>> =
-        Vec::with_capacity(session.vault.len() + report.items.len());
-    for id in session.vault.item_ids().collect::<Vec<_>>() {
-        known.push(fingerprint(&session.vault.get_item(&id).map_err(explain)?));
-    }
-
-    let mut imported = 0usize;
-    let mut duplicates = 0usize;
-    for item in &report.items {
-        let key = fingerprint(item);
-        if known.contains(&key) {
-            duplicates += 1;
-            continue;
-        }
-        known.push(key);
-        if request.dry_run {
-            println!("  would import: {} ({:?})", item.title, item.kind);
-        } else {
-            session.vault.add_item(item).map_err(explain)?;
-        }
-        imported += 1;
-    }
-
     for warning in &report.warnings {
         eprintln!("warning: {warning}");
     }
+    // Entries that already exist (same title, username, password and first URL) are skipped.
     if request.dry_run {
+        let outcome = report.preview(&session.vault).map_err(explain)?;
+        for title in &outcome.titles {
+            println!("  would import: {title}");
+        }
         println!(
-            "Dry run: {imported} item(s) would be imported, {duplicates} duplicate(s) skipped. Nothing was changed."
+            "Dry run: {} item(s) would be imported into {} new folder(s), {} duplicate(s) skipped. \
+             Nothing was changed.",
+            outcome.added, outcome.new_folders, outcome.duplicates
         );
         return Ok(());
     }
+    let outcome = report.add_to_vault(&mut session.vault).map_err(explain)?;
     session.save()?;
-    println!("Imported {imported} item(s) ({format:?}); skipped {duplicates} duplicate(s).");
+    println!(
+        "Imported {} item(s) ({format:?}), {} new folder(s); skipped {} duplicate(s).",
+        outcome.added, outcome.new_folders, outcome.duplicates
+    );
 
     if format != Format::Kdbx {
         if request.delete_source {
