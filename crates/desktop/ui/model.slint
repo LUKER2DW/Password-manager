@@ -2,7 +2,7 @@
 // Rust only sends codes; the words live here so they can be translated (@tr).
 
 export enum Screen { onboarding, unlock, recover, vault }
-export enum Panel { detail, editor, generator, settings }
+export enum Panel { detail, editor, generator, settings, kit }
 
 export struct ItemRow {
     title: string,
@@ -65,6 +65,30 @@ export global Messages {
         return @tr("Longer to crack than the universe has existed");
     }
 
+    // Codes from view.rs → crack_comparison.
+    public pure function crack-comparison(code: int) -> string {
+        if (code == 1) { return @tr("Faster than you can read this."); }
+        if (code == 2) { return @tr("Gone before you finish this sentence."); }
+        if (code == 3) { return @tr("About one coffee break."); }
+        if (code == 4) { return @tr("Done before the end of a workday."); }
+        if (code == 5) { return @tr("About as long as a holiday. Not great."); }
+        if (code == 6) { return @tr("Years of guessing — but a determined attacker can wait."); }
+        if (code == 7) { return @tr("If they'd started when the first iPhone came out, they'd still be at it."); }
+        if (code == 8) { return @tr("If they'd started when the Web went public, they'd still be at it."); }
+        if (code == 9) { return @tr("If they'd started at the first Moon landing, they'd still be at it."); }
+        if (code == 10) { return @tr("If they'd started with the first steam engines, they'd still be at it."); }
+        if (code == 11) { return @tr("If they'd started when Gutenberg printed his first page, they'd still be at it."); }
+        if (code == 12) { return @tr("If they'd started when the Vikings reached America, they'd still be at it."); }
+        if (code == 13) { return @tr("If they'd started while Julius Caesar ruled Rome, they'd still be at it."); }
+        if (code == 14) { return @tr("If they'd started while the pyramids were being built, they'd still be at it."); }
+        if (code == 15) { return @tr("If they'd started with the very first farmers, they'd still be at it."); }
+        if (code == 16) { return @tr("If they'd started with the first humans, they'd still be at it."); }
+        if (code == 17) { return @tr("If they'd started when the dinosaurs died out, they'd still be at it."); }
+        if (code == 18) { return @tr("If they'd started when the Earth formed, they'd still be at it."); }
+        if (code == 19) { return @tr("The universe is only 13.8 billion years old."); }
+        return "";
+    }
+
     public pure function notice(code: int, arg: string) -> string {
         if (code == 1) { return @tr("Password copied. The clipboard clears in {} seconds.", arg); }
         if (code == 2) { return @tr("Username copied."); }
@@ -81,6 +105,8 @@ export global Messages {
         if (code == 13) { return @tr("Windows Hello is off for this vault."); }
         if (code == 14) { return @tr("Windows Hello wasn't turned on: {}.", arg); }
         if (code == 15) { return @tr("Master password changed. Windows Hello was turned off; turn it on again below."); }
+        if (code == 16) { return @tr("Kit opened for printing. The file is wiped when the vault locks."); }
+        if (code == 17) { return @tr("Kit saved to {}. Keep the file private, or delete it once printed.", arg); }
         return "";
     }
 }

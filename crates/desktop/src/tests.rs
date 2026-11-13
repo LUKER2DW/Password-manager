@@ -250,10 +250,43 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_kit_secret_key(), secret_key.as_str());
     app.invoke_hide_kit();
 
+    // ---- emergency kit page: printable PDF, wiped on lock ----
+    app.invoke_open_kit();
+    assert_eq!(app.get_panel(), Panel::Kit);
+    assert_eq!(
+        app.get_kit_secret_key(),
+        "",
+        "hidden until the password is typed"
+    );
+    app.invoke_print_kit();
+    let print_dir = dir.path().join("home").join("print");
+    assert!(
+        !print_dir.exists(),
+        "nothing to print before the kit is shown"
+    );
+    type_into(&app, 5, NEW_PASSWORD);
+    app.invoke_show_kit();
+    assert_eq!(app.get_kit_secret_key(), secret_key.as_str());
+    app.invoke_print_kit();
+    let printed: Vec<_> = std::fs::read_dir(&print_dir).unwrap().flatten().collect();
+    assert_eq!(printed.len(), 1);
+    let pdf = std::fs::read(printed[0].path()).unwrap();
+    assert!(pdf.starts_with(b"%PDF-1.4"));
+    assert!(
+        pdf.windows(secret_key.len())
+            .any(|w| w == secret_key.as_bytes())
+    );
+    assert_eq!(app.get_notice_code(), 16);
+
     // ---- lock and unlock ----
     app.invoke_lock();
     assert_eq!(app.get_screen(), Screen::Unlock);
     assert_eq!(app.get_items().row_count(), 0);
+    assert_eq!(
+        std::fs::read_dir(&print_dir).unwrap().count(),
+        0,
+        "printed kit wiped on lock"
+    );
     type_into(&app, 0, PASSWORD);
     app.invoke_unlock();
     assert_eq!(app.get_error_code(), 1, "old password no longer works");

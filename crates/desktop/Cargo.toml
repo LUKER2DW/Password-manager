@@ -37,6 +37,8 @@ anyhow = "1"
 image = { version = "0.25", default-features = false, features = ["png", "ico", "jpeg", "gif", "bmp", "webp"] }
 postcard = { version = "1.1", features = ["use-std"] }
 raw-window-handle = "0.6"
+# Native open/save dialogs (kit PDF, import, export).
+rfd = "0.18"
 serde = { version = "1.0", features = ["derive"] }
 ureq = "3.5"
 slint = { version = "1.18", features = ["raw-window-handle-06"] }

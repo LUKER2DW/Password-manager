@@ -191,6 +191,8 @@ export component OnboardingScreen inherits Rectangle {
     callback suggest();
     callback use-suggestion();
     callback finish();
+    callback print-kit();
+    callback save-kit();
 
     background: Theme.canvas;
 
@@ -321,6 +323,19 @@ export component OnboardingScreen inherits Rectangle {
                     secret-key: root.kit-secret-key;
                     recovery-key: root.kit-recovery-key;
                     vault-path: root.kit-path;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 8px;
+                    QuietButton {
+                        text: @tr("Print");
+                        outlined: true;
+                        clicked => { root.print-kit(); }
+                    }
+                    QuietButton {
+                        text: @tr("Save as PDF…");
+                        clicked => { root.save-kit(); }
+                    }
                 }
                 Check {
                     text: @tr("I wrote these down and keep them somewhere safe");

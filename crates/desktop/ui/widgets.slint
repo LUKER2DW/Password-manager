@@ -138,21 +138,42 @@ component Well inherits Rectangle {
 // "(?)" — click for a short explanation; click anywhere to close it.
 export component Hint inherits Rectangle {
     in property <string> text;
-    width: 16px;
-    height: 16px;
-    border-radius: 8px;
-    border-width: 1px;
-    border-color: touch.has-hover ? Theme.ink : Theme.graphite;
-    background: touch.has-hover ? Theme.hover : transparent;
+    // The circle sits at the top of a slightly taller box: centered next to a label, it then lines
+    // up with the letters themselves rather than with the font's descender space.
+    width: 15px;
+    height: 18px;
     accessible-role: button;
     accessible-label: @tr("What is this?");
     accessible-description: root.text;
 
-    Text {
-        text: "?";
-        font-size: 10px;
-        font-weight: 700;
-        color: touch.has-hover ? Theme.ink : Theme.graphite;
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: 15px;
+        height: 15px;
+        border-radius: 7.5px;
+        border-width: 1px;
+        border-color: touch.has-hover ? Theme.ink : Theme.graphite;
+        background: touch.has-hover ? Theme.hover : transparent;
+        // A drawn "?" is exactly centered; a font glyph sits wherever its metrics put it.
+        Path {
+            width: 15px;
+            height: 15px;
+            viewbox-width: 15;
+            viewbox-height: 15;
+            commands: "M5.4 5.7 C5.4 4.3 6.4 3.6 7.5 3.6 C8.7 3.6 9.6 4.4 9.6 5.5 C9.6 6.9 7.5 7.1 7.5 8.8";
+            stroke: touch.has-hover ? Theme.ink : Theme.graphite;
+            stroke-width: 1.3px;
+            fill: transparent;
+        }
+        Rectangle {
+            x: 6.8px;
+            y: 10.3px;
+            width: 1.4px;
+            height: 1.4px;
+            border-radius: 0.7px;
+            background: touch.has-hover ? Theme.ink : Theme.graphite;
+        }
     }
     touch := TouchArea {
         mouse-cursor: MouseCursor.pointer;

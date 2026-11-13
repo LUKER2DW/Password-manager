@@ -414,12 +414,18 @@ fn main() {
     click(&app, 729.0, 184.0); // (?) next to "Show website icons"
     camera.shot("settings-icons-hint", "Privacy note for website icons");
     click(&app, 1000.0, 720.0);
+    app.invoke_open_kit();
+    camera.shot("kit-locked", "Emergency kit page: master password first");
     type_into(&app, 5, PASSWORD);
     app.invoke_show_kit();
-    camera.shot(
-        "settings-kit",
-        "Settings: Secret Key shown after re-entering the password",
-    );
+    camera.shot("kit", "Emergency kit page: print or save as PDF");
+    // Keep a copy of the printable PDF next to the screenshots (fake keys only).
+    app.invoke_print_kit();
+    if let Ok(entries) = std::fs::read_dir(temp.path().join("home").join("print")) {
+        for entry in entries.flatten() {
+            let _ = std::fs::copy(entry.path(), dir.join("emergency-kit-demo.pdf"));
+        }
+    }
     app.invoke_hide_kit();
 
     // ---- light theme, for comparison ----

@@ -129,10 +129,11 @@ export component VaultIndex inherits Rectangle {
     callback select-category(int);
     callback open-generator();
     callback open-settings();
+    callback open-kit();
     callback lock();
 
     background: Theme.panel;
-    property <bool> browsing: root.panel != Panel.generator && root.panel != Panel.settings;
+    property <bool> browsing: root.panel != Panel.generator && root.panel != Panel.settings && root.panel != Panel.kit;
 
     VerticalLayout {
         padding: 18px;
@@ -153,6 +154,7 @@ export component VaultIndex inherits Rectangle {
         IndexTab { text: @tr("Secure notes"); count: root.counts[4]; active: root.category == 4 && root.browsing; clicked => { root.select-category(4); } }
         Rectangle { vertical-stretch: 1; }
         IndexTab { text: @tr("Password generator"); active: root.panel == Panel.generator; clicked => { root.open-generator(); } }
+        IndexTab { text: @tr("Emergency kit"); active: root.panel == Panel.kit; clicked => { root.open-kit(); } }
         IndexTab { text: @tr("Settings"); active: root.panel == Panel.settings; clicked => { root.open-settings(); } }
         Rectangle { height: 8px; }
         IndexTab { text: @tr("Lock now"); clicked => { root.lock(); } }

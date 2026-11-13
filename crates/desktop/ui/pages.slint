@@ -365,14 +365,13 @@ export component EditorPage inherits Rectangle {
             if root.kind != 2: HorizontalLayout {
                 spacing: 16px;
                 LineField {
+                    horizontal-stretch: 1;
                     label: root.kind == 1 ? @tr("Name on card") : @tr("Username or email");
-                    hint: root.kind == 1
-                        ? @tr("The name exactly as it's printed on the card.")
-                        : @tr("What you type in the site's username or email box when you sign in.");
                     placeholder: root.kind == 1 ? "" : @tr("you@example.com");
                     text <=> root.username;
                 }
                 if root.kind == 0: LineField {
+                    horizontal-stretch: 1;
                     label: @tr("Website");
                     placeholder: "https://";
                     text <=> root.url;
@@ -387,9 +386,6 @@ export component EditorPage inherits Rectangle {
                         horizontal-stretch: 1;
                         field: 4;
                         label: root.kind == 1 ? @tr("PIN or security code") : @tr("Password");
-                        hint: root.kind == 1
-                            ? @tr("The card's PIN, or the 3–4 digit code on the back. Leave it empty if you'd rather not store it.")
-                            : @tr("The password for this account. Signing up or changing it on the site? Click Generate for a strong one, then use it there.");
                         revealed: root.password-shown;
                     }
                     VerticalLayout {
@@ -453,6 +449,7 @@ export component GeneratorPage inherits Rectangle {
     in property <int> bits;
     in property <int> crack-unit;
     in property <int> crack-amount;
+    in property <int> crack-comparison;
     in property <bool> editing;
     in-out property <int> mode;
     in-out property <int> length;
@@ -526,9 +523,15 @@ export component GeneratorPage inherits Rectangle {
                 VerticalLayout {
                     alignment: center;
                     Hint {
-                        text: @tr("Estimated for the worst realistic case: a site you use is breached, its password list leaks, and an attacker with a rack of graphics cards tries a trillion guesses per second. On average they'd find it halfway through. Each extra bit doubles the time.");
+                        text: @tr("Worst realistic case: a site you use is breached and its password list leaks with fast (MD5) hashes. An attacker runs hashcat on six RTX 4090 graphics cards, about a trillion guesses per second, and on average finds the password halfway through. Sites that store passwords properly (bcrypt, Argon2) make this millions of times slower. Each extra bit doubles the time.");
                     }
                 }
+            }
+            Text {
+                text: Messages.crack-comparison(root.crack-comparison);
+                font-size: Theme.small;
+                color: Theme.graphite;
+                wrap: word-wrap;
             }
             HorizontalLayout {
                 alignment: start;
@@ -661,8 +664,6 @@ export component SettingsPage inherits Rectangle {
     in property <bool> dark;
     in property <string> vault-path;
     in property <string> vault-id;
-    in property <string> kit-secret-key;
-    in property <string> kit-recovery-key;
     in-out property <int> auto-lock-minutes;
     in-out property <int> clipboard-seconds;
     in-out property <bool> website-icons;
@@ -672,9 +673,6 @@ export component SettingsPage inherits Rectangle {
     callback settings-changed();
     callback appearance-changed(bool);
     callback change-password();
-    callback show-kit();
-    callback hide-kit();
-    callback new-recovery-key();
 
     ScrollView {
         VerticalLayout {
@@ -745,8 +743,8 @@ export component SettingsPage inherits Rectangle {
 
             Rule { }
             SectionTitle {
-                text: @tr("Master password and emergency kit");
-                hint: @tr("These changes re-check your current master password against the vault file, so someone using an unlocked computer can't make them.");
+                text: @tr("Master password");
+                hint: @tr("Changing it re-checks your current master password against the vault file, so someone using a computer you left unlocked can't do it. Your items, Secret Key and Recovery Key stay the same.");
             }
             SecretField {
                 field: 5;
@@ -758,7 +756,6 @@ export component SettingsPage inherits Rectangle {
                 SecretField {
                     field: 6;
                     label: @tr("New master password");
-                    hint: @tr("Only to change it. At least 12 characters; leave both new-password boxes empty to just show the Secret Key or issue a new Recovery Key.");
                     error: root.error-code == 4 || root.error-code == 5;
                 }
                 SecretField {
@@ -773,41 +770,179 @@ export component SettingsPage inherits Rectangle {
             }
             HorizontalLayout {
                 alignment: start;
-                spacing: 8px;
                 Button {
                     text: @tr("Change master password");
                     busy-text: @tr("Working…");
                     busy: root.busy;
                     clicked => { root.change-password(); }
                 }
-                VerticalLayout {
-                    alignment: center;
-                    QuietButton {
-                        text: root.kit-secret-key == "" ? @tr("Show Secret Key") : @tr("Hide kit");
-                        clicked => {
-                            if (root.kit-secret-key == "") { root.show-kit(); } else { root.hide-kit(); }
-                        }
-                    }
-                }
-                VerticalLayout {
-                    alignment: center;
-                    QuietButton {
-                        text: @tr("Issue a new Recovery Key");
-                        clicked => { root.new-recovery-key(); }
-                    }
-                }
-            }
-            if root.kit-secret-key != "": KitSlip {
-                vault-id: root.vault-id;
-                secret-key: root.kit-secret-key;
-                recovery-key: root.kit-recovery-key;
-                vault-path: root.vault-path;
             }
 
             Rule { }
             SectionTitle { text: @tr("This vault"); }
             Prose { text: @tr("File: {}", root.vault-path); }
             Prose { text: @tr("Vault ID: {}", root.vault-id); }
+        }
+    }
+}
+
+// The emergency kit: shown after the master password is typed, then printed or saved as a PDF.
+export component KitPage inherits Rectangle {
+    in property <int> error-code;
+    in property <string> error-detail;
+    in property <bool> busy;
+    in property <string> vault-path;
+    in property <string> vault-id;
+    in property <string> kit-secret-key;
+    in property <string> kit-recovery-key;
+    callback show-kit();
+    callback hide-kit();
+    callback new-recovery-key();
+    callback print-kit();
+    callback save-kit();
+
+    property <bool> confirming-new-key;
+    changed kit-recovery-key => { root.confirming-new-key = false; }
+
+    ScrollView {
+        VerticalLayout {
+            padding: 40px;
+            padding-right: 48px;
+            spacing: 16px;
+            alignment: start;
+
+            PageTitle { text: @tr("Emergency kit"); }
+            Prose {
+                text: @tr("Your way back in if you lose this computer or forget the master password. Print it and keep the paper somewhere safe, away from the computer.");
+            }
+
+            if root.kit-secret-key == "": VerticalLayout {
+                spacing: 14px;
+                max-width: 420px;
+                SecretField {
+                    field: 5;
+                    label: @tr("Master password");
+                    error: root.error-code == 11;
+                    accepted => { root.show-kit(); }
+                }
+                ErrorText {
+                    code: root.error-code;
+                    detail: root.error-detail;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    Button {
+                        text: @tr("Show my kit");
+                        busy-text: @tr("Checking…");
+                        busy: root.busy;
+                        clicked => { root.show-kit(); }
+                    }
+                }
+            }
+
+            if root.kit-secret-key != "": VerticalLayout {
+                spacing: 16px;
+                KitSlip {
+                    max-width: 620px;
+                    vault-id: root.vault-id;
+                    secret-key: root.kit-secret-key;
+                    recovery-key: root.kit-recovery-key;
+                    vault-path: root.vault-path;
+                }
+                if root.kit-recovery-key == "": Prose {
+                    font-size: Theme.small;
+                    text: @tr("The Recovery Key isn't stored anywhere, so it can't be shown again: use the one on your first kit. Lost it? Issue a new one below; the old one stops working.");
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 8px;
+                    Button {
+                        text: @tr("Print");
+                        clicked => { root.print-kit(); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        QuietButton {
+                            text: @tr("Save as PDF…");
+                            clicked => { root.save-kit(); }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        QuietButton {
+                            text: @tr("New Recovery Key");
+                            clicked => { root.confirming-new-key = true; }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        QuietButton {
+                            text: @tr("Hide");
+                            tint: Theme.graphite;
+                            clicked => {
+                                root.confirming-new-key = false;
+                                root.hide-kit();
+                            }
+                        }
+                    }
+                }
+                Text {
+                    text: @tr("Printing makes a temporary PDF that is wiped from this computer when the vault locks.");
+                    font-size: Theme.small;
+                    color: Theme.faint;
+                    wrap: word-wrap;
+                }
+                if root.confirming-new-key: Rectangle {
+                    border-radius: Theme.radius;
+                    border-width: 1px;
+                    border-color: Theme.rule;
+                    background: Theme.panel;
+                    max-width: 620px;
+                    VerticalLayout {
+                        padding: 18px;
+                        spacing: 12px;
+                        Text {
+                            text: @tr("Issue a new Recovery Key?");
+                            font-size: Theme.lead;
+                            font-weight: 600;
+                            color: Theme.ink;
+                        }
+                        Prose {
+                            text: @tr("The Recovery Key on your old kits will stop working. Print the new kit right after.");
+                        }
+                        SecretField {
+                            field: 5;
+                            label: @tr("Master password");
+                            error: root.error-code == 11;
+                            accepted => { root.new-recovery-key(); }
+                        }
+                        ErrorText {
+                            code: root.error-code;
+                            detail: root.error-detail;
+                        }
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 8px;
+                            Button {
+                                text: @tr("Issue new Recovery Key");
+                                danger: true;
+                                busy-text: @tr("Working…");
+                                busy: root.busy;
+                                clicked => {
+                                    root.new-recovery-key();
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                QuietButton {
+                                    text: @tr("Cancel");
+                                    clicked => { root.confirming-new-key = false; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

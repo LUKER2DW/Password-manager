@@ -2,7 +2,7 @@ import { Theme, Sketch, Secrets } from "theme.slint";
 import { Screen, Panel, ItemRow, DetailField, Messages } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
-import { DetailPage, EditorPage, GeneratorPage, SettingsPage } from "pages.slint";
+import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage } from "pages.slint";
 
 export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, Messages }
 
@@ -138,6 +138,7 @@ export component AppWindow inherits Window {
     in property <int> gen-bits;
     in property <int> gen-crack-unit;
     in property <int> gen-crack-amount;
+    in property <int> gen-crack-comparison;
     in-out property <int> gen-mode;
     in-out property <int> gen-length: 24;
     in-out property <int> gen-words: 6;
@@ -163,6 +164,9 @@ export component AppWindow inherits Window {
     callback show-kit();
     callback hide-kit();
     callback new-recovery-key();
+    callback open-kit();
+    callback print-kit();
+    callback save-kit();
 
     if root.screen == Screen.onboarding: OnboardingScreen {
         step: root.onboarding-step;
@@ -180,6 +184,8 @@ export component AppWindow inherits Window {
         suggest => { root.suggest-passphrase(); }
         use-suggestion => { root.use-suggestion(); }
         finish => { root.finish-onboarding(); }
+        print-kit => { root.print-kit(); }
+        save-kit => { root.save-kit(); }
     }
 
     if root.screen == Screen.unlock: UnlockScreen {
@@ -213,6 +219,7 @@ export component AppWindow inherits Window {
             select-category(c) => { root.select-category(c); }
             open-generator => { root.open-generator(); }
             open-settings => { root.open-settings(); }
+            open-kit => { root.open-kit(); }
             lock => { root.lock(); }
         }
         Rectangle { width: 1px; background: Theme.rule; }
@@ -282,6 +289,7 @@ export component AppWindow inherits Window {
                 bits: root.gen-bits;
                 crack-unit: root.gen-crack-unit;
                 crack-amount: root.gen-crack-amount;
+                crack-comparison: root.gen-crack-comparison;
                 editing: root.editing-item;
                 mode <=> root.gen-mode;
                 length <=> root.gen-length;
@@ -305,8 +313,6 @@ export component AppWindow inherits Window {
                 dark: Theme.dark;
                 vault-path: root.vault-path;
                 vault-id: root.vault-id;
-                kit-secret-key: root.kit-secret-key;
-                kit-recovery-key: root.kit-recovery-key;
                 auto-lock-minutes <=> root.auto-lock-minutes;
                 clipboard-seconds <=> root.clipboard-seconds;
                 website-icons <=> root.website-icons;
@@ -316,9 +322,20 @@ export component AppWindow inherits Window {
                 settings-changed => { root.settings-changed(); }
                 appearance-changed(dark) => { root.appearance-changed(dark); }
                 change-password => { root.change-password(); }
+            }
+            if root.panel == Panel.kit: KitPage {
+                error-code: root.error-code;
+                error-detail: root.error-detail;
+                busy: root.busy;
+                vault-path: root.vault-path;
+                vault-id: root.vault-id;
+                kit-secret-key: root.kit-secret-key;
+                kit-recovery-key: root.kit-recovery-key;
                 show-kit => { root.show-kit(); }
                 hide-kit => { root.hide-kit(); }
                 new-recovery-key => { root.new-recovery-key(); }
+                print-kit => { root.print-kit(); }
+                save-kit => { root.save-kit(); }
             }
 
             if root.notice-code != 0: Notice {

@@ -112,10 +112,57 @@ pub fn tint(kind: ItemKind, key: &str) -> (u8, u8, u8) {
     }
 }
 
-/// Guesses per second assumed for crack-time estimates: a well-funded attacker with a GPU rig
-/// working offline on a stolen list of fast (unsalted, MD5/SHA-1-like) hashes. The worst
-/// realistic case for a website's leaked password database.
+/// Guesses per second assumed for crack-time estimates: the worst realistic case for a password
+/// from a website's leaked database. The site stored fast hashes (MD5), and the attacker runs
+/// hashcat on a small rig: one RTX 4090 does about 164 billion MD5 guesses per second (hashcat
+/// 6.2 benchmark), so six of them make about a trillion. Slow hashes (bcrypt, Argon2) would take
+/// millions of times longer.
 pub const GUESSES_PER_SECOND: f64 = 1e12;
+
+const AGE_OF_UNIVERSE_YEARS: f64 = 13.8e9;
+
+/// Years ago (counted from 2026) of the milestones used for comparisons, with their codes in
+/// model.slint → Messages.crack-comparison. Sorted from the most recent.
+const MILESTONES: [(f64, i32); 12] = [
+    (19.0, 7),       // the first iPhone (2007)
+    (35.0, 8),       // the World Wide Web opened to everyone (1991)
+    (57.0, 9),       // the first Moon landing (1969)
+    (250.0, 10),     // James Watt's steam engine (1776)
+    (576.0, 11),     // Gutenberg's printing press (~1450)
+    (1026.0, 12),    // Vikings reached North America (~1000)
+    (2070.0, 13),    // Julius Caesar ruled Rome (44 BC)
+    (4580.0, 14),    // the Great Pyramid of Giza (~2560 BC)
+    (12_000.0, 15),  // the first farms (~10,000 BC)
+    (300_000.0, 16), // the first modern humans
+    (66e6, 17),      // the dinosaurs died out
+    (4.5e9, 18),     // the Earth formed
+];
+
+/// Light-hearted comparison for an average crack time (see `Messages.crack-comparison`).
+pub fn crack_comparison(bits: f64) -> i32 {
+    let seconds = (bits - 1.0).exp2() / GUESSES_PER_SECOND;
+    let years = seconds / (365.25 * 24.0 * 3600.0);
+    if seconds < 1.0 {
+        1
+    } else if seconds < 60.0 {
+        2
+    } else if seconds < 3600.0 {
+        3
+    } else if seconds < 24.0 * 3600.0 {
+        4
+    } else if years < 1.0 {
+        5
+    } else if years >= AGE_OF_UNIVERSE_YEARS {
+        19
+    } else {
+        // The oldest milestone it outlasts: "if they'd started when …, they'd still be at it".
+        MILESTONES
+            .iter()
+            .rev()
+            .find(|(ago, _)| years >= *ago)
+            .map_or(6, |(_, code)| *code)
+    }
+}
 
 /// Crack-time units (texts in model.slint → Messages.crack-time).
 pub mod crack {
@@ -128,7 +175,7 @@ pub mod crack {
     pub const THOUSAND_YEARS: i32 = 6;
     pub const MILLION_YEARS: i32 = 7;
     pub const BILLION_YEARS: i32 = 8;
-    /// More than 1000 billion years: far beyond the age of the universe.
+    /// Longer than the universe has existed (13.8 billion years).
     pub const BEYOND: i32 = 9;
 }
 
@@ -157,7 +204,7 @@ pub fn crack_time(bits: f64) -> (i32, i32) {
         (crack::THOUSAND_YEARS, years / 1e3)
     } else if years < 1e9 {
         (crack::MILLION_YEARS, years / 1e6)
-    } else if years < 1e12 {
+    } else if years < AGE_OF_UNIVERSE_YEARS {
         (crack::BILLION_YEARS, years / 1e9)
     } else {
         (crack::BEYOND, 0.0)
@@ -258,6 +305,33 @@ mod tests {
         assert_eq!(crack_time(70.0), (crack::YEARS, 19));
         assert_eq!(crack_time(90.0).0, crack::MILLION_YEARS);
         assert_eq!(crack_time(128.0), (crack::BEYOND, 0));
+    }
+
+    #[test]
+    fn crack_comparisons() {
+        assert_eq!(crack_comparison(20.0), 1, "instant");
+        assert_eq!(crack_comparison(50.0), 3, "minutes: a coffee break");
+        assert_eq!(
+            crack_comparison(66.0),
+            6,
+            "a couple of years: no milestone yet"
+        );
+        assert_eq!(
+            crack_comparison(70.0),
+            6,
+            "18.7 years: just short of the iPhone"
+        );
+        assert_eq!(
+            crack_comparison(77.0),
+            13,
+            "~2,400 years: longer than since Caesar"
+        );
+        assert_eq!(
+            crack_comparison(90.0),
+            16,
+            "~20 million years: since the first humans"
+        );
+        assert_eq!(crack_comparison(128.0), 19, "beyond the universe");
     }
 
     #[test]

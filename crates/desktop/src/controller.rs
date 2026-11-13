@@ -24,7 +24,8 @@ use vault_core::{
     totp::Totp,
 };
 use vault_platform::{
-    DeviceState, RollbackStatus, SecretBuffer, clipboard, device,
+    DeviceState, RollbackStatus, SecretBuffer, clipboard, device, files,
+    kit_pdf::{self, KitContents},
     quick_unlock::{self, DeviceVerifier, QuickUnlockError},
     secret_store,
 };
@@ -96,6 +97,8 @@ mod notice {
     pub const HELLO_OFF: i32 = 13;
     pub const HELLO_NOT_ON: i32 = 14;
     pub const PASSWORD_CHANGED_HELLO_OFF: i32 = 15;
+    pub const KIT_OPENED: i32 = 16;
+    pub const KIT_SAVED: i32 = 17;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -206,6 +209,13 @@ thread_local! {
     static CURRENT: RefCell<Weak<Controller>> = const { RefCell::new(Weak::new()) };
 }
 
+impl Drop for Controller {
+    fn drop(&mut self) {
+        // A kit printed during this session must not outlive it.
+        files::wipe_print_dir();
+    }
+}
+
 impl std::fmt::Debug for Controller {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Controller")
@@ -222,6 +232,8 @@ impl Controller {
         verifier: Option<Arc<dyn DeviceVerifier>>,
     ) -> anyhow::Result<Rc<Self>> {
         let settings = DeviceState::load().map(|s| s.settings).unwrap_or_default();
+        // Left over from a crash or a viewer that kept the file open last time.
+        files::wipe_print_dir();
         // Asking Windows whether Hello is set up can take a moment: never on the UI thread.
         let quick_available =
             runner == Runner::Inline && verifier.as_ref().is_some_and(|v| v.is_available());
@@ -353,6 +365,9 @@ impl Controller {
         on!(on_new_item, |c| c.open_editor(None));
         on!(on_open_generator, |c| c.open_generator());
         on!(on_open_settings, |c| c.open_settings());
+        on!(on_open_kit, |c| c.open_kit());
+        on!(on_print_kit, |c| c.print_kit());
+        on!(on_save_kit, |c| c.save_kit());
         on!(on_lock, |c| c.lock());
 
         on!(on_edit_item, |c| {
@@ -1072,6 +1087,7 @@ impl Controller {
             state.icon_images.clear();
         }
         self.clear_all_secrets();
+        files::wipe_print_dir();
         self.items.set_vec(Vec::new());
         let app = self.app();
         app.set_selected(-1);
@@ -1184,7 +1200,10 @@ impl Controller {
     fn select_category(&self, category: i32) {
         let app = self.app();
         app.set_category(category);
-        if matches!(app.get_panel(), Panel::Generator | Panel::Settings) {
+        if matches!(
+            app.get_panel(),
+            Panel::Generator | Panel::Settings | Panel::Kit
+        ) {
             app.set_panel(Panel::Detail);
         }
         self.refresh_list();
@@ -1673,6 +1692,85 @@ impl Controller {
         self.set_error(error::NONE, "");
     }
 
+    // -----------------------------------------------------------------------------------------
+    // Emergency kit page, printing and PDF
+    // -----------------------------------------------------------------------------------------
+
+    fn open_kit(&self) {
+        let app = self.app();
+        app.set_kit_secret_key(SharedString::new());
+        app.set_kit_recovery_key(SharedString::new());
+        self.clear_secret(field::CURRENT);
+        app.set_panel(Panel::Kit);
+        self.set_error(error::NONE, "");
+    }
+
+    /// The kit currently on screen as a PDF, with a file name. `None` until the keys are shown.
+    fn kit_pdf(&self) -> Option<(String, Zeroizing<Vec<u8>>)> {
+        let app = self.app();
+        let secret_key = app.get_kit_secret_key();
+        if secret_key.is_empty() {
+            return None;
+        }
+        let recovery_key = app.get_kit_recovery_key();
+        let vault_id = app.get_vault_id();
+        let vault_path = app.get_vault_path();
+        let created_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let bytes = kit_pdf::render(&KitContents {
+            secret_key: &secret_key,
+            recovery_key: (!recovery_key.is_empty()).then_some(recovery_key.as_str()),
+            vault_id: &vault_id,
+            vault_path: &vault_path,
+            created_at,
+        });
+        let short_id: String = vault_id.chars().take(8).collect();
+        Some((format!("emergency-kit-{short_id}.pdf"), bytes))
+    }
+
+    /// Writes the kit to the print folder (wiped when the vault locks) and opens it in the PDF
+    /// viewer, where it can be printed.
+    fn print_kit(&self) {
+        let Some((name, bytes)) = self.kit_pdf() else {
+            return;
+        };
+        match files::write_for_printing(&name, &bytes) {
+            Ok(path) => {
+                // Headless tests stop at writing the file.
+                if self.state.borrow().runner == Runner::Thread {
+                    if let Err(err) = files::open_with_default_app(&path) {
+                        self.set_error(error::OTHER, &err.to_string());
+                        return;
+                    }
+                }
+                self.notify(notice::KIT_OPENED, "");
+            }
+            Err(err) => self.set_error(error::FILE, &err.to_string()),
+        }
+    }
+
+    fn save_kit(&self) {
+        if self.state.borrow().runner == Runner::Inline {
+            return; // no dialogs in headless tests
+        }
+        let Some((name, bytes)) = self.kit_pdf() else {
+            return;
+        };
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Save emergency kit")
+            .set_file_name(&name)
+            .add_filter("PDF", &["pdf"])
+            .save_file()
+        else {
+            return;
+        };
+        match std::fs::write(&path, &*bytes) {
+            Ok(()) => self.notify(notice::KIT_SAVED, &path.display().to_string()),
+            Err(err) => self.set_error(error::FILE, &err.to_string()),
+        }
+    }
+
     fn set_appearance(&self, dark: bool) {
         self.app().global::<Theme>().set_dark(dark);
         self.save_settings();
@@ -1999,6 +2097,7 @@ fn set_strength(app: &AppWindow, bits: f64) {
     let (unit, amount) = view::crack_time(bits);
     app.set_gen_crack_unit(unit);
     app.set_gen_crack_amount(amount);
+    app.set_gen_crack_comparison(view::crack_comparison(bits));
 }
 
 /// Re-derives the key from the file with the typed password: proof the person at the keyboard
