@@ -314,9 +314,7 @@ mod windows_hello {
         }
 
         fn secret(&self, vault_id: &str) -> Result<Zeroizing<Vec<u8>>, QuickUnlockError> {
-            if !self.is_available() {
-                return Err(QuickUnlockError::Unavailable);
-            }
+            // No IsSupported round trip first: OpenAsync reports the same problems itself.
             let result = KeyCredentialManager::OpenAsync(&credential_name(vault_id))
                 .and_then(|op| op.join())
                 .map_err(failed)?;
