@@ -1,6 +1,6 @@
-# Vault File Format — v2
+# Vault File Format — v3
 
-> Status: **draft v2**, not stable. v0 and v1 files are still read and upgraded to v2 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
+> Status: **draft v3**, not stable. v0, v1 and v2 files are still read and upgraded to v3 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
 > Structures are serialized with [postcard](https://postcard.jamesmunns.com/wire-format) 1.x
 > (stable wire format). Integers in the file envelope are little-endian.
 
@@ -9,7 +9,7 @@
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 8 | magic `"PMVAULT\0"` |
-| 8 | 2 | `format_version` (u16) = `2` (`0` and `1` are read and upgraded) |
+| 8 | 2 | `format_version` (u16) = `3` (`0`, `1` and `2` are read and upgraded) |
 | 10 | 4 | `header_len` (u32) |
 | 14 | `header_len` | `header` (postcard `VaultHeader`) |
 | … | 4 | `body_len` (u32) |
@@ -68,6 +68,8 @@ struct VaultSettings {
 struct Folder {
     id: [u8; 16],            // random; unique within the vault
     name: String,            // encrypted with the body like everything else
+    icon: String,            // v3: icon name chosen by the user, "" = plain folder
+    color: u8,               // v3: colour index 0–15, 0 = default
 }
 
 struct ItemRecord {
@@ -82,7 +84,7 @@ Items are encrypted twice on disk (item layer + body layer) on purpose: after un
 app keeps items encrypted in memory and decrypts only the one being used; the body layer hides
 the item count, sizes and ids. Item records are also the unit of future sync.
 
-## 4. Item data (v2)
+## 4. Item data (v3)
 
 ```rust
 struct ItemData {
@@ -101,6 +103,7 @@ struct ItemData {
     recovery_codes: Vec<RecoveryCode>, // v1: the account's two-step backup codes
     password_history: Vec<PasswordChange>, // v2: earlier passwords, oldest first
     password_changed_at: i64,              // v2: when the password was set; 0 = unknown
+    icon_url: String,                      // v3: website whose icon stands for the item; "" = urls[0]
 }
 
 struct PasswordChange {
@@ -123,9 +126,10 @@ struct CustomField {
 ## 5. Upgrading older files
 
 A v0 file has no `folders` in the body and its items end after `updated_at`; a v1 file has no
-`settings` and its items end after `recovery_codes`. When one is opened, every item is decrypted
-with its old layout and re-encrypted with the v2 layout in memory (same ids and revisions, new
-item keys); the next save writes a v2 file. Fixtures for every version are committed
+`settings` and its items end after `recovery_codes`; a v2 file's folders end after `name` and its
+items after `password_changed_at`. When one is opened, every item is decrypted
+with its old layout and re-encrypted with the v3 layout in memory (same ids and revisions, new
+item keys); the next save writes a v3 file. Fixtures for every version are committed
 (`crates/core/tests/fixtures`) and must keep opening.
 
 When an item's password changes, `Vault::update_item` moves the old one into

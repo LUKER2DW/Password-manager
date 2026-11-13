@@ -141,6 +141,11 @@ Rules:
 - ✅ Emergency kit PDF: the Recovery Key (fixed shape) is written into boxes on two lines, one
   character each, empty when the app doesn't have it; a box for the master password; no file
   location, the vault id only in small print
+- ✅ Folders (format v3): name, icon and colour, edited from the folder's page or the pencil
+  next to it in the index
+- ✅ An item's icon can come from another website ("Icon from", format v3), fetched once even
+  when website icons are off for the rest of the vault
+- ✅ Required fields marked with a red asterisk
 - ⬜ Attachments, tags; passkeys
 - **Done when:** daily use on Windows is possible with a test vault.
 
