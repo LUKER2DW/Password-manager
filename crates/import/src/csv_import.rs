@@ -33,6 +33,7 @@ const TOTP: &[&str] = &[
     "2fa",
 ];
 const FAVORITE: &[&str] = &["favorite", "fav"];
+const REPROMPT: &[&str] = &["reprompt"];
 const KIND: &[&str] = &["type"];
 const FIELDS: &[&str] = &["fields"];
 /// Bitwarden CSV "folder", LastPass "grouping", KeePassXC "group", Dashlane "category",
@@ -51,6 +52,7 @@ struct Columns {
     notes: Option<usize>,
     totp: Option<usize>,
     favorite: Option<usize>,
+    reprompt: Option<usize>,
     kind: Option<usize>,
     fields: Option<usize>,
     folder: Option<usize>,
@@ -78,6 +80,7 @@ impl Columns {
             notes: find(NOTES),
             totp: find(TOTP),
             favorite: find(FAVORITE),
+            reprompt: find(REPROMPT),
             kind: find(KIND),
             fields: find(FIELDS),
             folder: find(FOLDER),
@@ -145,6 +148,8 @@ pub(crate) fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
         item.urls = url.into_iter().collect();
         item.favorite =
             get(columns.favorite).is_some_and(|f| matches!(f.trim(), "1" | "true" | "yes"));
+        item.reprompt =
+            get(columns.reprompt).is_some_and(|f| matches!(f.trim(), "1" | "true" | "yes"));
         if let Some(created) = get(columns.created_ms).and_then(|ms| ms.parse::<i64>().ok()) {
             item.created_at = created / 1000;
         }

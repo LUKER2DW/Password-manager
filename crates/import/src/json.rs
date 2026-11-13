@@ -32,6 +32,9 @@ struct Item {
     notes: Option<String>,
     #[serde(default)]
     favorite: bool,
+    /// 1 = ask for the master password again before showing the item.
+    #[serde(default)]
+    reprompt: u8,
     #[serde(default)]
     fields: Option<Vec<Field>>,
     login: Option<Login>,
@@ -118,6 +121,7 @@ pub(crate) fn import_json(bytes: &[u8]) -> Result<ImportReport, ImportError> {
         let mut item = ItemData::new(kind, &title);
         item.notes = source.notes.unwrap_or_default();
         item.favorite = source.favorite;
+        item.reprompt = source.reprompt != 0;
         if let Some(created) = source.creation_date.as_deref().and_then(iso8601_to_unix) {
             item.created_at = created;
         }
