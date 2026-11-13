@@ -150,10 +150,7 @@ fn full_lifecycle() {
 
     // totp
     let code = env.ok(&["totp", "GitHub"], &[MASTER]);
-    assert!(
-        code.split_whitespace().next().unwrap().len() == 6,
-        "{code}"
-    );
+    assert!(code.split_whitespace().next().unwrap().len() == 6, "{code}");
 
     // wrong password is rejected with a clear message
     assert!(
@@ -222,6 +219,62 @@ fn full_lifecycle() {
             "{needle} leaked"
         );
     }
+}
+
+#[test]
+fn import_browser_csv() {
+    let env = Env::new();
+    env.ok(
+        &["init", "--kdf-target-ms", "50", "--kdf-memory-mib", "64"],
+        &[MASTER],
+    );
+    let csv = env.vault.with_file_name("chrome-export.csv");
+    std::fs::write(
+        &csv,
+        "name,url,username,password,note\n\
+         Shop,https://shop.example,me,shop-pass-1,\n\
+         ,https://www.forum.example/login,me2,forum-pass-2,old account\n",
+    )
+    .unwrap();
+    let csv_arg = csv.to_str().unwrap();
+
+    let dry = env.ok(&["import", csv_arg, "--dry-run"], &[MASTER]);
+    assert!(dry.contains("2 item(s) would be imported"), "{dry}");
+    assert!(env.ok(&["list"], &[MASTER]).contains("(no items)"));
+
+    let first = env.ok(&["import", csv_arg], &[MASTER]);
+    assert!(
+        first.contains("Imported 2 item(s)") && first.contains("PLAIN TEXT"),
+        "{first}"
+    );
+    let again = env.ok(&["import", csv_arg, "--delete-source"], &[MASTER]);
+    assert!(
+        again.contains("Imported 0 item(s)") && again.contains("skipped 2 duplicate(s)"),
+        "{again}"
+    );
+    assert!(!csv.exists(), "--delete-source removes the export");
+
+    let list = env.ok(&["list"], &[MASTER]);
+    assert!(
+        list.contains("Shop") && list.contains("forum.example"),
+        "{list}"
+    );
+    assert!(
+        env.ok(&["show", "forum", "--reveal"], &[MASTER])
+            .contains("forum-pass-2")
+    );
+}
+
+#[test]
+fn passphrases() {
+    let env = Env::new();
+    let phrase = env.ok(&["generate", "--words", "7", "--separator", "."], &[]);
+    assert!(
+        phrase.trim().split('.').filter(|w| !w.is_empty()).count() >= 7,
+        "{phrase}"
+    );
+    let output = env.run(&["generate", "--words", "2"], &[]);
+    assert!(!output.status.success(), "fewer than 3 words is refused");
 }
 
 #[test]

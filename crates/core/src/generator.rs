@@ -1,8 +1,17 @@
-//! Random password generation with uniform character selection.
+//! Random password and passphrase generation with uniform selection.
+
+use std::sync::OnceLock;
 
 use zeroize::Zeroizing;
 
 use crate::{Error, Result, random};
+
+/// EFF large word list (CC BY 3.0 US, © Electronic Frontier Foundation). See `data/README.md`.
+const EFF_LARGE_WORDLIST: &str = include_str!("../data/eff_large_wordlist.txt");
+const EFF_WORD_COUNT: usize = 7776;
+const MIN_WORDS: usize = 3;
+const MAX_WORDS: usize = 20;
+const MAX_SEPARATOR_CHARS: usize = 3;
 
 const LOWERCASE: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
 const UPPERCASE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -97,6 +106,91 @@ pub fn generate_password(options: &PasswordOptions) -> Result<Zeroizing<String>>
     Ok(out)
 }
 
+/// Options for word-based passphrases (easier to type and remember, e.g. for the master password).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PassphraseOptions {
+    /// Number of words (3–20). Six words ≈ 77.5 bits.
+    pub words: usize,
+    /// Placed between words (at most 3 characters; may be empty).
+    pub separator: String,
+    /// Capitalize the first letter of every word.
+    pub capitalize: bool,
+    /// Append one random digit to one random word.
+    pub include_number: bool,
+}
+
+impl Default for PassphraseOptions {
+    fn default() -> Self {
+        Self {
+            words: 6,
+            separator: "-".into(),
+            capitalize: false,
+            include_number: false,
+        }
+    }
+}
+
+impl PassphraseOptions {
+    /// Strength: `words × log2(7776)`, plus the digit and its position when enabled.
+    pub fn entropy_bits(&self) -> f64 {
+        let words = self.words as f64 * (EFF_WORD_COUNT as f64).log2();
+        if self.include_number && self.words > 0 {
+            words + 10f64.log2() + (self.words as f64).log2()
+        } else {
+            words
+        }
+    }
+}
+
+fn eff_words() -> &'static [&'static str] {
+    static WORDS: OnceLock<Vec<&'static str>> = OnceLock::new();
+    WORDS.get_or_init(|| {
+        EFF_LARGE_WORDLIST
+            .lines()
+            .filter_map(|line| line.split_once('\t').map(|(_, word)| word))
+            .collect()
+    })
+}
+
+/// Generates a passphrase from the EFF large word list.
+pub fn generate_passphrase(options: &PassphraseOptions) -> Result<Zeroizing<String>> {
+    let words = eff_words();
+    if words.len() != EFF_WORD_COUNT
+        || !(MIN_WORDS..=MAX_WORDS).contains(&options.words)
+        || options.separator.chars().count() > MAX_SEPARATOR_CHARS
+    {
+        return Err(Error::InvalidGeneratorOptions);
+    }
+    let number_at = if options.include_number {
+        Some((uniform_index(options.words)?, uniform_index(10)?))
+    } else {
+        None
+    };
+
+    // Longest word is 9 characters; reserve the worst case so the buffer never reallocates.
+    let capacity = options.words * (9 + 1 + options.separator.len());
+    let mut out = Zeroizing::new(String::with_capacity(capacity));
+    for i in 0..options.words {
+        if i > 0 {
+            out.push_str(&options.separator);
+        }
+        let word = words[uniform_index(words.len())?];
+        let mut chars = word.chars();
+        if options.capitalize
+            && let Some(first) = chars.next()
+        {
+            out.extend(first.to_uppercase());
+        }
+        out.push_str(chars.as_str());
+        if let Some((position, digit)) = number_at
+            && position == i
+        {
+            out.push(char::from(b'0' + digit as u8));
+        }
+    }
+    Ok(out)
+}
+
 /// Uniform random index in `0..n` (rejection sampling, no modulo bias).
 fn uniform_index(n: usize) -> Result<usize> {
     debug_assert!(n > 0 && n <= u32::MAX as usize);
@@ -113,6 +207,71 @@ fn uniform_index(n: usize) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bundled_wordlist_is_the_published_one() {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(EFF_LARGE_WORDLIST.as_bytes());
+        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            hex,
+            "addd35536511597a02fa0a9ff1e5284677b8883b83e986e43f15a3db996b903e"
+        );
+        let words = eff_words();
+        assert_eq!(words.len(), EFF_WORD_COUNT);
+        assert_eq!((words[0], words[EFF_WORD_COUNT - 1]), ("abacus", "zoom"));
+    }
+
+    #[test]
+    fn passphrase_shape() {
+        let options = PassphraseOptions::default();
+        let phrase = generate_passphrase(&options).unwrap();
+        let parts: Vec<&str> = phrase.split('-').collect();
+        // "drop-down", "felt-tip", "t-shirt" and "yo-yo" contain the separator themselves.
+        assert!(parts.len() >= 6, "{}", phrase.as_str());
+        assert!((options.entropy_bits() - 77.55).abs() < 0.01);
+    }
+
+    #[test]
+    fn passphrase_options() {
+        let options = PassphraseOptions {
+            words: 5,
+            separator: " ".into(),
+            capitalize: true,
+            include_number: true,
+        };
+        let phrase = generate_passphrase(&options).unwrap();
+        let words: Vec<&str> = phrase.split(' ').collect();
+        assert_eq!(words.len(), 5);
+        assert!(
+            words
+                .iter()
+                .all(|w| w.chars().next().unwrap().is_uppercase())
+        );
+        assert_eq!(phrase.chars().filter(char::is_ascii_digit).count(), 1);
+
+        let no_separator = PassphraseOptions {
+            separator: String::new(),
+            ..PassphraseOptions::default()
+        };
+        assert!(!generate_passphrase(&no_separator).unwrap().contains(' '));
+    }
+
+    #[test]
+    fn passphrase_rejects_bad_options() {
+        for words in [0, 2, 21] {
+            let options = PassphraseOptions {
+                words,
+                ..Default::default()
+            };
+            assert!(generate_passphrase(&options).is_err());
+        }
+        let long_separator = PassphraseOptions {
+            separator: "----".into(),
+            ..Default::default()
+        };
+        assert!(generate_passphrase(&long_separator).is_err());
+    }
 
     #[test]
     fn respects_length_and_sets() {

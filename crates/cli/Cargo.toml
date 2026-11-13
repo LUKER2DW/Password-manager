@@ -16,6 +16,7 @@ workspace = true
 
 [dependencies]
 vault-core = { path = "../core" }
+vault-import = { path = "../import" }
 anyhow = "1"
 arboard = "3.7"
 clap = { version = "4.6", features = ["derive", "env"] }

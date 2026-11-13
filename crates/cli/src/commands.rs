@@ -5,7 +5,7 @@ use std::{path::PathBuf, time::Duration};
 use anyhow::{Context as _, Result, bail};
 use vault_core::{
     ItemData, ItemId, ItemKind, KdfParams, RecoveryKey, SecretKey, Unlock, Vault,
-    generator::{self, PasswordOptions},
+    generator::{self, PassphraseOptions, PasswordOptions},
     storage,
     totp::Totp,
 };
@@ -38,8 +38,8 @@ pub struct NewItem {
     pub notes: Option<String>,
     pub totp: Option<String>,
     pub favorite: bool,
-    /// `Some(length)` to generate the password.
-    pub generate: Option<usize>,
+    /// Generate the password with this recipe instead of prompting.
+    pub generate: Option<Recipe>,
 }
 
 pub struct ItemChanges {
@@ -51,7 +51,7 @@ pub struct ItemChanges {
     pub totp: Option<String>,
     pub favorite: Option<bool>,
     pub new_password: bool,
-    pub generate: Option<usize>,
+    pub generate: Option<Recipe>,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -182,9 +182,9 @@ pub fn add(ctx: &Context, prompter: &mut Prompter, new: NewItem) -> Result<()> {
         Totp::parse(&totp).map_err(explain)?;
         item.totp = totp;
     }
-    let generated = match new.generate {
-        Some(length) => {
-            item.password = generate_with_length(length)?.to_string();
+    let generated = match &new.generate {
+        Some(recipe) => {
+            item.password = recipe.make()?.to_string();
             true
         }
         None if new.kind == ItemKind::Login => {
@@ -201,7 +201,7 @@ pub fn add(ctx: &Context, prompter: &mut Prompter, new: NewItem) -> Result<()> {
     if generated {
         println!(
             "A {}-character password was generated; use `vault show {} --copy` to use it.",
-            item.password.len(),
+            item.password.chars().count(),
             &id.to_hex()[..8]
         );
     }
@@ -291,8 +291,8 @@ pub fn edit(ctx: &Context, prompter: &mut Prompter, changes: ItemChanges) -> Res
     if let Some(favorite) = changes.favorite {
         item.favorite = favorite;
     }
-    if let Some(length) = changes.generate {
-        item.password = generate_with_length(length)?.to_string();
+    if let Some(recipe) = &changes.generate {
+        item.password = recipe.make()?.to_string();
     } else if changes.new_password {
         item.password = prompter
             .new_secret("New password for the item")?
@@ -325,9 +325,9 @@ pub fn remove(ctx: &Context, prompter: &mut Prompter, query: &str, yes: bool) ->
     Ok(())
 }
 
-pub fn generate(options: &PasswordOptions, copy: bool) -> Result<()> {
-    let password = generator::generate_password(options).map_err(explain)?;
-    eprintln!("~{:.0} bits of entropy", options.entropy_bits());
+pub fn generate(recipe: &Recipe, copy: bool) -> Result<()> {
+    let password = recipe.make()?;
+    eprintln!("~{:.0} bits of entropy", recipe.entropy_bits());
     if copy {
         clipboard::copy_and_clear(&password, "Password")
     } else {
@@ -430,6 +430,122 @@ pub fn forget(ctx: &Context) -> Result<()> {
     Ok(())
 }
 
+pub struct ImportRequest {
+    pub file: PathBuf,
+    /// `None` = detect from the contents.
+    pub format: Option<vault_import::Format>,
+    pub keyfile: Option<PathBuf>,
+    pub dry_run: bool,
+    pub delete_source: bool,
+}
+
+pub fn import(ctx: &Context, prompter: &mut Prompter, request: ImportRequest) -> Result<()> {
+    use vault_import::Format;
+
+    let source = Zeroizing::new(
+        std::fs::read(&request.file)
+            .with_context(|| format!("reading {}", request.file.display()))?,
+    );
+    let format = request
+        .format
+        .unwrap_or_else(|| vault_import::detect_format(&source));
+    let mut session = ctx.unlock(prompter)?;
+
+    let report = match format {
+        Format::BitwardenJson => vault_import::import_bitwarden_json(&source)?,
+        Format::Csv => vault_import::import_csv(&source)?,
+        Format::Kdbx => {
+            let keyfile = match &request.keyfile {
+                Some(path) => Some(Zeroizing::new(
+                    std::fs::read(path).with_context(|| format!("reading {}", path.display()))?,
+                )),
+                None => None,
+            };
+            let password = prompter.secret("KeePass database password")?;
+            vault_import::import_kdbx(&source, &password, keyfile.as_deref().map(Vec::as_slice))?
+        }
+    };
+
+    // Skip entries that already exist (same title, username, password and first URL).
+    let fingerprint = |item: &ItemData| {
+        Zeroizing::new(format!(
+            "{}\u{1f}{}\u{1f}{}\u{1f}{}",
+            item.title.to_lowercase(),
+            item.username,
+            item.password,
+            item.urls.first().map(String::as_str).unwrap_or_default()
+        ))
+    };
+    let mut known: Vec<Zeroizing<String>> =
+        Vec::with_capacity(session.vault.len() + report.items.len());
+    for id in session.vault.item_ids().collect::<Vec<_>>() {
+        known.push(fingerprint(&session.vault.get_item(&id).map_err(explain)?));
+    }
+
+    let mut imported = 0usize;
+    let mut duplicates = 0usize;
+    for item in &report.items {
+        let key = fingerprint(item);
+        if known.contains(&key) {
+            duplicates += 1;
+            continue;
+        }
+        known.push(key);
+        if request.dry_run {
+            println!("  would import: {} ({:?})", item.title, item.kind);
+        } else {
+            session.vault.add_item(item).map_err(explain)?;
+        }
+        imported += 1;
+    }
+
+    for warning in &report.warnings {
+        eprintln!("warning: {warning}");
+    }
+    if request.dry_run {
+        println!(
+            "Dry run: {imported} item(s) would be imported, {duplicates} duplicate(s) skipped. Nothing was changed."
+        );
+        return Ok(());
+    }
+    session.save()?;
+    println!("Imported {imported} item(s) ({format:?}); skipped {duplicates} duplicate(s).");
+
+    if format != Format::Kdbx {
+        if request.delete_source {
+            wipe_file(&request.file)?;
+            println!("The export file was overwritten and deleted.");
+        } else {
+            println!(
+                "IMPORTANT: {} holds your passwords in PLAIN TEXT. Delete it now (and empty the \
+                 recycle bin), or re-run with --delete-source.",
+                request.file.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Best-effort wipe: overwrite with zeros, flush, delete. (On SSDs and copy-on-write file systems
+/// old blocks may survive; full-disk encryption is the real protection there.)
+fn wipe_file(path: &std::path::Path) -> Result<()> {
+    use std::io::Write as _;
+    let len = std::fs::metadata(path)?.len();
+    {
+        let mut file = std::fs::OpenOptions::new().write(true).open(path)?;
+        let zeros = vec![0u8; 64 * 1024];
+        let mut remaining = len;
+        while remaining > 0 {
+            let chunk = remaining.min(zeros.len() as u64) as usize;
+            file.write_all(&zeros[..chunk])?;
+            remaining -= chunk as u64;
+        }
+        file.sync_all()?;
+    }
+    std::fs::remove_file(path)?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------------------------
 
 fn new_master_password(prompter: &mut Prompter) -> Result<Zeroizing<String>> {
@@ -442,12 +558,41 @@ fn new_master_password(prompter: &mut Prompter) -> Result<Zeroizing<String>> {
     Ok(password)
 }
 
-fn generate_with_length(length: usize) -> Result<Zeroizing<String>> {
-    generator::generate_password(&PasswordOptions {
-        length,
-        ..PasswordOptions::default()
-    })
-    .map_err(explain)
+/// How to generate a secret: random characters or EFF-word passphrase.
+pub enum Recipe {
+    Password(PasswordOptions),
+    Passphrase(PassphraseOptions),
+}
+
+impl Recipe {
+    /// `words` set → passphrase with default options; otherwise a password of `length`.
+    pub fn new(length: usize, words: Option<usize>) -> Self {
+        match words {
+            Some(words) => Self::Passphrase(PassphraseOptions {
+                words,
+                ..PassphraseOptions::default()
+            }),
+            None => Self::Password(PasswordOptions {
+                length,
+                ..PasswordOptions::default()
+            }),
+        }
+    }
+
+    fn make(&self) -> Result<Zeroizing<String>> {
+        match self {
+            Self::Password(options) => generator::generate_password(options),
+            Self::Passphrase(options) => generator::generate_passphrase(options),
+        }
+        .map_err(explain)
+    }
+
+    fn entropy_bits(&self) -> f64 {
+        match self {
+            Self::Password(options) => options.entropy_bits(),
+            Self::Passphrase(options) => options.entropy_bits(),
+        }
+    }
 }
 
 /// Finds an item by id prefix (≥ 4 hex chars) or by title (exact, then substring),

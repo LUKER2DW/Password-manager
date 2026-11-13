@@ -64,10 +64,13 @@ Rules:
 - ✅ Rollback detection: highest revision seen per vault is remembered on the device
 - ✅ Hidden prompts, clipboard copy excluded from history with auto-clear after 20 s
 - ✅ Password generator (uniform, guaranteed character classes); TOTP (RFC 6238)
-- ⬜ Passphrase generator (EFF large word list, vendored from eff.org with attribution)
-- ⬜ Import: Bitwarden JSON, KeePass KDBX 4, Chrome/Firefox CSV
+- ✅ Passphrase generator (EFF large word list, vendored from eff.org with attribution,
+  SHA-256 pinned in a test)
+- ✅ Import (`crates/import`, `vault import`): Bitwarden JSON, KeePass KDBX 3/4 (+ key file),
+  CSV from Chrome/Edge/Firefox/Bitwarden; duplicate skipping, `--dry-run`, `--delete-source`
+- ⬜ Import of attachments (KeePass) and folders/tags (needs tags in the item model)
 - ⬜ Printable emergency kit (PDF) — terminal version done
-- **Done when:** a vault can be fully managed from the terminal ✅; import tests use fixtures ⬜.
+- **Done when:** a vault can be fully managed from the terminal ✅; import tests use fixtures ✅.
 
 ### M4 — Desktop app (Windows first) ⬜
 - Real UI built from the prototype, redesigned with the `frontend-design` guidelines

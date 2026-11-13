@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use vault_core::generator;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -82,6 +83,33 @@ enum Command {
     },
     /// Remove this vault's Secret Key from this device's credential store.
     Forget,
+    /// Import from Bitwarden (JSON/CSV), KeePass (.kdbx) or a browser CSV export.
+    Import(ImportArgs),
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ImportFormat {
+    Auto,
+    Bitwarden,
+    Csv,
+    Keepass,
+}
+
+#[derive(Debug, Args)]
+struct ImportArgs {
+    /// The export file.
+    file: PathBuf,
+    #[arg(long, value_enum, default_value_t = ImportFormat::Auto)]
+    format: ImportFormat,
+    /// KeePass key file, if the database uses one.
+    #[arg(long, value_name = "PATH")]
+    keyfile: Option<PathBuf>,
+    /// Show what would be imported without changing the vault.
+    #[arg(long)]
+    dry_run: bool,
+    /// After a successful import, overwrite the (plain-text) export file and delete it.
+    #[arg(long)]
+    delete_source: bool,
 }
 
 #[derive(Debug, Args)]
@@ -129,6 +157,9 @@ struct AddArgs {
     /// Length of the generated password.
     #[arg(long, default_value_t = 24)]
     length: usize,
+    /// With --generate: make a passphrase of this many words instead.
+    #[arg(long, requires = "generate")]
+    words: Option<usize>,
 }
 
 #[derive(Debug, Args)]
@@ -169,10 +200,25 @@ struct EditArgs {
     generate: bool,
     #[arg(long, default_value_t = 24)]
     length: usize,
+    /// With --generate: make a passphrase of this many words instead.
+    #[arg(long, requires = "generate")]
+    words: Option<usize>,
 }
 
 #[derive(Debug, Args)]
 struct GenerateArgs {
+    /// Make a passphrase of this many words (EFF word list) instead of a random-character password.
+    #[arg(short, long)]
+    words: Option<usize>,
+    /// Passphrase: text between words.
+    #[arg(long, default_value = "-", requires = "words")]
+    separator: String,
+    /// Passphrase: capitalize every word.
+    #[arg(long, requires = "words")]
+    capitalize: bool,
+    /// Passphrase: add one digit.
+    #[arg(long, requires = "words")]
+    number: bool,
     #[arg(short, long, default_value_t = 24)]
     length: usize,
     #[arg(long)]
@@ -230,7 +276,9 @@ fn run() -> Result<()> {
                 notes: args.notes,
                 totp: args.totp,
                 favorite: args.favorite,
-                generate: args.generate.then_some(args.length),
+                generate: args
+                    .generate
+                    .then(|| commands::Recipe::new(args.length, args.words)),
             },
         ),
         Command::Show(args) => {
@@ -248,26 +296,52 @@ fn run() -> Result<()> {
                 totp: args.totp,
                 favorite: args.favorite,
                 new_password: args.password,
-                generate: args.generate.then_some(args.length),
+                generate: args
+                    .generate
+                    .then(|| commands::Recipe::new(args.length, args.words)),
             },
         ),
         Command::Rm { item, yes } => commands::remove(&ctx, &mut prompter, &item, yes),
-        Command::Generate(args) => commands::generate(
-            &vault_core::generator::PasswordOptions {
-                length: args.length,
-                lowercase: !args.no_lowercase,
-                uppercase: !args.no_uppercase,
-                digits: !args.no_digits,
-                symbols: !args.no_symbols,
-                avoid_ambiguous: args.avoid_ambiguous,
-            },
-            args.copy,
-        ),
+        Command::Generate(args) => {
+            let recipe = match args.words {
+                Some(words) => commands::Recipe::Passphrase(generator::PassphraseOptions {
+                    words,
+                    separator: args.separator,
+                    capitalize: args.capitalize,
+                    include_number: args.number,
+                }),
+                None => commands::Recipe::Password(generator::PasswordOptions {
+                    length: args.length,
+                    lowercase: !args.no_lowercase,
+                    uppercase: !args.no_uppercase,
+                    digits: !args.no_digits,
+                    symbols: !args.no_symbols,
+                    avoid_ambiguous: args.avoid_ambiguous,
+                }),
+            };
+            commands::generate(&recipe, args.copy)
+        }
         Command::Totp { item, copy } => commands::totp(&ctx, &mut prompter, &item, copy),
         Command::Passwd => commands::passwd(&ctx, &mut prompter),
         Command::Recover => commands::recover(&ctx, &mut prompter),
         Command::Kit { new_recovery_key } => commands::kit(&ctx, &mut prompter, new_recovery_key),
         Command::Forget => commands::forget(&ctx),
+        Command::Import(args) => commands::import(
+            &ctx,
+            &mut prompter,
+            commands::ImportRequest {
+                file: args.file,
+                format: match args.format {
+                    ImportFormat::Auto => None,
+                    ImportFormat::Bitwarden => Some(vault_import::Format::BitwardenJson),
+                    ImportFormat::Csv => Some(vault_import::Format::Csv),
+                    ImportFormat::Keepass => Some(vault_import::Format::Kdbx),
+                },
+                keyfile: args.keyfile,
+                dry_run: args.dry_run,
+                delete_source: args.delete_source,
+            },
+        ),
     }
 }
 

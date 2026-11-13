@@ -27,6 +27,7 @@ cargo test --workspace
 | Crate | Purpose |
 |---|---|
 | [`crates/core`](crates/core) | Cryptography, vault file format, item model, TOTP, generator (no UI, no network) |
+| [`crates/import`](crates/import) | Importers: Bitwarden JSON, KeePass `.kdbx`, browser/Bitwarden CSV |
 | [`crates/cli`](crates/cli) | `vault` command-line client |
 
 ### Trying the CLI (test vaults only)
@@ -36,6 +37,8 @@ cargo run -p vault-cli -- init          # create a vault, prints the emergency k
 cargo run -p vault-cli -- add GitHub -u me --url https://github.com --generate
 cargo run -p vault-cli -- list
 cargo run -p vault-cli -- show GitHub --copy
+cargo run -p vault-cli -- generate --words 6     # passphrase from the EFF word list
+cargo run -p vault-cli -- import export.csv --dry-run
 ```
 
 The Secret Key is stored in the OS credential store (Windows Credential Manager on Windows).
@@ -48,7 +51,10 @@ Windows → browser extension → Android → Linux, with optional sync to a sel
 ## License
 
 GPL-3.0-or-later for the apps and core; AGPL-3.0-or-later for the sync server.
-(License files will be added with the first code.)
+(License files will be added with the first release.)
+
+Bundled third-party data: the [EFF large word list](crates/core/data/README.md)
+(CC BY 3.0 US, © Electronic Frontier Foundation).
 
 ## Language
 

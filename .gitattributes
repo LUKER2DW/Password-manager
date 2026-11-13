@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Third-party data kept byte-for-byte as published.
+crates/core/data/eff_large_wordlist.txt -text
+# Binary test fixtures.
+*.bin binary

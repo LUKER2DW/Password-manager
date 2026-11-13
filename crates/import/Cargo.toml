@@ -1,0 +1,24 @@
+[package]
+name = "vault-import"
+version = "0.0.0"
+description = "Importers from other password managers (Bitwarden, KeePass, browser CSV)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+vault-core = { path = "../core" }
+csv = "1.4"
+keepass = { version = "0.17", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+zeroize = "1.9"
+
+[dev-dependencies]
+# Used only to build KDBX test databases in memory.
+keepass = { version = "0.17", default-features = false, features = ["save_kdbx4"] }
