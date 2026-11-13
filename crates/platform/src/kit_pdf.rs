@@ -15,7 +15,6 @@ pub struct KitContents<'a> {
     /// `None` when it can't be shown (it is not stored anywhere after it is issued).
     pub recovery_key: Option<&'a str>,
     pub vault_id: &'a str,
-    pub vault_path: &'a str,
     /// Unix seconds, printed as a date.
     pub created_at: u64,
 }
@@ -247,16 +246,22 @@ impl Page {
         value: Option<&str>,
         note: &str,
     ) {
-        const BOX_W: f32 = 17.0;
-        const BOX_H: f32 = 21.0;
-        const GROUP_GAP: f32 = 13.0;
-        const ROW_GAP: f32 = 8.0;
+        const GROUP_GAP: f32 = 11.0;
+        const ROW_GAP: f32 = 7.0;
+        let prefix_size = 12.0;
+        let prefix_w = Font::MonoBold.text_width(prefix, prefix_size) + 9.0;
+        // As large as fits `per_row` groups on one line, never larger than handwriting needs.
+        let avail = WIDTH - 28.0 - prefix_w;
+        let box_w =
+            ((avail - (per_row as f32 - 1.0) * GROUP_GAP) / (per_row * group_len) as f32).min(17.0);
+        let box_h = (box_w * 1.3).round();
+        let char_size = (box_w * 0.82).min(12.0);
         let rows = groups.div_ceil(per_row);
         let note_lines = wrap(note, Font::Regular, 9.0, WIDTH - 28.0);
         let height = 14.0
             + 9.0
             + 14.0
-            + rows as f32 * (BOX_H + ROW_GAP)
+            + rows as f32 * (box_h + ROW_GAP)
             + 4.0
             + note_lines.len() as f32 * 9.0 * 1.35
             + 12.0;
@@ -276,38 +281,45 @@ impl Page {
                     .collect()
             })
             .unwrap_or_default();
-        let prefix_w = Font::MonoBold.text_width(prefix, 13.0) + 10.0;
+        let baseline = (box_h - char_size * 0.62) / 2.0;
         for row in 0..rows {
-            let box_y = y - BOX_H;
+            let box_y = y - box_h;
             if row == 0 {
-                self.text_at(x0, box_y + 5.5, Font::MonoBold, 13.0, 0.0, prefix);
+                self.text_at(
+                    x0,
+                    box_y + baseline,
+                    Font::MonoBold,
+                    prefix_size,
+                    0.0,
+                    prefix,
+                );
             }
             let mut x = x0 + prefix_w;
             for group in row * per_row..((row + 1) * per_row).min(groups) {
                 for slot in 0..group_len {
-                    self.boxes(x, box_y, BOX_W, BOX_H, 0.45);
+                    self.boxes(x, box_y, box_w, box_h, 0.5);
                     if let Some(c) = chars.get(group * group_len + slot) {
                         let s = c.to_string();
-                        let cw = Font::MonoBold.text_width(&s, 13.0);
+                        let cw = Font::MonoBold.text_width(&s, char_size);
                         self.text_at(
-                            x + (BOX_W - cw) / 2.0,
-                            box_y + 5.5,
+                            x + (box_w - cw) / 2.0,
+                            box_y + baseline,
                             Font::MonoBold,
-                            13.0,
+                            char_size,
                             0.0,
                             &s,
                         );
                     }
-                    x += BOX_W;
+                    x += box_w;
                 }
                 // A printed dash between groups, as in the app.
                 if group + 1 < groups && (group + 1) % per_row != 0 {
                     self.text_at(
-                        x + GROUP_GAP / 2.0 - 2.5,
-                        box_y + 6.0,
+                        x + GROUP_GAP / 2.0 - 2.0,
+                        box_y + baseline,
                         Font::Bold,
-                        11.0,
-                        0.45,
+                        10.0,
+                        0.5,
                         "-",
                     );
                 }
@@ -323,23 +335,15 @@ impl Page {
         self.y = top - height;
     }
 
-    /// A small empty checkbox followed by text.
-    fn check_line(&mut self, text: &str) {
-        self.y -= 16.0;
-        self.boxes(MARGIN, self.y - 1.5, 9.0, 9.0, 0.35);
-        self.text_at(MARGIN + 16.0, self.y, Font::Regular, 9.5, 0.25, text);
-    }
-
-    /// A labelled line to write on by hand.
-    fn write_line(&mut self, label: &str) {
-        self.y -= 22.0;
-        self.text_at(MARGIN, self.y, Font::Bold, 8.5, 0.4, label);
-        let x = MARGIN + 150.0;
+    /// A labelled empty box to write in by hand, the full width of the page.
+    fn write_box(&mut self, label: &str, height: f32) {
+        self.y -= 9.0;
+        self.text_at(MARGIN, self.y, Font::Bold, 9.0, 0.35, label);
+        self.y -= 6.0 + height;
         let _ = writeln!(
             self.ops,
-            "0.55 G 0.6 w {x:.1} {y:.1} m {x2:.1} {y:.1} l S",
-            y = self.y - 2.0,
-            x2 = PAGE_W - MARGIN
+            "0.5 G 0.7 w {MARGIN:.1} {y:.1} {WIDTH:.1} {height:.1} re S",
+            y = self.y
         );
     }
 }
@@ -407,8 +411,7 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
         10.5,
         0.3,
         &format!(
-            "Made on {}. Print this page and keep it somewhere safe, away from your computer \
-             (a drawer at home, a safe, with your important papers). It is the way back into \
+            "Made on {}. Keep it somewhere safe, away from your computer. It gets you back into \
              your vault if you lose this computer or forget your master password.",
             date_text(kit.created_at)
         ),
@@ -433,7 +436,7 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
             vault_core::RecoveryKey::PREFIX,
             RECOVERY_GROUPS,
             RECOVERY_GROUP_LEN,
-            3,
+            5,
             Some(recovery_key),
             "Opens the vault on its own, for when you forget the master password. Anyone holding \
              it can open your vault: keep this page private.",
@@ -443,29 +446,16 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
             vault_core::RecoveryKey::PREFIX,
             RECOVERY_GROUPS,
             RECOVERY_GROUP_LEN,
-            3,
+            5,
             None,
-            "Not printed: the app doesn't keep it. Copy it into the boxes from your first kit, \
-             one character per box (digits and capital letters; there is no I, L, O or U), or \
-             issue a new one in the app (Emergency kit > New Recovery Key) and print again.",
+            "Not printed: the app doesn't keep it. Copy it here from your first kit, one \
+             character per box (there is no I, L, O or U), or issue a new one in the app.",
         ),
     }
-    page.gap(14.0);
-    page.key_box(
-        "VAULT ID",
-        kit.vault_id,
-        10.0,
-        "Tells you which vault this kit belongs to.",
-    );
+    page.gap(22.0);
+    page.write_box("MASTER PASSWORD", 44.0);
 
-    page.gap(8.0);
-    page.write_line("MASTER PASSWORD (optional)");
-    page.write_line("THIS PAGE IS KEPT AT");
-    page.gap(18.0);
-    page.text_at(MARGIN, page.y, Font::Bold, 9.0, 0.35, "VAULT FILE");
-    page.paragraph(Font::Mono, 9.0, 0.2, kit.vault_path);
-
-    page.gap(24.0);
+    page.gap(26.0);
     page.rule(0.8, 0.6);
     page.gap(10.0);
     page.text_at(
@@ -483,15 +473,10 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
         "Forgot the master password: on the lock screen choose \"Forgot it? Use your emergency \
          kit\", type the Recovery Key and choose a new password. You'll get a new Secret Key; \
          print a new kit.",
-        "Lost this page: open the app and print a new kit from Emergency kit. Issuing a new \
-         Recovery Key there makes the old one stop working.",
     ] {
         page.paragraph(Font::Regular, 9.5, 0.25, &format!("\u{2022}  {step}"));
         page.gap(3.0);
     }
-
-    page.check_line("Printed, and this page is somewhere safe.");
-    page.check_line("Any saved copy of this file was deleted.");
 
     page.y = MARGIN - 22.0;
     page.text_at(
@@ -501,6 +486,16 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
         8.0,
         0.5,
         "Made offline by Vault. If this page was saved as a file, delete the file after printing.",
+    );
+    // Which vault this kit opens: small, out of the way.
+    let id = format!("Vault {}", kit.vault_id);
+    page.text_at(
+        PAGE_W - MARGIN - Font::Mono.text_width(&id, 7.0),
+        page.y,
+        Font::Mono,
+        7.0,
+        0.55,
+        &id,
     );
 
     assemble(&page.ops)
@@ -565,7 +560,6 @@ mod tests {
             secret_key: "S0-ABCDEFG-HJKMNPQ-RSTVWXY-Z012345",
             recovery_key: recovery,
             vault_id: "0123456789abcdef0123456789abcdef",
-            vault_path: r"C:\Users\someone\AppData\Local\vault\default (copy).vault",
             created_at: 1_794_441_600, // 12 November 2026
         })
     }
@@ -581,9 +575,9 @@ mod tests {
         assert!(text.contains("/Count 1"));
         assert!(text.contains("S0-ABCDEFG-HJKMNPQ-RSTVWXY-Z012345"));
         assert!(text.contains("12 November 2026"));
-        // Parentheses and backslashes in the path are escaped.
-        assert!(text.contains(r"default \(copy\).vault"));
-        assert!(text.contains(r"C:\\Users"));
+        // The vault id is printed, small; where the vault lives is not.
+        assert!(text.contains("Vault 0123456789abcdef0123456789abcdef"));
+        assert!(!text.contains("AppData"));
 
         // Every xref offset (in bytes) points at the start of its object.
         let raw: &[u8] = &bytes;
@@ -611,9 +605,16 @@ mod tests {
         let text = String::from_utf8_lossy(&kit(None)).into_owned();
         assert!(text.contains("Not printed"));
         assert!(!text.contains("R0-"));
-        // One box per character: 9 groups of 6, plus the two checkboxes.
+        // One box per character: 9 groups of 6.
         assert_eq!(RECOVERY_GROUPS * RECOVERY_GROUP_LEN, 54);
-        assert_eq!(text.matches("17.0 21.0 re B").count(), 54);
+        assert_eq!(boxes(&text), 54);
+    }
+
+    /// Handwriting boxes are the only white-filled rectangles.
+    fn boxes(text: &str) -> usize {
+        text.lines()
+            .filter(|l| l.starts_with("1 g ") && l.ends_with("re B"))
+            .count()
     }
 
     #[test]
@@ -622,7 +623,7 @@ mod tests {
             "R0-AAAAAA-BBBBBB-CCCCCC-DDDDDD-EEEEEE-FFFFFF-GGGGGG-HHHHHH-JJJJJJ",
         )))
         .into_owned();
-        assert_eq!(text.matches("17.0 21.0 re B").count(), 54);
+        assert_eq!(boxes(&text), 54);
         assert_eq!(text.matches("(J) Tj").count(), 6);
         assert_eq!(text.matches("(R0) Tj").count(), 1);
     }

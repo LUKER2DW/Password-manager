@@ -6,6 +6,7 @@
 pub mod browsers;
 pub mod clipboard;
 pub mod device;
+pub mod dpapi;
 pub mod files;
 pub mod kit_pdf;
 pub mod paths;
