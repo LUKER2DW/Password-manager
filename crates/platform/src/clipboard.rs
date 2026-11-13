@@ -31,6 +31,17 @@ pub fn copy_plain(text: &str) -> Result<()> {
         .context("copying to the clipboard")
 }
 
+/// The clipboard's text, for pasting into a secure field (wiped when dropped). `None` when
+/// the clipboard holds no text.
+pub fn paste_text() -> Option<Zeroizing<String>> {
+    let mut clipboard = arboard::Clipboard::new().ok()?;
+    let text = Zeroizing::new(clipboard.get_text().ok()?);
+    // A pasted password ends at the first line break (copied with a trailing newline, or
+    // several lines by mistake).
+    let first = text.lines().next().unwrap_or_default();
+    Some(Zeroizing::new(first.to_owned()))
+}
+
 /// Clears the clipboard only if it still holds `expected` (the user may have copied something
 /// else since). Returns whether it was cleared.
 pub fn clear_if(expected: &str) -> bool {

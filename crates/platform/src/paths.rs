@@ -15,6 +15,11 @@ pub fn app_dir() -> Result<PathBuf> {
     Ok(base.join(APP_DIR))
 }
 
+/// Word lists the user added for passphrases (`<app dir>/wordlists`).
+pub fn wordlists_dir() -> Result<PathBuf> {
+    Ok(app_dir()?.join("wordlists"))
+}
+
 /// Default vault file: `<app dir>/default.vault`. `VAULT_FILE` overrides it.
 pub fn default_vault_path() -> Result<PathBuf> {
     if let Some(file) = std::env::var_os("VAULT_FILE") {

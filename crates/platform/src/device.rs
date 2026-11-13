@@ -41,6 +41,8 @@ pub struct Settings {
     pub dark_theme: bool,
     /// Download website icons (contacts each saved site once). Off by default for privacy.
     pub website_icons: bool,
+    /// The generator's last options.
+    pub generator: GeneratorPrefs,
 }
 
 impl Default for Settings {
@@ -50,6 +52,53 @@ impl Default for Settings {
             clipboard_clear_seconds: 20,
             dark_theme: true,
             website_icons: false,
+            generator: GeneratorPrefs::default(),
+        }
+    }
+}
+
+/// How the generator was last set up on this device. Not secret: no generated value is kept.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GeneratorPrefs {
+    /// 0 random characters, 1 words.
+    pub mode: u8,
+    pub length: u32,
+    pub words: u32,
+    pub lowercase: bool,
+    pub uppercase: bool,
+    pub digits: bool,
+    pub symbols: bool,
+    pub extended_ascii: bool,
+    pub avoid_ambiguous: bool,
+    pub also_use: String,
+    pub never_use: String,
+    /// 0 lower, 1 UPPER, 2 Title, 3 mixed.
+    pub word_case: u8,
+    pub add_digit: bool,
+    pub separator: String,
+    /// File name in the word list folder; empty = the bundled EFF list.
+    pub wordlist: String,
+}
+
+impl Default for GeneratorPrefs {
+    fn default() -> Self {
+        Self {
+            mode: 0,
+            length: 24,
+            words: 6,
+            lowercase: true,
+            uppercase: true,
+            digits: true,
+            symbols: true,
+            extended_ascii: false,
+            avoid_ambiguous: false,
+            also_use: String::new(),
+            never_use: String::new(),
+            word_case: 0,
+            add_digit: false,
+            separator: "-".into(),
+            wordlist: String::new(),
         }
     }
 }

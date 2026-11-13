@@ -224,6 +224,130 @@ impl Page {
     }
 }
 
+impl Page {
+    fn boxes(&mut self, x: f32, y: f32, w: f32, h: f32, stroke: f32) {
+        let _ = writeln!(
+            self.ops,
+            "1 g {stroke:.2} G 0.7 w {x:.1} {y:.1} {w:.1} {h:.1} re B"
+        );
+    }
+
+    /// A key of fixed shape written into boxes, one character per box, so it can also be
+    /// copied by hand: `prefix` printed, then `groups` groups of `group_len` boxes,
+    /// `per_row` groups per line. `value` (with or without dashes) fills the boxes; `None`
+    /// leaves them empty.
+    #[allow(clippy::too_many_arguments)]
+    fn key_grid(
+        &mut self,
+        label: &str,
+        prefix: &str,
+        groups: usize,
+        group_len: usize,
+        per_row: usize,
+        value: Option<&str>,
+        note: &str,
+    ) {
+        const BOX_W: f32 = 17.0;
+        const BOX_H: f32 = 21.0;
+        const GROUP_GAP: f32 = 13.0;
+        const ROW_GAP: f32 = 8.0;
+        let rows = groups.div_ceil(per_row);
+        let note_lines = wrap(note, Font::Regular, 9.0, WIDTH - 28.0);
+        let height = 14.0
+            + 9.0
+            + 14.0
+            + rows as f32 * (BOX_H + ROW_GAP)
+            + 4.0
+            + note_lines.len() as f32 * 9.0 * 1.35
+            + 12.0;
+        let top = self.y;
+        self.rect(top - height, height, 0.96, 0.75);
+        let x0 = MARGIN + 14.0;
+        let mut y = top - 14.0 - 9.0;
+        self.text_at(x0, y, Font::Bold, 9.0, 0.35, label);
+        y -= 14.0;
+
+        let chars: Vec<char> = value
+            .map(|v| {
+                v.strip_prefix(prefix)
+                    .unwrap_or(v)
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let prefix_w = Font::MonoBold.text_width(prefix, 13.0) + 10.0;
+        for row in 0..rows {
+            let box_y = y - BOX_H;
+            if row == 0 {
+                self.text_at(x0, box_y + 5.5, Font::MonoBold, 13.0, 0.0, prefix);
+            }
+            let mut x = x0 + prefix_w;
+            for group in row * per_row..((row + 1) * per_row).min(groups) {
+                for slot in 0..group_len {
+                    self.boxes(x, box_y, BOX_W, BOX_H, 0.45);
+                    if let Some(c) = chars.get(group * group_len + slot) {
+                        let s = c.to_string();
+                        let cw = Font::MonoBold.text_width(&s, 13.0);
+                        self.text_at(
+                            x + (BOX_W - cw) / 2.0,
+                            box_y + 5.5,
+                            Font::MonoBold,
+                            13.0,
+                            0.0,
+                            &s,
+                        );
+                    }
+                    x += BOX_W;
+                }
+                // A printed dash between groups, as in the app.
+                if group + 1 < groups && (group + 1) % per_row != 0 {
+                    self.text_at(
+                        x + GROUP_GAP / 2.0 - 2.5,
+                        box_y + 6.0,
+                        Font::Bold,
+                        11.0,
+                        0.45,
+                        "-",
+                    );
+                }
+                x += GROUP_GAP;
+            }
+            y = box_y - ROW_GAP;
+        }
+        y -= 4.0;
+        for line in &note_lines {
+            y -= 9.0 * 1.35;
+            self.text_at(x0, y, Font::Regular, 9.0, 0.35, line);
+        }
+        self.y = top - height;
+    }
+
+    /// A small empty checkbox followed by text.
+    fn check_line(&mut self, text: &str) {
+        self.y -= 16.0;
+        self.boxes(MARGIN, self.y - 1.5, 9.0, 9.0, 0.35);
+        self.text_at(MARGIN + 16.0, self.y, Font::Regular, 9.5, 0.25, text);
+    }
+
+    /// A labelled line to write on by hand.
+    fn write_line(&mut self, label: &str) {
+        self.y -= 22.0;
+        self.text_at(MARGIN, self.y, Font::Bold, 8.5, 0.4, label);
+        let x = MARGIN + 150.0;
+        let _ = writeln!(
+            self.ops,
+            "0.55 G 0.6 w {x:.1} {y:.1} m {x2:.1} {y:.1} l S",
+            y = self.y - 2.0,
+            x2 = PAGE_W - MARGIN
+        );
+    }
+}
+
+/// The Recovery Key's printed shape (`R0` + groups of characters).
+pub const RECOVERY_GROUPS: usize = vault_core::RecoveryKey::GROUPS;
+pub const RECOVERY_GROUP_LEN: usize = vault_core::RecoveryKey::GROUP_LEN;
+
 /// Days since 1970-01-01 → (year, month, day), proleptic Gregorian (Howard Hinnant's algorithm).
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
@@ -261,6 +385,12 @@ fn date_text(unix: u64) -> String {
 pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
     let mut page = Page::new();
 
+    // A dark band across the top: the page is easy to spot among papers.
+    let _ = writeln!(
+        page.ops,
+        "0.12 g 0 {:.1} {PAGE_W:.1} 10 re f",
+        PAGE_H - 10.0
+    );
     page.gap(6.0);
     page.text_at(MARGIN, page.y, Font::Bold, 24.0, 0.1, "Emergency kit");
     page.text_at(
@@ -295,20 +425,29 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
          On its own it opens nothing.",
     );
     page.gap(14.0);
+    // The Recovery Key always has the same shape, so it goes into boxes: printed when the app
+    // has it, empty for copying it by hand from the first kit otherwise.
     match kit.recovery_key {
-        Some(recovery_key) => page.key_box(
+        Some(recovery_key) => page.key_grid(
             "RECOVERY KEY",
-            recovery_key,
-            11.0,
+            vault_core::RecoveryKey::PREFIX,
+            RECOVERY_GROUPS,
+            RECOVERY_GROUP_LEN,
+            3,
+            Some(recovery_key),
             "Opens the vault on its own, for when you forget the master password. Anyone holding \
              it can open your vault: keep this page private.",
         ),
-        None => page.key_box(
+        None => page.key_grid(
             "RECOVERY KEY",
-            "______________________________________________",
-            11.0,
-            "Not printed: the app doesn't keep it. Copy it here from your first kit, or issue a \
-             new one in the app (Emergency kit > New Recovery Key) and print again.",
+            vault_core::RecoveryKey::PREFIX,
+            RECOVERY_GROUPS,
+            RECOVERY_GROUP_LEN,
+            3,
+            None,
+            "Not printed: the app doesn't keep it. Copy it into the boxes from your first kit, \
+             one character per box (digits and capital letters; there is no I, L, O or U), or \
+             issue a new one in the app (Emergency kit > New Recovery Key) and print again.",
         ),
     }
     page.gap(14.0);
@@ -319,18 +458,10 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
         "Tells you which vault this kit belongs to.",
     );
 
-    page.gap(26.0);
-    page.text_at(
-        MARGIN,
-        page.y,
-        Font::Bold,
-        9.0,
-        0.35,
-        "MASTER PASSWORD (write it by hand, or leave blank)",
-    );
-    page.gap(30.0);
-    page.rule(0.2, 0.8);
-    page.gap(22.0);
+    page.gap(8.0);
+    page.write_line("MASTER PASSWORD (optional)");
+    page.write_line("THIS PAGE IS KEPT AT");
+    page.gap(18.0);
     page.text_at(MARGIN, page.y, Font::Bold, 9.0, 0.35, "VAULT FILE");
     page.paragraph(Font::Mono, 9.0, 0.2, kit.vault_path);
 
@@ -356,10 +487,13 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
          Recovery Key there makes the old one stop working.",
     ] {
         page.paragraph(Font::Regular, 9.5, 0.25, &format!("\u{2022}  {step}"));
-        page.gap(4.0);
+        page.gap(3.0);
     }
 
-    page.y = MARGIN;
+    page.check_line("Printed, and this page is somewhere safe.");
+    page.check_line("Any saved copy of this file was deleted.");
+
+    page.y = MARGIN - 22.0;
     page.text_at(
         MARGIN,
         page.y,
@@ -446,7 +580,6 @@ mod tests {
         assert!(text.trim_end().ends_with("%%EOF"));
         assert!(text.contains("/Count 1"));
         assert!(text.contains("S0-ABCDEFG-HJKMNPQ-RSTVWXY-Z012345"));
-        assert!(text.contains("R0-AAAAAA"));
         assert!(text.contains("12 November 2026"));
         // Parentheses and backslashes in the path are escaped.
         assert!(text.contains(r"default \(copy\).vault"));
@@ -474,10 +607,24 @@ mod tests {
     }
 
     #[test]
-    fn missing_recovery_key_leaves_a_line_to_fill_in() {
+    fn missing_recovery_key_leaves_boxes_to_fill_in() {
         let text = String::from_utf8_lossy(&kit(None)).into_owned();
         assert!(text.contains("Not printed"));
         assert!(!text.contains("R0-"));
+        // One box per character: 9 groups of 6, plus the two checkboxes.
+        assert_eq!(RECOVERY_GROUPS * RECOVERY_GROUP_LEN, 54);
+        assert_eq!(text.matches("17.0 21.0 re B").count(), 54);
+    }
+
+    #[test]
+    fn printed_recovery_key_fills_the_boxes() {
+        let text = String::from_utf8_lossy(&kit(Some(
+            "R0-AAAAAA-BBBBBB-CCCCCC-DDDDDD-EEEEEE-FFFFFF-GGGGGG-HHHHHH-JJJJJJ",
+        )))
+        .into_owned();
+        assert_eq!(text.matches("17.0 21.0 re B").count(), 54);
+        assert_eq!(text.matches("(J) Tj").count(), 6);
+        assert_eq!(text.matches("(R0) Tj").count(), 1);
     }
 
     #[test]
