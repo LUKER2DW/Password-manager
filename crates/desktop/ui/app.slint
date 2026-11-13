@@ -281,6 +281,11 @@ export component AppWindow inherits Window {
     callback open-transfer();
     callback pick-source(int);
     callback open-browser();
+    in property <bool> import-direct-supported;
+    in-out property <int> import-browser-method;
+    in property <[string]> import-browser-profiles;
+    in-out property <int> import-browser-profile;
+    callback import-direct();
     callback import-choose();
     callback import-open();
     callback import-toggle(int, bool);
@@ -567,6 +572,11 @@ export component AppWindow inherits Window {
                 export-format <=> root.export-format;
                 pick-source(i) => { root.pick-source(i); }
                 open-browser => { root.open-browser(); }
+                direct-supported: root.import-direct-supported;
+                browser-method <=> root.import-browser-method;
+                browser-profiles: root.import-browser-profiles;
+                browser-profile <=> root.import-browser-profile;
+                import-direct => { root.import-direct(); }
                 import-choose => { root.import-choose(); }
                 import-open => { root.import-open(); }
                 import-toggle(i, on) => { root.import-toggle(i, on); }

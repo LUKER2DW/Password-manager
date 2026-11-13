@@ -33,7 +33,8 @@ export struct HealthRow {
     initial: string,
     tint: color,
     problem: int,     // 1 leaked, 2 weak, 3 reused, 4 old, 5 expired card
-    detail: string,   // e.g. how many breaches, how many other items, how old
+    detail: string,   // how many breaches, or the expiry date
+    count: int,       // how many other logins share the password
     weakness: int,    // why it is weak (Messages.weakness)
     age-unit: int,    // how long ago the password was set (Messages.ago)
     age-amount: int,

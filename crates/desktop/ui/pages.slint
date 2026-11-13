@@ -1600,6 +1600,14 @@ export component TransferPage inherits Rectangle {
     in-out property <int> export-format;
     callback pick-source(int);
     callback open-browser();
+    // Reading a browser's own store: possible for this source, how (0 directly, 1 from a CSV),
+    // and which of its profiles.
+    in property <bool> direct-supported;
+    in-out property <int> browser-method;
+    in property <[string]> browser-profiles;
+    in-out property <int> browser-profile;
+    callback import-direct();
+    property <bool> direct: root.direct-supported && root.browser-method == 0;
     callback import-choose();
     callback import-open();
     callback import-toggle(int, bool);
@@ -1646,7 +1654,7 @@ export component TransferPage inherits Rectangle {
             if root.import-stage == 0: VerticalLayout {
                 spacing: 14px;
                 Prose {
-                    text: @tr("Bring in passwords from a browser or another password manager. Nothing is read from them directly: you export a file there, review it here, and only then is it added to this vault.");
+                    text: @tr("Bring in passwords from a browser or another password manager. You see every entry, with passwords hidden, before anything is added to this vault.");
                 }
                 Choice {
                     options: [@tr("From a browser"), @tr("From a password manager or file")];
@@ -1678,7 +1686,40 @@ export component TransferPage inherits Rectangle {
                         }
                     }
                 }
-                if root.source >= 0: Prose {
+                if root.source >= 0 && root.direct-supported: Choice {
+                    options: [@tr("Read it directly"), @tr("From an exported CSV file")];
+                    selected <=> root.browser-method;
+                }
+                if root.source >= 0 && root.direct: VerticalLayout {
+                    spacing: 12px;
+                    Prose {
+                        text: root.browser-profiles.length == 0
+                            ? @tr("No saved passwords found for {} on this computer.", root.sources[root.source].name)
+                            : @tr("Reads the passwords {} saved for your Windows account, here on this computer. Nothing is sent anywhere, and you review them before anything is added. Close {} first.", root.sources[root.source].name, root.sources[root.source].name);
+                        color: Theme.ink;
+                    }
+                    HorizontalLayout {
+                        spacing: 16px;
+                        if root.browser-profiles.length > 1: Dropdown {
+                            width: 340px;
+                            label: @tr("Profile");
+                            icon: "user";
+                            options: root.browser-profiles;
+                            selected <=> root.browser-profile;
+                        }
+                        // Firefox can lock its passwords with a primary password of its own.
+                        if root.source == 2 && root.browser-profiles.length > 0: SecretField {
+                            width: 340px;
+                            field: 8;
+                            label: @tr("Firefox primary password");
+                            icon: "key";
+                            placeholder: @tr("Leave empty if you never set one");
+                            error: root.error-code == 19;
+                            accepted => { root.import-direct(); }
+                        }
+                    }
+                }
+                if root.source >= 0 && !root.direct: Prose {
                     text: root.steps(root.source);
                     color: Theme.ink;
                 }
@@ -1686,7 +1727,16 @@ export component TransferPage inherits Rectangle {
                     code: root.export-error ? 0 : root.error-code;
                     detail: root.error-detail;
                 }
-                HorizontalLayout {
+                if root.direct && root.browser-profiles.length > 0: HorizontalLayout {
+                    alignment: start;
+                    Button {
+                        text: @tr("Read passwords from {}", root.sources[root.source].name);
+                        busy-text: @tr("Reading…");
+                        busy: root.busy;
+                        clicked => { root.import-direct(); }
+                    }
+                }
+                if !root.direct: HorizontalLayout {
                     alignment: start;
                     spacing: 8px;
                     if root.source >= 0 && root.sources[root.source].browser && root.sources[root.source].installed: QuietButton {
@@ -2170,7 +2220,7 @@ export component HealthPage inherits Rectangle {
                 spacing: 10px;
                 HealthTile {
                     label: @tr("Leaked");
-                    icon: "warning";
+                    icon: "leaked";
                     count: root.counts[0];
                     pending: !root.leaks-checked;
                     active: root.filter == 0;
@@ -2185,21 +2235,21 @@ export component HealthPage inherits Rectangle {
                 }
                 HealthTile {
                     label: @tr("Reused");
-                    icon: "pin";
+                    icon: "reused";
                     count: root.counts[2];
                     active: root.filter == 2;
                     clicked => { root.filter = root.filter == 2 ? -1 : 2; root.filter-changed(root.filter); }
                 }
                 HealthTile {
                     label: @tr("Over a year old");
-                    icon: "history";
+                    icon: "old";
                     count: root.counts[3];
                     active: root.filter == 3;
                     clicked => { root.filter = root.filter == 3 ? -1 : 3; root.filter-changed(root.filter); }
                 }
                 HealthTile {
                     label: @tr("Expired cards");
-                    icon: "calendar";
+                    icon: "expired";
                     count: root.counts[4];
                     active: root.filter == 4;
                     clicked => { root.filter = root.filter == 4 ? -1 : 4; root.filter-changed(root.filter); }
@@ -2299,40 +2349,16 @@ export component HealthPage inherits Rectangle {
                                 color: Theme.ink;
                                 overflow: elide;
                             }
+                            // What is wrong, in plain words: red when it needs changing soon.
                             Text {
-                                text: row.problem == 2 && row.weakness != 0 ? Messages.weakness(row.weakness) : row.subtitle;
+                                text: row.problem == 1 ? @tr("Found in data breaches {} times", row.detail)
+                                    : row.problem == 2 ? (row.weakness != 0 ? Messages.weakness(row.weakness) : @tr("Easy to guess"))
+                                    : row.problem == 3 ? @tr("Same password as {n} other login" | "Same password as {n} other logins" % row.count)
+                                    : row.problem == 4 ? @tr("Last changed {}", Messages.ago(row.age-unit, row.age-amount))
+                                    : @tr("Expired in {}", row.detail);
                                 font-size: Theme.small;
-                                color: Theme.graphite;
+                                color: row.problem <= 3 ? Theme.seal : Theme.graphite;
                                 overflow: elide;
-                            }
-                        }
-                        VerticalLayout {
-                            alignment: center;
-                            Rectangle {
-                                height: 26px;
-                                width: badge.preferred-width + 40px;
-                                border-radius: 13px;
-                                property <string> icon: row.problem == 1 ? "warning" : row.problem == 2 ? "key" : row.problem == 3 ? "pin" : row.problem == 4 ? "history" : "calendar";
-                                background: FieldColors.of(self.icon).with-alpha(Theme.dark ? 0.12 : 0.1);
-                                border-width: 1px;
-                                border-color: FieldColors.of(self.icon).with-alpha(0.55);
-                                Glyph {
-                                    x: 10px;
-                                    width: 13px;
-                                    height: 13px;
-                                    name: parent.icon;
-                                }
-                                badge := Text {
-                                    x: 29px;
-                                    text: row.problem == 1 ? @tr("Leaked {}", row.detail)
-                                        : row.problem == 2 ? @tr("Weak")
-                                        : row.problem == 3 ? @tr("Reused {}", row.detail)
-                                        : row.problem == 4 ? @tr("Changed {}", Messages.ago(row.age-unit, row.age-amount))
-                                        : @tr("Expired {}", row.detail);
-                                    font-size: Theme.small;
-                                    font-weight: 600;
-                                    color: FieldColors.of(parent.icon);
-                                }
                             }
                         }
                     }

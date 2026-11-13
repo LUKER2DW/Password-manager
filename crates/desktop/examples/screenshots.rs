@@ -514,7 +514,17 @@ fn main() {
     camera.shot("transfer", "Import & export: where from");
     app.set_import_source(0);
     app.invoke_pick_source(0);
-    camera.shot("transfer-source", "Import from Chrome: how to export");
+    // The demo has no real browser profiles: show two, as on a typical computer.
+    app.set_import_browser_profiles(slint::ModelRc::from(std::rc::Rc::new(
+        slint::VecModel::from(vec![
+            slint::SharedString::from("Person 1"),
+            slint::SharedString::from("Work"),
+        ]),
+    )));
+    camera.shot("transfer-source", "Import from Chrome: read it directly");
+    app.set_import_browser_method(1);
+    camera.shot("transfer-csv", "Import from Chrome: from an exported CSV");
+    app.set_import_browser_method(0);
     click(&app, 410.0, 260.0);
     camera.shot(
         "transfer-browsers",

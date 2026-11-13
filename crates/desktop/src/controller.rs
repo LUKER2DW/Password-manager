@@ -251,6 +251,8 @@ struct State {
     /// Import: the place chosen, and which reviewed entries are ticked.
     import_source: Option<vault_import::Source>,
     import_include: Vec<bool>,
+    /// Profiles of the chosen browser that have a password store.
+    browser_profiles: Vec<vault_import::browser::BrowserProfile>,
 }
 
 #[derive(Default)]
@@ -356,6 +358,7 @@ impl Controller {
                 leaks: HashMap::new(),
                 import_source: None,
                 import_include: Vec::new(),
+                browser_profiles: Vec::new(),
             }),
             timers: Timers::default(),
             lengths: Rc::new(VecModel::from(vec![0; field::COUNT])),
@@ -519,6 +522,7 @@ impl Controller {
         on!(on_vault_settings_changed, |c| c.vault_settings_changed());
         on!(on_pick_source, |c, index| c.pick_source(index));
         on!(on_open_browser, |c| c.open_browser());
+        on!(on_import_direct, |c| c.import_direct());
         on!(on_import_toggle, |c, index, on| c.import_toggle(index, on));
         on!(on_import_select_all, |c, on| c.import_select_all(on));
         on!(on_open_authenticator, |c| c.open_authenticator());
@@ -2840,7 +2844,6 @@ impl Controller {
         }
         let recovery_key = app.get_kit_recovery_key();
         let vault_id = app.get_vault_id();
-        let vault_path = app.get_vault_path();
         let created_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
@@ -2848,7 +2851,6 @@ impl Controller {
             secret_key: &secret_key,
             recovery_key: (!recovery_key.is_empty()).then_some(recovery_key.as_str()),
             vault_id: &vault_id,
-            vault_path: &vault_path,
             created_at,
         });
         let short_id: String = vault_id.chars().take(8).collect();

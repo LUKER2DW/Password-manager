@@ -579,7 +579,7 @@ impl Controller {
                 ));
             }
             for login in report.reused() {
-                entries.push((2, login.id, format!("×{}", login.reused_by + 1), 0, (-1, 0)));
+                entries.push((2, login.id, login.reused_by.to_string(), 0, (-1, 0)));
             }
             for login in report.old() {
                 entries.push((3, login.id, String::new(), 0, view::ago(login.set_at, now)));
@@ -646,7 +646,12 @@ impl Controller {
                 initial: visual.initial,
                 tint: visual.tint,
                 problem: group + 1,
-                detail: SharedString::from(detail),
+                count: if group == 2 {
+                    detail.parse().unwrap_or(0)
+                } else {
+                    0
+                },
+                detail: SharedString::from(if group == 2 { String::new() } else { detail }),
                 weakness,
                 age_unit,
                 age_amount,
@@ -754,10 +759,81 @@ impl Controller {
     }
 
     pub(super) fn pick_source(&self, index: i32) {
-        self.state.borrow_mut().import_source = usize::try_from(index)
+        let source = usize::try_from(index)
             .ok()
             .and_then(|i| Source::ALL.get(i).copied());
+        let direct = source.is_some_and(vault_import::browser::supports_direct);
+        let profiles = match source {
+            Some(source) if direct && self.state.borrow().runner == Runner::Thread => {
+                vault_import::browser::profiles(source)
+            }
+            _ => Vec::new(),
+        };
+        let names: Vec<SharedString> = profiles
+            .iter()
+            .map(|p| SharedString::from(p.name.as_str()))
+            .collect();
+        {
+            let mut state = self.state.borrow_mut();
+            state.import_source = source;
+            state.browser_profiles = profiles;
+        }
+        let app = self.app();
+        app.set_import_direct_supported(direct);
+        app.set_import_browser_method(0);
+        app.set_import_browser_profiles(ModelRc::from(std::rc::Rc::new(VecModel::from(names))));
+        app.set_import_browser_profile(0);
+        self.clear_secret(field::IMPORT);
         self.set_error(error::NONE, "");
+    }
+
+    /// Reads the chosen browser profile's own password store (on a worker thread), then shows
+    /// the review like any other import.
+    pub(super) fn import_direct(&self) {
+        let app = self.app();
+        let (source, profile) = {
+            let state = self.state.borrow();
+            let Some(source) = state.import_source else {
+                return;
+            };
+            let index = usize::try_from(app.get_import_browser_profile()).unwrap_or(0);
+            let Some(profile) = state.browser_profiles.get(index).cloned() else {
+                return;
+            };
+            (source, profile)
+        };
+        let password = Zeroizing::new(
+            self.state.borrow().secrets[field::IMPORT]
+                .as_str()
+                .to_owned(),
+        );
+        app.set_import_file(SharedString::from(format!(
+            "{} · {}",
+            source.name(),
+            profile.name
+        )));
+        app.set_import_plaintext(false);
+        self.state.borrow_mut().pending_import = Some(super::PendingImport {
+            path: std::path::PathBuf::new(),
+            bytes: Zeroizing::new(Vec::new()),
+            format: vault_import::Format::Csv,
+            report: None,
+        });
+        self.run_job(move || {
+            match vault_import::browser::read(
+                source,
+                &profile,
+                &password,
+                &vault_platform::dpapi::unprotect,
+            ) {
+                Ok(report) => JobResult::ImportParsed { report },
+                Err(err) => JobResult::Failed {
+                    code: error::IMPORT,
+                    detail: err.to_string(),
+                    session: None,
+                },
+            }
+        });
     }
 
     pub(super) fn open_browser(&self) {
@@ -1013,7 +1089,7 @@ fn format_count(count: u64) -> String {
         }
         out.push(c);
     }
-    format!("{out}×")
+    out
 }
 
 /// Runs on a worker thread: one request per distinct 5-character prefix.
