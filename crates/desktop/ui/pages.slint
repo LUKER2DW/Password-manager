@@ -2,7 +2,7 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { DetailField, CodeRow, Messages } from "model.slint";
+import { DetailField, CodeRow, AuthRow, EditField, Messages } from "model.slint";
 import { Button, QuietButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip } from "kit.slint";
 
@@ -56,6 +56,8 @@ component FieldRow inherits VerticalLayout {
     in property <string> value;
     in property <bool> mono: false;
     in property <bool> large: false;
+    // Shown in red (an expired card, for example).
+    in property <bool> warning: false;
     spacing: 0px;
     HorizontalLayout {
         padding-top: 10px;
@@ -81,7 +83,7 @@ component FieldRow inherits VerticalLayout {
             text: root.value;
             font-family: root.mono ? Theme.mono-font : Theme.ui-font;
             font-size: root.large ? Theme.title : Theme.body;
-            color: Theme.ink;
+            color: root.warning ? Theme.seal : Theme.ink;
             vertical-alignment: center;
             overflow: elide;
         }
@@ -209,7 +211,7 @@ export component DetailPage inherits Rectangle {
             }
 
             if root.has-password: FieldRow {
-                label: root.kind == 1 ? @tr("PIN or code") : @tr("Password");
+                label: root.kind == 1 ? @tr("PIN") : @tr("Password");
                 value: root.revealed-password != "" ? root.revealed-password : "••••••••••••";
                 mono: root.revealed-password != "";
                 if root.revealed-password != "": Text {
@@ -253,12 +255,13 @@ export component DetailPage inherits Rectangle {
                 value: url;
             }
 
-            for field[index] in root.fields: FieldRow {
+            for field in root.fields: FieldRow {
                 label: field.label;
                 value: field.sensitive ? "••••••••" : field.value;
+                warning: field.warning;
                 QuietButton {
                     text: @tr("Copy");
-                    clicked => { root.copy-field(index); }
+                    clicked => { root.copy-field(field.index); }
                 }
             }
 
@@ -412,6 +415,16 @@ export component EditorPage inherits Rectangle {
     in property <[string]> folder-options;
     in-out property <int> folder;
     in-out property <string> recovery-codes;
+    in-out property <string> card-number;
+    in-out property <string> card-expiry;
+    in-out property <string> card-code;
+    in property <string> card-brand;
+    in property <[EditField]> fields;
+    callback card-number-edited(string);
+    callback field-edited(int, bool, string);  // index, true = name / false = value, text
+    callback field-hidden(int, bool);
+    callback field-remove(int);
+    callback field-add();
     callback save();
     callback cancel();
     callback toggle-show-password();
@@ -467,6 +480,38 @@ export component EditorPage inherits Rectangle {
                     text <=> root.url;
                 }
             }
+            if root.kind == 1: HorizontalLayout {
+                spacing: 16px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 4px;
+                    LineField {
+                        label: @tr("Card number");
+                        placeholder: "1234 5678 9012 3456";
+                        mono: true;
+                        error: root.error-code == 20;
+                        text <=> root.card-number;
+                        edited(text) => { root.card-number-edited(text); }
+                    }
+                    Text {
+                        text: root.card-brand;
+                        font-size: Theme.small;
+                        color: Theme.graphite;
+                        height: root.card-brand != "" ? self.preferred-height : 0px;
+                    }
+                }
+                VerticalLayout {
+                    alignment: start;
+                    width: 140px;
+                    LineField {
+                        label: @tr("Expires");
+                        placeholder: @tr("MM/YY");
+                        mono: true;
+                        error: root.error-code == 21;
+                        text <=> root.card-expiry;
+                    }
+                }
+            }
             if root.kind != 2: HorizontalLayout {
                 spacing: 16px;
                 HorizontalLayout {
@@ -475,7 +520,9 @@ export component EditorPage inherits Rectangle {
                     SecretField {
                         horizontal-stretch: 1;
                         field: 4;
-                        label: root.kind == 1 ? @tr("PIN or security code") : @tr("Password");
+                        label: root.kind == 1 ? @tr("PIN") : @tr("Password");
+                        placeholder: root.kind == 1 ? @tr("Digits only, as the bank gave it") : "";
+                        error: root.error-code == 23;
                         revealed: root.password-shown;
                     }
                     VerticalLayout {
@@ -485,13 +532,22 @@ export component EditorPage inherits Rectangle {
                             clicked => { root.toggle-show-password(); }
                         }
                     }
-                    VerticalLayout {
+                    // A card's PIN comes from the bank: there is nothing to generate.
+                    if root.kind == 0: VerticalLayout {
                         alignment: end;
                         QuietButton {
                             text: @tr("Generate");
                             clicked => { root.generate-password(); }
                         }
                     }
+                }
+                if root.kind == 1: LineField {
+                    width: 140px;
+                    label: @tr("Security code");
+                    placeholder: "CVV";
+                    mono: true;
+                    error: root.error-code == 22;
+                    text <=> root.card-code;
                 }
                 if root.kind == 0: LineField {
                     horizontal-stretch: 1;
@@ -514,6 +570,55 @@ export component EditorPage inherits Rectangle {
             NotesField {
                 label: @tr("Notes");
                 text <=> root.notes;
+            }
+            // Extra fields: anything the item needs that has no box of its own.
+            VerticalLayout {
+                spacing: 8px;
+                if root.fields.length > 0: Text {
+                    text: @tr("More fields");
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                }
+                for field[index] in root.fields: HorizontalLayout {
+                    spacing: 10px;
+                    LineField {
+                        width: 180px;
+                        placeholder: @tr("Name, e.g. Customer no.");
+                        text: field.name;
+                        edited(text) => { root.field-edited(index, true, text); }
+                    }
+                    LineField {
+                        horizontal-stretch: 1;
+                        placeholder: @tr("Value");
+                        mono: field.hidden;
+                        text: field.value;
+                        edited(text) => { root.field-edited(index, false, text); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Check {
+                            text: @tr("Hidden");
+                            checked: field.hidden;
+                            toggled(on) => { root.field-hidden(index, on); }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        QuietButton {
+                            text: @tr("Remove");
+                            tint: Theme.graphite;
+                            clicked => { root.field-remove(index); }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    QuietButton {
+                        text: @tr("+ Add a field");
+                        tint: Theme.graphite;
+                        clicked => { root.field-add(); }
+                    }
+                }
             }
             ErrorText {
                 code: root.error-code;
@@ -880,6 +985,130 @@ export component SettingsPage inherits Rectangle {
             SectionTitle { text: @tr("This vault"); }
             Prose { text: @tr("File: {}", root.vault-path); }
             Prose { text: @tr("Vault ID: {}", root.vault-id); }
+        }
+    }
+}
+
+// Every one-time code in the vault, live.
+export component AuthenticatorPage inherits Rectangle {
+    in property <[AuthRow]> rows;
+    in property <int> total;
+    in-out property <string> search-text;
+    callback search(string);
+    callback copy-code(int);
+    callback open-item(int);
+
+    ScrollView {
+        VerticalLayout {
+            padding: 40px;
+            padding-right: 48px;
+            spacing: 14px;
+            alignment: start;
+
+            PageTitle { text: @tr("Authenticator"); }
+            Prose {
+                text: @tr("Every two-step sign-in code in your vault, always current. Click Copy, then paste the code where the site asks for it.");
+            }
+            if root.total > 0: LineField {
+                placeholder: @tr("Search codes");
+                text <=> root.search-text;
+                edited(text) => { root.search(text); }
+            }
+            if root.total == 0: Rectangle {
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.rule;
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 8px;
+                    Text {
+                        text: @tr("No codes yet");
+                        font-size: Theme.lead;
+                        font-weight: 600;
+                        color: Theme.ink;
+                    }
+                    Prose {
+                        text: @tr("When a site offers two-step sign-in with an authenticator app, it shows a QR code and a text key (often under “Can't scan it?”). Edit that site's login here and paste the key into “One-time code secret”: its codes appear on this page, and you no longer need a separate authenticator app.");
+                    }
+                }
+            }
+            if root.total > 0 && root.rows.length == 0: Prose {
+                text: @tr("Nothing matches “{}”.", root.search-text);
+            }
+            for row[index] in root.rows: Rectangle {
+                height: 72px;
+                border-radius: Theme.radius;
+                background: Theme.panel;
+                clip: true;
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 10px;
+                    spacing: 14px;
+                    VerticalLayout {
+                        alignment: center;
+                        ItemIcon {
+                            icon: row.icon;
+                            has-icon: row.has-icon;
+                            initial: row.initial;
+                            tint: row.tint;
+                            kind: row.kind;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 3px;
+                        horizontal-stretch: 1;
+                        title-text := Text {
+                            text: row.title;
+                            font-size: Theme.body;
+                            font-weight: 600;
+                            color: title-touch.has-hover ? Theme.accent-stroke : Theme.ink;
+                            overflow: elide;
+                            title-touch := TouchArea {
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => { root.open-item(index); }
+                            }
+                        }
+                        Text {
+                            text: row.subtitle;
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            overflow: elide;
+                        }
+                    }
+                    Text {
+                        text: row.code;
+                        font-family: Theme.mono-font;
+                        font-size: Theme.title;
+                        color: row.left <= 5 ? Theme.seal : Theme.ink;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        width: 34px;
+                        text: @tr("{} s", row.left);
+                        font-size: Theme.small;
+                        color: row.left <= 5 ? Theme.seal : Theme.faint;
+                        vertical-alignment: center;
+                        horizontal-alignment: right;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        QuietButton {
+                            text: @tr("Copy");
+                            clicked => { root.copy-code(index); }
+                        }
+                    }
+                }
+                // Time left on this code.
+                Rectangle {
+                    x: 0;
+                    y: parent.height - 3px;
+                    height: 3px;
+                    width: parent.width * row.left / Math.max(1, row.period);
+                    background: row.left <= 5 ? Theme.seal : Theme.marker;
+                    opacity: 0.8;
+                }
+            }
         }
     }
 }

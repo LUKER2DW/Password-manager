@@ -4,7 +4,7 @@
 // and the form centered in the space on the right.
 
 import { Theme, Sketch } from "theme.slint";
-import { Messages } from "model.slint";
+import { Messages, RecentVault } from "model.slint";
 import { Button, QuietButton, SecretField, Check, MarkStroke, Hint, Rule } from "widgets.slint";
 import { KitSlip } from "kit.slint";
 
@@ -175,6 +175,111 @@ component Spacer inherits Rectangle {
     vertical-stretch: 1;
 }
 
+// Pick one of the vaults this computer has opened, open another file, or create a new vault.
+component VaultChooser inherits VerticalLayout {
+    in property <[RecentVault]> vaults;
+    in property <bool> can-go-back: true;
+    callback pick(int);
+    callback forget(int);
+    callback open-file();
+    callback new-file();
+    callback back();
+
+    spacing: 14px;
+    Heading { text: @tr("Choose a vault"); }
+    Prose {
+        text: @tr("Vaults opened on this computer. Each one has its own master password and Secret Key.");
+    }
+    VerticalLayout {
+        spacing: 4px;
+        for vault[index] in root.vaults: Rectangle {
+            height: 56px;
+            border-radius: Theme.radius;
+            background: vault.current ? Theme.selected : row-touch.has-hover && !vault.missing ? Theme.hover : transparent;
+            accessible-role: button;
+            accessible-label: vault.name;
+            row-touch := TouchArea {
+                mouse-cursor: vault.missing ? MouseCursor.default : MouseCursor.pointer;
+                clicked => {
+                    if (!vault.missing) { root.pick(index); }
+                }
+            }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 6px;
+                spacing: 10px;
+                VerticalLayout {
+                    alignment: center;
+                    Path {
+                        width: 16px;
+                        height: 18px;
+                        viewbox-width: 64;
+                        viewbox-height: 72;
+                        commands: Sketch.padlock;
+                        stroke: vault.missing ? Theme.faint : Theme.accent-stroke;
+                        stroke-width: 1.3px;
+                        fill: transparent;
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+                    horizontal-stretch: 1;
+                    Text {
+                        text: vault.name;
+                        font-size: Theme.body;
+                        font-weight: 600;
+                        color: vault.missing ? Theme.faint : Theme.ink;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: vault.missing ? @tr("File not found: {}", vault.location) : vault.location;
+                        font-size: Theme.small;
+                        color: Theme.faint;
+                        overflow: elide;
+                    }
+                }
+                if vault.current: Text {
+                    text: @tr("selected");
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                    vertical-alignment: center;
+                }
+                if !vault.current: VerticalLayout {
+                    alignment: center;
+                    QuietButton {
+                        text: @tr("Remove from list");
+                        tint: Theme.faint;
+                        clicked => { root.forget(index); }
+                    }
+                }
+            }
+        }
+    }
+    HorizontalLayout {
+        alignment: start;
+        spacing: 8px;
+        QuietButton {
+            text: @tr("Open a vault file…");
+            outlined: true;
+            clicked => { root.open-file(); }
+        }
+        QuietButton {
+            text: @tr("Create a new vault…");
+            outlined: true;
+            clicked => { root.new-file(); }
+        }
+    }
+    if root.can-go-back: HorizontalLayout {
+        alignment: start;
+        QuietButton {
+            text: @tr("Back");
+            tint: Theme.graphite;
+            clicked => { root.back(); }
+        }
+    }
+}
+
 export component OnboardingScreen inherits Rectangle {
     in property <int> step: 1;
     in property <bool> busy;
@@ -193,6 +298,13 @@ export component OnboardingScreen inherits Rectangle {
     callback finish();
     callback print-kit();
     callback save-kit();
+    // Vault chooser
+    in property <[RecentVault]> vaults;
+    in-out property <bool> choosing;
+    callback pick-vault(int);
+    callback forget-vault(int);
+    callback open-vault-file();
+    callback new-vault-file();
 
     background: Theme.canvas;
 
@@ -231,7 +343,15 @@ export component OnboardingScreen inherits Rectangle {
 
         if root.step == 1: FormArea {
             form-width: 460px;
-            VerticalLayout {
+            if root.choosing: VaultChooser {
+                vaults: root.vaults;
+                pick(i) => { root.pick-vault(i); }
+                forget(i) => { root.forget-vault(i); }
+                open-file => { root.open-vault-file(); }
+                new-file => { root.new-vault-file(); }
+                back => { root.choosing = false; }
+            }
+            if !root.choosing: VerticalLayout {
                 spacing: 18px;
 
                 Heading { text: @tr("Choose a master password"); }
@@ -304,6 +424,14 @@ export component OnboardingScreen inherits Rectangle {
                     busy: root.busy;
                     clicked => { root.create(); }
                 }
+                HorizontalLayout {
+                    alignment: start;
+                    QuietButton {
+                        text: @tr("I already have a vault: open it");
+                        tint: Theme.graphite;
+                        clicked => { root.choosing = true; }
+                    }
+                }
             }
         }
 
@@ -367,11 +495,18 @@ export component UnlockScreen inherits Rectangle {
     callback unlock();
     callback quick();
     callback forgot();
+    // Vault chooser
+    in property <[RecentVault]> vaults;
+    in-out property <bool> choosing;
+    callback pick-vault(int);
+    callback forget-vault(int);
+    callback open-vault-file();
+    callback new-vault-file();
+
 
     property <bool> hello-first: root.quick-unlock && !root.needs-secret-key;
 
     background: Theme.canvas;
-    forward-focus: password;
 
     HorizontalLayout {
         SidePanel {
@@ -426,8 +561,16 @@ export component UnlockScreen inherits Rectangle {
         Rectangle { width: 1px; background: Theme.rule; }
 
         FormArea {
-            form-width: 380px;
-            VerticalLayout {
+            form-width: 420px;
+            if root.choosing: VaultChooser {
+                vaults: root.vaults;
+                pick(i) => { root.pick-vault(i); }
+                forget(i) => { root.forget-vault(i); }
+                open-file => { root.open-vault-file(); }
+                new-file => { root.new-vault-file(); }
+                back => { root.choosing = false; }
+            }
+            if !root.choosing: VerticalLayout {
                 spacing: 16px;
 
                 Heading { text: @tr("Unlock your vault"); }
@@ -477,6 +620,7 @@ export component UnlockScreen inherits Rectangle {
                     field: 0;
                     label: @tr("Master password");
                     error: root.error-code == 1;
+                    init => { self.focus(); }
                     accepted => { root.unlock(); }
                 }
                 ErrorLine {
@@ -498,10 +642,16 @@ export component UnlockScreen inherits Rectangle {
                 }
                 HorizontalLayout {
                     alignment: start;
+                    spacing: 4px;
                     QuietButton {
                         text: @tr("Forgot it? Use your emergency kit");
                         tint: Theme.graphite;
                         clicked => { root.forgot(); }
+                    }
+                    QuietButton {
+                        text: @tr("Use another vault");
+                        tint: Theme.graphite;
+                        clicked => { root.choosing = true; }
                     }
                 }
             }

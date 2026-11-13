@@ -332,18 +332,23 @@ fn main() {
         false,
         0,
     );
-    add_item(
-        &app,
-        1,
-        "Visa ending 4242",
-        "A. Person",
-        "",
-        "000",
-        "",
-        "Expires 12/29",
-        false,
-        0,
+    // A card (test number from the card networks' documentation).
+    app.invoke_new_item();
+    app.set_ed_folder(0);
+    app.set_ed_kind(1);
+    app.set_ed_title("Travel card".into());
+    app.set_ed_username("A. Person".into());
+    app.set_ed_card_number("4242 4242 4242 4242".into());
+    app.invoke_card_number_edited("4242 4242 4242 4242".into());
+    app.set_ed_card_expiry("12/29".into());
+    app.set_ed_card_code("123".into());
+    type_into(&app, 4, "4321");
+    camera.shot(
+        "editor-card",
+        "Card editor: checked number, expiry, code; PIN is never generated",
     );
+    app.invoke_save_item();
+    camera.shot("vault-card", "A card: masked number with its brand");
     add_item(
         &app,
         2,
@@ -448,6 +453,9 @@ fn main() {
     click(&app, 729.0, 184.0); // (?) next to "Show website icons"
     camera.shot("settings-icons-hint", "Privacy note for website icons");
     click(&app, 1000.0, 720.0);
+    app.invoke_open_authenticator();
+    camera.shot("authenticator", "Authenticator: every one-time code, live");
+
     app.invoke_open_transfer();
     camera.shot("transfer", "Import & export");
     let demo_export = temp.path().join("bitwarden_export.json");
@@ -498,6 +506,9 @@ fn main() {
     // ---- locked ----
     app.invoke_lock();
     camera.shot("unlock", "Locked, with Windows Hello set up");
+    app.set_choosing_vault(true);
+    camera.shot("unlock-chooser", "Choosing among vaults");
+    app.set_choosing_vault(false);
     type_into(&app, 0, "wrong password");
     app.invoke_unlock();
     camera.shot("unlock-error", "Wrong master password");

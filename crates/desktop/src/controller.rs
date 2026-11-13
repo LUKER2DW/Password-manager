@@ -17,8 +17,9 @@ use slint::{
     TimerMode, VecModel,
 };
 use vault_core::{
-    Error as CoreError, FolderId, ItemData, ItemId, ItemKind, KdfParams, RecoveryCode, RecoveryKey,
-    SecretKey, Unlock, Vault,
+    CustomField, Error as CoreError, FolderId, ItemData, ItemId, ItemKind, KdfParams, RecoveryCode,
+    RecoveryKey, SecretKey, Unlock, Vault,
+    card::{self, CardDetails, CardProblem},
     generator::{self, PassphraseOptions, PasswordOptions},
     storage,
     totp::Totp,
@@ -33,7 +34,10 @@ use zeroize::Zeroizing;
 
 use crate::{
     favicon::{self, IconCache},
-    ui::{AppWindow, CodeRow, DetailField, FolderRow, ItemRow, Panel, Screen, Secrets, Theme},
+    ui::{
+        AppWindow, AuthRow, CodeRow, DetailField, EditField, FolderRow, ItemRow, Panel,
+        RecentVault, Screen, Secrets, Theme,
+    },
     view,
 };
 
@@ -81,6 +85,11 @@ mod error {
     pub const HELLO_UNAVAILABLE: i32 = 17;
     pub const HELLO_KEY_GONE: i32 = 18;
     pub const IMPORT: i32 = 19;
+    pub const CARD_NUMBER: i32 = 20;
+    pub const CARD_EXPIRY: i32 = 21;
+    pub const CARD_CODE: i32 = 22;
+    pub const CARD_PIN: i32 = 23;
+    pub const CHANGED_OUTSIDE: i32 = 24;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -101,6 +110,7 @@ mod notice {
     pub const PASSWORD_CHANGED_HELLO_OFF: i32 = 15;
     pub const KIT_OPENED: i32 = 16;
     pub const KIT_SAVED: i32 = 17;
+    pub const NOT_SAVED: i32 = 23;
     pub const RECOVERY_CODE_COPIED: i32 = 18;
     pub const IMPORTED: i32 = 19;
     pub const BACKUP_SAVED: i32 = 20;
@@ -193,6 +203,15 @@ struct State {
     totp: Option<Totp>,
     /// A file being imported: chosen, maybe parsed, waiting for confirmation.
     pending_import: Option<PendingImport>,
+    /// SHA-256 of the vault file as this window last read or wrote it; a different file on disk
+    /// means someone else changed it, and saving would silently overwrite their change.
+    file_hash: Option<[u8; 32]>,
+    /// Extra fields while an item is being edited (card details excluded).
+    edit_fields: Vec<CustomField>,
+    /// The chooser's rows, in order.
+    recent_paths: Vec<PathBuf>,
+    /// Items with a one-time code, while the Authenticator page is open.
+    auth: Vec<AuthEntry>,
     /// The item whose recovery codes are on screen.
     codes_shown: Option<ItemId>,
     settings: device::Settings,
@@ -212,6 +231,7 @@ struct Timers {
     notice: Timer,
     auto_lock: Timer,
     totp: Timer,
+    auth: Timer,
 }
 
 pub struct Controller {
@@ -287,6 +307,10 @@ impl Controller {
                 generated: None,
                 totp: None,
                 codes_shown: None,
+                auth: Vec::new(),
+                file_hash: None,
+                recent_paths: Vec::new(),
+                edit_fields: Vec::new(),
                 pending_import: None,
                 settings,
                 icons: IconCache::default(),
@@ -426,6 +450,52 @@ impl Controller {
             .copy_from_selected(CopyWhat::Field(index)));
 
         on!(on_save_item, |c| c.save_item());
+        on!(on_card_number_edited, |c, text| c.app().set_ed_card_brand(
+            SharedString::from(card::detect_brand(&card::digits(&text)).name())
+        ));
+        on!(on_open_authenticator, |c| c.open_authenticator());
+        on!(on_pick_vault, |c, index| c.pick_vault(index));
+        on!(on_field_edited, |c, index, is_name, text| c.edit_field(
+            index,
+            |f| {
+                if is_name {
+                    f.name = text.to_string();
+                } else {
+                    f.value = text.to_string();
+                }
+            }
+        ));
+        on!(on_field_hidden, |c, index, on| {
+            c.edit_field(index, |f| f.sensitive = on);
+            c.show_edit_fields();
+        });
+        on!(on_field_remove, |c, index| {
+            if let Ok(i) = usize::try_from(index) {
+                let mut state = c.state.borrow_mut();
+                if i < state.edit_fields.len() {
+                    state.edit_fields.remove(i);
+                }
+            }
+            c.show_edit_fields();
+        });
+        on!(on_field_add, |c| {
+            c.state
+                .borrow_mut()
+                .edit_fields
+                .push(CustomField::default());
+            c.show_edit_fields();
+        });
+        on!(on_forget_vault, |c, index| c.forget_vault(index));
+        on!(on_open_vault_file, |c| c.open_vault_file());
+        on!(on_new_vault_file, |c| c.new_vault_file());
+        on!(on_switch_vault, |c| {
+            c.lock();
+            c.refresh_recents();
+            c.app().set_choosing_vault(true);
+        });
+        on!(on_auth_search_changed, |c, _text| c.tick_auth());
+        on!(on_auth_copy, |c, index| c.auth_copy(index));
+        on!(on_auth_open, |c, index| c.auth_open(index));
         on!(on_cancel_edit, |c| c.close_editor());
         on!(on_toggle_show_password, |c| c.toggle_show_password());
         on!(on_generate_for_item, |c| c.generate_for_item());
@@ -486,6 +556,7 @@ impl Controller {
         let app = self.app();
         let path = self.state.borrow().path.clone();
         app.set_vault_path(SharedString::from(path.display().to_string()));
+        self.refresh_recents();
         match storage::read(&path)
             .ok()
             .and_then(|bytes| Vault::inspect(&bytes).ok())
@@ -504,6 +575,9 @@ impl Controller {
                 self.set_error(error::FILE, "not a vault file");
             }
             None => {
+                app.set_vault_id(SharedString::new());
+                app.set_quick_unlock_on(false);
+                app.set_needs_secret_key(false);
                 app.set_onboarding_step(1);
                 self.show_screen(Screen::Onboarding);
             }
@@ -519,6 +593,19 @@ impl Controller {
         let app = self.app();
         app.set_error_code(code);
         app.set_error_detail(SharedString::from(detail));
+    }
+
+    /// A notice that stays longer (something went wrong and needs reading).
+    fn notify_long(&self, code: i32, arg: &str) {
+        self.notify(code, arg);
+        let weak = self.app.clone();
+        self.timers
+            .notice
+            .start(TimerMode::SingleShot, NOTICE_DURATION * 3, move || {
+                if let Some(app) = weak.upgrade() {
+                    app.set_notice_code(0);
+                }
+            });
     }
 
     fn notify(&self, code: i32, arg: &str) {
@@ -645,6 +732,7 @@ impl Controller {
                 let id = session.vault.id_hex();
                 let had_quick_unlock = quick_unlock::is_enrolled(&id);
                 self.state.borrow_mut().session = Some(session);
+                self.remember_file();
                 if had_quick_unlock {
                     self.turn_off_quick_unlock(&id);
                     self.notify(notice::PASSWORD_CHANGED_HELLO_OFF, "");
@@ -686,6 +774,7 @@ impl Controller {
                     recovery_key.to_display_string().as_str(),
                 ));
                 self.state.borrow_mut().session = Some(session);
+                self.remember_file();
                 self.notify(notice::RECOVERY_ISSUED, "");
             }
             JobResult::Failed {
@@ -1089,12 +1178,18 @@ impl Controller {
             let mut state = self.state.borrow_mut();
             state.session = Some(session);
             state.summaries_stale = true;
+            state.file_hash = None;
             state.selected = None;
             state.editing = None;
         }
         app.set_search_text(SharedString::new());
         app.set_category(0);
         app.set_panel(Panel::Detail);
+        self.remember_file();
+        if let Ok(mut device_state) = DeviceState::load() {
+            device_state.remember_vault(&self.state.borrow().path);
+            let _ = device_state.save();
+        }
         self.load_icon_cache();
         self.refresh_list();
         self.show_detail();
@@ -1108,6 +1203,7 @@ impl Controller {
             &self.timers.reveal,
             &self.timers.auto_lock,
             &self.timers.totp,
+            &self.timers.auth,
         ] {
             timer.stop();
         }
@@ -1122,6 +1218,8 @@ impl Controller {
             state.editing = None;
             state.generated = None;
             state.totp = None;
+            state.auth.clear();
+            state.file_hash = None;
             state.icons = IconCache::default();
             state.icon_images.clear();
         }
@@ -1148,7 +1246,12 @@ impl Controller {
         app.set_ed_totp(SharedString::new());
         app.set_ed_notes(SharedString::new());
         app.set_ed_recovery_codes(SharedString::new());
+        app.set_ed_card_number(SharedString::new());
+        app.set_ed_card_expiry(SharedString::new());
+        app.set_ed_card_code(SharedString::new());
         app.set_detail_codes(ModelRc::default());
+        app.set_auth_rows(ModelRc::default());
+        app.set_auth_search(SharedString::new());
         app.set_folders(ModelRc::default());
         app.set_folder_name(SharedString::new());
         app.set_search_text(SharedString::new());
@@ -1285,6 +1388,17 @@ impl Controller {
         self.items.set_vec(rows);
         app.set_counts(ModelRc::from(Rc::new(VecModel::from(counts.to_vec()))));
         app.set_total_items(self.state.borrow().summaries.len() as i32);
+        app.set_totp_count(
+            i32::try_from(
+                self.state
+                    .borrow()
+                    .summaries
+                    .iter()
+                    .filter(|s| s.has_totp)
+                    .count(),
+            )
+            .unwrap_or(0),
+        );
         app.set_selected(selected_index);
     }
 
@@ -1351,17 +1465,14 @@ impl Controller {
             .map(|u| SharedString::from(u.as_str()))
             .collect();
         app.set_detail_urls(ModelRc::from(Rc::new(VecModel::from(urls))));
-        let fields: Vec<DetailField> = item
-            .custom_fields
-            .iter()
+        let fields: Vec<DetailField> = view::detail_fields(&item, view::now_month_year())
+            .into_iter()
             .map(|f| DetailField {
-                label: SharedString::from(f.name.as_str()),
-                value: if f.sensitive {
-                    SharedString::new()
-                } else {
-                    SharedString::from(f.value.as_str())
-                },
+                label: SharedString::from(f.label),
+                value: SharedString::from(f.value),
                 sensitive: f.sensitive,
+                index: i32::try_from(f.index).unwrap_or(-1),
+                warning: f.warning,
             })
             .collect();
         app.set_detail_fields(ModelRc::from(Rc::new(VecModel::from(fields))));
@@ -1518,29 +1629,63 @@ impl Controller {
     }
 
     fn save_vault(&self) -> bool {
+        if self.changed_outside() {
+            self.set_error(error::CHANGED_OUTSIDE, "");
+            self.notify_long(notice::NOT_SAVED, "");
+            return false;
+        }
         let result = {
             let mut state = self.state.borrow_mut();
             state.summaries_stale = true;
             let path = state.path.clone();
             match state.session.as_mut() {
-                Some(session) => session
-                    .vault
-                    .to_bytes()
-                    .and_then(|bytes| storage::write_atomic(&path, &bytes))
-                    .map(|()| (session.vault.id_hex(), session.vault.revision())),
+                Some(session) => session.vault.to_bytes().and_then(|bytes| {
+                    storage::write_atomic(&path, &bytes)?;
+                    Ok((
+                        session.vault.id_hex(),
+                        session.vault.revision(),
+                        file_hash(&bytes),
+                    ))
+                }),
                 None => return false,
             }
         };
         match result {
-            Ok((id, revision)) => {
+            Ok((id, revision, hash)) => {
+                self.state.borrow_mut().file_hash = Some(hash);
                 let _ = device::record_revision(&id, revision);
+                if self.app().get_error_code() == error::CHANGED_OUTSIDE {
+                    self.set_error(error::NONE, "");
+                }
                 true
             }
             Err(err) => {
                 let (code, detail) = self.core_error(&err);
                 self.set_error(code, &detail);
+                self.notify_long(notice::NOT_SAVED, &detail);
                 false
             }
+        }
+    }
+
+    /// Remembers the vault file as it is on disk now (after opening it, or after a background
+    /// job wrote it).
+    fn remember_file(&self) {
+        let path = self.state.borrow().path.clone();
+        let hash = std::fs::read(&path).ok().map(|bytes| file_hash(&bytes));
+        self.state.borrow_mut().file_hash = hash;
+    }
+
+    /// Whether the file on disk differs from the one this window last read or wrote.
+    fn changed_outside(&self) -> bool {
+        let (path, expected) = {
+            let state = self.state.borrow();
+            (state.path.clone(), state.file_hash)
+        };
+        match (expected, std::fs::read(&path)) {
+            (Some(expected), Ok(bytes)) => file_hash(&bytes) != expected,
+            // Deleted or unreadable: writing it again is the safe move.
+            _ => false,
         }
     }
 
@@ -1578,6 +1723,298 @@ impl Controller {
             self.show_detail();
             self.notify(notice::DELETED, &item.title);
         }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Extra fields in the editor
+    // -----------------------------------------------------------------------------------------
+
+    /// Changes one extra field as the user types. The rows are not rebuilt (that would drop the
+    /// caret); `show_edit_fields` rebuilds them when a row is added, removed or toggled.
+    fn edit_field(&self, index: i32, change: impl FnOnce(&mut CustomField)) {
+        let mut state = self.state.borrow_mut();
+        if let Some(field) = usize::try_from(index)
+            .ok()
+            .and_then(|i| state.edit_fields.get_mut(i))
+        {
+            change(field);
+        }
+    }
+
+    fn show_edit_fields(&self) {
+        let rows: Vec<EditField> = self
+            .state
+            .borrow()
+            .edit_fields
+            .iter()
+            .map(|f| EditField {
+                name: SharedString::from(f.name.as_str()),
+                value: SharedString::from(f.value.as_str()),
+                hidden: f.sensitive,
+            })
+            .collect();
+        self.app()
+            .set_ed_fields(ModelRc::from(Rc::new(VecModel::from(rows))));
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Several vaults
+    // -----------------------------------------------------------------------------------------
+
+    /// Fills the chooser with the vaults this computer has opened (the current one included).
+    fn refresh_recents(&self) {
+        let current = self.state.borrow().path.clone();
+        let mut paths = DeviceState::load()
+            .map(|s| s.recent_vaults())
+            .unwrap_or_default();
+        if !paths.iter().any(|p| same_path(p, &current)) {
+            paths.insert(0, current.clone());
+        }
+        let rows: Vec<RecentVault> = paths
+            .iter()
+            .map(|path| RecentVault {
+                name: SharedString::from(
+                    path.file_stem()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                ),
+                location: SharedString::from(
+                    path.parent()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default(),
+                ),
+                current: same_path(path, &current),
+                missing: !path.exists() && !same_path(path, &current),
+            })
+            .collect();
+        self.state.borrow_mut().recent_paths = paths;
+        self.app()
+            .set_recent_vaults(ModelRc::from(Rc::new(VecModel::from(rows))));
+    }
+
+    /// Locks whatever is open and shows `path`: its lock screen, or onboarding when there is no
+    /// vault there yet. (The chooser's buttons call this; tests call it directly.)
+    pub fn switch_vault(&self, path: PathBuf) {
+        if self.state.borrow().session.is_some() {
+            self.lock();
+        }
+        self.clear_all_secrets();
+        {
+            let mut state = self.state.borrow_mut();
+            state.path = path;
+            state.pending = None;
+            state.suggestion = None;
+        }
+        let app = self.app();
+        app.set_choosing_vault(false);
+        app.set_suggestion(SharedString::new());
+        app.set_kit_secret_key(SharedString::new());
+        app.set_kit_recovery_key(SharedString::new());
+        app.set_recovered(false);
+        self.show_start_screen();
+    }
+
+    fn pick_vault(&self, index: i32) {
+        let path = usize::try_from(index)
+            .ok()
+            .and_then(|i| self.state.borrow().recent_paths.get(i).cloned());
+        let Some(path) = path else { return };
+        if same_path(&path, &self.state.borrow().path) {
+            self.app().set_choosing_vault(false);
+        } else {
+            self.switch_vault(path);
+        }
+    }
+
+    fn forget_vault(&self, index: i32) {
+        let path = usize::try_from(index)
+            .ok()
+            .and_then(|i| self.state.borrow().recent_paths.get(i).cloned());
+        let Some(path) = path else { return };
+        if let Ok(mut device_state) = DeviceState::load() {
+            device_state.forget_vault(&path);
+            let _ = device_state.save();
+        }
+        self.refresh_recents();
+    }
+
+    fn open_vault_file(&self) {
+        if self.state.borrow().runner == Runner::Inline {
+            return;
+        }
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Open a vault")
+            .add_filter("Vault", &["vault"])
+            .add_filter("All files", &["*"])
+            .pick_file()
+        {
+            self.switch_vault(path);
+        }
+    }
+
+    fn new_vault_file(&self) {
+        if self.state.borrow().runner == Runner::Inline {
+            return;
+        }
+        let Some(mut path) = rfd::FileDialog::new()
+            .set_title("Where to keep the new vault")
+            .set_file_name("My vault.vault")
+            .add_filter("Vault", &["vault"])
+            .save_file()
+        else {
+            return;
+        };
+        if path.extension().is_none() {
+            path.set_extension("vault");
+        }
+        if path.exists() && Vault::inspect(&storage::read(&path).unwrap_or_default()).is_err() {
+            // Never write a vault over some other file.
+            self.set_error(error::FILE, &format!("{} already exists", path.display()));
+            return;
+        }
+        self.switch_vault(path);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Authenticator page
+    // -----------------------------------------------------------------------------------------
+
+    fn open_authenticator(&self) {
+        let ids: Vec<ItemId> = self
+            .state
+            .borrow()
+            .summaries
+            .iter()
+            .filter(|s| s.has_totp)
+            .map(|s| s.id)
+            .collect();
+        let mut entries = Vec::with_capacity(ids.len());
+        for id in ids {
+            let item = {
+                let state = self.state.borrow();
+                let Some(session) = state.session.as_ref() else {
+                    return;
+                };
+                match session.vault.get_item(&id) {
+                    Ok(item) => item,
+                    Err(_) => continue,
+                }
+            };
+            // A broken secret is reported on the item page; here it is simply left out.
+            let Ok(totp) = Totp::parse(&item.totp) else {
+                continue;
+            };
+            let url = item.urls.first().map(String::as_str).unwrap_or_default();
+            let visual = self.icon_for(item.kind, url, &item.title);
+            let host = url.split_once("://").map_or(url, |(_, rest)| rest);
+            let subtitle = if item.username.is_empty() {
+                host.split('/').next().unwrap_or_default().to_owned()
+            } else {
+                item.username.clone()
+            };
+            entries.push(AuthEntry {
+                id,
+                title: item.title.clone(),
+                subtitle,
+                totp,
+                visual,
+            });
+        }
+        entries.sort_by_key(|e| e.title.to_lowercase());
+        self.state.borrow_mut().auth = entries;
+        let app = self.app();
+        app.set_auth_search(SharedString::new());
+        app.set_panel(Panel::Authenticator);
+        self.set_error(error::NONE, "");
+        self.tick_auth();
+        let weak = self.weak();
+        self.timers
+            .auth
+            .start(TimerMode::Repeated, Duration::from_secs(1), move || {
+                if let Some(controller) = weak.upgrade() {
+                    controller.tick_auth();
+                }
+            });
+    }
+
+    /// Entries matching the page's search box, in display order.
+    fn visible_auth(&self) -> Vec<usize> {
+        let query = self.app().get_auth_search().trim().to_lowercase();
+        let state = self.state.borrow();
+        (0..state.auth.len())
+            .filter(|&i| {
+                let e = &state.auth[i];
+                query.is_empty()
+                    || e.title.to_lowercase().contains(&query)
+                    || e.subtitle.to_lowercase().contains(&query)
+            })
+            .collect()
+    }
+
+    /// Recomputes every visible code (once a second while the page is open).
+    fn tick_auth(&self) {
+        let app = self.app();
+        if app.get_panel() != Panel::Authenticator {
+            // Left the page: stop and forget the secrets.
+            self.timers.auth.stop();
+            self.state.borrow_mut().auth.clear();
+            app.set_auth_rows(ModelRc::default());
+            return;
+        }
+        let visible = self.visible_auth();
+        let state = self.state.borrow();
+        let rows: Vec<AuthRow> = visible
+            .iter()
+            .map(|&i| {
+                let e = &state.auth[i];
+                let (code, left) = e.totp.now();
+                AuthRow {
+                    title: SharedString::from(e.title.as_str()),
+                    subtitle: SharedString::from(e.subtitle.as_str()),
+                    code: SharedString::from(view::group_code(&code)),
+                    left: i32::try_from(left).unwrap_or(0),
+                    period: i32::try_from(e.totp.period()).unwrap_or(30),
+                    kind: view::kind_to_int(ItemKind::Login),
+                    icon: e.visual.image.clone(),
+                    has_icon: e.visual.has_image,
+                    initial: e.visual.initial.clone(),
+                    tint: e.visual.tint,
+                }
+            })
+            .collect();
+        drop(state);
+        app.set_auth_rows(ModelRc::from(Rc::new(VecModel::from(rows))));
+    }
+
+    fn auth_copy(&self, index: i32) {
+        let visible = self.visible_auth();
+        let code = usize::try_from(index)
+            .ok()
+            .and_then(|i| visible.get(i))
+            .map(|&i| self.state.borrow().auth[i].totp.now().0);
+        if let Some(code) = code {
+            self.copy(code, true, notice::CODE_COPIED);
+        }
+    }
+
+    /// Opens the item behind a code on the item page.
+    fn auth_open(&self, index: i32) {
+        let visible = self.visible_auth();
+        let Some(id) = usize::try_from(index)
+            .ok()
+            .and_then(|i| visible.get(i))
+            .map(|&i| self.state.borrow().auth[i].id)
+        else {
+            return;
+        };
+        let app = self.app();
+        app.set_category(0);
+        app.set_search_text(SharedString::new());
+        app.set_panel(Panel::Detail);
+        self.tick_auth(); // stops the page's timer
+        self.state.borrow_mut().selected = Some(id);
+        self.refresh_list();
+        self.show_detail();
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1775,6 +2212,29 @@ impl Controller {
             .map(|c| c.code.as_str())
             .collect();
         app.set_ed_recovery_codes(SharedString::from(codes.join("\n")));
+        // Extra fields; a card's own details have their own boxes.
+        let is_card = item.kind == ItemKind::Card;
+        self.state.borrow_mut().edit_fields = item
+            .custom_fields
+            .iter()
+            .filter(|f| {
+                !is_card
+                    || !card::RESERVED
+                        .iter()
+                        .any(|r| f.name.eq_ignore_ascii_case(r))
+            })
+            .cloned()
+            .collect();
+        self.show_edit_fields();
+        let details = CardDetails::from_item(&item);
+        app.set_ed_card_number(SharedString::from(card::group(&details.number)));
+        app.set_ed_card_expiry(SharedString::from(
+            card::parse_expiry(&details.expiry).map_or(details.expiry.clone(), card::format_expiry),
+        ));
+        app.set_ed_card_code(SharedString::from(details.security_code.as_str()));
+        app.set_ed_card_brand(SharedString::from(
+            card::detect_brand(&details.number).name(),
+        ));
         app.set_editor_password_shown(SharedString::new());
         self.edit_secret(field::ITEM_PASSWORD as i32, |buffer| {
             buffer.set(&item.password);
@@ -1792,6 +2252,11 @@ impl Controller {
         let app = self.app();
         app.set_editor_password_shown(SharedString::new());
         app.set_ed_recovery_codes(SharedString::new());
+        app.set_ed_card_number(SharedString::new());
+        app.set_ed_card_expiry(SharedString::new());
+        app.set_ed_card_code(SharedString::new());
+        app.set_ed_fields(ModelRc::default());
+        self.state.borrow_mut().edit_fields.clear();
         app.set_editing_item(false);
         app.set_panel(Panel::Detail);
         self.show_detail();
@@ -1842,6 +2307,43 @@ impl Controller {
             let state = self.state.borrow();
             state.session.as_ref()?.vault.folders().get(i).map(|f| f.id)
         });
+        // Extra fields as edited (a field needs a name or a value to be kept).
+        item.custom_fields = self
+            .state
+            .borrow()
+            .edit_fields
+            .iter()
+            .filter(|f| !f.name.trim().is_empty() || !f.value.is_empty())
+            .map(|f| CustomField {
+                name: if f.name.trim().is_empty() {
+                    "Field".to_owned()
+                } else {
+                    f.name.trim().to_owned()
+                },
+                value: f.value.clone(),
+                sensitive: f.sensitive,
+            })
+            .collect();
+        if kind == ItemKind::Card {
+            let details = CardDetails {
+                number: app.get_ed_card_number().to_string(),
+                expiry: app.get_ed_card_expiry().to_string(),
+                security_code: app.get_ed_card_code().to_string(),
+            };
+            if let Err(problem) = details.validate(&item.password) {
+                self.set_error(
+                    match problem {
+                        CardProblem::Number => error::CARD_NUMBER,
+                        CardProblem::Expiry => error::CARD_EXPIRY,
+                        CardProblem::SecurityCode => error::CARD_CODE,
+                        CardProblem::Pin => error::CARD_PIN,
+                    },
+                    "",
+                );
+                return;
+            }
+            details.apply(&mut item);
+        }
         if kind == ItemKind::Login {
             // Codes kept from before stay marked as used.
             let mut codes = RecoveryCode::parse_list(&app.get_ed_recovery_codes());
@@ -2651,12 +3153,32 @@ enum KitAction {
     Export,
 }
 
+/// One code on the Authenticator page.
+struct AuthEntry {
+    id: ItemId,
+    title: String,
+    subtitle: String,
+    totp: Totp,
+    visual: IconVisual,
+}
+
 /// An import in progress. The file's bytes are wiped when this is dropped.
 struct PendingImport {
     path: PathBuf,
     bytes: Zeroizing<Vec<u8>>,
     format: vault_import::Format,
     report: Option<vault_import::ImportReport>,
+}
+
+/// Windows paths compare without regard to case.
+fn same_path(a: &std::path::Path, b: &std::path::Path) -> bool {
+    a.to_string_lossy()
+        .eq_ignore_ascii_case(&b.to_string_lossy())
+}
+
+fn file_hash(bytes: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes).into()
 }
 
 /// Shows a generated secret's strength: bits and the estimated time to crack it.

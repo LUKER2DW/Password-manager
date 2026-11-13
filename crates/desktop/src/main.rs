@@ -16,7 +16,18 @@ use vault_desktop::{
 fn main() -> anyhow::Result<()> {
     let app = AppWindow::new()?;
     apply_sketches(&app);
-    let path = vault_platform::paths::default_vault_path()?;
+    // VAULT_FILE wins; otherwise the vault used last on this computer, if it is still there.
+    let path = if std::env::var_os("VAULT_FILE").is_some() {
+        vault_platform::paths::default_vault_path()?
+    } else {
+        match vault_platform::DeviceState::load()
+            .ok()
+            .and_then(|state| state.recent_vaults().into_iter().find(|p| p.exists()))
+        {
+            Some(path) => path,
+            None => vault_platform::paths::default_vault_path()?,
+        }
+    };
     let _controller = Controller::install(
         &app,
         path,

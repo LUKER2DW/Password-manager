@@ -275,6 +275,103 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_detail_folder(), "");
     app.invoke_delete_item();
 
+    // ---- cards: checked fields, no generated PIN ----
+    app.invoke_new_item();
+    app.set_ed_kind(1);
+    app.set_ed_title("Visa".into());
+    app.set_ed_username("A. Person".into());
+    app.set_ed_card_number("4111 1111 1111 1112".into());
+    app.invoke_card_number_edited("4111 1111 1111 1112".into());
+    assert_eq!(app.get_ed_card_brand(), "Visa");
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 20, "typo caught by the checksum");
+    app.set_ed_card_number("4111 1111 1111 1111".into());
+    app.set_ed_card_expiry("13/29".into());
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 21);
+    app.set_ed_card_expiry("8/2029".into());
+    app.set_ed_card_code("12".into());
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 22);
+    app.set_ed_card_code("123".into());
+    type_into(&app, 4, "12ab");
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 23, "a PIN is digits");
+    type_into(&app, 4, "1234");
+    app.invoke_save_item();
+    assert_eq!(
+        app.get_panel(),
+        Panel::Detail,
+        "detail: {}",
+        app.get_error_code()
+    );
+    let fields = app.get_detail_fields();
+    assert_eq!(fields.row_data(0).unwrap().value, "Visa •••• 1111");
+    assert_eq!(fields.row_data(1).unwrap().value, "08/29");
+    assert!(fields.row_data(2).unwrap().sensitive);
+    assert_eq!(fields.row_count(), 3, "the brand is not repeated");
+    let visa = (0..app.get_items().row_count())
+        .find(|&i| app.get_items().row_data(i).unwrap().title == "Visa")
+        .unwrap();
+    assert_eq!(
+        app.get_items().row_data(visa).unwrap().subtitle,
+        "Visa •••• 1111"
+    );
+    app.invoke_delete_item();
+
+    // ---- authenticator page ----
+    assert_eq!(app.get_totp_count(), 1);
+    app.invoke_open_authenticator();
+    assert_eq!(app.get_panel(), Panel::Authenticator);
+    assert_eq!(app.get_auth_rows().row_count(), 1);
+    let row = app.get_auth_rows().row_data(0).unwrap();
+    assert_eq!(row.title, "GitHub");
+    assert_eq!(row.code.len(), 7);
+    assert!(row.left >= 1 && row.left <= 30 && row.period == 30);
+    app.invoke_auth_copy(0);
+    assert_eq!(app.get_notice_code(), 3);
+    app.set_auth_search("zzz".into());
+    app.invoke_auth_search_changed("zzz".into());
+    assert_eq!(app.get_auth_rows().row_count(), 0);
+    app.set_auth_search("".into());
+    app.invoke_auth_search_changed("".into());
+    app.invoke_auth_open(0);
+    assert_eq!(app.get_panel(), Panel::Detail);
+    assert_eq!(app.get_detail_title(), "GitHub");
+
+    // ---- extra fields ----
+    app.invoke_edit_item();
+    app.invoke_field_add();
+    app.invoke_field_edited(0, true, "Customer no.".into());
+    app.invoke_field_edited(0, false, "C-42".into());
+    app.invoke_field_hidden(0, true);
+    assert!(app.get_ed_fields().row_data(0).unwrap().hidden);
+    app.invoke_field_add(); // left empty: dropped on save
+    app.invoke_save_item();
+    let fields = app.get_detail_fields();
+    assert_eq!(fields.row_count(), 1);
+    assert_eq!(fields.row_data(0).unwrap().label, "Customer no.");
+    assert!(fields.row_data(0).unwrap().sensitive);
+    app.invoke_edit_item();
+    assert_eq!(app.get_ed_fields().row_data(0).unwrap().value, "C-42");
+    app.invoke_field_remove(0);
+    app.invoke_save_item();
+    assert_eq!(app.get_detail_fields().row_count(), 0);
+
+    // ---- a change made outside this window is never overwritten ----
+    let good = std::fs::read(&path).unwrap();
+    let mut other = good.clone();
+    other.push(0);
+    std::fs::write(&path, &other).unwrap();
+    app.invoke_toggle_favorite();
+    assert_eq!(app.get_error_code(), 24);
+    assert_eq!(app.get_notice_code(), 23);
+    assert_eq!(std::fs::read(&path).unwrap(), other, "left untouched");
+    std::fs::write(&path, &good).unwrap();
+    app.invoke_toggle_favorite();
+    assert_eq!(app.get_error_code(), 0, "saves again once the file matches");
+    app.invoke_toggle_favorite();
+
     // ---- generator ----
     app.invoke_open_generator();
     assert_eq!(app.get_panel(), Panel::Generator);
@@ -549,6 +646,40 @@ fn whole_app_flow_headless() {
     assert!(text.contains("\"Shop\"") && text.contains("Shopping"));
     assert_eq!(app.get_notice_code(), 21);
     std::fs::remove_file(exported).unwrap();
+
+    // ---- a second vault, and back to the first ----
+    let second = dir.path().join("second.vault");
+    controller.switch_vault(second.clone());
+    assert_eq!(app.get_screen(), Screen::Onboarding, "no vault there yet");
+    assert_eq!(app.get_items().row_count(), 0, "the first vault was locked");
+    assert!(app.get_recent_vaults().row_count() >= 2);
+    type_into(&app, 0, NEW_PASSWORD);
+    type_into(&app, 1, NEW_PASSWORD);
+    app.invoke_create_vault();
+    let _cleanup_second = ForgetOnDrop(app.get_vault_id().to_string());
+    app.set_kit_saved(true);
+    app.invoke_finish_onboarding();
+    assert_eq!(app.get_screen(), Screen::Vault);
+    assert_eq!(app.get_total_items(), 0);
+    assert!(second.exists());
+    app.invoke_switch_vault();
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    assert!(app.get_choosing_vault());
+    let recent = app.get_recent_vaults();
+    assert!(recent.row_data(0).unwrap().current, "most recent first");
+    let first = (0..recent.row_count())
+        .find(|&i| recent.row_data(i).unwrap().name == "test")
+        .unwrap();
+    app.invoke_pick_vault(first as i32);
+    assert!(!app.get_choosing_vault());
+    assert_eq!(app.get_vault_path(), path.display().to_string().as_str());
+    type_into(&app, 0, NEW_PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_error_code(), 1, "each vault has its own password");
+    type_into(&app, 0, PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_screen(), Screen::Vault);
+    assert!(app.get_total_items() >= 1);
 
     // ---- nothing readable on disk ----
     let bytes = std::fs::read(&path).unwrap();

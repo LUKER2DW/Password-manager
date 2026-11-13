@@ -126,6 +126,7 @@ export component VaultIndex inherits Rectangle {
     in property <int> category;
     in property <[int]> counts;
     in property <[FolderRow]> folders;
+    in property <int> totp-count;
     in property <Panel> panel;
     callback select-category(int);
     callback create-folder(string);
@@ -133,10 +134,12 @@ export component VaultIndex inherits Rectangle {
     callback open-settings();
     callback open-kit();
     callback open-transfer();
+    callback open-authenticator();
     callback lock();
+    callback switch-vault();
 
     background: Theme.panel;
-    property <bool> browsing: root.panel != Panel.generator && root.panel != Panel.settings && root.panel != Panel.kit && root.panel != Panel.transfer;
+    property <bool> browsing: root.panel != Panel.generator && root.panel != Panel.settings && root.panel != Panel.kit && root.panel != Panel.transfer && root.panel != Panel.authenticator;
     property <bool> adding-folder;
     property <string> new-folder-name;
 
@@ -164,6 +167,7 @@ export component VaultIndex inherits Rectangle {
                 IndexTab { text: @tr("Logins"); count: root.counts[2]; active: root.category == 2 && root.browsing; clicked => { root.select-category(2); } }
                 IndexTab { text: @tr("Cards"); count: root.counts[3]; active: root.category == 3 && root.browsing; clicked => { root.select-category(3); } }
                 IndexTab { text: @tr("Secure notes"); count: root.counts[4]; active: root.category == 4 && root.browsing; clicked => { root.select-category(4); } }
+                IndexTab { text: @tr("Authenticator"); count: root.totp-count; active: root.panel == Panel.authenticator; clicked => { root.open-authenticator(); } }
 
                 Rectangle { height: 16px; }
                 HorizontalLayout {
@@ -257,6 +261,7 @@ export component VaultIndex inherits Rectangle {
         IndexTab { text: @tr("Settings"); active: root.panel == Panel.settings; clicked => { root.open-settings(); } }
         Rectangle { height: 8px; }
         IndexTab { text: @tr("Lock now"); clicked => { root.lock(); } }
+        IndexTab { text: @tr("Switch vault"); clicked => { root.switch-vault(); } }
     }
 }
 

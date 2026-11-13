@@ -1,6 +1,79 @@
 //! Pure presentation rules (no UI types), so they can be unit-tested.
 
-use vault_core::{FolderId, ItemKind, ItemSummary};
+use vault_core::{FolderId, ItemData, ItemKind, ItemSummary, card};
+
+/// One extra field as shown on the item page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldView {
+    pub label: String,
+    /// Empty for sensitive fields (the page shows dots).
+    pub value: String,
+    pub sensitive: bool,
+    /// Position in the item's `custom_fields` (what Copy copies).
+    pub index: usize,
+    /// Show in red (an expired card).
+    pub warning: bool,
+}
+
+/// The item's extra fields for the item page. Cards get friendly labels: the number masked with
+/// its brand ("Visa •••• 4242"), the expiry flagged when past; the stored brand is not repeated.
+pub fn detail_fields(item: &ItemData, now: (u32, u32)) -> Vec<FieldView> {
+    let is_card = item.kind == ItemKind::Card;
+    let named = |field: &vault_core::CustomField, name: &str| {
+        is_card && field.name.eq_ignore_ascii_case(name)
+    };
+    item.custom_fields
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !named(f, card::BRAND))
+        .map(|(index, f)| {
+            let mut view = FieldView {
+                label: f.name.clone(),
+                value: if f.sensitive {
+                    String::new()
+                } else {
+                    f.value.clone()
+                },
+                sensitive: f.sensitive,
+                index,
+                warning: false,
+            };
+            if named(f, card::NUMBER) {
+                view.label = "Card number".into();
+                view.value = card::masked(&card::digits(&f.value));
+                view.sensitive = false; // masked; Copy still copies the full number as a secret
+            } else if named(f, card::EXPIRY)
+                && let Some(expiry) = card::parse_expiry(&f.value)
+            {
+                view.label = "Expires".into();
+                let expired = card::is_expired(expiry, now);
+                view.value = if expired {
+                    format!("{} · expired", card::format_expiry(expiry))
+                } else {
+                    card::format_expiry(expiry)
+                };
+                view.warning = expired;
+            }
+            view
+        })
+        .collect()
+}
+
+/// Current (month, year) in UTC.
+pub fn now_month_year() -> (u32, u32) {
+    let days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() / 86_400) as i64;
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    (month as u32, year as u32)
+}
 
 /// Index tabs: 0 all, 1 favorites, 2 logins, 3 cards, 4 secure notes.
 pub const CATEGORY_COUNT: usize = 5;
@@ -72,6 +145,9 @@ pub fn filter(
 
 /// Second line of a list row: username, else the website host.
 pub fn subtitle(summary: &ItemSummary) -> String {
+    if !summary.card_hint.is_empty() {
+        return summary.card_hint.clone();
+    }
     if !summary.username.is_empty() {
         return summary.username.clone();
     }
@@ -302,6 +378,31 @@ mod tests {
         assert_eq!(group_code("12345678"), "1234 5678");
         assert_eq!(group_code("1234567"), "1234567");
         assert_eq!(int_to_kind(kind_to_int(ItemKind::Card)), ItemKind::Card);
+    }
+
+    #[test]
+    fn card_fields_on_the_item_page() {
+        let mut item = ItemData::new(ItemKind::Card, "Visa");
+        card::CardDetails {
+            number: "4111111111111111".into(),
+            expiry: "08/25".into(),
+            security_code: "123".into(),
+        }
+        .apply(&mut item);
+        let fields = detail_fields(&item, (11, 2026));
+        let labels: Vec<&str> = fields.iter().map(|f| f.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            ["Card number", "Expires", "Security code"],
+            "brand not repeated"
+        );
+        assert_eq!(fields[0].value, "Visa •••• 1111");
+        assert_eq!(fields[0].index, 0);
+        assert!(fields[1].warning && fields[1].value.ends_with("expired"));
+        assert!(fields[2].sensitive && fields[2].value.is_empty());
+        assert_eq!(fields[2].index, 2, "indexes skip nothing in the item");
+        let (month, year) = now_month_year();
+        assert!((1..=12).contains(&month) && year >= 2026);
     }
 
     #[test]

@@ -1,10 +1,10 @@
 import { Theme, Sketch, Secrets } from "theme.slint";
-import { Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, Messages } from "model.slint";
+import { Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, Messages } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
-import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage } from "pages.slint";
+import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage } from "pages.slint";
 
-export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, Messages }
+export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, Messages }
 
 // Confirmation messages ("Copied", "Saved"): bottom-right, out of the way of page content.
 component Notice inherits Rectangle {
@@ -58,6 +58,15 @@ export component AppWindow inherits Window {
     callback use-suggestion();
     callback finish-onboarding();
 
+    // ---- choosing among vaults ----
+    in property <[RecentVault]> recent-vaults;
+    in-out property <bool> choosing-vault;
+    callback pick-vault(int);
+    callback forget-vault(int);
+    callback open-vault-file();
+    callback new-vault-file();
+    callback switch-vault();
+
     // ---- unlock / recover ----
     in property <bool> needs-secret-key;
     // Windows Hello: usable on this computer / set up for this vault / prompt open now.
@@ -79,6 +88,14 @@ export component AppWindow inherits Window {
     in property <int> category;
     in property <[int]> counts: [0, 0, 0, 0, 0];
     in property <[FolderRow]> folders;
+    in property <int> totp-count;
+    // ---- authenticator ----
+    in property <[AuthRow]> auth-rows;
+    in-out property <string> auth-search;
+    callback open-authenticator();
+    callback auth-search-changed(string);
+    callback auth-copy(int);
+    callback auth-open(int);
     // The folder being browsed (category >= 100), or "".
     in property <string> folder-name;
     callback create-folder(string);
@@ -145,6 +162,16 @@ export component AppWindow inherits Window {
     in property <[string]> ed-folder-options: [""];
     in-out property <int> ed-folder;
     in-out property <string> ed-recovery-codes;
+    in-out property <string> ed-card-number;
+    in-out property <string> ed-card-expiry;
+    in-out property <string> ed-card-code;
+    in property <string> ed-card-brand;
+    in property <[EditField]> ed-fields;
+    callback card-number-edited(string);
+    callback field-edited(int, bool, string);
+    callback field-hidden(int, bool);
+    callback field-remove(int);
+    callback field-add();
     callback save-item();
     callback cancel-edit();
     callback toggle-show-password();
@@ -219,6 +246,13 @@ export component AppWindow inherits Window {
         suggest => { root.suggest-passphrase(); }
         use-suggestion => { root.use-suggestion(); }
         finish => { root.finish-onboarding(); }
+        vaults: root.recent-vaults;
+        choosing <=> root.choosing-vault;
+        pick-vault(i) => { root.pick-vault(i); }
+        forget-vault(i) => { root.forget-vault(i); }
+        open-vault-file => { root.open-vault-file(); }
+        new-vault-file => { root.new-vault-file(); }
+
         print-kit => { root.print-kit(); }
         save-kit => { root.save-kit(); }
     }
@@ -235,6 +269,13 @@ export component AppWindow inherits Window {
         unlock => { root.unlock(); }
         quick => { root.quick-unlock(); }
         forgot => { root.show-recovery(); }
+        vaults: root.recent-vaults;
+        choosing <=> root.choosing-vault;
+        pick-vault(i) => { root.pick-vault(i); }
+        forget-vault(i) => { root.forget-vault(i); }
+        open-vault-file => { root.open-vault-file(); }
+        new-vault-file => { root.new-vault-file(); }
+
     }
 
     if root.screen == Screen.recover: RecoverScreen {
@@ -251,6 +292,7 @@ export component AppWindow inherits Window {
             category: root.category;
             counts: root.counts;
             folders: root.folders;
+            totp-count: root.totp-count;
             panel: root.panel;
             select-category(c) => { root.select-category(c); }
             create-folder(name) => { root.create-folder(name); }
@@ -258,7 +300,9 @@ export component AppWindow inherits Window {
             open-settings => { root.open-settings(); }
             open-kit => { root.open-kit(); }
             open-transfer => { root.open-transfer(); }
+            open-authenticator => { root.open-authenticator(); }
             lock => { root.lock(); }
+            switch-vault => { root.switch-vault(); }
         }
         Rectangle { width: 1px; background: Theme.rule; }
         ItemList {
@@ -331,6 +375,16 @@ export component AppWindow inherits Window {
                 folder-options: root.ed-folder-options;
                 folder <=> root.ed-folder;
                 recovery-codes <=> root.ed-recovery-codes;
+                card-number <=> root.ed-card-number;
+                card-expiry <=> root.ed-card-expiry;
+                card-code <=> root.ed-card-code;
+                card-brand: root.ed-card-brand;
+                card-number-edited(text) => { root.card-number-edited(text); }
+                fields: root.ed-fields;
+                field-edited(i, is-name, text) => { root.field-edited(i, is-name, text); }
+                field-hidden(i, on) => { root.field-hidden(i, on); }
+                field-remove(i) => { root.field-remove(i); }
+                field-add => { root.field-add(); }
                 save => { root.save-item(); }
                 cancel => { root.cancel-edit(); }
                 toggle-show-password => { root.toggle-show-password(); }
@@ -374,6 +428,14 @@ export component AppWindow inherits Window {
                 settings-changed => { root.settings-changed(); }
                 appearance-changed(dark) => { root.appearance-changed(dark); }
                 change-password => { root.change-password(); }
+            }
+            if root.panel == Panel.authenticator: AuthenticatorPage {
+                rows: root.auth-rows;
+                total: root.totp-count;
+                search-text <=> root.auth-search;
+                search(text) => { root.auth-search-changed(text); }
+                copy-code(i) => { root.auth-copy(i); }
+                open-item(i) => { root.auth-open(i); }
             }
             if root.panel == Panel.transfer: TransferPage {
                 error-code: root.error-code;

@@ -6046,6 +6046,7 @@ dependencies = [
  "raw-window-handle",
  "rfd",
  "serde",
+ "sha2 0.11.0",
  "slint",
  "slint-build",
  "tempfile",
