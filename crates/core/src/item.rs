@@ -85,6 +85,45 @@ pub struct Folder {
     #[zeroize(skip)]
     pub id: FolderId,
     pub name: String,
+    /// Icon name chosen by the user ("" = the plain folder icon). (Format v3.)
+    pub icon: String,
+    /// Colour index chosen by the user (0 = default). (Format v3.)
+    #[zeroize(skip)]
+    pub color: u8,
+}
+
+/// Folder as stored by formats v1 and v2 (before icons and colours).
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub(crate) struct FolderV1 {
+    #[zeroize(skip)]
+    pub(crate) id: FolderId,
+    pub(crate) name: String,
+}
+
+impl fmt::Debug for FolderV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FolderV1")
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl FolderV1 {
+    pub(crate) fn upgrade(mut self) -> Folder {
+        Folder {
+            id: self.id,
+            name: std::mem::take(&mut self.name),
+            icon: String::new(),
+            color: 0,
+        }
+    }
+}
+
+impl Folder {
+    /// Longest icon name accepted.
+    pub const MAX_ICON_CHARS: usize = 32;
+    /// Highest colour index accepted.
+    pub const MAX_COLOR: u8 = 15;
 }
 
 impl fmt::Debug for Folder {
@@ -243,6 +282,8 @@ pub struct ItemData {
     pub password_history: Vec<PasswordChange>,
     /// When the current password was set (Unix seconds; 0 = unknown, before format v2).
     pub password_changed_at: i64,
+    /// Website whose icon stands for this item ("" = its first URL). (Format v3.)
+    pub icon_url: String,
 }
 
 impl ItemData {
@@ -267,6 +308,7 @@ impl ItemData {
             recovery_codes: Vec::new(),
             password_history: Vec::new(),
             password_changed_at: 0,
+            icon_url: String::new(),
         }
     }
 
@@ -326,6 +368,7 @@ impl fmt::Debug for ItemData {
             .field("recovery_codes", &self.recovery_codes.len())
             .field("password_history", &self.password_history.len())
             .field("password_changed_at", &self.password_changed_at)
+            .field("icon_url", &self.icon_url)
             .finish()
     }
 }
@@ -354,6 +397,7 @@ impl ItemDataV0 {
         ItemData {
             password_history: Vec::new(),
             password_changed_at: 0,
+            icon_url: String::new(),
             kind: self.kind,
             title: std::mem::take(&mut self.title),
             username: std::mem::take(&mut self.username),
@@ -411,6 +455,54 @@ impl ItemDataV1 {
             recovery_codes: std::mem::take(&mut self.recovery_codes),
             password_history: Vec::new(),
             password_changed_at: 0,
+            icon_url: String::new(),
+        }
+    }
+}
+
+/// Item data as stored by format v2 (before custom icons). Read-only: v2 vaults are upgraded
+/// when opened.
+#[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub(crate) struct ItemDataV2 {
+    #[zeroize(skip)]
+    pub(crate) kind: ItemKind,
+    pub(crate) title: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) urls: Vec<String>,
+    pub(crate) notes: String,
+    pub(crate) totp: String,
+    pub(crate) favorite: bool,
+    pub(crate) custom_fields: Vec<CustomField>,
+    pub(crate) created_at: i64,
+    pub(crate) updated_at: i64,
+    #[zeroize(skip)]
+    pub(crate) folder: Option<FolderId>,
+    pub(crate) recovery_codes: Vec<RecoveryCode>,
+    pub(crate) password_history: Vec<PasswordChange>,
+    pub(crate) password_changed_at: i64,
+}
+
+impl ItemDataV2 {
+    /// Moves the fields into the current item layout (`take` leaves wiped-on-drop empties).
+    pub(crate) fn upgrade(mut self) -> ItemData {
+        ItemData {
+            kind: self.kind,
+            title: std::mem::take(&mut self.title),
+            username: std::mem::take(&mut self.username),
+            password: std::mem::take(&mut self.password),
+            urls: std::mem::take(&mut self.urls),
+            notes: std::mem::take(&mut self.notes),
+            totp: std::mem::take(&mut self.totp),
+            favorite: self.favorite,
+            custom_fields: std::mem::take(&mut self.custom_fields),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            folder: self.folder,
+            recovery_codes: std::mem::take(&mut self.recovery_codes),
+            password_history: std::mem::take(&mut self.password_history),
+            password_changed_at: self.password_changed_at,
+            icon_url: String::new(),
         }
     }
 }
@@ -435,6 +527,8 @@ pub struct ItemSummary {
     /// Cards: the network, from the number's first digits.
     #[zeroize(skip)]
     pub card_brand: crate::card::Brand,
+    /// Website chosen for the item's icon ("" = `url`).
+    pub icon_url: String,
 }
 
 impl ItemSummary {
@@ -458,6 +552,7 @@ impl ItemSummary {
             } else {
                 String::new()
             },
+            icon_url: data.icon_url.clone(),
             card_brand: if data.kind == ItemKind::Card {
                 crate::card::detect_brand(&crate::card::CardDetails::from_item(data).number)
             } else {

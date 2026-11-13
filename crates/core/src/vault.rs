@@ -8,9 +8,10 @@ use crate::{
     Error, Folder, FolderId, ItemData, ItemId, ItemSummary, KdfParams, RecoveryKey, Result,
     SecretKey, VaultSettings, aead,
     format::{
-        self, ItemRecord, KeySlot, SlotKind, VaultBody, VaultBodyV0, VaultBodyV1, VaultHeader,
+        self, ItemRecord, KeySlot, SlotKind, VaultBody, VaultBodyV0, VaultBodyV1, VaultBodyV2,
+        VaultHeader,
     },
-    item::{ItemDataV0, ItemDataV1, PasswordChange},
+    item::{FolderV1, ItemDataV0, ItemDataV1, ItemDataV2, PasswordChange},
     keys::{self, VaultKey},
     padding,
 };
@@ -165,8 +166,17 @@ impl Vault {
                 VaultBody {
                     revision: old.revision,
                     items: old.items,
-                    folders: old.folders,
+                    folders: old.folders.into_iter().map(FolderV1::upgrade).collect(),
                     settings: VaultSettings::default(),
+                }
+            }
+            2 => {
+                let old: VaultBodyV2 = format::decode_exact(plain)?;
+                VaultBody {
+                    revision: old.revision,
+                    items: old.items,
+                    folders: old.folders.into_iter().map(FolderV1::upgrade).collect(),
+                    settings: old.settings,
                 }
             }
             _ => format::decode_exact(plain)?,
@@ -206,6 +216,7 @@ impl Vault {
             let item = match version {
                 0 => format::decode_exact::<ItemDataV0>(plain)?.upgrade(),
                 1 => format::decode_exact::<ItemDataV1>(plain)?.upgrade(),
+                2 => format::decode_exact::<ItemDataV2>(plain)?.upgrade(),
                 _ => return Err(Error::Malformed),
             };
             let (id, revision) = (self.items[index].id, self.items[index].revision);
@@ -260,6 +271,8 @@ impl Vault {
         self.folders.push(Folder {
             id,
             name: name.to_owned(),
+            icon: String::new(),
+            color: 0,
         });
         Ok(id)
     }
@@ -275,6 +288,24 @@ impl Vault {
             .find(|f| f.id == *id)
             .ok_or(Error::FolderNotFound)?;
         folder.name = name.to_owned();
+        Ok(())
+    }
+
+    /// Sets a folder's icon (an icon name, "" for the plain folder) and colour (0 = default).
+    pub fn style_folder(&mut self, id: &FolderId, icon: &str, color: u8) -> Result<()> {
+        if icon.chars().count() > Folder::MAX_ICON_CHARS
+            || !icon.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            || color > Folder::MAX_COLOR
+        {
+            return Err(Error::InvalidName);
+        }
+        let folder = self
+            .folders
+            .iter_mut()
+            .find(|f| f.id == *id)
+            .ok_or(Error::FolderNotFound)?;
+        folder.icon = icon.to_owned();
+        folder.color = color;
         Ok(())
     }
 

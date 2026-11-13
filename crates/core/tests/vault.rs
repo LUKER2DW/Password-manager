@@ -1,6 +1,31 @@
 //! End-to-end tests of the public `vault-core` API.
 
 #[test]
+fn folders_get_an_icon_and_a_colour() {
+    let secret_key = SecretKey::generate().unwrap();
+    let mut vault = Vault::create("pw", &secret_key, None, KdfParams::minimum().unwrap()).unwrap();
+    let id = vault.add_folder("Google").unwrap();
+    assert_eq!(vault.folders()[0].icon, "");
+    vault.style_folder(&id, "globe", 3).unwrap();
+    assert_eq!(
+        (vault.folders()[0].icon.as_str(), vault.folders()[0].color),
+        ("globe", 3)
+    );
+    assert!(vault.style_folder(&id, "bad icon!", 0).is_err());
+    assert!(vault.style_folder(&id, "globe", 16).is_err());
+    let bytes = vault.to_bytes().unwrap();
+    let reopened = Vault::open(
+        &bytes,
+        Unlock::Password {
+            password: "pw",
+            secret_key: &secret_key,
+        },
+    )
+    .unwrap();
+    assert_eq!(reopened.folders()[0].icon, "globe");
+}
+
+#[test]
 fn password_changes_are_kept_in_the_history() {
     let secret_key = SecretKey::generate().unwrap();
     let mut vault = Vault::create("pw", &secret_key, None, KdfParams::minimum().unwrap()).unwrap();
@@ -259,10 +284,10 @@ fn foreign_files_and_future_versions_are_rejected() {
         Err(Error::NotAVault)
     ));
     let mut bytes = f.vault.to_bytes().unwrap();
-    bytes[8] = 3; // format_version = 3: from the future
+    bytes[8] = 4; // format_version = 4: from the future
     assert!(matches!(
         Vault::open(&bytes, Unlock::Recovery(&f.recovery_key)),
-        Err(Error::UnsupportedVersion(3))
+        Err(Error::UnsupportedVersion(4))
     ));
     // Relabelling a current file as an older version changes the authenticated header: the body won't open.
     let mut relabelled = f.vault.to_bytes().unwrap();
