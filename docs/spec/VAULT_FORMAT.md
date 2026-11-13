@@ -1,6 +1,6 @@
-# Vault File Format — v1
+# Vault File Format — v2
 
-> Status: **draft v1**, not stable. v0 files are still read and upgraded to v1 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
+> Status: **draft v2**, not stable. v0 and v1 files are still read and upgraded to v2 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
 > Structures are serialized with [postcard](https://postcard.jamesmunns.com/wire-format) 1.x
 > (stable wire format). Integers in the file envelope are little-endian.
 
@@ -9,7 +9,7 @@
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 8 | magic `"PMVAULT\0"` |
-| 8 | 2 | `format_version` (u16) = `1` (`0` is read and upgraded) |
+| 8 | 2 | `format_version` (u16) = `2` (`0` and `1` are read and upgraded) |
 | 10 | 4 | `header_len` (u32) |
 | 14 | `header_len` | `header` (postcard `VaultHeader`) |
 | … | 4 | `body_len` (u32) |
@@ -57,6 +57,12 @@ struct VaultBody {
     revision: u64,           // incremented on every save; used for rollback detection
     items: Vec<ItemRecord>,
     folders: Vec<Folder>,    // v1; absent in v0
+    settings: VaultSettings, // v2; absent before
+}
+
+struct VaultSettings {
+    name: String,            // shown instead of the file name when not empty (≤ 60 chars)
+    history_limit: u16,      // old passwords kept per item, 0–100 (default 10)
 }
 
 struct Folder {
@@ -76,7 +82,7 @@ Items are encrypted twice on disk (item layer + body layer) on purpose: after un
 app keeps items encrypted in memory and decrypts only the one being used; the body layer hides
 the item count, sizes and ids. Item records are also the unit of future sync.
 
-## 4. Item data (v1)
+## 4. Item data (v2)
 
 ```rust
 struct ItemData {
@@ -93,6 +99,13 @@ struct ItemData {
     updated_at: i64,
     folder: Option<[u8; 16]>,          // v1: folder id, None = no folder
     recovery_codes: Vec<RecoveryCode>, // v1: the account's two-step backup codes
+    password_history: Vec<PasswordChange>, // v2: earlier passwords, oldest first
+    password_changed_at: i64,              // v2: when the password was set; 0 = unknown
+}
+
+struct PasswordChange {
+    password: String,
+    replaced_at: i64,        // when it stopped being the password
 }
 
 struct RecoveryCode {
@@ -107,12 +120,16 @@ struct CustomField {
 }
 ```
 
-## 5. Upgrading v0
+## 5. Upgrading older files
 
-A v0 file has no `folders` in the body and its items end after `updated_at`. When one is
-opened, every item is decrypted with the v0 layout and re-encrypted with the v1 layout in memory
-(same ids and revisions, new item keys); the next save writes a v1 file. Fixtures for both
-versions are committed (`crates/core/tests/fixtures`) and must keep opening.
+A v0 file has no `folders` in the body and its items end after `updated_at`; a v1 file has no
+`settings` and its items end after `recovery_codes`. When one is opened, every item is decrypted
+with its old layout and re-encrypted with the v2 layout in memory (same ids and revisions, new
+item keys); the next save writes a v2 file. Fixtures for every version are committed
+(`crates/core/tests/fixtures`) and must keep opening.
+
+When an item's password changes, `Vault::update_item` moves the old one into
+`password_history` (dropping the oldest past `history_limit`) and sets `password_changed_at`.
 
 ## 6. Rules
 

@@ -68,6 +68,16 @@ Scale 12 / 14 / 16 / 21 / 28 / 44 px. Radius 6 px. Controls 38 px tall.
   seconds left, Copy; a thin yellow bar under the row drains with the period.
 - **Vault chooser** — replaces the unlock form in place: recent vaults (current one marked,
   missing files greyed out with Forget), then "Open a vault file…" and "Create a new vault…".
+- **Field icons** — a line icon in the field's own colour before each label (key, person,
+  envelope, globe, card, calendar, shield, keypad, clock…), no tile behind it. The index uses the
+  same icons. A site's own icon is shown as it is, without a tile; without one, its initial on a
+  colour.
+- **Brand marks** — cards show their network's mark; the import page shows each source's icon.
+  Source icons come from Simple Icons (CC0, simpleicons.org) in each brand's colour; Chrome, Edge,
+  Proton Pass and NordPass are drawn. The marks belong to their owners and only identify where
+  data comes from.
+- **Tool pages** (generator, health, kit, import & export, settings, authenticator) take the
+  whole width next to the index; the item list is only there while browsing items.
 - **Notice** — confirmations ("Copied", "Saved") bottom-right, never over content.
 
 ## Rules

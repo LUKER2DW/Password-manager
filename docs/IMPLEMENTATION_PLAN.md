@@ -113,7 +113,32 @@ Rules:
   needs a manual check)
 - ⬜ YubiKey (FIDO2 `hmac-secret`) slot; optional "master password after every restart"
 - ⬜ `pt-BR` translation file
-- ⬜ Attachments, tags; password health (reused/weak/breached)
+- ✅ Password history (format v2): the old password is kept when it changes, shown with its
+  date, revealed and copied on request, cleared on request; how many are kept is a vault setting
+- ✅ Password health page: strength (zxcvbn) with the reason a password is weak, reused
+  passwords, passwords over a year old, expired cards, a score; leak check against Have I Been
+  Pwned on request with k-anonymity (5 hex characters of the SHA-1 leave the device, padded
+  answers)
+- ✅ Strength while typing in the editor; strength, reuse and age on the item page
+- ✅ Generator: A–Z, a–z, 0–9, symbols, extended ASCII (Latin-1), "also use" and "never use"
+  characters, 4–128 characters; passphrases of 3–20 words with word case (lower, UPPER, Title,
+  MIXED), any separator up to 3 characters, a digit, and the user's own word lists (Diceware
+  format accepted, at least 500 words); options remembered per device
+- ✅ Vault settings stored inside the vault (format v2): name, password history size; settings
+  page grouped into cards with the vault's encryption facts
+- ✅ Import from browsers (Chrome, Edge, Firefox, Brave, Opera, Opera GX, Vivaldi, Safari) and
+  managers (Bitwarden, 1Password, LastPass, KeePass/KeePassXC, Dashlane, Proton Pass, NordPass,
+  any CSV/JSON): how to export from each one, a button that opens an installed browser's
+  passwords page, then a review of every entry (passwords hidden, duplicates unticked) and the
+  folder to put them in. One `import` function reads every format; browser stores are never
+  read directly
+- ✅ Field icons, the network's mark for cards (Visa, Mastercard, Amex, Elo, Hipercard…),
+  brand icons for import sources, icons in the index; tool pages use the full width
+- ✅ Secure fields: Ctrl+A / double click selects all, typing replaces it, Ctrl+V and Shift+Insert
+  paste the clipboard's first line, Ctrl+Backspace clears; copying out stays impossible
+- ✅ Emergency kit PDF: the Recovery Key (fixed shape) is written into boxes, one character each,
+  empty boxes when the app doesn't have it; lines to fill in and a checklist
+- ⬜ Attachments, tags; passkeys
 - **Done when:** daily use on Windows is possible with a test vault.
 
 ### M5 — Browser extension ⬜
