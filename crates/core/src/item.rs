@@ -322,6 +322,10 @@ pub struct ItemSummary {
     pub favorite: bool,
     #[zeroize(skip)]
     pub folder: Option<FolderId>,
+    /// The item has a one-time code secret (shown on the Authenticator page).
+    pub has_totp: bool,
+    /// Cards: "Visa •••• 4242" when the number is stored, else empty.
+    pub card_hint: String,
 }
 
 impl ItemSummary {
@@ -334,6 +338,17 @@ impl ItemSummary {
             url: data.urls.first().cloned().unwrap_or_default(),
             favorite: data.favorite,
             folder: data.folder,
+            has_totp: !data.totp.trim().is_empty(),
+            card_hint: if data.kind == ItemKind::Card {
+                let number = crate::card::CardDetails::from_item(data).number;
+                if number.len() >= 4 {
+                    crate::card::masked(&number)
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            },
         }
     }
 }

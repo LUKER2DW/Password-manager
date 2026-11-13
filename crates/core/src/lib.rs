@@ -33,6 +33,7 @@ pub mod generator;
 pub mod storage;
 pub mod totp;
 
+pub mod card;
 pub use error::Error;
 pub use item::{
     CustomField, Folder, FolderId, ItemData, ItemId, ItemKind, ItemSummary, RecoveryCode,
