@@ -3,7 +3,7 @@
 import { ListView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
 import { ItemRow, Panel, Messages } from "model.slint";
-import { Button, QuietButton, LineField, MarkStroke } from "widgets.slint";
+import { Button, QuietButton, LineField, MarkStroke, ItemIcon } from "widgets.slint";
 
 component IndexTab inherits Rectangle {
     in property <string> text;
@@ -70,9 +70,19 @@ component ListRow inherits Rectangle {
         animate background { duration: Theme.quick; }
 
         HorizontalLayout {
-            padding-left: 12px;
+            padding-left: 10px;
             padding-right: 12px;
-            spacing: 8px;
+            spacing: 12px;
+            VerticalLayout {
+                alignment: center;
+                ItemIcon {
+                    icon: root.item.icon;
+                    has-icon: root.item.has-icon;
+                    initial: root.item.initial;
+                    tint: root.item.tint;
+                    kind: root.item.kind;
+                }
+            }
             VerticalLayout {
                 alignment: center;
                 spacing: 3px;
@@ -104,15 +114,6 @@ component ListRow inherits Rectangle {
                     fill: transparent;
                 }
             }
-        }
-        // Selected rows carry a short marker stroke on the left edge.
-        if root.selected: Rectangle {
-            x: 0;
-            y: 12px;
-            width: 3px;
-            height: parent.height - 24px;
-            border-radius: 1.5px;
-            background: Theme.marker;
         }
         touch := TouchArea {
             mouse-cursor: MouseCursor.pointer;

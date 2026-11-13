@@ -248,9 +248,10 @@ export component LineField inherits VerticalLayout {
 
 export component NotesField inherits VerticalLayout {
     in property <string> label;
+    in property <string> hint;
     in-out property <string> text;
     spacing: 6px;
-    FieldLabel { text: root.label; }
+    FieldLabel { text: root.label; hint: root.hint; }
     Well {
         height: 84px;
         focused: input.has-focus;
@@ -534,6 +535,50 @@ export component Choice inherits HorizontalLayout {
                 root.changed(index);
             }
         }
+    }
+}
+
+// The picture next to an item: the site's own icon when available, otherwise a clean glyph for
+// cards, notes and passkeys, or the first letter on a colour derived from the site.
+export component ItemIcon inherits Rectangle {
+    in property <image> icon;
+    in property <bool> has-icon;
+    in property <string> initial;
+    in property <color> tint: #3D4F6B;
+    in property <int> kind;
+    in property <length> size: 34px;
+
+    width: root.size;
+    height: root.size;
+    border-radius: root.size * 0.26;
+    background: root.has-icon ? #F4F6F9 : root.tint;
+    clip: true;
+    accessible-role: image;
+
+    if root.has-icon: Image {
+        width: parent.width * 0.7;
+        height: parent.height * 0.7;
+        source: root.icon;
+        image-fit: contain;
+    }
+    if !root.has-icon && root.kind == 0: Text {
+        text: root.initial;
+        font-size: root.size * 0.44;
+        font-weight: 600;
+        color: #FFFFFF;
+    }
+    if !root.has-icon && root.kind != 0: Path {
+        width: parent.width * 0.58;
+        height: parent.height * 0.58;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        // card · note · key
+        commands: root.kind == 1 ? "M2.5 6 L21.5 6 L21.5 18 L2.5 18 Z M2.5 10 L21.5 10 M5.5 14.5 L10 14.5"
+            : root.kind == 2 ? "M6 2.5 L14.5 2.5 L19 7 L19 21.5 L6 21.5 Z M14.5 2.5 L14.5 7 L19 7 M9 12 L16 12 M9 16 L16 16"
+            : "M3 12 A4 4 0 1 0 11 12 A4 4 0 1 0 3 12 Z M11 12 L21 12 M18 12 L18 15.5 M21 12 L21 14.5";
+        stroke: #FFFFFFE8;
+        stroke-width: 1.6px;
+        fill: transparent;
     }
 }
 

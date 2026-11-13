@@ -4,6 +4,7 @@
 //! and the off-screen screenshot tool (`examples/screenshots.rs`) can drive the real UI.
 
 pub mod controller;
+mod favicon;
 mod sketch;
 #[cfg(test)]
 mod tests;

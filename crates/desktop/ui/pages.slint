@@ -3,7 +3,7 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
 import { DetailField, Messages } from "model.slint";
-import { Button, QuietButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint } from "widgets.slint";
+import { Button, QuietButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon } from "widgets.slint";
 import { KitSlip } from "kit.slint";
 
 component PageTitle inherits Text {
@@ -95,6 +95,10 @@ export component DetailPage inherits Rectangle {
     in property <string> title;
     in property <int> kind;
     in property <bool> favorite;
+    in property <image> icon;
+    in property <bool> has-icon;
+    in property <string> initial;
+    in property <color> tint;
     in property <string> username;
     in property <bool> has-password;
     in property <string> revealed-password;
@@ -133,10 +137,22 @@ export component DetailPage inherits Rectangle {
 
             HorizontalLayout {
                 padding-bottom: 22px;
-                spacing: 12px;
+                spacing: 16px;
+                VerticalLayout {
+                    alignment: center;
+                    ItemIcon {
+                        size: 48px;
+                        icon: root.icon;
+                        has-icon: root.has-icon;
+                        initial: root.initial;
+                        tint: root.tint;
+                        kind: root.kind;
+                    }
+                }
                 VerticalLayout {
                     horizontal-stretch: 1;
                     spacing: 4px;
+                    alignment: center;
                     PageTitle { text: root.title; }
                     Text {
                         text: Messages.kind-name(root.kind);
@@ -342,6 +358,8 @@ export component EditorPage inherits Rectangle {
             }
             LineField {
                 label: @tr("Title");
+                hint: @tr("A name you'll recognize in the list, like “GitHub” or “Bank – savings”.");
+                placeholder: root.kind == 1 ? @tr("Visa ending 4242") : root.kind == 2 ? @tr("Home Wi-Fi") : @tr("GitHub");
                 text <=> root.title;
                 error: root.error-code == 9;
             }
@@ -349,10 +367,15 @@ export component EditorPage inherits Rectangle {
                 spacing: 16px;
                 LineField {
                     label: root.kind == 1 ? @tr("Name on card") : @tr("Username or email");
+                    hint: root.kind == 1
+                        ? @tr("The name exactly as it's printed on the card.")
+                        : @tr("What you type in the site's username or email box when you sign in.");
+                    placeholder: root.kind == 1 ? "" : @tr("you@example.com");
                     text <=> root.username;
                 }
                 if root.kind == 0: LineField {
                     label: @tr("Website");
+                    hint: @tr("The address of the site's sign-in page, for example https://github.com/login. It's used to show the site's icon and, later, to fill in your browser.");
                     placeholder: "https://";
                     text <=> root.url;
                 }
@@ -366,6 +389,9 @@ export component EditorPage inherits Rectangle {
                         horizontal-stretch: 1;
                         field: 4;
                         label: root.kind == 1 ? @tr("PIN or security code") : @tr("Password");
+                        hint: root.kind == 1
+                            ? @tr("The card's PIN, or the 3–4 digit code on the back. Leave it empty if you'd rather not store it.")
+                            : @tr("The password for this account. Signing up or changing it on the site? Click Generate for a strong one, then use it there.");
                         revealed: root.password-shown;
                     }
                     VerticalLayout {
@@ -386,7 +412,7 @@ export component EditorPage inherits Rectangle {
                 if root.kind == 0: LineField {
                     horizontal-stretch: 1;
                     label: @tr("One-time code secret");
-                    hint: @tr("Optional. When a site offers two-step sign-in with an authenticator app, paste its otpauth:// link or the text key it shows. This item will then show the current code.");
+                    hint: @tr("Optional. Only for sites with two-step sign-in through an authenticator app. When you turn it on, the site shows a QR code and a text key (often under “Can't scan it?”): paste that key here, or an otpauth:// link. This item will then show the 6-digit codes.");
                     placeholder: @tr("otpauth:// link or key");
                     mono: true;
                     error: root.error-code == 10;
@@ -395,6 +421,7 @@ export component EditorPage inherits Rectangle {
             }
             NotesField {
                 label: @tr("Notes");
+                hint: @tr("Anything else worth keeping safe: recovery codes, security questions and their answers, account or policy numbers. Notes are encrypted just like passwords.");
                 text <=> root.notes;
             }
             ErrorText {
@@ -561,6 +588,7 @@ export component SettingsPage inherits Rectangle {
     in property <string> kit-recovery-key;
     in-out property <int> auto-lock-minutes;
     in-out property <int> clipboard-seconds;
+    in-out property <bool> website-icons;
     callback settings-changed();
     callback appearance-changed(bool);
     callback change-password();
@@ -582,6 +610,21 @@ export component SettingsPage inherits Rectangle {
                 options: [@tr("Dark"), @tr("Light")];
                 selected: root.dark ? 0 : 1;
                 changed(index) => { root.appearance-changed(index == 0); }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Check {
+                    text: @tr("Show website icons");
+                    checked <=> root.website-icons;
+                    toggled => { root.settings-changed(); }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Hint {
+                        text: @tr("Downloads each site's own icon directly from that site, once, over a secure connection, and keeps it encrypted with your vault. Nothing else is sent. Trade-off: someone watching your network (your provider, a public Wi-Fi) could see which sites were contacted, which hints at where you have accounts. Leave it off for maximum privacy.");
+                    }
+                }
             }
 
             Rule { }
@@ -614,6 +657,7 @@ export component SettingsPage inherits Rectangle {
             SecretField {
                 field: 5;
                 label: @tr("Current master password");
+                hint: @tr("The password you unlock with today. Asked again so that nobody can change these settings on a computer you left unlocked.");
                 error: root.error-code == 11;
             }
             HorizontalLayout {
@@ -621,6 +665,7 @@ export component SettingsPage inherits Rectangle {
                 SecretField {
                     field: 6;
                     label: @tr("New master password");
+                    hint: @tr("Only to change it. At least 12 characters; leave both new-password boxes empty to just show the Secret Key or issue a new Recovery Key.");
                     error: root.error-code == 4 || root.error-code == 5;
                 }
                 SecretField {

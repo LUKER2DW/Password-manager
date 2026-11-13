@@ -161,6 +161,24 @@ impl Vault {
         Ok(bytes)
     }
 
+    /// Encrypts data that belongs to this vault but is kept outside the vault file on this
+    /// device, such as a cache of website icons. Bound to this vault and to `purpose`.
+    pub fn seal_local(&self, purpose: &str, data: &[u8]) -> Result<Vec<u8>> {
+        let key = self.local_key(purpose);
+        aead::seal(&key, data, &local_aad(&self.header.vault_id, purpose))
+    }
+
+    /// Decrypts data produced by [`Vault::seal_local`] with the same `purpose`.
+    pub fn open_local(&self, purpose: &str, sealed: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+        let key = self.local_key(purpose);
+        aead::open(&key, sealed, &local_aad(&self.header.vault_id, purpose))
+    }
+
+    fn local_key(&self, purpose: &str) -> Zeroizing<aead::Key> {
+        let label = [b"local/".as_slice(), purpose.as_bytes()].concat();
+        self.vault_key.subkey(&label, &self.header.vault_id)
+    }
+
     /// Random identifier of this vault, as hex.
     pub fn id_hex(&self) -> String {
         hex(&self.header.vault_id)
@@ -360,6 +378,10 @@ fn item_aad(vault_id: &[u8; 16], id: &ItemId, revision: u64) -> Vec<u8> {
     .concat()
 }
 
+fn local_aad(vault_id: &[u8; 16], purpose: &str) -> Vec<u8> {
+    [b"vault-v0/local".as_slice(), vault_id, purpose.as_bytes()].concat()
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -465,6 +487,19 @@ mod tests {
         vault.items[ib].data = data_a;
         assert!(vault.get_item(&a).is_err());
         assert!(vault.get_item(&b).is_err());
+    }
+
+    #[test]
+    fn local_data_is_bound_to_vault_and_purpose() {
+        let (vault, _) = recovery_vault();
+        let (other, _) = recovery_vault();
+        let sealed = vault.seal_local("icons", b"cache bytes").unwrap();
+        assert_eq!(
+            vault.open_local("icons", &sealed).unwrap().as_slice(),
+            b"cache bytes"
+        );
+        assert!(vault.open_local("other-purpose", &sealed).is_err());
+        assert!(other.open_local("icons", &sealed).is_err());
     }
 
     #[test]

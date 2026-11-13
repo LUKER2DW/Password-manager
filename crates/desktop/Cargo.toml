@@ -33,7 +33,12 @@ all = { level = "warn", priority = -1 }
 vault-core = { path = "../core" }
 vault-platform = { path = "../platform" }
 anyhow = "1"
+# Website icons (opt-in): fetched directly from each site over HTTPS, decoded in pure Rust.
+image = { version = "0.25", default-features = false, features = ["png", "ico", "jpeg", "gif", "bmp", "webp"] }
+postcard = { version = "1.1", features = ["use-std"] }
 raw-window-handle = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+ureq = "3.5"
 slint = { version = "1.18", features = ["raw-window-handle-06"] }
 zeroize = "1.9"
 
@@ -42,5 +47,4 @@ slint-build = "1.18"
 
 [dev-dependencies]
 i-slint-backend-testing = "1.18"
-image = { version = "0.25", default-features = false, features = ["png"] }
 tempfile = "3.27"

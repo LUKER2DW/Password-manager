@@ -98,6 +98,11 @@ Deriving a fresh `K_enc` per message also removes any risk from random-nonce col
 | Vault body | `subkey("body")` | `"vault-v0/body" ‖ header_bytes` |
 | Item key | `subkey("item-wrap")` | `"vault-v0/item-key" ‖ vault_id ‖ item_id` |
 | Item data | `item_key` | `"vault-v0/item" ‖ vault_id ‖ item_id ‖ revision (u64 LE)` |
+| Device-local data (e.g. icon cache) | `subkey("local/" ‖ purpose)` | `"vault-v0/local" ‖ vault_id ‖ purpose` |
+
+Device-local data is not part of the vault file: it is a per-device cache that can be deleted and
+rebuilt at any time, encrypted so that it reveals nothing (such as which sites you use) without
+the vault key.
 
 `header_bytes` is the exact serialized header as stored in the file (magic and version
 included), so any change to the header — KDF parameters, slots — makes the body fail to open.

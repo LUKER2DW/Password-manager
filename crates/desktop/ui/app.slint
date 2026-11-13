@@ -85,6 +85,10 @@ export component AppWindow inherits Window {
     in property <bool> has-selection;
     in property <string> detail-title;
     in property <int> detail-kind;
+    in property <image> detail-icon;
+    in property <bool> detail-has-icon;
+    in property <string> detail-initial;
+    in property <color> detail-tint;
     in property <bool> detail-favorite;
     in property <string> detail-username;
     in property <bool> detail-has-password;
@@ -143,6 +147,7 @@ export component AppWindow inherits Window {
     // ---- settings ----
     in-out property <int> auto-lock-minutes: 5;
     in-out property <int> clipboard-seconds: 20;
+    in-out property <bool> website-icons;
     callback settings-changed();
     callback appearance-changed(bool);
     callback change-password();
@@ -217,6 +222,10 @@ export component AppWindow inherits Window {
                 title: root.detail-title;
                 kind: root.detail-kind;
                 favorite: root.detail-favorite;
+                icon: root.detail-icon;
+                has-icon: root.detail-has-icon;
+                initial: root.detail-initial;
+                tint: root.detail-tint;
                 username: root.detail-username;
                 has-password: root.detail-has-password;
                 revealed-password: root.revealed-password;
@@ -284,6 +293,7 @@ export component AppWindow inherits Window {
                 kit-recovery-key: root.kit-recovery-key;
                 auto-lock-minutes <=> root.auto-lock-minutes;
                 clipboard-seconds <=> root.clipboard-seconds;
+                website-icons <=> root.website-icons;
                 settings-changed => { root.settings-changed(); }
                 appearance-changed(dark) => { root.appearance-changed(dark); }
                 change-password => { root.change-password(); }

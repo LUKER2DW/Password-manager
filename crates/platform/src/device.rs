@@ -33,6 +33,8 @@ pub struct Settings {
     pub clipboard_clear_seconds: u32,
     /// Desktop app appearance; dark is the default.
     pub dark_theme: bool,
+    /// Download website icons (contacts each saved site once). Off by default for privacy.
+    pub website_icons: bool,
 }
 
 impl Default for Settings {
@@ -41,6 +43,7 @@ impl Default for Settings {
             auto_lock_minutes: DEFAULT_AUTO_LOCK_MINUTES,
             clipboard_clear_seconds: 20,
             dark_theme: true,
+            website_icons: false,
         }
     }
 }

@@ -5,14 +5,19 @@
 
 use std::{
     cell::RefCell,
+    collections::HashMap,
     path::PathBuf,
     rc::{Rc, Weak},
     time::Duration,
 };
 
-use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
+use slint::{
+    ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, Timer,
+    TimerMode, VecModel,
+};
 use vault_core::{
-    Error as CoreError, ItemData, ItemId, KdfParams, RecoveryKey, SecretKey, Unlock, Vault,
+    Error as CoreError, ItemData, ItemId, ItemKind, KdfParams, RecoveryKey, SecretKey, Unlock,
+    Vault,
     generator::{self, PassphraseOptions, PasswordOptions},
     storage,
     totp::Totp,
@@ -21,9 +26,18 @@ use vault_platform::{DeviceState, RollbackStatus, SecretBuffer, clipboard, devic
 use zeroize::Zeroizing;
 
 use crate::{
+    favicon::{self, IconCache},
     ui::{AppWindow, DetailField, ItemRow, Panel, Screen, Secrets, Theme},
     view,
 };
+
+/// What to draw next to an item.
+struct IconVisual {
+    image: Image,
+    has_image: bool,
+    initial: SharedString,
+    tint: slint::Color,
+}
 
 /// Secure field ids (must match `Secrets` in theme.slint).
 mod field {
@@ -136,6 +150,10 @@ struct State {
     generated: Option<Zeroizing<String>>,
     totp: Option<Totp>,
     settings: device::Settings,
+    /// Website icons for this vault (decrypted cache) and the images built from them.
+    icons: IconCache,
+    icon_images: HashMap<String, Image>,
+    fetching_icons: bool,
 }
 
 #[derive(Default)]
@@ -187,6 +205,9 @@ impl Controller {
                 generated: None,
                 totp: None,
                 settings,
+                icons: IconCache::default(),
+                icon_images: HashMap::new(),
+                fetching_icons: false,
             }),
             timers: Timers::default(),
             lengths: Rc::new(VecModel::from(vec![0; field::COUNT])),
@@ -783,10 +804,12 @@ impl Controller {
         app.set_search_text(SharedString::new());
         app.set_category(0);
         app.set_panel(Panel::Detail);
+        self.load_icon_cache();
         self.refresh_list();
         self.show_detail();
         self.show_screen(Screen::Vault);
         self.restart_auto_lock();
+        self.start_icon_fetch();
     }
 
     fn lock(&self) {
@@ -807,6 +830,8 @@ impl Controller {
             state.editing = None;
             state.generated = None;
             state.totp = None;
+            state.icons = IconCache::default();
+            state.icon_images.clear();
         }
         self.clear_all_secrets();
         self.items.set_vec(Vec::new());
@@ -880,11 +905,16 @@ impl Controller {
             .iter()
             .map(|&i| {
                 let s = &summaries[i];
+                let visual = self.icon_for(s.kind, &s.url, &s.title);
                 ItemRow {
                     title: SharedString::from(s.title.as_str()),
                     subtitle: SharedString::from(view::subtitle(s)),
                     kind: view::kind_to_int(s.kind),
                     favorite: s.favorite,
+                    icon: visual.image,
+                    has_icon: visual.has_image,
+                    initial: visual.initial,
+                    tint: visual.tint,
                 }
             })
             .collect();
@@ -951,6 +981,7 @@ impl Controller {
         app.set_has_selection(true);
         app.set_detail_title(SharedString::from(item.title.as_str()));
         app.set_detail_kind(view::kind_to_int(item.kind));
+        self.apply_detail_icon(&item);
         app.set_detail_favorite(item.favorite);
         app.set_detail_username(SharedString::from(item.username.as_str()));
         app.set_detail_has_password(!item.password.is_empty());
@@ -1271,6 +1302,7 @@ impl Controller {
                     self.refresh_list();
                     self.show_detail();
                     self.notify(notice::SAVED, "");
+                    self.start_icon_fetch();
                 }
             }
             Err(err) => {
@@ -1380,6 +1412,7 @@ impl Controller {
         let settings = self.state.borrow().settings.clone();
         app.set_auto_lock_minutes(settings.auto_lock_minutes as i32);
         app.set_clipboard_seconds(settings.clipboard_clear_seconds as i32);
+        app.set_website_icons(settings.website_icons);
         app.set_kit_secret_key(SharedString::new());
         app.set_kit_recovery_key(SharedString::new());
         app.set_panel(Panel::Settings);
@@ -1398,14 +1431,200 @@ impl Controller {
             clipboard_clear_seconds: u32::try_from(app.get_clipboard_seconds().clamp(5, 120))
                 .unwrap_or(20),
             dark_theme: app.global::<Theme>().get_dark(),
+            website_icons: app.get_website_icons(),
         };
         let mut device_state = DeviceState::load().unwrap_or_default();
         device_state.settings = settings.clone();
         if let Err(err) = device_state.save() {
             self.set_error(error::FILE, &err.to_string());
         }
-        self.state.borrow_mut().settings = settings;
+        let icons_were_on = self.state.borrow().settings.website_icons;
+        self.state.borrow_mut().settings = settings.clone();
         self.restart_auto_lock();
+        match (icons_were_on, settings.website_icons) {
+            (false, true) => {
+                self.refresh_list();
+                self.start_icon_fetch();
+            }
+            (true, false) => {
+                // Turning icons off also forgets them on this device.
+                self.forget_icons();
+                self.refresh_list();
+            }
+            _ => {}
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Website icons (opt-in; see favicon.rs for the privacy model)
+    // -----------------------------------------------------------------------------------------
+
+    fn icon_for(&self, kind: ItemKind, url: &str, title: &str) -> IconVisual {
+        let host = favicon::host_of(url);
+        let key = host.as_deref().map(favicon::cache_key);
+        let (r, g, b) = view::tint(kind, key.as_deref().unwrap_or(title));
+        let mut visual = IconVisual {
+            image: Image::default(),
+            has_image: false,
+            initial: SharedString::from(view::initial(title)),
+            tint: slint::Color::from_rgb_u8(r, g, b),
+        };
+        let mut state = self.state.borrow_mut();
+        if kind != ItemKind::Login || !state.settings.website_icons {
+            return visual;
+        }
+        let Some(key) = key else { return visual };
+        if let Some(image) = state.icon_images.get(&key) {
+            visual.image = image.clone();
+            visual.has_image = true;
+        } else if let Some(pixels) = state.icons.get(&key).map(<[u8]>::to_vec) {
+            let image = Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+                &pixels,
+                favicon::ICON_SIZE,
+                favicon::ICON_SIZE,
+            ));
+            state.icon_images.insert(key, image.clone());
+            visual.image = image;
+            visual.has_image = true;
+        }
+        visual
+    }
+
+    fn apply_detail_icon(&self, item: &ItemData) {
+        let url = item.urls.first().map(String::as_str).unwrap_or_default();
+        let visual = self.icon_for(item.kind, url, &item.title);
+        let app = self.app();
+        app.set_detail_icon(visual.image);
+        app.set_detail_has_icon(visual.has_image);
+        app.set_detail_initial(visual.initial);
+        app.set_detail_tint(visual.tint);
+    }
+
+    fn icon_cache_path(&self) -> Option<PathBuf> {
+        let id = self.state.borrow().session.as_ref()?.vault.id_hex();
+        Some(
+            vault_platform::paths::app_dir()
+                .ok()?
+                .join(format!("icons-{id}.cache")),
+        )
+    }
+
+    fn load_icon_cache(&self) {
+        let loaded = self.icon_cache_path().and_then(|path| {
+            let sealed = std::fs::read(path).ok()?;
+            let state = self.state.borrow();
+            let plain = state
+                .session
+                .as_ref()?
+                .vault
+                .open_local("icons", &sealed)
+                .ok()?;
+            IconCache::from_bytes(&plain)
+        });
+        let mut state = self.state.borrow_mut();
+        state.icons = loaded.unwrap_or_default();
+        state.icon_images.clear();
+    }
+
+    fn save_icon_cache(&self) {
+        let Some(path) = self.icon_cache_path() else {
+            return;
+        };
+        let sealed = {
+            let state = self.state.borrow();
+            let Some(session) = state.session.as_ref() else {
+                return;
+            };
+            session.vault.seal_local("icons", &state.icons.to_bytes())
+        };
+        if let Ok(sealed) = sealed {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = storage::write_atomic(&path, &sealed);
+        }
+    }
+
+    fn forget_icons(&self) {
+        if let Some(path) = self.icon_cache_path() {
+            let _ = std::fs::remove_file(storage::backup_path(&path));
+            let _ = std::fs::remove_file(path);
+        }
+        let mut state = self.state.borrow_mut();
+        state.icons = IconCache::default();
+        state.icon_images.clear();
+    }
+
+    /// Fetches icons for saved sites that don't have one yet, one site at a time.
+    fn start_icon_fetch(&self) {
+        let (hosts, runner) = {
+            let state = self.state.borrow();
+            if !state.settings.website_icons || state.fetching_icons || state.session.is_none() {
+                return;
+            }
+            let mut seen = std::collections::BTreeSet::new();
+            let hosts: Vec<(String, String)> = state
+                .summaries
+                .iter()
+                .filter(|s| s.kind == ItemKind::Login)
+                .filter_map(|s| favicon::host_of(&s.url))
+                .filter_map(|host| {
+                    let key = favicon::cache_key(&host);
+                    (state.icons.needs_fetch(&key) && seen.insert(key.clone()))
+                        .then_some((key, host))
+                })
+                .collect();
+            (hosts, state.runner)
+        };
+        if hosts.is_empty() {
+            return;
+        }
+        self.state.borrow_mut().fetching_icons = true;
+        match runner {
+            Runner::Inline => {
+                for (key, host) in hosts {
+                    let icon = favicon::fetch(&host);
+                    self.icon_fetched(key, icon);
+                }
+                self.icons_done();
+            }
+            Runner::Thread => {
+                std::thread::spawn(move || {
+                    for (key, host) in hosts {
+                        let icon = favicon::fetch(&host);
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
+                                controller.icon_fetched(key, icon);
+                            }
+                        });
+                    }
+                    let _ = slint::invoke_from_event_loop(|| {
+                        if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
+                            controller.icons_done();
+                        }
+                    });
+                });
+            }
+        }
+    }
+
+    fn icon_fetched(&self, key: String, icon: Option<Vec<u8>>) {
+        if self.state.borrow().session.is_none() {
+            return; // locked meanwhile: drop the result
+        }
+        let found = icon.is_some();
+        self.state.borrow_mut().icons.insert(key, icon);
+        if found {
+            self.refresh_list();
+            if let Some((_, item)) = self.selected_item() {
+                self.apply_detail_icon(&item);
+            }
+        }
+    }
+
+    fn icons_done(&self) {
+        self.state.borrow_mut().fetching_icons = false;
+        self.save_icon_cache();
     }
 
     fn change_password(&self) {

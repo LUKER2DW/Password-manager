@@ -74,6 +74,44 @@ pub fn subtitle(summary: &ItemSummary) -> String {
     url.split('/').next().unwrap_or_default().to_owned()
 }
 
+/// Fallback letter for an item without an icon.
+pub fn initial(title: &str) -> String {
+    title
+        .chars()
+        .find(|c| c.is_alphanumeric())
+        .map(|c| c.to_uppercase().collect())
+        .unwrap_or_else(|| "•".to_owned())
+}
+
+/// Muted colours that read well behind white text in both themes.
+const TINTS: [(u8, u8, u8); 8] = [
+    (0x3B, 0x5B, 0x8C),
+    (0x5B, 0x4B, 0x8A),
+    (0x2F, 0x6B, 0x5A),
+    (0x8A, 0x5A, 0x3B),
+    (0x7A, 0x3E, 0x5E),
+    (0x2E, 0x6A, 0x7A),
+    (0x6E, 0x63, 0x2C),
+    (0x4E, 0x64, 0x34),
+];
+
+/// Stable fallback colour: cards, notes and passkeys get fixed tones; logins hash their site
+/// (or title) so the same service always gets the same colour.
+pub fn tint(kind: ItemKind, key: &str) -> (u8, u8, u8) {
+    match kind {
+        ItemKind::Card => (0x3D, 0x4F, 0x6B),
+        ItemKind::SecureNote => (0x3C, 0x5E, 0x54),
+        ItemKind::Passkey => (0x5C, 0x4B, 0x7A),
+        ItemKind::Login => {
+            // FNV-1a: tiny, stable across runs and platforms.
+            let hash = key.to_lowercase().bytes().fold(0x811C_9DC5u32, |h, b| {
+                (h ^ u32::from(b)).wrapping_mul(0x0100_0193)
+            });
+            TINTS[hash as usize % TINTS.len()]
+        }
+    }
+}
+
 /// "123456" → "123 456" (easier to read and type).
 pub fn group_code(code: &str) -> String {
     if code.len() == 6 || code.len() == 8 {
@@ -153,5 +191,17 @@ mod tests {
         assert_eq!(group_code("12345678"), "1234 5678");
         assert_eq!(group_code("1234567"), "1234567");
         assert_eq!(int_to_kind(kind_to_int(ItemKind::Card)), ItemKind::Card);
+    }
+
+    #[test]
+    fn initials_and_tints() {
+        assert_eq!(initial("github"), "G");
+        assert_eq!(initial("  ånd"), "Å");
+        assert_eq!(initial("—"), "•");
+        assert_eq!(
+            tint(ItemKind::Login, "github.com"),
+            tint(ItemKind::Login, "GitHub.com")
+        );
+        assert_eq!(tint(ItemKind::Card, "x"), tint(ItemKind::Card, "y"));
     }
 }

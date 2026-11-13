@@ -9,6 +9,10 @@ export struct ItemRow {
     subtitle: string,
     kind: int,        // 0 login, 1 card, 2 note, 3 passkey
     favorite: bool,
+    icon: image,      // website icon, when downloaded
+    has-icon: bool,
+    initial: string,  // fallback letter
+    tint: color,      // fallback background, stable per site
 }
 
 export struct DetailField {

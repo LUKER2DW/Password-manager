@@ -135,13 +135,14 @@ export component OnboardingScreen inherits Rectangle {
             master := SecretField {
                 field: 0;
                 label: @tr("Master password");
-                hint: @tr("Use at least 12 characters. It never leaves this computer and is never stored: the app only keeps what it needs to check it. Forget it and only your emergency kit can get you back in.");
+                hint: @tr("Something you'll remember that nobody could guess: several random words work best (try Suggest a passphrase). At least 12 characters. You'll type it every time you unlock, and it can't be reset.");
                 error: root.error-code == 4 || root.error-code == 5;
                 accepted => { confirm.focus(); }
             }
             confirm := SecretField {
                 field: 1;
                 label: @tr("Type it again");
+                hint: @tr("The same password once more, to catch typos.");
                 error: root.error-code == 4;
                 accepted => { root.create(); }
             }
@@ -287,7 +288,7 @@ export component UnlockScreen inherits Rectangle {
                 SecretField {
                     field: 2;
                     label: @tr("Secret Key");
-                    hint: @tr("Starts with S0- and has four groups of seven characters. Dashes, spaces and capitals don't matter; typos are caught.");
+                    hint: @tr("Copy it from your emergency kit: it starts with S0- followed by four groups of seven characters. Dashes, spaces and capitals don't matter, and a typo is caught before anything happens.");
                     placeholder: "S0-";
                     error: root.error-code == 2 || root.error-code == 3;
                     accepted => { password.focus(); }
@@ -296,6 +297,7 @@ export component UnlockScreen inherits Rectangle {
             password := SecretField {
                 field: 0;
                 label: @tr("Master password");
+                hint: @tr("The master password you chose when you created this vault.");
                 error: root.error-code == 1;
                 accepted => { root.unlock(); }
             }
@@ -350,18 +352,20 @@ export component RecoverScreen inherits Rectangle {
             SecretField {
                 field: 3;
                 label: @tr("Recovery Key");
-                hint: @tr("The longer key on your emergency kit. It starts with R0- and has nine groups of six characters.");
+                hint: @tr("Copy it from your emergency kit: the longer key, starting with R0- and nine groups of six characters. Dashes, spaces and capitals don't matter.");
                 placeholder: "R0-";
                 error: root.error-code == 8;
             }
             SecretField {
                 field: 0;
                 label: @tr("New master password");
+                hint: @tr("The password you'll unlock with from now on. At least 12 characters; several random words work best.");
                 error: root.error-code == 4 || root.error-code == 5;
             }
             SecretField {
                 field: 1;
                 label: @tr("Type it again");
+                hint: @tr("The same new password once more, to catch typos.");
                 error: root.error-code == 4;
                 accepted => { root.recover(); }
             }
