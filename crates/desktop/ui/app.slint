@@ -136,6 +136,8 @@ export component AppWindow inherits Window {
     // ---- generator ----
     in property <string> gen-result;
     in property <int> gen-bits;
+    in property <int> gen-crack-unit;
+    in property <int> gen-crack-amount;
     in-out property <int> gen-mode;
     in-out property <int> gen-length: 24;
     in-out property <int> gen-words: 6;
@@ -146,6 +148,7 @@ export component AppWindow inherits Window {
     in-out property <bool> gen-avoid-ambiguous;
     in-out property <bool> gen-capitalize;
     in-out property <bool> gen-number;
+    in-out property <int> gen-separator;
     callback regenerate();
     callback copy-generated();
     callback use-generated();
@@ -185,6 +188,7 @@ export component AppWindow inherits Window {
         error-detail: root.error-detail;
         needs-secret-key: root.needs-secret-key;
         vault-path: root.vault-path;
+        quick-available: root.quick-unlock-available;
         quick-unlock: root.quick-unlock-on;
         quick-waiting: root.quick-waiting;
         unlock => { root.unlock(); }
@@ -276,6 +280,8 @@ export component AppWindow inherits Window {
             if root.panel == Panel.generator: GeneratorPage {
                 result: root.gen-result;
                 bits: root.gen-bits;
+                crack-unit: root.gen-crack-unit;
+                crack-amount: root.gen-crack-amount;
                 editing: root.editing-item;
                 mode <=> root.gen-mode;
                 length <=> root.gen-length;
@@ -287,6 +293,7 @@ export component AppWindow inherits Window {
                 avoid-ambiguous <=> root.gen-avoid-ambiguous;
                 capitalize <=> root.gen-capitalize;
                 number <=> root.gen-number;
+                separator <=> root.gen-separator;
                 regenerate => { root.regenerate(); }
                 copy => { root.copy-generated(); }
                 use-for-item => { root.use-generated(); }

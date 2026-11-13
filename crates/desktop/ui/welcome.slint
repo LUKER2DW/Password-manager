@@ -1,8 +1,11 @@
 // Onboarding (new vault), unlock and recovery.
+//
+// All three share one layout: a side panel on the left (brand, where you are, what is set up)
+// and the form centered in the space on the right.
 
 import { Theme, Sketch } from "theme.slint";
 import { Messages } from "model.slint";
-import { Button, QuietButton, SecretField, Check, MarkStroke, Hint } from "widgets.slint";
+import { Button, QuietButton, SecretField, Check, MarkStroke, Hint, Rule } from "widgets.slint";
 import { KitSlip } from "kit.slint";
 
 component StepMark inherits HorizontalLayout {
@@ -75,6 +78,103 @@ component ErrorLine inherits Text {
     height: root.code != 0 ? self.preferred-height : 0px;
 }
 
+// One line of "what is true here": a check when it is, a hollow dot when it isn't (yet).
+component Fact inherits HorizontalLayout {
+    in property <string> text;
+    in property <bool> ok: true;
+    spacing: 10px;
+    VerticalLayout {
+        alignment: start;
+        padding-top: 1px;
+        Rectangle {
+            width: 16px;
+            height: 16px;
+            if root.ok: Path {
+                width: 15px;
+                height: 15px;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: Sketch.check;
+                stroke: Theme.accent-stroke;
+                stroke-width: 2px;
+                fill: transparent;
+            }
+            if !root.ok: Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                border-width: 1.5px;
+                border-color: Theme.faint;
+            }
+        }
+    }
+    Text {
+        text: root.text;
+        font-size: Theme.small;
+        color: root.ok ? Theme.graphite : Theme.faint;
+        wrap: word-wrap;
+        horizontal-stretch: 1;
+    }
+}
+
+// Left side panel: brand at the top, then whatever the screen puts in it.
+component SidePanel inherits Rectangle {
+    background: Theme.panel;
+    min-width: 340px;
+    max-width: 440px;
+    horizontal-stretch: 0.6;
+
+    VerticalLayout {
+        padding: 40px;
+        padding-bottom: 36px;
+        spacing: 0px;
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+            Path {
+                width: 20px;
+                height: 23px;
+                viewbox-width: 64;
+                viewbox-height: 72;
+                commands: Sketch.padlock;
+                stroke: Theme.accent-stroke;
+                stroke-width: 1.4px;
+                fill: transparent;
+            }
+            Text {
+                text: "Vault";
+                font-size: Theme.lead;
+                font-weight: 600;
+                color: Theme.ink;
+                vertical-alignment: center;
+            }
+        }
+        @children
+    }
+}
+
+// The right side: content centered in the free space, at a comfortable reading width.
+component FormArea inherits Rectangle {
+    in property <length> form-width: 400px;
+    horizontal-stretch: 1;
+    background: Theme.canvas;
+    HorizontalLayout {
+        padding: 48px;
+        alignment: center;
+        VerticalLayout {
+            min-width: 280px;
+            preferred-width: root.form-width;
+            max-width: root.form-width;
+            alignment: center;
+            @children
+        }
+    }
+}
+
+component Spacer inherits Rectangle {
+    vertical-stretch: 1;
+}
+
 export component OnboardingScreen inherits Rectangle {
     in property <int> step: 1;
     in property <bool> busy;
@@ -95,106 +195,107 @@ export component OnboardingScreen inherits Rectangle {
     background: Theme.canvas;
 
     HorizontalLayout {
-        padding: 56px;
-        padding-left: 64px;
-        spacing: 72px;
-
-        VerticalLayout {
-            width: 180px;
-            spacing: 6px;
-            alignment: start;
+        SidePanel {
+            Rectangle { height: 56px; }
             Text {
                 text: root.recovered ? @tr("Recovered") : @tr("New vault");
-                font-size: Theme.title;
-                font-weight: 600;
+                font-size: Theme.headline;
+                font-weight: 300;
                 color: Theme.ink;
             }
-            Rectangle { height: 22px; }
-            StepMark {
+            Rectangle { height: 20px; }
+            if !root.recovered: StepMark {
                 number: 1;
                 text: @tr("Master password");
                 active: root.step == 1;
                 done: root.step > 1;
             }
             StepMark {
-                number: 2;
+                number: root.recovered ? 1 : 2;
                 text: @tr("Emergency kit");
                 active: root.step == 2;
             }
+            Spacer { }
+            VerticalLayout {
+                spacing: 12px;
+                vertical-stretch: 0;
+                Fact { text: @tr("Everything is encrypted on this computer before it is saved."); }
+                Fact { text: @tr("Opening it takes your master password plus a Secret Key the app creates."); }
+                Fact { text: @tr("Nothing is sent anywhere."); }
+                Fact { text: @tr("Your emergency kit is the way back in if you forget the password."); }
+            }
         }
+        Rectangle { width: 1px; background: Theme.rule; }
 
-        if root.step == 1: VerticalLayout {
-            max-width: 500px;
-            spacing: 18px;
-            alignment: start;
+        if root.step == 1: FormArea {
+            form-width: 460px;
+            VerticalLayout {
+                spacing: 18px;
 
-            Heading { text: @tr("Choose a master password"); }
-            Prose {
-                text: @tr("It's the only password you'll need to remember. Together with a Secret Key that this app creates, it locks everything else. Nobody can reset it for you.");
-            }
-            master := SecretField {
-                field: 0;
-                label: @tr("Master password");
-                hint: @tr("Something you'll remember that nobody could guess: several random words work best (try Suggest a passphrase). At least 12 characters. You'll type it every time you unlock, and it can't be reset.");
-                error: root.error-code == 4 || root.error-code == 5;
-                accepted => { confirm.focus(); }
-            }
-            confirm := SecretField {
-                field: 1;
-                label: @tr("Type it again");
-                hint: @tr("The same password once more, to catch typos.");
-                error: root.error-code == 4;
-                accepted => { root.create(); }
-            }
-            HorizontalLayout {
-                spacing: 10px;
-                alignment: start;
-                QuietButton {
-                    text: root.suggestion == "" ? @tr("Suggest a passphrase") : @tr("Suggest another");
-                    clicked => { root.suggest(); }
+                Heading { text: @tr("Choose a master password"); }
+                Prose {
+                    text: @tr("It's the only password you'll need to remember. Nobody can reset it for you, so pick one you won't forget.");
                 }
-                VerticalLayout {
-                    alignment: center;
-                    Hint {
-                        text: @tr("Six random words from the EFF word list: about 77 bits of entropy, far beyond guessing, and easier to remember than a jumble of symbols.");
-                    }
+                master := SecretField {
+                    field: 0;
+                    label: @tr("Master password");
+                    hint: @tr("Something you'll remember that nobody could guess: several random words work best (try Suggest a passphrase). At least 12 characters. You'll type it every time you unlock, and it can't be reset.");
+                    error: root.error-code == 4 || root.error-code == 5;
+                    accepted => { confirm.focus(); }
                 }
-            }
-            if root.suggestion != "": Rectangle {
-                height: suggestion-layout.preferred-height;
-                border-radius: Theme.radius;
-                background: Theme.panel;
-                suggestion-layout := VerticalLayout {
-                    padding: 14px;
-                    spacing: 8px;
-                    Text {
-                        text: root.suggestion;
-                        font-family: Theme.mono-font;
-                        font-size: Theme.lead;
-                        color: Theme.ink;
-                        wrap: word-wrap;
+                confirm := SecretField {
+                    field: 1;
+                    label: @tr("Type it again");
+                    error: root.error-code == 4;
+                    accepted => { root.create(); }
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: start;
+                    QuietButton {
+                        text: root.suggestion == "" ? @tr("Suggest a passphrase") : @tr("Suggest another");
+                        clicked => { root.suggest(); }
                     }
-                    HorizontalLayout {
-                        alignment: start;
-                        spacing: 12px;
-                        QuietButton {
-                            text: @tr("Use this passphrase");
-                            clicked => { root.use-suggestion(); }
-                        }
-                        Prose {
-                            text: @tr("Learn it by heart before you continue.");
-                            font-size: Theme.small;
-                            vertical-alignment: center;
+                    VerticalLayout {
+                        alignment: center;
+                        Hint {
+                            text: @tr("Six random words from the EFF word list: about 77 bits of entropy, far beyond guessing, and easier to remember than a jumble of symbols.");
                         }
                     }
                 }
-            }
-            ErrorLine {
-                code: root.error-code;
-                detail: root.error-detail;
-            }
-            HorizontalLayout {
-                alignment: start;
+                if root.suggestion != "": Rectangle {
+                    height: suggestion-layout.preferred-height;
+                    border-radius: Theme.radius;
+                    background: Theme.panel;
+                    suggestion-layout := VerticalLayout {
+                        padding: 14px;
+                        spacing: 8px;
+                        Text {
+                            text: root.suggestion;
+                            font-family: Theme.mono-font;
+                            font-size: Theme.lead;
+                            color: Theme.ink;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 12px;
+                            QuietButton {
+                                text: @tr("Use this passphrase");
+                                clicked => { root.use-suggestion(); }
+                            }
+                            Prose {
+                                text: @tr("Learn it by heart before you continue.");
+                                font-size: Theme.small;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+                ErrorLine {
+                    code: root.error-code;
+                    detail: root.error-detail;
+                }
                 Button {
                     text: @tr("Create vault");
                     busy-text: @tr("Creating your vault…");
@@ -204,33 +305,34 @@ export component OnboardingScreen inherits Rectangle {
             }
         }
 
-        if root.step == 2: VerticalLayout {
-            max-width: 560px;
-            spacing: 18px;
-            alignment: start;
+        if root.step == 2: FormArea {
+            form-width: 560px;
+            VerticalLayout {
+                spacing: 18px;
 
-            Heading { text: @tr("Save your emergency kit"); }
-            Prose {
-                text: root.recovered
-                    ? @tr("Your Secret Key changed. Replace the old one in your emergency kit, or write a new kit. Your Recovery Key still works.")
-                    : @tr("If you lose this computer or forget your master password, these keys are the only way back in. Write them down or print them, and keep the paper somewhere safe.");
-            }
-            KitSlip {
-                vault-id: root.kit-vault-id;
-                secret-key: root.kit-secret-key;
-                recovery-key: root.kit-recovery-key;
-                vault-path: root.kit-path;
-            }
-            Check {
-                text: @tr("I wrote these down and keep them somewhere safe");
-                checked <=> root.kit-saved;
-            }
-            HorizontalLayout {
-                alignment: start;
-                Button {
-                    text: @tr("Open my vault");
-                    enabled: root.kit-saved;
-                    clicked => { root.finish(); }
+                Heading { text: @tr("Save your emergency kit"); }
+                Prose {
+                    text: root.recovered
+                        ? @tr("Your Secret Key changed. Replace the old one in your emergency kit, or write a new kit. Your Recovery Key still works.")
+                        : @tr("If you lose this computer or forget your master password, these keys are the only way back in. Write them down or print them, and keep the paper somewhere safe.");
+                }
+                KitSlip {
+                    vault-id: root.kit-vault-id;
+                    secret-key: root.kit-secret-key;
+                    recovery-key: root.kit-recovery-key;
+                    vault-path: root.kit-path;
+                }
+                Check {
+                    text: @tr("I wrote these down and keep them somewhere safe");
+                    checked <=> root.kit-saved;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    Button {
+                        text: @tr("Open my vault");
+                        enabled: root.kit-saved;
+                        clicked => { root.finish(); }
+                    }
                 }
             }
         }
@@ -243,51 +345,79 @@ export component UnlockScreen inherits Rectangle {
     in property <string> error-detail;
     in property <bool> needs-secret-key;
     in property <string> vault-path;
-    // Windows Hello is set up for this vault on this computer.
+    // Windows Hello: usable on this computer / set up for this vault / prompt open now.
+    in property <bool> quick-available;
     in property <bool> quick-unlock;
     in property <bool> quick-waiting;
     callback unlock();
     callback quick();
     callback forgot();
 
+    property <bool> hello-first: root.quick-unlock && !root.needs-secret-key;
+
     background: Theme.canvas;
     forward-focus: password;
 
     HorizontalLayout {
-        padding-left: 120px;
-        padding-right: 64px;
-        alignment: start;
-        VerticalLayout {
-            width: 420px;
-            spacing: 16px;
-            alignment: center;
-
+        SidePanel {
+            Spacer { }
             Path {
-                width: 44px;
-                height: 50px;
+                width: 84px;
+                height: 95px;
                 viewbox-width: 64;
                 viewbox-height: 72;
                 commands: Sketch.padlock;
                 stroke: Theme.accent-stroke;
-                stroke-width: 1.6px;
+                stroke-width: 1.8px;
                 fill: transparent;
             }
+            Rectangle { height: 22px; }
             Text {
                 text: @tr("Locked");
                 font-size: Theme.display;
                 font-weight: 300;
                 color: Theme.ink;
             }
+            Rectangle { height: 8px; }
             Prose {
-                text: root.vault-path;
-                font-size: Theme.small;
-                color: Theme.faint;
+                text: @tr("Everything inside is encrypted on this computer.");
             }
-            Rectangle { height: 4px; }
-            if root.quick-unlock && !root.needs-secret-key: VerticalLayout {
-                spacing: 14px;
-                HorizontalLayout {
-                    alignment: start;
+            Spacer { }
+            VerticalLayout {
+                spacing: 12px;
+                vertical-stretch: 0;
+                Fact {
+                    text: root.needs-secret-key
+                        ? @tr("This computer needs your Secret Key once")
+                        : @tr("Secret Key saved on this computer");
+                    ok: !root.needs-secret-key;
+                }
+                if root.quick-available: Fact {
+                    text: root.quick-unlock
+                        ? @tr("Windows Hello is set up")
+                        : @tr("Windows Hello is off (Settings → Locking)");
+                    ok: root.quick-unlock;
+                }
+                Fact { text: @tr("Locks itself when you step away"); }
+                Rectangle { height: 4px; }
+                Text {
+                    text: root.vault-path;
+                    font-size: Theme.small;
+                    color: Theme.faint;
+                    wrap: word-wrap;
+                }
+            }
+        }
+        Rectangle { width: 1px; background: Theme.rule; }
+
+        FormArea {
+            form-width: 380px;
+            VerticalLayout {
+                spacing: 16px;
+
+                Heading { text: @tr("Unlock your vault"); }
+                if root.hello-first: VerticalLayout {
+                    spacing: 18px;
                     Button {
                         text: @tr("Unlock with Windows Hello");
                         busy-text: @tr("Waiting for Windows Hello…");
@@ -295,56 +425,64 @@ export component UnlockScreen inherits Rectangle {
                         enabled: !root.busy;
                         clicked => { root.quick(); }
                     }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        VerticalLayout {
+                            alignment: center;
+                            horizontal-stretch: 1;
+                            Rule { }
+                        }
+                        Text {
+                            text: @tr("or use your master password");
+                            font-size: Theme.small;
+                            color: Theme.faint;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            horizontal-stretch: 1;
+                            Rule { }
+                        }
+                    }
                 }
-                Prose {
-                    text: @tr("Or type your master password:");
-                    font-size: Theme.small;
-                    color: Theme.graphite;
+                if root.needs-secret-key: VerticalLayout {
+                    spacing: 12px;
+                    Prose {
+                        text: @tr("This computer hasn't opened this vault before. Type the Secret Key from your emergency kit once; it will be remembered here.");
+                    }
+                    SecretField {
+                        field: 2;
+                        label: @tr("Secret Key");
+                        hint: @tr("Copy it from your emergency kit: it starts with S0- followed by four groups of seven characters. Dashes, spaces and capitals don't matter, and a typo is caught before anything happens.");
+                        placeholder: "S0-";
+                        error: root.error-code == 2 || root.error-code == 3;
+                        accepted => { password.focus(); }
+                    }
                 }
-            }
-            if root.needs-secret-key: VerticalLayout {
-                spacing: 12px;
-                Prose {
-                    text: @tr("This computer hasn't opened this vault before. Type the Secret Key from your emergency kit once; it will be remembered here.");
+                password := SecretField {
+                    field: 0;
+                    label: @tr("Master password");
+                    error: root.error-code == 1;
+                    accepted => { root.unlock(); }
                 }
-                SecretField {
-                    field: 2;
-                    label: @tr("Secret Key");
-                    hint: @tr("Copy it from your emergency kit: it starts with S0- followed by four groups of seven characters. Dashes, spaces and capitals don't matter, and a typo is caught before anything happens.");
-                    placeholder: "S0-";
-                    error: root.error-code == 2 || root.error-code == 3;
-                    accepted => { password.focus(); }
+                ErrorLine {
+                    code: root.error-code;
+                    detail: root.error-detail;
                 }
-            }
-            password := SecretField {
-                field: 0;
-                label: @tr("Master password");
-                hint: @tr("The master password you chose when you created this vault.");
-                error: root.error-code == 1;
-                accepted => { root.unlock(); }
-            }
-            ErrorLine {
-                code: root.error-code;
-                detail: root.error-detail;
-            }
-            HorizontalLayout {
-                alignment: start;
-                spacing: 12px;
                 // One yellow button per screen: with Windows Hello on, it is the Hello one.
-                if !root.quick-unlock || root.needs-secret-key: Button {
+                if !root.hello-first: Button {
                     text: @tr("Unlock");
                     busy-text: @tr("Unlocking…");
                     busy: root.busy;
                     clicked => { root.unlock(); }
                 }
-                if root.quick-unlock && !root.needs-secret-key: QuietButton {
-                    text: root.busy && !root.quick-waiting ? @tr("Unlocking…") : @tr("Unlock");
+                if root.hello-first: QuietButton {
+                    text: root.busy && !root.quick-waiting ? @tr("Unlocking…") : @tr("Unlock with password");
                     outlined: true;
                     enabled: !root.busy;
                     clicked => { root.unlock(); }
                 }
-                VerticalLayout {
-                    alignment: center;
+                HorizontalLayout {
+                    alignment: start;
                     QuietButton {
                         text: @tr("Forgot it? Use your emergency kit");
                         tint: Theme.graphite;
@@ -366,55 +504,70 @@ export component RecoverScreen inherits Rectangle {
     background: Theme.canvas;
 
     HorizontalLayout {
-        padding-left: 120px;
-        padding-right: 64px;
-        alignment: start;
-        VerticalLayout {
-            width: 460px;
-            spacing: 16px;
-            alignment: center;
-
-            Heading { text: @tr("Recover access"); }
-            Prose {
-                text: @tr("Type the Recovery Key from your emergency kit, then choose a new master password. You'll also get a new Secret Key.");
+        SidePanel {
+            Rectangle { height: 56px; }
+            Text {
+                text: @tr("Recover access");
+                font-size: Theme.headline;
+                font-weight: 300;
+                color: Theme.ink;
             }
-            SecretField {
-                field: 3;
-                label: @tr("Recovery Key");
-                hint: @tr("Copy it from your emergency kit: the longer key, starting with R0- and nine groups of six characters. Dashes, spaces and capitals don't matter.");
-                placeholder: "R0-";
-                error: root.error-code == 8;
-            }
-            SecretField {
-                field: 0;
-                label: @tr("New master password");
-                hint: @tr("The password you'll unlock with from now on. At least 12 characters; several random words work best.");
-                error: root.error-code == 4 || root.error-code == 5;
-            }
-            SecretField {
-                field: 1;
-                label: @tr("Type it again");
-                hint: @tr("The same new password once more, to catch typos.");
-                error: root.error-code == 4;
-                accepted => { root.recover(); }
-            }
-            ErrorLine {
-                code: root.error-code;
-                detail: root.error-detail;
-            }
-            HorizontalLayout {
-                alignment: start;
+            Rectangle { height: 20px; }
+            StepMark { number: 1; text: @tr("Recovery Key"); active: true; }
+            StepMark { number: 2; text: @tr("New master password"); }
+            StepMark { number: 3; text: @tr("New emergency kit"); }
+            Spacer { }
+            VerticalLayout {
                 spacing: 12px;
+                vertical-stretch: 0;
+                Fact { text: @tr("Your items stay exactly as they are."); }
+                Fact { text: @tr("You get a new Secret Key; the old one stops working."); }
+                Fact { text: @tr("Your Recovery Key keeps working."); }
+            }
+        }
+        Rectangle { width: 1px; background: Theme.rule; }
+
+        FormArea {
+            form-width: 420px;
+            VerticalLayout {
+                spacing: 16px;
+
+                Heading { text: @tr("Use your emergency kit"); }
+                Prose {
+                    text: @tr("Type the Recovery Key from your emergency kit, then choose a new master password.");
+                }
+                SecretField {
+                    field: 3;
+                    label: @tr("Recovery Key");
+                    hint: @tr("Copy it from your emergency kit: the longer key, starting with R0- and nine groups of six characters. Dashes, spaces and capitals don't matter.");
+                    placeholder: "R0-";
+                    error: root.error-code == 8;
+                }
+                SecretField {
+                    field: 0;
+                    label: @tr("New master password");
+                    error: root.error-code == 4 || root.error-code == 5;
+                }
+                SecretField {
+                    field: 1;
+                    label: @tr("Type it again");
+                    error: root.error-code == 4;
+                    accepted => { root.recover(); }
+                }
+                ErrorLine {
+                    code: root.error-code;
+                    detail: root.error-detail;
+                }
                 Button {
                     text: @tr("Recover vault");
                     busy-text: @tr("Recovering…");
                     busy: root.busy;
                     clicked => { root.recover(); }
                 }
-                VerticalLayout {
-                    alignment: center;
+                HorizontalLayout {
+                    alignment: start;
                     QuietButton {
-                        text: @tr("Back");
+                        text: @tr("Back to unlock");
                         tint: Theme.graphite;
                         clicked => { root.back(); }
                     }

@@ -51,6 +51,20 @@ export global Messages {
         return @tr("Something went wrong: {}", detail);
     }
 
+    // Units from view.rs → crack.
+    public pure function crack-time(unit: int, n: int) -> string {
+        if (unit == 0) { return @tr("Cracked almost instantly"); }
+        if (unit == 1) { return @tr("About {n} second to crack" | "About {n} seconds to crack" % n); }
+        if (unit == 2) { return @tr("About {n} minute to crack" | "About {n} minutes to crack" % n); }
+        if (unit == 3) { return @tr("About {n} hour to crack" | "About {n} hours to crack" % n); }
+        if (unit == 4) { return @tr("About {n} day to crack" | "About {n} days to crack" % n); }
+        if (unit == 5) { return @tr("About {n} year to crack" | "About {n} years to crack" % n); }
+        if (unit == 6) { return @tr("About {n} thousand years to crack" | "About {n} thousand years to crack" % n); }
+        if (unit == 7) { return @tr("About {n} million years to crack" | "About {n} million years to crack" % n); }
+        if (unit == 8) { return @tr("About {n} billion years to crack" | "About {n} billion years to crack" % n); }
+        return @tr("Longer to crack than the universe has existed");
+    }
+
     public pure function notice(code: int, arg: string) -> string {
         if (code == 1) { return @tr("Password copied. The clipboard clears in {} seconds.", arg); }
         if (code == 2) { return @tr("Username copied."); }

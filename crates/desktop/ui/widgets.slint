@@ -505,6 +505,96 @@ export component Stepper inherits HorizontalLayout {
     }
 }
 
+// Drag (or click, or use the arrow keys) to pick a whole number.
+export component Slider inherits Rectangle {
+    in property <int> minimum: 0;
+    in property <int> maximum: 100;
+    in-out property <int> value;
+    in property <string> label;
+    callback changed(int);
+
+    property <length> knob-size: 18px;
+    property <float> ratio: (root.value - root.minimum) / Math.max(1, root.maximum - root.minimum);
+    property <length> travel: root.width - root.knob-size;
+
+    height: 28px;
+    min-width: 160px;
+    horizontal-stretch: 1;
+    accessible-role: slider;
+    accessible-label: root.label;
+    accessible-value: root.value;
+    accessible-value-minimum: root.minimum;
+    accessible-value-maximum: root.maximum;
+    accessible-value-step: 1;
+    forward-focus: focus;
+
+    function set-value(new-value: int) {
+        let clamped = Math.clamp(new-value, root.minimum, root.maximum);
+        if (clamped != root.value) {
+            root.value = clamped;
+            root.changed(clamped);
+        }
+    }
+    function set-from(x: length) {
+        root.set-value(Math.round(root.minimum
+            + Math.clamp((x - root.knob-size / 2) / root.travel, 0, 1) * (root.maximum - root.minimum)));
+    }
+
+    Rectangle {
+        y: (parent.height - 4px) / 2;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.rule;
+    }
+    Rectangle {
+        x: 0;
+        y: (parent.height - 4px) / 2;
+        width: root.travel * root.ratio + root.knob-size / 2;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.marker;
+    }
+    Rectangle {
+        x: root.travel * root.ratio;
+        y: (parent.height - root.knob-size) / 2;
+        width: root.knob-size;
+        height: root.knob-size;
+        border-radius: root.knob-size / 2;
+        background: Theme.marker;
+        border-width: focus.has-focus || touch.pressed ? 3px : 2px;
+        border-color: focus.has-focus ? Theme.ink : Theme.sheet;
+        drop-shadow-blur: 4px;
+        drop-shadow-color: #00000040;
+    }
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                focus.focus();
+                root.set-from(self.mouse-x);
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                root.set-from(self.mouse-x);
+            }
+        }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.RightArrow || event.text == Key.UpArrow) {
+                root.set-value(root.value + 1);
+                return accept;
+            }
+            if (event.text == Key.LeftArrow || event.text == Key.DownArrow) {
+                root.set-value(root.value - 1);
+                return accept;
+            }
+            reject
+        }
+    }
+}
+
 // A few words to choose from; the chosen one gets the marker stroke.
 export component Choice inherits HorizontalLayout {
     in property <[string]> options;

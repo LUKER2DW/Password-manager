@@ -163,6 +163,8 @@ struct State {
     /// Onboarding step 2 shows the kit; the vault opens when the user confirms.
     pending: Option<Session>,
     summaries: Vec<vault_core::ItemSummary>,
+    /// Set whenever the vault changes; the next list refresh decrypts the summaries again.
+    summaries_stale: bool,
     visible: Vec<ItemId>,
     selected: Option<ItemId>,
     /// `Some(None)` = new item, `Some(Some(id))` = editing `id`.
@@ -220,8 +222,22 @@ impl Controller {
         verifier: Option<Arc<dyn DeviceVerifier>>,
     ) -> anyhow::Result<Rc<Self>> {
         let settings = DeviceState::load().map(|s| s.settings).unwrap_or_default();
-        let quick_available = verifier.as_ref().is_some_and(|v| v.is_available());
+        // Asking Windows whether Hello is set up can take a moment: never on the UI thread.
+        let quick_available =
+            runner == Runner::Inline && verifier.as_ref().is_some_and(|v| v.is_available());
         app.set_quick_unlock_available(quick_available);
+        if runner == Runner::Thread {
+            if let Some(verifier) = verifier.clone() {
+                std::thread::spawn(move || {
+                    let available = verifier.is_available();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
+                            controller.set_quick_available(available);
+                        }
+                    });
+                });
+            }
+        }
         let controller = Rc::new(Self {
             app: app.as_weak(),
             state: RefCell::new(State {
@@ -231,6 +247,7 @@ impl Controller {
                 session: None,
                 pending: None,
                 summaries: Vec::new(),
+                summaries_stale: true,
                 visible: Vec::new(),
                 selected: None,
                 editing: None,
@@ -870,6 +887,13 @@ impl Controller {
     // Quick unlock (Windows Hello); see vault_platform::quick_unlock for the design
     // -----------------------------------------------------------------------------------------
 
+    fn set_quick_available(&self, available: bool) {
+        self.state.borrow_mut().quick_available = available;
+        let app = self.app();
+        app.set_quick_unlock_available(available);
+        app.set_quick_unlock_on(available && quick_unlock::is_enrolled(&app.get_vault_id()));
+    }
+
     fn quick_unlock(&self) {
         let Some(verifier) = self.state.borrow().verifier.clone() else {
             return;
@@ -1010,6 +1034,7 @@ impl Controller {
         {
             let mut state = self.state.borrow_mut();
             state.session = Some(session);
+            state.summaries_stale = true;
             state.selected = None;
             state.editing = None;
         }
@@ -1037,6 +1062,7 @@ impl Controller {
             state.session = None;
             state.pending = None;
             state.summaries.clear();
+            state.summaries_stale = true;
             state.visible.clear();
             state.selected = None;
             state.editing = None;
@@ -1097,21 +1123,30 @@ impl Controller {
         let app = self.app();
         let category = app.get_category();
         let query = app.get_search_text().to_string();
-        let summaries = match self
-            .state
-            .borrow()
-            .session
-            .as_ref()
-            .map(|s| s.vault.summaries())
-        {
-            Some(Ok(summaries)) => summaries,
-            Some(Err(err)) => {
-                let (code, detail) = self.core_error(&err);
-                self.set_error(code, &detail);
-                return;
+        // Decrypting every item is the expensive part; it only happens after a change, not on
+        // every keystroke in the search box.
+        if self.state.borrow().summaries_stale {
+            let fresh = self
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .map(|s| s.vault.summaries());
+            match fresh {
+                Some(Ok(fresh)) => {
+                    let mut state = self.state.borrow_mut();
+                    state.summaries = fresh;
+                    state.summaries_stale = false;
+                }
+                Some(Err(err)) => {
+                    let (code, detail) = self.core_error(&err);
+                    self.set_error(code, &detail);
+                    return;
+                }
+                None => return,
             }
-            None => return,
-        };
+        }
+        let summaries = std::mem::take(&mut self.state.borrow_mut().summaries);
         let (visible, counts) = view::filter(&summaries, category, &query);
         let rows: Vec<ItemRow> = visible
             .iter()
@@ -1347,6 +1382,7 @@ impl Controller {
     fn save_vault(&self) -> bool {
         let result = {
             let mut state = self.state.borrow_mut();
+            state.summaries_stale = true;
             let path = state.path.clone();
             match state.session.as_mut() {
                 Some(session) => session
@@ -1554,11 +1590,17 @@ impl Controller {
         let result = if app.get_gen_mode() == 1 {
             let options = PassphraseOptions {
                 words: usize::try_from(app.get_gen_words()).unwrap_or(6),
-                separator: "-".into(),
+                separator: match app.get_gen_separator() {
+                    1 => ".",
+                    2 => "_",
+                    3 => " ",
+                    _ => "-",
+                }
+                .into(),
                 capitalize: app.get_gen_capitalize(),
                 include_number: app.get_gen_number(),
             };
-            app.set_gen_bits(options.entropy_bits() as i32);
+            set_strength(&app, options.entropy_bits());
             generator::generate_passphrase(&options)
         } else {
             let mut options = PasswordOptions {
@@ -1573,7 +1615,7 @@ impl Controller {
                 options.lowercase = true;
                 app.set_gen_lowercase(true);
             }
-            app.set_gen_bits(options.entropy_bits() as i32);
+            set_strength(&app, options.entropy_bits());
             generator::generate_password(&options)
         };
         result.ok()
@@ -1949,6 +1991,14 @@ enum CopyWhat {
 enum KitAction {
     Show,
     NewRecoveryKey,
+}
+
+/// Shows a generated secret's strength: bits and the estimated time to crack it.
+fn set_strength(app: &AppWindow, bits: f64) {
+    app.set_gen_bits(bits as i32);
+    let (unit, amount) = view::crack_time(bits);
+    app.set_gen_crack_unit(unit);
+    app.set_gen_crack_amount(amount);
 }
 
 /// Re-derives the key from the file with the typed password: proof the person at the keyboard

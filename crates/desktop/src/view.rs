@@ -112,6 +112,62 @@ pub fn tint(kind: ItemKind, key: &str) -> (u8, u8, u8) {
     }
 }
 
+/// Guesses per second assumed for crack-time estimates: a well-funded attacker with a GPU rig
+/// working offline on a stolen list of fast (unsalted, MD5/SHA-1-like) hashes. The worst
+/// realistic case for a website's leaked password database.
+pub const GUESSES_PER_SECOND: f64 = 1e12;
+
+/// Crack-time units (texts in model.slint → Messages.crack-time).
+pub mod crack {
+    pub const INSTANT: i32 = 0;
+    pub const SECONDS: i32 = 1;
+    pub const MINUTES: i32 = 2;
+    pub const HOURS: i32 = 3;
+    pub const DAYS: i32 = 4;
+    pub const YEARS: i32 = 5;
+    pub const THOUSAND_YEARS: i32 = 6;
+    pub const MILLION_YEARS: i32 = 7;
+    pub const BILLION_YEARS: i32 = 8;
+    /// More than 1000 billion years: far beyond the age of the universe.
+    pub const BEYOND: i32 = 9;
+}
+
+/// Average time to guess a secret with `bits` of entropy (half the search space), as a unit and
+/// a rounded amount, e.g. `(MILLION_YEARS, 40)`.
+pub fn crack_time(bits: f64) -> (i32, i32) {
+    const MINUTE: f64 = 60.0;
+    const HOUR: f64 = 60.0 * MINUTE;
+    const DAY: f64 = 24.0 * HOUR;
+    const YEAR: f64 = 365.25 * DAY;
+    let seconds = (bits - 1.0).exp2() / GUESSES_PER_SECOND;
+    let years = seconds / YEAR;
+    let (unit, amount) = if seconds < 1.0 {
+        (crack::INSTANT, 0.0)
+    } else if seconds < MINUTE {
+        (crack::SECONDS, seconds)
+    } else if seconds < HOUR {
+        (crack::MINUTES, seconds / MINUTE)
+    } else if seconds < DAY {
+        (crack::HOURS, seconds / HOUR)
+    } else if seconds < YEAR {
+        (crack::DAYS, seconds / DAY)
+    } else if years < 1e3 {
+        (crack::YEARS, years)
+    } else if years < 1e6 {
+        (crack::THOUSAND_YEARS, years / 1e3)
+    } else if years < 1e9 {
+        (crack::MILLION_YEARS, years / 1e6)
+    } else if years < 1e12 {
+        (crack::BILLION_YEARS, years / 1e9)
+    } else {
+        (crack::BEYOND, 0.0)
+    };
+    (
+        unit,
+        (amount.round() as i32).max(i32::from(unit != crack::INSTANT && unit != crack::BEYOND)),
+    )
+}
+
 /// "123456" → "123 456" (easier to read and type).
 pub fn group_code(code: &str) -> String {
     if code.len() == 6 || code.len() == 8 {
@@ -191,6 +247,17 @@ mod tests {
         assert_eq!(group_code("12345678"), "1234 5678");
         assert_eq!(group_code("1234567"), "1234567");
         assert_eq!(int_to_kind(kind_to_int(ItemKind::Card)), ItemKind::Card);
+    }
+
+    #[test]
+    fn crack_time_estimates() {
+        assert_eq!(crack_time(20.0), (crack::INSTANT, 0));
+        // 2^49 / 1e12 ≈ 563 s ≈ 9 minutes
+        assert_eq!(crack_time(50.0), (crack::MINUTES, 9));
+        // 2^69 / 1e12 s ≈ 18.7 years
+        assert_eq!(crack_time(70.0), (crack::YEARS, 19));
+        assert_eq!(crack_time(90.0).0, crack::MILLION_YEARS);
+        assert_eq!(crack_time(128.0), (crack::BEYOND, 0));
     }
 
     #[test]

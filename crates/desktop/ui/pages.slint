@@ -3,7 +3,7 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
 import { DetailField, Messages } from "model.slint";
-import { Button, QuietButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon } from "widgets.slint";
+import { Button, QuietButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider } from "widgets.slint";
 import { KitSlip } from "kit.slint";
 
 component PageTitle inherits Text {
@@ -358,7 +358,6 @@ export component EditorPage inherits Rectangle {
             }
             LineField {
                 label: @tr("Title");
-                hint: @tr("A name you'll recognize in the list, like “GitHub” or “Bank – savings”.");
                 placeholder: root.kind == 1 ? @tr("Visa ending 4242") : root.kind == 2 ? @tr("Home Wi-Fi") : @tr("GitHub");
                 text <=> root.title;
                 error: root.error-code == 9;
@@ -375,7 +374,6 @@ export component EditorPage inherits Rectangle {
                 }
                 if root.kind == 0: LineField {
                     label: @tr("Website");
-                    hint: @tr("The address of the site's sign-in page, for example https://github.com/login. It's used to show the site's icon and, later, to fill in your browser.");
                     placeholder: "https://";
                     text <=> root.url;
                 }
@@ -421,7 +419,6 @@ export component EditorPage inherits Rectangle {
             }
             NotesField {
                 label: @tr("Notes");
-                hint: @tr("Anything else worth keeping safe: recovery codes, security questions and their answers, account or policy numbers. Notes are encrypted just like passwords.");
                 text <=> root.notes;
             }
             ErrorText {
@@ -454,6 +451,8 @@ export component EditorPage inherits Rectangle {
 export component GeneratorPage inherits Rectangle {
     in property <string> result;
     in property <int> bits;
+    in property <int> crack-unit;
+    in property <int> crack-amount;
     in property <bool> editing;
     in-out property <int> mode;
     in-out property <int> length;
@@ -465,6 +464,7 @@ export component GeneratorPage inherits Rectangle {
     in-out property <bool> avoid-ambiguous;
     in-out property <bool> capitalize;
     in-out property <bool> number;
+    in-out property <int> separator;
     callback regenerate();
     callback copy();
     callback use-for-item();
@@ -476,18 +476,7 @@ export component GeneratorPage inherits Rectangle {
             spacing: 16px;
             alignment: start;
 
-            HorizontalLayout {
-                spacing: 16px;
-                PageTitle {
-                    text: @tr("Password generator");
-                    horizontal-stretch: 1;
-                }
-                Choice {
-                    options: [@tr("Characters"), @tr("Words")];
-                    selected <=> root.mode;
-                    changed => { root.regenerate(); }
-                }
-            }
+            PageTitle { text: @tr("Password generator"); }
 
             Rectangle {
                 min-height: output.preferred-height + 36px;
@@ -505,19 +494,39 @@ export component GeneratorPage inherits Rectangle {
                     wrap: word-wrap;
                 }
             }
+            // Strength: a thin meter that fills up to 128 bits.
+            Rectangle {
+                height: 4px;
+                border-radius: 2px;
+                background: Theme.rule;
+                Rectangle {
+                    x: 0;
+                    width: parent.width * Math.min(1, root.bits / 128);
+                    border-radius: 2px;
+                    background: root.bits >= 70 ? Theme.good : root.bits >= 50 ? Theme.marker : Theme.seal;
+                    animate width { duration: 160ms; easing: ease-out; }
+                }
+            }
             HorizontalLayout {
                 spacing: 8px;
                 alignment: start;
-                Prose {
-                    text: root.bits >= 100 ? @tr("About {} bits: far beyond guessing.", root.bits)
-                        : root.bits >= 70 ? @tr("About {} bits: strong.", root.bits)
-                        : @tr("About {} bits: make it longer if the site allows.", root.bits);
+                Text {
+                    text: Messages.crack-time(root.crack-unit, root.crack-amount);
+                    font-size: Theme.body;
+                    font-weight: 600;
+                    color: root.bits >= 70 ? Theme.good : root.bits >= 50 ? Theme.ink : Theme.seal;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: @tr("· {} bits", root.bits);
+                    font-size: Theme.small;
+                    color: Theme.faint;
                     vertical-alignment: center;
                 }
                 VerticalLayout {
                     alignment: center;
                     Hint {
-                        text: @tr("Bits measure how hard a password is to guess: each extra bit doubles the work. 70 bits already takes an attacker's computer longer than a lifetime; 100+ is out of reach.");
+                        text: @tr("Estimated for the worst realistic case: a site you use is breached, its password list leaks, and an attacker with a rack of graphics cards tries a trillion guesses per second. On average they'd find it halfway through. Each extra bit doubles the time.");
                     }
                 }
             }
@@ -546,32 +555,100 @@ export component GeneratorPage inherits Rectangle {
 
             Rule { }
 
-            if root.mode == 0: VerticalLayout {
-                spacing: 10px;
-                Stepper {
+            // Length (or number of words): drag the bar.
+            HorizontalLayout {
+                spacing: 16px;
+                Text {
+                    text: root.mode == 0 ? @tr("Length") : @tr("Words");
+                    font-size: Theme.body;
+                    color: Theme.ink;
+                    vertical-alignment: center;
+                    width: 120px;
+                }
+                if root.mode == 0: Slider {
                     label: @tr("Length");
-                    value <=> root.length;
                     minimum: 8;
-                    maximum: 64;
+                    maximum: 100;
+                    value <=> root.length;
                     changed => { root.regenerate(); }
                 }
-                Check { text: @tr("Lowercase letters"); checked <=> root.lowercase; toggled => { root.regenerate(); } }
-                Check { text: @tr("Capital letters"); checked <=> root.uppercase; toggled => { root.regenerate(); } }
-                Check { text: @tr("Digits"); checked <=> root.digits; toggled => { root.regenerate(); } }
-                Check { text: @tr("Symbols"); checked <=> root.symbols; toggled => { root.regenerate(); } }
-                Check { text: @tr("Leave out look-alikes (I l 1 O 0 o)"); checked <=> root.avoid-ambiguous; toggled => { root.regenerate(); } }
+                if root.mode == 1: Slider {
+                    label: @tr("Words");
+                    minimum: 3;
+                    maximum: 12;
+                    value <=> root.words;
+                    changed => { root.regenerate(); }
+                }
+                Text {
+                    text: root.mode == 0 ? root.length : root.words;
+                    font-size: Theme.lead;
+                    font-weight: 600;
+                    color: Theme.ink;
+                    vertical-alignment: center;
+                    horizontal-alignment: right;
+                    width: 44px;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Check {
+                    text: @tr("Use words instead (a passphrase)");
+                    checked: root.mode == 1;
+                    toggled(on) => {
+                        root.mode = on ? 1 : 0;
+                        root.regenerate();
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Hint {
+                        text: @tr("A passphrase is a few random words, like correct-horse-battery-staple: as strong as a long random password but much easier to read and type. Good for passwords you type by hand, such as a computer login.");
+                    }
+                }
+            }
+
+            if root.mode == 0: GridLayout {
+                spacing-horizontal: 24px;
+                spacing-vertical: 10px;
+                Row {
+                    Check { text: @tr("Lowercase (a–z)"); checked <=> root.lowercase; toggled => { root.regenerate(); } }
+                    Check { text: @tr("Capitals (A–Z)"); checked <=> root.uppercase; toggled => { root.regenerate(); } }
+                }
+                Row {
+                    Check { text: @tr("Digits (0–9)"); checked <=> root.digits; toggled => { root.regenerate(); } }
+                    Check { text: @tr("Symbols (!@#$…)"); checked <=> root.symbols; toggled => { root.regenerate(); } }
+                }
+                Row {
+                    Check { text: @tr("Leave out look-alikes (I l 1 O 0 o)"); checked <=> root.avoid-ambiguous; toggled => { root.regenerate(); } colspan: 2; }
+                }
             }
             if root.mode == 1: VerticalLayout {
                 spacing: 10px;
-                Stepper {
-                    label: @tr("Words");
-                    value <=> root.words;
-                    minimum: 3;
-                    maximum: 12;
-                    changed => { root.regenerate(); }
+                GridLayout {
+                    spacing-horizontal: 24px;
+                    Row {
+                        Check { text: @tr("Capitalize each word"); checked <=> root.capitalize; toggled => { root.regenerate(); } }
+                        Check { text: @tr("Add a digit"); checked <=> root.number; toggled => { root.regenerate(); } }
+                    }
                 }
-                Check { text: @tr("Capitalize each word"); checked <=> root.capitalize; toggled => { root.regenerate(); } }
-                Check { text: @tr("Add a digit"); checked <=> root.number; toggled => { root.regenerate(); } }
+                HorizontalLayout {
+                    spacing: 16px;
+                    alignment: start;
+                    Text {
+                        text: @tr("Between words");
+                        font-size: Theme.body;
+                        color: Theme.ink;
+                        vertical-alignment: center;
+                        width: 120px;
+                    }
+                    Choice {
+                        options: [@tr("- dash"), @tr(". dot"), @tr("_ underscore"), @tr("space")];
+                        selected <=> root.separator;
+                        changed => { root.regenerate(); }
+                    }
+                }
             }
         }
     }
@@ -633,7 +710,6 @@ export component SettingsPage inherits Rectangle {
             Rule { }
             SectionTitle {
                 text: @tr("Locking");
-                hint: @tr("The vault locks itself after this long without use, and anything you copy is wiped from the clipboard after the second delay. Copied passwords never go to the Windows clipboard history.");
             }
             Stepper {
                 label: @tr("Lock after");
@@ -675,7 +751,6 @@ export component SettingsPage inherits Rectangle {
             SecretField {
                 field: 5;
                 label: @tr("Current master password");
-                hint: @tr("The password you unlock with today. Asked again so that nobody can change these settings on a computer you left unlocked.");
                 error: root.error-code == 11;
             }
             HorizontalLayout {
