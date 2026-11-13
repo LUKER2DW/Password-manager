@@ -6,9 +6,12 @@
 //! - **CSV**: exports from browsers and most managers, read by their header row
 //!
 //! [`Source`] lists where an export can come from, for the app to explain how to make one.
+//! On Windows, [`browser`] can also read a browser's own password store directly, when the user
+//! asks for it.
 //!
 //! Importers only produce [`ItemData`]; they never touch the vault or its keys.
 
+pub mod browser;
 mod csv_import;
 mod dates;
 mod export;
@@ -369,6 +372,10 @@ pub enum ImportError {
     UnknownCsvLayout,
     #[error("could not open the KeePass database (wrong password or key file?): {0}")]
     Kdbx(String),
+    #[error("{0}")]
+    Browser(String),
+    #[error("that primary password doesn't open this Firefox profile")]
+    WrongBrowserPassword,
 }
 
 /// Title fallback for entries without one: the host part of a URL.
