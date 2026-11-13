@@ -1,29 +1,23 @@
-//! Desktop app for the password manager (Windows first).
+//! Desktop app entry point.
 //!
 //! Set `VAULT_ALLOW_CAPTURE=1` to allow screenshots of the window (design reviews only).
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod controller;
-mod sketch;
-#[cfg(test)]
-mod tests;
-mod view;
-
-pub(crate) mod ui {
-    #![allow(missing_debug_implementations, clippy::all)]
-    slint::include_modules!();
-}
-
 use std::time::Duration;
 
 use slint::ComponentHandle;
+use vault_desktop::{
+    apply_sketches,
+    controller::{Controller, Runner},
+    ui::AppWindow,
+};
 
 fn main() -> anyhow::Result<()> {
-    let app = ui::AppWindow::new()?;
+    let app = AppWindow::new()?;
     apply_sketches(&app);
     let path = vault_platform::paths::default_vault_path()?;
-    let _controller = controller::Controller::install(&app, path, controller::Runner::Thread)?;
+    let _controller = Controller::install(&app, path, Runner::Thread)?;
 
     // The native window exists once the event loop runs.
     let weak = app.as_weak();
@@ -41,21 +35,4 @@ fn main() -> anyhow::Result<()> {
 
     app.run()?;
     Ok(())
-}
-
-pub(crate) fn apply_sketches(app: &ui::AppWindow) {
-    let sketches = sketch::Sketches::generate();
-    let global = app.global::<ui::Sketch>();
-    global.set_box_a(sketches.boxes[0].as_str().into());
-    global.set_box_b(sketches.boxes[1].as_str().into());
-    global.set_box_c(sketches.boxes[2].as_str().into());
-    global.set_marker_a(sketches.markers[0].as_str().into());
-    global.set_marker_b(sketches.markers[1].as_str().into());
-    global.set_marker_c(sketches.markers[2].as_str().into());
-    global.set_underline_a(sketches.underlines[0].as_str().into());
-    global.set_underline_b(sketches.underlines[1].as_str().into());
-    global.set_padlock(sketches.padlock.as_str().into());
-    global.set_check(sketches.check.as_str().into());
-    global.set_star(sketches.star.as_str().into());
-    global.set_plus(sketches.plus.as_str().into());
 }

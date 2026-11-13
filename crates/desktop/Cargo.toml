@@ -7,9 +7,18 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[lib]
+name = "vault_desktop"
+path = "src/lib.rs"
+
 [[bin]]
 name = "vault-desktop"
 path = "src/main.rs"
+
+# Renders every screen off-screen (software renderer) to PNGs for design review:
+# `cargo run -p vault-desktop --example screenshots`
+[[example]]
+name = "screenshots"
 
 # `deny` instead of the workspace's `forbid`: Slint's generated code opts into `unsafe` with
 # `#[allow]`, which `forbid` would reject. Hand-written code here still may not use `unsafe`.
@@ -33,4 +42,5 @@ slint-build = "1.18"
 
 [dev-dependencies]
 i-slint-backend-testing = "1.18"
+image = { version = "0.25", default-features = false, features = ["png"] }
 tempfile = "3.27"

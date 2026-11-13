@@ -142,39 +142,31 @@ impl Pen {
     }
 }
 
-/// All hand-drawn shapes the UI uses, generated once at startup.
-/// View boxes are documented next to each field; Slint stretches them to the element size.
+/// The few hand-drawn details the UI uses, generated once at startup. Everything else in the
+/// interface is drawn with plain, straight geometry; these are accents, not a style.
 #[derive(Debug, Clone)]
 pub struct Sketches {
-    /// 200 × 48 box outlines (three variants).
-    pub boxes: [String; 3],
-    /// 200 × 24 marker swashes: one thick stroke, used with a wide stroke width (three variants).
+    /// 200 × 24 marker strokes, drawn as a short underline below a selected label
+    /// (three variants so neighbouring marks don't look stamped).
     pub markers: [String; 3],
-    /// 200 × 8 underlines (two variants).
-    pub underlines: [String; 2],
-    /// 64 × 72 padlock.
+    /// 64 × 72 padlock (lock screen only).
     pub padlock: String,
     /// 24 × 24 check mark.
     pub check: String,
     /// 24 × 24 star outline.
     pub star: String,
-    /// 24 × 24 plus sign.
-    pub plus: String,
 }
 
 impl Sketches {
     pub fn generate() -> Self {
-        let boxes = [1, 2, 3].map(|seed| Pen::new(seed, 1.0).rect(2.0, 2.0, 196.0, 44.0).finish());
         let markers = [11, 12, 13].map(|seed| {
-            let mut pen = Pen::new(seed, 1.4);
-            // A marker stroke drifts a little upwards and back, never perfectly level.
-            pen.line(4.0, 14.0, 196.0, 10.0);
+            // Low roughness: a confident pen stroke that drifts slightly, not a scribble.
+            let mut pen = Pen::new(seed, 0.6);
+            pen.line(4.0, 13.0, 196.0, 11.0);
             pen.finish()
         });
-        let underlines =
-            [21, 22].map(|seed| Pen::new(seed, 0.8).line(1.0, 4.0, 199.0, 4.5).finish());
 
-        let mut padlock = Pen::new(31, 1.1);
+        let mut padlock = Pen::new(31, 0.7);
         padlock
             .arc(
                 32.0,
@@ -190,12 +182,12 @@ impl Sketches {
             .ellipse(32.0, 48.0, 8.0, 8.0)
             .line(32.0, 52.0, 32.0, 59.0);
 
-        let check = Pen::new(41, 0.8)
+        let check = Pen::new(41, 0.5)
             .line(4.0, 13.0, 10.0, 19.0)
             .line(10.0, 19.0, 21.0, 5.0)
             .finish();
 
-        let mut star = Pen::new(51, 0.7);
+        let mut star = Pen::new(51, 0.5);
         let points: Vec<(f64, f64)> = (0..10)
             .map(|i| {
                 let angle =
@@ -209,19 +201,11 @@ impl Sketches {
             star.line(a.0, a.1, b.0, b.1);
         }
 
-        let plus = Pen::new(61, 0.8)
-            .line(12.0, 3.0, 12.0, 21.0)
-            .line(3.0, 12.0, 21.0, 12.0)
-            .finish();
-
         Self {
-            boxes,
             markers,
-            underlines,
             padlock: padlock.finish(),
             check,
             star: star.finish(),
-            plus,
         }
     }
 }
@@ -235,14 +219,8 @@ mod tests {
         let a = Sketches::generate();
         let b = Sketches::generate();
         assert_eq!(a.padlock, b.padlock, "same seeds, same drawing");
-        assert_ne!(a.boxes[0], a.boxes[1], "variants differ");
-        for path in a
-            .boxes
-            .iter()
-            .chain(&a.markers)
-            .chain(&a.underlines)
-            .chain([&a.padlock, &a.check, &a.star, &a.plus])
-        {
+        assert_ne!(a.markers[0], a.markers[1], "variants differ");
+        for path in a.markers.iter().chain([&a.padlock, &a.check, &a.star]) {
             assert!(path.starts_with("M "), "{path}");
             assert!(!path.contains("NaN") && !path.contains("inf"));
         }

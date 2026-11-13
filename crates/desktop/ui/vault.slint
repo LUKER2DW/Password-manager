@@ -1,11 +1,10 @@
-// The unlocked vault: index tabs, item list, and the page on the right.
+// The unlocked vault: index on the left, item list in the middle.
 
 import { ListView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
 import { ItemRow, Panel, Messages } from "model.slint";
-import { InkButton, TextButton, LineField, MarkerSwash, RoughBox } from "widgets.slint";
+import { Button, QuietButton, LineField, MarkStroke } from "widgets.slint";
 
-// An index tab, like the stubs on the edge of a binder.
 component IndexTab inherits Rectangle {
     in property <string> text;
     in property <int> count: -1;
@@ -15,35 +14,38 @@ component IndexTab inherits Rectangle {
     accessible-role: tab;
     accessible-label: root.text;
     height: 34px;
+    border-radius: Theme.radius;
+    background: touch.has-hover && !root.active ? Theme.hover : transparent;
 
-    MarkerSwash {
-        x: 0;
-        y: parent.height * 0.3;
-        width: label.preferred-width + 14px;
-        height: parent.height * 0.5;
-        variant: 1;
-        reveal: root.active ? 1 : 0;
-        animate reveal { duration: Theme.sweep; easing: ease-out; }
-    }
     HorizontalLayout {
-        padding-left: 6px;
-        padding-right: 8px;
-        label := Text {
-            text: root.text;
-            font-size: Theme.body;
-            font-weight: root.active ? 600 : 400;
-            color: root.active ? Theme.ink : Theme.graphite;
-            vertical-alignment: center;
+        padding-left: 10px;
+        padding-right: 10px;
+        Rectangle {
             horizontal-stretch: 1;
+            label := Text {
+                x: 0;
+                text: root.text;
+                font-size: Theme.body;
+                font-weight: root.active ? 600 : 400;
+                color: root.active ? Theme.ink : Theme.graphite;
+            }
+            MarkStroke {
+                x: -2px;
+                y: parent.height / 2 + 9px;
+                width: label.preferred-width + 4px;
+                variant: 1;
+                reveal: root.active ? 1 : 0;
+                animate reveal { duration: Theme.sweep; easing: ease-out; }
+            }
         }
         if root.count >= 0: Text {
             text: root.count;
             font-size: Theme.small;
-            color: Theme.graphite;
+            color: Theme.faint;
             vertical-alignment: center;
         }
     }
-    TouchArea {
+    touch := TouchArea {
         mouse-cursor: MouseCursor.pointer;
         clicked => { root.clicked(); }
     }
@@ -52,61 +54,70 @@ component IndexTab inherits Rectangle {
 component ListRow inherits Rectangle {
     in property <ItemRow> item;
     in property <bool> selected;
-    in property <int> index;
     callback clicked;
 
     accessible-role: list-item;
     accessible-label: root.item.title;
     height: 58px;
 
-    MarkerSwash {
-        x: 14px;
-        y: 10px;
-        width: Math.min(title.preferred-width + 18px, parent.width - 28px);
-        height: 22px;
-        variant: Math.mod(root.index, 3);
-        reveal: root.selected ? 1 : 0;
-        animate reveal { duration: Theme.sweep; easing: ease-out; }
-    }
-    HorizontalLayout {
-        padding-left: 22px;
-        padding-right: 16px;
-        spacing: 8px;
-        VerticalLayout {
-            alignment: center;
-            spacing: 2px;
-            horizontal-stretch: 1;
-            title := Text {
-                text: root.item.title;
-                font-size: Theme.body;
-                font-weight: 600;
-                color: Theme.ink;
-                overflow: elide;
+    Rectangle {
+        x: 10px;
+        width: parent.width - 20px;
+        y: 2px;
+        height: parent.height - 4px;
+        border-radius: Theme.radius;
+        background: root.selected ? Theme.selected : touch.has-hover ? Theme.hover : transparent;
+        animate background { duration: Theme.quick; }
+
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                spacing: 3px;
+                horizontal-stretch: 1;
+                Text {
+                    text: root.item.title;
+                    font-size: Theme.body;
+                    font-weight: 600;
+                    color: Theme.ink;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.item.subtitle != "" ? root.item.subtitle : Messages.kind-name(root.item.kind);
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                    overflow: elide;
+                }
             }
-            Text {
-                text: root.item.subtitle != "" ? root.item.subtitle : Messages.kind-name(root.item.kind);
-                font-size: Theme.small;
-                color: Theme.graphite;
-                overflow: elide;
+            if root.item.favorite: VerticalLayout {
+                alignment: center;
+                Path {
+                    width: 13px;
+                    height: 13px;
+                    viewbox-width: 24;
+                    viewbox-height: 24;
+                    commands: Sketch.star;
+                    stroke: Theme.accent-stroke;
+                    stroke-width: 1.4px;
+                    fill: transparent;
+                }
             }
         }
-        if root.item.favorite: VerticalLayout {
-            alignment: center;
-            Path {
-                width: 14px;
-                height: 14px;
-                viewbox-width: 24;
-                viewbox-height: 24;
-                commands: Sketch.star;
-                stroke: Theme.graphite;
-                stroke-width: 1.2px;
-                fill: transparent;
-            }
+        // Selected rows carry a short marker stroke on the left edge.
+        if root.selected: Rectangle {
+            x: 0;
+            y: 12px;
+            width: 3px;
+            height: parent.height - 24px;
+            border-radius: 1.5px;
+            background: Theme.marker;
         }
-    }
-    TouchArea {
-        mouse-cursor: MouseCursor.pointer;
-        clicked => { root.clicked(); }
+        touch := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.clicked(); }
+        }
     }
 }
 
@@ -119,33 +130,31 @@ export component VaultIndex inherits Rectangle {
     callback open-settings();
     callback lock();
 
+    background: Theme.panel;
+    property <bool> browsing: root.panel != Panel.generator && root.panel != Panel.settings;
+
     VerticalLayout {
-        padding: 22px;
-        padding-right: 14px;
+        padding: 18px;
+        padding-top: 22px;
         spacing: 2px;
         Text {
+            x: 10px;
             text: @tr("Vault");
             font-size: Theme.title;
             font-weight: 600;
             color: Theme.ink;
         }
         Rectangle { height: 18px; }
-        IndexTab { text: @tr("All items"); count: root.counts[0]; active: root.category == 0 && root.panel != Panel.generator && root.panel != Panel.settings; clicked => { root.select-category(0); } }
-        IndexTab { text: @tr("Favorites"); count: root.counts[1]; active: root.category == 1 && root.panel != Panel.generator && root.panel != Panel.settings; clicked => { root.select-category(1); } }
-        IndexTab { text: @tr("Logins"); count: root.counts[2]; active: root.category == 2 && root.panel != Panel.generator && root.panel != Panel.settings; clicked => { root.select-category(2); } }
-        IndexTab { text: @tr("Cards"); count: root.counts[3]; active: root.category == 3 && root.panel != Panel.generator && root.panel != Panel.settings; clicked => { root.select-category(3); } }
-        IndexTab { text: @tr("Secure notes"); count: root.counts[4]; active: root.category == 4 && root.panel != Panel.generator && root.panel != Panel.settings; clicked => { root.select-category(4); } }
+        IndexTab { text: @tr("All items"); count: root.counts[0]; active: root.category == 0 && root.browsing; clicked => { root.select-category(0); } }
+        IndexTab { text: @tr("Favorites"); count: root.counts[1]; active: root.category == 1 && root.browsing; clicked => { root.select-category(1); } }
+        IndexTab { text: @tr("Logins"); count: root.counts[2]; active: root.category == 2 && root.browsing; clicked => { root.select-category(2); } }
+        IndexTab { text: @tr("Cards"); count: root.counts[3]; active: root.category == 3 && root.browsing; clicked => { root.select-category(3); } }
+        IndexTab { text: @tr("Secure notes"); count: root.counts[4]; active: root.category == 4 && root.browsing; clicked => { root.select-category(4); } }
         Rectangle { vertical-stretch: 1; }
         IndexTab { text: @tr("Password generator"); active: root.panel == Panel.generator; clicked => { root.open-generator(); } }
         IndexTab { text: @tr("Settings"); active: root.panel == Panel.settings; clicked => { root.open-settings(); } }
-        Rectangle { height: 10px; }
-        HorizontalLayout {
-            alignment: start;
-            TextButton {
-                text: @tr("Lock now");
-                clicked => { root.lock(); }
-            }
-        }
+        Rectangle { height: 8px; }
+        IndexTab { text: @tr("Lock now"); clicked => { root.lock(); } }
     }
 }
 
@@ -158,35 +167,34 @@ export component ItemList inherits Rectangle {
     callback select(int);
     callback new-item();
 
+    background: Theme.panel;
+
     VerticalLayout {
-        padding-top: 22px;
-        padding-bottom: 12px;
-        spacing: 10px;
+        padding-top: 20px;
+        padding-bottom: 10px;
+        spacing: 12px;
         HorizontalLayout {
-            padding-left: 22px;
-            padding-right: 18px;
-            spacing: 14px;
+            padding-left: 20px;
+            padding-right: 20px;
+            spacing: 10px;
             LineField {
                 horizontal-stretch: 1;
                 placeholder: @tr("Search");
                 text <=> root.search-text;
                 edited(text) => { root.search(text); }
             }
-            VerticalLayout {
-                alignment: end;
-                InkButton {
-                    text: @tr("New item");
-                    variant: 1;
-                    clicked => { root.new-item(); }
-                }
+            Button {
+                text: @tr("New item");
+                clicked => { root.new-item(); }
             }
         }
         if root.items.length == 0: VerticalLayout {
-            padding: 22px;
+            padding-left: 22px;
+            padding-right: 22px;
             alignment: start;
             Text {
                 text: root.total == 0
-                    ? @tr("Nothing here yet. Add your first login with “New item”, or bring everything over with `vault import` in the terminal.")
+                    ? @tr("Nothing here yet. Add your first login with New item. Coming from another password manager? Run the vault import command in a terminal.")
                     : @tr("Nothing matches “{}”.", root.search-text);
                 font-size: Theme.body;
                 color: Theme.graphite;
@@ -197,7 +205,6 @@ export component ItemList inherits Rectangle {
             vertical-stretch: 1;
             for item[index] in root.items: ListRow {
                 item: item;
-                index: index;
                 selected: index == root.selected;
                 clicked => { root.select(index); }
             }

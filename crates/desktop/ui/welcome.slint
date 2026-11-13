@@ -2,7 +2,7 @@
 
 import { Theme, Sketch } from "theme.slint";
 import { Messages } from "model.slint";
-import { InkButton, TextButton, SecretLine, CheckLine, MarkerSwash } from "widgets.slint";
+import { Button, QuietButton, SecretField, Check, MarkStroke, Hint } from "widgets.slint";
 import { KitSlip } from "kit.slint";
 
 component StepMark inherits HorizontalLayout {
@@ -10,43 +10,52 @@ component StepMark inherits HorizontalLayout {
     in property <string> text;
     in property <bool> active;
     in property <bool> done;
-    spacing: 10px;
+    spacing: 12px;
+    alignment: start;
     Rectangle {
-        width: 24px;
-        height: 24px;
+        width: 22px;
+        height: 30px;
         if root.done: Path {
-            width: 100%;
-            height: 100%;
+            width: 16px;
+            height: 16px;
             viewbox-width: 24;
             viewbox-height: 24;
             commands: Sketch.check;
-            stroke: Theme.ink;
+            stroke: Theme.accent-stroke;
             stroke-width: 2px;
             fill: transparent;
         }
         if !root.done: Text {
             text: root.number;
-            font-size: Theme.lead;
-            font-weight: root.active ? 700 : 400;
-            color: root.active ? Theme.ink : Theme.graphite;
+            font-size: Theme.body;
+            font-weight: 600;
+            color: root.active ? Theme.ink : Theme.faint;
         }
     }
     Rectangle {
-        min-width: label.preferred-width;
-        height: 28px;
-        MarkerSwash {
-            y: parent.height * 0.35;
-            height: parent.height * 0.5;
-            reveal: root.active ? 1 : 0;
-            animate reveal { duration: Theme.sweep; easing: ease-out; }
-        }
+        width: label.preferred-width;
+        height: 30px;
         label := Text {
             x: 0;
             text: root.text;
             font-size: Theme.body;
-            color: root.active || root.done ? Theme.ink : Theme.graphite;
+            color: root.active || root.done ? Theme.ink : Theme.faint;
+        }
+        MarkStroke {
+            x: -2px;
+            y: parent.height - 6px;
+            width: label.preferred-width + 4px;
+            reveal: root.active ? 1 : 0;
+            animate reveal { duration: Theme.sweep; easing: ease-out; }
         }
     }
+}
+
+component Heading inherits Text {
+    font-size: Theme.headline;
+    font-weight: 300;
+    color: Theme.ink;
+    wrap: word-wrap;
 }
 
 component Prose inherits Text {
@@ -63,6 +72,7 @@ component ErrorLine inherits Text {
     color: Theme.seal;
     wrap: word-wrap;
     visible: root.code != 0;
+    height: root.code != 0 ? self.preferred-height : 0px;
 }
 
 export component OnboardingScreen inherits Rectangle {
@@ -82,15 +92,16 @@ export component OnboardingScreen inherits Rectangle {
     callback use-suggestion();
     callback finish();
 
-    background: Theme.paper;
+    background: Theme.canvas;
 
     HorizontalLayout {
         padding: 56px;
-        spacing: 64px;
+        padding-left: 64px;
+        spacing: 72px;
 
         VerticalLayout {
-            width: 190px;
-            spacing: 14px;
+            width: 180px;
+            spacing: 6px;
             alignment: start;
             Text {
                 text: root.recovered ? @tr("Recovered") : @tr("New vault");
@@ -98,7 +109,7 @@ export component OnboardingScreen inherits Rectangle {
                 font-weight: 600;
                 color: Theme.ink;
             }
-            Rectangle { height: 8px; }
+            Rectangle { height: 22px; }
             StepMark {
                 number: 1;
                 text: @tr("Master password");
@@ -113,73 +124,67 @@ export component OnboardingScreen inherits Rectangle {
         }
 
         if root.step == 1: VerticalLayout {
-            max-width: 520px;
+            max-width: 500px;
             spacing: 18px;
             alignment: start;
 
-            Text {
-                text: @tr("Choose a master password");
-                font-size: Theme.headline;
-                font-weight: 300;
-                color: Theme.ink;
-                wrap: word-wrap;
-            }
+            Heading { text: @tr("Choose a master password"); }
             Prose {
-                text: @tr("It's the only password you'll need to remember. Together with a Secret Key that this app creates for you, it locks everything else. Nobody can reset it, not even us.");
+                text: @tr("It's the only password you'll need to remember. Together with a Secret Key that this app creates, it locks everything else. Nobody can reset it for you.");
             }
-            master := SecretLine {
+            master := SecretField {
                 field: 0;
                 label: @tr("Master password");
+                hint: @tr("Use at least 12 characters. It never leaves this computer and is never stored: the app only keeps what it needs to check it. Forget it and only your emergency kit can get you back in.");
                 error: root.error-code == 4 || root.error-code == 5;
                 accepted => { confirm.focus(); }
             }
-            confirm := SecretLine {
+            confirm := SecretField {
                 field: 1;
                 label: @tr("Type it again");
                 error: root.error-code == 4;
                 accepted => { root.create(); }
             }
-            Prose {
-                text: @tr("At least 12 characters. Six random words are easier to remember and stronger than a short, complicated password.");
-                font-size: Theme.small;
-            }
             HorizontalLayout {
+                spacing: 10px;
                 alignment: start;
-                TextButton {
+                QuietButton {
                     text: root.suggestion == "" ? @tr("Suggest a passphrase") : @tr("Suggest another");
                     clicked => { root.suggest(); }
                 }
-            }
-            if root.suggestion != "": VerticalLayout {
-                spacing: 8px;
-                Rectangle {
-                    height: 40px;
-                    MarkerSwash {
-                        x: 0;
-                        y: 8px;
-                        width: Math.min(parent.width, phrase.preferred-width + 16px);
-                        height: 26px;
-                        variant: 2;
+                VerticalLayout {
+                    alignment: center;
+                    Hint {
+                        text: @tr("Six random words from the EFF word list: about 77 bits of entropy, far beyond guessing, and easier to remember than a jumble of symbols.");
                     }
-                    phrase := Text {
-                        x: 8px;
+                }
+            }
+            if root.suggestion != "": Rectangle {
+                height: suggestion-layout.preferred-height;
+                border-radius: Theme.radius;
+                background: Theme.panel;
+                suggestion-layout := VerticalLayout {
+                    padding: 14px;
+                    spacing: 8px;
+                    Text {
                         text: root.suggestion;
                         font-family: Theme.mono-font;
                         font-size: Theme.lead;
                         color: Theme.ink;
+                        wrap: word-wrap;
                     }
-                }
-                HorizontalLayout {
-                    alignment: start;
-                    spacing: 16px;
-                    TextButton {
-                        text: @tr("Use this passphrase");
-                        clicked => { root.use-suggestion(); }
-                    }
-                    Prose {
-                        text: @tr("Learn it by heart before you continue.");
-                        font-size: Theme.small;
-                        vertical-alignment: center;
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 12px;
+                        QuietButton {
+                            text: @tr("Use this passphrase");
+                            clicked => { root.use-suggestion(); }
+                        }
+                        Prose {
+                            text: @tr("Learn it by heart before you continue.");
+                            font-size: Theme.small;
+                            vertical-alignment: center;
+                        }
                     }
                 }
             }
@@ -189,7 +194,7 @@ export component OnboardingScreen inherits Rectangle {
             }
             HorizontalLayout {
                 alignment: start;
-                InkButton {
+                Button {
                     text: @tr("Create vault");
                     busy-text: @tr("Creating your vault…");
                     busy: root.busy;
@@ -203,16 +208,11 @@ export component OnboardingScreen inherits Rectangle {
             spacing: 18px;
             alignment: start;
 
-            Text {
-                text: @tr("Save your emergency kit");
-                font-size: Theme.headline;
-                font-weight: 300;
-                color: Theme.ink;
-            }
+            Heading { text: @tr("Save your emergency kit"); }
             Prose {
                 text: root.recovered
                     ? @tr("Your Secret Key changed. Replace the old one in your emergency kit, or write a new kit. Your Recovery Key still works.")
-                    : @tr("If you lose this computer or forget your master password, these keys are the only way back in. Write them down or print this page, and keep the paper somewhere safe, away from your computer.");
+                    : @tr("If you lose this computer or forget your master password, these keys are the only way back in. Write them down or print them, and keep the paper somewhere safe.");
             }
             KitSlip {
                 vault-id: root.kit-vault-id;
@@ -220,13 +220,13 @@ export component OnboardingScreen inherits Rectangle {
                 recovery-key: root.kit-recovery-key;
                 vault-path: root.kit-path;
             }
-            CheckLine {
+            Check {
                 text: @tr("I wrote these down and keep them somewhere safe");
                 checked <=> root.kit-saved;
             }
             HorizontalLayout {
                 alignment: start;
-                InkButton {
+                Button {
                     text: @tr("Open my vault");
                     enabled: root.kit-saved;
                     clicked => { root.finish(); }
@@ -245,25 +245,25 @@ export component UnlockScreen inherits Rectangle {
     callback unlock();
     callback forgot();
 
-    background: Theme.paper;
+    background: Theme.canvas;
     forward-focus: password;
 
     HorizontalLayout {
-        padding-left: 88px;
-        padding-right: 88px;
+        padding-left: 120px;
+        padding-right: 64px;
         alignment: start;
         VerticalLayout {
-            width: 460px;
-            spacing: 18px;
+            width: 420px;
+            spacing: 16px;
             alignment: center;
 
             Path {
-                width: 56px;
-                height: 63px;
+                width: 44px;
+                height: 50px;
                 viewbox-width: 64;
                 viewbox-height: 72;
                 commands: Sketch.padlock;
-                stroke: Theme.ink;
+                stroke: Theme.accent-stroke;
                 stroke-width: 1.6px;
                 fill: transparent;
             }
@@ -276,21 +276,24 @@ export component UnlockScreen inherits Rectangle {
             Prose {
                 text: root.vault-path;
                 font-size: Theme.small;
+                color: Theme.faint;
             }
+            Rectangle { height: 4px; }
             if root.needs-secret-key: VerticalLayout {
                 spacing: 12px;
                 Prose {
                     text: @tr("This computer hasn't opened this vault before. Type the Secret Key from your emergency kit once; it will be remembered here.");
                 }
-                SecretLine {
+                SecretField {
                     field: 2;
                     label: @tr("Secret Key");
-                    placeholder: "S0-…";
+                    hint: @tr("Starts with S0- and has four groups of seven characters. Dashes, spaces and capitals don't matter; typos are caught.");
+                    placeholder: "S0-";
                     error: root.error-code == 2 || root.error-code == 3;
                     accepted => { password.focus(); }
                 }
             }
-            password := SecretLine {
+            password := SecretField {
                 field: 0;
                 label: @tr("Master password");
                 error: root.error-code == 1;
@@ -302,8 +305,8 @@ export component UnlockScreen inherits Rectangle {
             }
             HorizontalLayout {
                 alignment: start;
-                spacing: 22px;
-                InkButton {
+                spacing: 12px;
+                Button {
                     text: @tr("Unlock");
                     busy-text: @tr("Unlocking…");
                     busy: root.busy;
@@ -311,8 +314,9 @@ export component UnlockScreen inherits Rectangle {
                 }
                 VerticalLayout {
                     alignment: center;
-                    TextButton {
+                    QuietButton {
                         text: @tr("Forgot it? Use your emergency kit");
+                        tint: Theme.graphite;
                         clicked => { root.forgot(); }
                     }
                 }
@@ -328,38 +332,34 @@ export component RecoverScreen inherits Rectangle {
     callback recover();
     callback back();
 
-    background: Theme.paper;
+    background: Theme.canvas;
 
     HorizontalLayout {
-        padding-left: 88px;
-        padding-right: 88px;
+        padding-left: 120px;
+        padding-right: 64px;
         alignment: start;
         VerticalLayout {
-            width: 480px;
-            spacing: 18px;
+            width: 460px;
+            spacing: 16px;
             alignment: center;
 
-            Text {
-                text: @tr("Recover access");
-                font-size: Theme.headline;
-                font-weight: 300;
-                color: Theme.ink;
-            }
+            Heading { text: @tr("Recover access"); }
             Prose {
                 text: @tr("Type the Recovery Key from your emergency kit, then choose a new master password. You'll also get a new Secret Key.");
             }
-            SecretLine {
+            SecretField {
                 field: 3;
                 label: @tr("Recovery Key");
-                placeholder: "R0-…";
+                hint: @tr("The longer key on your emergency kit. It starts with R0- and has nine groups of six characters.");
+                placeholder: "R0-";
                 error: root.error-code == 8;
             }
-            SecretLine {
+            SecretField {
                 field: 0;
                 label: @tr("New master password");
                 error: root.error-code == 4 || root.error-code == 5;
             }
-            SecretLine {
+            SecretField {
                 field: 1;
                 label: @tr("Type it again");
                 error: root.error-code == 4;
@@ -371,8 +371,8 @@ export component RecoverScreen inherits Rectangle {
             }
             HorizontalLayout {
                 alignment: start;
-                spacing: 22px;
-                InkButton {
+                spacing: 12px;
+                Button {
                     text: @tr("Recover vault");
                     busy-text: @tr("Recovering…");
                     busy: root.busy;
@@ -380,8 +380,9 @@ export component RecoverScreen inherits Rectangle {
                 }
                 VerticalLayout {
                     alignment: center;
-                    TextButton {
-                        text: @tr("Back to unlock");
+                    QuietButton {
+                        text: @tr("Back");
+                        tint: Theme.graphite;
                         clicked => { root.back(); }
                     }
                 }

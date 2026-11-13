@@ -1,58 +1,65 @@
 # Design
 
 > The visual system of the desktop app (`crates/desktop/ui`). Tokens live in `theme.slint`.
+> Review every screen without opening the app:
+> `cargo run -p vault-desktop --example screenshots` renders them off-screen to
+> `target/screenshots/` (PNG + `index.html`).
 
-## Direction: a locksmith's notebook
+## Direction
 
-The product is a personal vault for someone who has had passwords stolen before. The most
-characteristic object in that world is the **emergency kit on paper**, and the gesture of marking
-what matters by hand. So the interface reads like a technical notebook: cool carbon-copy paper,
-navy ink, and a yellow highlighter used for exactly one thing at a time — what you selected or
-what you should do next. Hand-drawn strokes appear only where a person would actually draw.
+A calm, dark workspace for one person's secrets. Plain, well-spaced surfaces; one warm accent —
+a highlighter yellow — that marks the single thing that matters on screen. A few small
+hand-drawn details (the stroke under what you selected, the padlock, the check mark, the star)
+keep it from feeling like a template, without turning the interface into a sketchbook.
 
-## Tokens
+The emergency kit is the exception: it is drawn as a light slip of paper in both themes,
+because it is the one screen meant to be copied onto paper.
 
-| Token | Value | Use |
-|---|---|---|
-| Paper | `#E9EDF1` | window background |
-| Sheet | `#F8FAFB` | raised surfaces: item page, kit slip |
-| Ink | `#1F2A3D` | text and strokes |
-| Graphite | `#677385` | secondary text, labels |
-| Rule | `#C3CCD6` | idle underlines and dividers |
-| Marker | `#F4D648` | highlighter: selection, primary actions |
-| Seal | `#B3261E` | danger and errors only |
+## Tokens (dark, the default)
 
-Type (all ship with Windows 10+; Linux falls back to the default sans):
+| Token | Dark | Light | Use |
+|---|---|---|---|
+| canvas | `#121821` | `#EEF1F4` | window |
+| panel | `#161D27` | `#E6EAEF` | index and list columns |
+| sheet | `#1A222D` | `#FAFBFC` | page on the right |
+| field | `#0F141B` | `#FFFFFF` | input wells |
+| ink | `#E3E8EF` | `#1F2A3D` | text |
+| graphite | `#8E9AAC` | `#5F6B7D` | labels, secondary text |
+| rule | `#283240` | `#D3DAE2` | hairlines, field edges |
+| marker | `#E7C54B` | `#F2CF45` | primary button, selection, focus edge |
+| accent-stroke | `#E7C54B` | `#B88A00` | thin hand-drawn strokes (contrast on light) |
+| seal | `#F06A60` | `#B3261E` | danger and errors only |
 
-- **Bahnschrift** (DIN): the whole interface. Light (300) for page titles, 600 for emphasis.
-- **Cascadia Mono**: only secrets shown as data (revealed passwords, keys, one-time codes) —
-  never for labels.
-- **Ink Free**: only the handwritten notes on the emergency kit, the one screen meant for paper.
+Type (all ship with Windows 10+): **Bahnschrift** for the interface (Light 300 for page titles),
+**Cascadia Mono** only for secrets shown as data, **Ink Free** only for the note on the kit.
+Scale 12 / 14 / 16 / 21 / 28 / 44 px. Radius 6 px. Controls 38 px tall.
 
-Scale: 12 / 14 / 17 / 22 / 30 / 46 px.
+## Components
+
+- **Button** — the one primary action per screen: filled marker yellow. `danger` variant in red
+  for confirmed destructive actions.
+- **QuietButton** — everything else: text that gains a soft background on hover; `outlined` adds
+  a hairline when it must read as a button (Edit, Delete, Show notes).
+- **Fields** — a recessed well with a hairline edge; the bottom edge lights up yellow on focus and
+  red on error. Labels in sentence case above the well.
+- **SecretField** — same look; keystrokes go to Rust, the UI only draws dots.
+- **Hint "(?)"** — a small circle next to terms that need explaining (Secret Key, Recovery Key,
+  one-time code secret, locking, entropy). Click to open, click anywhere to close.
+- **Choice** — a few words; the chosen one gets the hand-drawn marker stroke.
+- **Notice** — confirmations ("Copied", "Saved") bottom-right, never over content.
 
 ## Rules
 
-1. **One marker at a time.** The highlighter sweeps under the selected item, the active index
-   tab, the active choice, or behind the primary button — never as decoration.
-2. **Left-aligned pages.** No centered login card. Fields are written on lines, like a notebook.
-3. **Labels in sentence case.** No all-caps eyebrows, no numbered markers unless the content is a
-   real sequence (onboarding has two real steps, so it is numbered).
-4. **Motion only answers an action**: the marker sweep (220 ms) when something is chosen, opacity
-   on hover. Nothing moves on its own.
-5. **Red means danger.** Errors and destructive actions only.
-6. **Words** say what happens: "Create vault", "Open my vault", "Copy". Errors say what went
-   wrong and what to do; they don't apologize.
-
-## Hand-drawn strokes
-
-`src/sketch.rs` generates rough.js-style paths (each line drawn twice as a slightly bowed Bézier)
-with fixed seeds, so the drawing is identical on every launch. Shapes: box outlines, marker
-swashes, underlines, the padlock, check mark and star. Slint stretches each view box to the
-element, so one path serves many sizes.
+1. **One yellow thing at a time**: the primary button, the selection, or the focused field.
+2. **Hand-drawn only for small details** — never for boxes, fields or buttons.
+3. **Left-aligned pages**, sentence-case labels, no all-caps, no decorative numbering (onboarding
+   has two real steps, so it is numbered).
+4. **Motion answers an action**: the marker stroke drawing in (200 ms), hover backgrounds.
+5. **Red means danger** (errors, delete).
+6. **Words say what happens** ("Create vault", "Open my vault", "Copy"); errors say what went
+   wrong and how to fix it.
 
 ## Not yet
 
-- Dark theme ("carbon" variant of the same tokens).
-- Screen-reader pass on the custom secure field and the hand-drawn controls.
-- Visual review: this first version was built and tested headlessly, without screenshots.
+- Screen-reader pass on the custom secure field and hints.
+- Real-window check of the femtovg renderer (screens are reviewed with the software renderer).

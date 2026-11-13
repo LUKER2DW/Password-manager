@@ -3,7 +3,7 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
 import { DetailField, Messages } from "model.slint";
-import { InkButton, TextButton, LineField, NotesField, SecretLine, CheckLine, Stepper, Choice, RoughBox, Underline, MarkerSwash } from "widgets.slint";
+import { Button, QuietButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint } from "widgets.slint";
 import { KitSlip } from "kit.slint";
 
 component PageTitle inherits Text {
@@ -13,10 +13,22 @@ component PageTitle inherits Text {
     wrap: word-wrap;
 }
 
-component SectionTitle inherits Text {
-    font-size: Theme.lead;
-    font-weight: 600;
-    color: Theme.ink;
+component SectionTitle inherits HorizontalLayout {
+    in property <string> text;
+    in property <string> hint;
+    spacing: 8px;
+    alignment: start;
+    Text {
+        text: root.text;
+        font-size: Theme.lead;
+        font-weight: 600;
+        color: Theme.ink;
+        vertical-alignment: center;
+    }
+    if root.hint != "": VerticalLayout {
+        alignment: center;
+        Hint { text: root.hint; }
+    }
 }
 
 component Prose inherits Text {
@@ -25,37 +37,57 @@ component Prose inherits Text {
     wrap: word-wrap;
 }
 
+component ErrorText inherits Text {
+    in property <int> code;
+    in property <string> detail;
+    text: Messages.error(root.code, root.detail);
+    visible: root.code != 0;
+    // Takes no space when there is nothing to say.
+    height: root.code != 0 ? self.preferred-height : 0px;
+    font-size: Theme.body;
+    color: Theme.seal;
+    wrap: word-wrap;
+}
+
 // One labelled value on the item page, with its actions on the right.
 component FieldRow inherits VerticalLayout {
     in property <string> label;
+    in property <string> hint;
     in property <string> value;
     in property <bool> mono: false;
     in property <bool> large: false;
-    spacing: 6px;
+    spacing: 0px;
     HorizontalLayout {
-        spacing: 16px;
-        Text {
+        padding-top: 10px;
+        padding-bottom: 10px;
+        spacing: 12px;
+        HorizontalLayout {
             width: 150px;
-            text: root.label;
-            font-size: Theme.body;
-            color: Theme.graphite;
-            vertical-alignment: center;
+            spacing: 6px;
+            alignment: start;
+            Text {
+                text: root.label;
+                font-size: Theme.body;
+                color: Theme.graphite;
+                vertical-alignment: center;
+            }
+            if root.hint != "": VerticalLayout {
+                alignment: center;
+                Hint { text: root.hint; }
+            }
         }
         Text {
             horizontal-stretch: 1;
             text: root.value;
             font-family: root.mono ? Theme.mono-font : Theme.ui-font;
-            font-size: root.large ? Theme.title : Theme.lead;
+            font-size: root.large ? Theme.title : Theme.body;
             color: Theme.ink;
             vertical-alignment: center;
             overflow: elide;
         }
         @children
     }
-    Underline {
-        stroke: Theme.rule;
-        variant: 1;
-    }
+    Rule { }
 }
 
 export component DetailPage inherits Rectangle {
@@ -89,19 +121,19 @@ export component DetailPage inherits Rectangle {
         alignment: start;
         Prose {
             text: @tr("Pick an item on the left, or add a new one.");
-            font-size: Theme.lead;
         }
     }
 
     if root.has-item: ScrollView {
         VerticalLayout {
             padding: 44px;
-            padding-right: 52px;
-            spacing: 20px;
+            padding-right: 48px;
+            spacing: 0px;
             alignment: start;
 
             HorizontalLayout {
-                spacing: 18px;
+                padding-bottom: 22px;
+                spacing: 12px;
                 VerticalLayout {
                     horizontal-stretch: 1;
                     spacing: 4px;
@@ -112,69 +144,78 @@ export component DetailPage inherits Rectangle {
                         color: Theme.graphite;
                     }
                 }
-                if root.favorite: VerticalLayout {
+                VerticalLayout {
                     alignment: start;
-                    Path {
-                        width: 22px;
-                        height: 22px;
-                        viewbox-width: 24;
-                        viewbox-height: 24;
-                        commands: Sketch.star;
-                        stroke: Theme.ink;
-                        stroke-width: 1.4px;
-                        fill: Theme.marker;
-                        accessible-role: image;
-                        accessible-label: @tr("Favorite");
+                    Rectangle {
+                        width: 36px;
+                        height: 36px;
+                        border-radius: Theme.radius;
+                        background: star-touch.has-hover ? Theme.hover : transparent;
+                        accessible-role: button;
+                        accessible-label: root.favorite ? @tr("Remove from favorites") : @tr("Add to favorites");
+                        Path {
+                            width: 20px;
+                            height: 20px;
+                            viewbox-width: 24;
+                            viewbox-height: 24;
+                            commands: Sketch.star;
+                            stroke: root.favorite ? Theme.accent-stroke : Theme.graphite;
+                            stroke-width: 1.5px;
+                            fill: transparent;
+                        }
+                        star-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.toggle-favorite(); }
+                        }
                     }
                 }
             }
+            Rule { }
 
             if root.username != "": FieldRow {
-                label: @tr("Username");
+                label: root.kind == 1 ? @tr("Name on card") : @tr("Username");
                 value: root.username;
-                TextButton {
+                QuietButton {
                     text: @tr("Copy");
                     clicked => { root.copy-username(); }
                 }
             }
 
-            if root.has-password: VerticalLayout {
-                spacing: 4px;
-                FieldRow {
-                    label: @tr("Password");
-                    value: root.revealed-password != "" ? root.revealed-password : "••••••••••••";
-                    mono: root.revealed-password != "";
-                    TextButton {
-                        text: root.revealed-password != "" ? @tr("Hide") : @tr("Show");
-                        clicked => {
-                            if (root.revealed-password != "") { root.conceal(); } else { root.reveal(); }
-                        }
-                    }
-                    TextButton {
-                        text: @tr("Copy");
-                        clicked => { root.copy-password(); }
+            if root.has-password: FieldRow {
+                label: root.kind == 1 ? @tr("PIN or code") : @tr("Password");
+                value: root.revealed-password != "" ? root.revealed-password : "••••••••••••";
+                mono: root.revealed-password != "";
+                if root.revealed-password != "": Text {
+                    text: @tr("hides in {} s", root.reveal-left);
+                    font-size: Theme.small;
+                    color: Theme.faint;
+                    vertical-alignment: center;
+                }
+                QuietButton {
+                    text: root.revealed-password != "" ? @tr("Hide") : @tr("Show");
+                    clicked => {
+                        if (root.revealed-password != "") { root.conceal(); } else { root.reveal(); }
                     }
                 }
-                if root.revealed-password != "": Text {
-                    x: 166px;
-                    text: @tr("Hides again in {} s", root.reveal-left);
-                    font-size: Theme.small;
-                    color: Theme.graphite;
+                QuietButton {
+                    text: @tr("Copy");
+                    clicked => { root.copy-password(); }
                 }
             }
 
             if root.totp-code != "": FieldRow {
                 label: @tr("One-time code");
+                hint: @tr("The code for two-step sign-in, made from the secret saved in this item. It changes every 30 seconds.");
                 value: root.totp-code;
                 mono: true;
                 large: true;
                 Text {
                     text: @tr("{} s", root.totp-left);
                     font-size: Theme.small;
-                    color: root.totp-left <= 5 ? Theme.seal : Theme.graphite;
+                    color: root.totp-left <= 5 ? Theme.seal : Theme.faint;
                     vertical-alignment: center;
                 }
-                TextButton {
+                QuietButton {
                     text: @tr("Copy");
                     clicked => { root.copy-totp(); }
                 }
@@ -188,13 +229,14 @@ export component DetailPage inherits Rectangle {
             for field[index] in root.fields: FieldRow {
                 label: field.label;
                 value: field.sensitive ? "••••••••" : field.value;
-                TextButton {
+                QuietButton {
                     text: @tr("Copy");
                     clicked => { root.copy-field(index); }
                 }
             }
 
             if root.notes != "": VerticalLayout {
+                padding-top: 14px;
                 spacing: 8px;
                 Text {
                     text: @tr("Notes");
@@ -209,36 +251,29 @@ export component DetailPage inherits Rectangle {
                 }
                 if !root.notes-shown: HorizontalLayout {
                     alignment: start;
-                    TextButton {
+                    QuietButton {
+                        outlined: true;
                         text: @tr("Show notes");
                         clicked => { root.notes-shown = true; }
                     }
                 }
             }
 
-            Rectangle { height: 12px; }
+            Rectangle { height: 26px; }
 
             if !root.confirming-delete: HorizontalLayout {
                 alignment: start;
-                spacing: 22px;
-                InkButton {
+                spacing: 6px;
+                QuietButton {
+                    outlined: true;
                     text: @tr("Edit");
                     clicked => { root.edit(); }
                 }
-                VerticalLayout {
-                    alignment: center;
-                    TextButton {
-                        text: root.favorite ? @tr("Remove from favorites") : @tr("Add to favorites");
-                        clicked => { root.toggle-favorite(); }
-                    }
-                }
-                VerticalLayout {
-                    alignment: center;
-                    TextButton {
-                        text: @tr("Delete");
-                        tint: Theme.seal;
-                        clicked => { root.confirming-delete = true; }
-                    }
+                QuietButton {
+                    outlined: true;
+                    text: @tr("Delete");
+                    tint: Theme.seal;
+                    clicked => { root.confirming-delete = true; }
                 }
             }
             if root.confirming-delete: VerticalLayout {
@@ -246,19 +281,20 @@ export component DetailPage inherits Rectangle {
                 Text {
                     text: @tr("Delete “{}”? This can't be undone.", root.title);
                     font-size: Theme.body;
-                    color: Theme.seal;
+                    color: Theme.ink;
                     wrap: word-wrap;
                 }
                 HorizontalLayout {
                     alignment: start;
-                    spacing: 22px;
-                    InkButton {
+                    spacing: 8px;
+                    Button {
                         text: @tr("Delete");
+                        danger: true;
                         clicked => { root.delete(); }
                     }
                     VerticalLayout {
                         alignment: center;
-                        TextButton {
+                        QuietButton {
                             text: @tr("Keep it");
                             clicked => { root.confirming-delete = false; }
                         }
@@ -288,86 +324,100 @@ export component EditorPage inherits Rectangle {
 
     ScrollView {
         VerticalLayout {
-            padding: 44px;
-            padding-right: 52px;
-            spacing: 18px;
+            padding: 40px;
+            padding-right: 48px;
+            spacing: 16px;
             alignment: start;
 
-            PageTitle { text: root.is-new ? @tr("New item") : @tr("Edit item"); }
-            Choice {
-                options: [@tr("Login"), @tr("Card"), @tr("Secure note")];
-                selected <=> root.kind;
+            HorizontalLayout {
+                spacing: 16px;
+                PageTitle {
+                    text: root.is-new ? @tr("New item") : @tr("Edit item");
+                    horizontal-stretch: 1;
+                }
+                Choice {
+                    options: [@tr("Login"), @tr("Card"), @tr("Secure note")];
+                    selected <=> root.kind;
+                }
             }
             LineField {
                 label: @tr("Title");
                 text <=> root.title;
-            }
-            if root.kind != 2: LineField {
-                label: root.kind == 1 ? @tr("Name on card") : @tr("Username or email");
-                text <=> root.username;
+                error: root.error-code == 9;
             }
             if root.kind != 2: HorizontalLayout {
-                spacing: 18px;
-                SecretLine {
+                spacing: 16px;
+                LineField {
+                    label: root.kind == 1 ? @tr("Name on card") : @tr("Username or email");
+                    text <=> root.username;
+                }
+                if root.kind == 0: LineField {
+                    label: @tr("Website");
+                    placeholder: "https://";
+                    text <=> root.url;
+                }
+            }
+            if root.kind != 2: HorizontalLayout {
+                spacing: 16px;
+                HorizontalLayout {
                     horizontal-stretch: 1;
-                    field: 4;
-                    label: root.kind == 1 ? @tr("PIN or security code") : @tr("Password");
-                    revealed: root.password-shown;
-                }
-                VerticalLayout {
-                    alignment: end;
-                    TextButton {
-                        text: root.password-shown != "" ? @tr("Hide") : @tr("Show");
-                        clicked => { root.toggle-show-password(); }
+                    spacing: 4px;
+                    SecretField {
+                        horizontal-stretch: 1;
+                        field: 4;
+                        label: root.kind == 1 ? @tr("PIN or security code") : @tr("Password");
+                        revealed: root.password-shown;
+                    }
+                    VerticalLayout {
+                        alignment: end;
+                        QuietButton {
+                            text: root.password-shown != "" ? @tr("Hide") : @tr("Show");
+                            clicked => { root.toggle-show-password(); }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: end;
+                        QuietButton {
+                            text: @tr("Generate");
+                            clicked => { root.generate-password(); }
+                        }
                     }
                 }
-                VerticalLayout {
-                    alignment: end;
-                    TextButton {
-                        text: @tr("Generate");
-                        clicked => { root.generate-password(); }
-                    }
+                if root.kind == 0: LineField {
+                    horizontal-stretch: 1;
+                    label: @tr("One-time code secret");
+                    hint: @tr("Optional. When a site offers two-step sign-in with an authenticator app, paste its otpauth:// link or the text key it shows. This item will then show the current code.");
+                    placeholder: @tr("otpauth:// link or key");
+                    mono: true;
+                    error: root.error-code == 10;
+                    text <=> root.totp;
                 }
-            }
-            if root.kind == 0: LineField {
-                label: @tr("Website");
-                placeholder: "https://";
-                text <=> root.url;
-            }
-            if root.kind == 0: LineField {
-                label: @tr("One-time code secret (optional)");
-                placeholder: @tr("otpauth:// link or the key from the website");
-                mono: true;
-                text <=> root.totp;
             }
             NotesField {
                 label: @tr("Notes");
                 text <=> root.notes;
             }
-            CheckLine {
-                text: @tr("Favorite");
-                checked <=> root.favorite;
-            }
-            Text {
-                text: Messages.error(root.error-code, root.error-detail);
-                visible: root.error-code != 0;
-                font-size: Theme.body;
-                color: Theme.seal;
-                wrap: word-wrap;
+            ErrorText {
+                code: root.error-code;
+                detail: root.error-detail;
             }
             HorizontalLayout {
-                alignment: start;
-                spacing: 22px;
-                InkButton {
-                    text: @tr("Save");
-                    clicked => { root.save(); }
+                spacing: 8px;
+                Check {
+                    text: @tr("Favorite");
+                    checked <=> root.favorite;
+                    horizontal-stretch: 1;
                 }
                 VerticalLayout {
                     alignment: center;
-                    TextButton {
+                    QuietButton {
                         text: @tr("Cancel");
                         clicked => { root.cancel(); }
                     }
+                }
+                Button {
+                    text: @tr("Save");
+                    clicked => { root.save(); }
                 }
             }
         }
@@ -394,25 +444,33 @@ export component GeneratorPage inherits Rectangle {
 
     ScrollView {
         VerticalLayout {
-            padding: 44px;
-            padding-right: 52px;
-            spacing: 18px;
+            padding: 40px;
+            padding-right: 48px;
+            spacing: 16px;
             alignment: start;
 
-            PageTitle { text: @tr("Password generator"); }
-            Choice {
-                options: [@tr("Random characters"), @tr("Words")];
-                selected <=> root.mode;
-                changed => { root.regenerate(); }
+            HorizontalLayout {
+                spacing: 16px;
+                PageTitle {
+                    text: @tr("Password generator");
+                    horizontal-stretch: 1;
+                }
+                Choice {
+                    options: [@tr("Characters"), @tr("Words")];
+                    selected <=> root.mode;
+                    changed => { root.regenerate(); }
+                }
             }
 
             Rectangle {
-                min-height: output.preferred-height + 40px;
-                background: Theme.sheet;
-                RoughBox { variant: 1; }
+                min-height: output.preferred-height + 36px;
+                border-radius: Theme.radius;
+                background: Theme.field;
+                border-width: 1px;
+                border-color: Theme.rule;
                 output := Text {
-                    x: 20px;
-                    width: parent.width - 40px;
+                    x: 18px;
+                    width: parent.width - 36px;
                     text: root.result;
                     font-family: Theme.mono-font;
                     font-size: Theme.title;
@@ -420,14 +478,49 @@ export component GeneratorPage inherits Rectangle {
                     wrap: word-wrap;
                 }
             }
-            Prose {
-                text: root.bits >= 100 ? @tr("About {} bits: far beyond what anyone can guess.", root.bits)
-                    : root.bits >= 70 ? @tr("About {} bits: strong.", root.bits)
-                    : @tr("About {} bits: make it longer if the site allows.", root.bits);
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Prose {
+                    text: root.bits >= 100 ? @tr("About {} bits: far beyond guessing.", root.bits)
+                        : root.bits >= 70 ? @tr("About {} bits: strong.", root.bits)
+                        : @tr("About {} bits: make it longer if the site allows.", root.bits);
+                    vertical-alignment: center;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Hint {
+                        text: @tr("Bits measure how hard a password is to guess: each extra bit doubles the work. 70 bits already takes an attacker's computer longer than a lifetime; 100+ is out of reach.");
+                    }
+                }
+            }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 8px;
+                Button {
+                    text: @tr("Copy");
+                    clicked => { root.copy(); }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    QuietButton {
+                        text: @tr("Generate another");
+                        clicked => { root.regenerate(); }
+                    }
+                }
+                if root.editing: VerticalLayout {
+                    alignment: center;
+                    QuietButton {
+                        text: @tr("Use for this item");
+                        clicked => { root.use-for-item(); }
+                    }
+                }
             }
 
+            Rule { }
+
             if root.mode == 0: VerticalLayout {
-                spacing: 8px;
+                spacing: 10px;
                 Stepper {
                     label: @tr("Length");
                     value <=> root.length;
@@ -435,34 +528,14 @@ export component GeneratorPage inherits Rectangle {
                     maximum: 64;
                     changed => { root.regenerate(); }
                 }
-                CheckLine {
-                    text: @tr("Lowercase letters");
-                    checked <=> root.lowercase;
-                    toggled => { root.regenerate(); }
-                }
-                CheckLine {
-                    text: @tr("Capital letters");
-                    checked <=> root.uppercase;
-                    toggled => { root.regenerate(); }
-                }
-                CheckLine {
-                    text: @tr("Digits");
-                    checked <=> root.digits;
-                    toggled => { root.regenerate(); }
-                }
-                CheckLine {
-                    text: @tr("Symbols");
-                    checked <=> root.symbols;
-                    toggled => { root.regenerate(); }
-                }
-                CheckLine {
-                    text: @tr("Leave out look-alikes (I, l, 1, O, 0, o)");
-                    checked <=> root.avoid-ambiguous;
-                    toggled => { root.regenerate(); }
-                }
+                Check { text: @tr("Lowercase letters"); checked <=> root.lowercase; toggled => { root.regenerate(); } }
+                Check { text: @tr("Capital letters"); checked <=> root.uppercase; toggled => { root.regenerate(); } }
+                Check { text: @tr("Digits"); checked <=> root.digits; toggled => { root.regenerate(); } }
+                Check { text: @tr("Symbols"); checked <=> root.symbols; toggled => { root.regenerate(); } }
+                Check { text: @tr("Leave out look-alikes (I l 1 O 0 o)"); checked <=> root.avoid-ambiguous; toggled => { root.regenerate(); } }
             }
             if root.mode == 1: VerticalLayout {
-                spacing: 8px;
+                spacing: 10px;
                 Stepper {
                     label: @tr("Words");
                     value <=> root.words;
@@ -470,39 +543,8 @@ export component GeneratorPage inherits Rectangle {
                     maximum: 12;
                     changed => { root.regenerate(); }
                 }
-                CheckLine {
-                    text: @tr("Capitalize each word");
-                    checked <=> root.capitalize;
-                    toggled => { root.regenerate(); }
-                }
-                CheckLine {
-                    text: @tr("Add a digit");
-                    checked <=> root.number;
-                    toggled => { root.regenerate(); }
-                }
-            }
-
-            HorizontalLayout {
-                alignment: start;
-                spacing: 22px;
-                InkButton {
-                    text: @tr("Copy");
-                    clicked => { root.copy(); }
-                }
-                VerticalLayout {
-                    alignment: center;
-                    TextButton {
-                        text: @tr("Generate another");
-                        clicked => { root.regenerate(); }
-                    }
-                }
-                if root.editing: VerticalLayout {
-                    alignment: center;
-                    TextButton {
-                        text: @tr("Use for this item");
-                        clicked => { root.use-for-item(); }
-                    }
-                }
+                Check { text: @tr("Capitalize each word"); checked <=> root.capitalize; toggled => { root.regenerate(); } }
+                Check { text: @tr("Add a digit"); checked <=> root.number; toggled => { root.regenerate(); } }
             }
         }
     }
@@ -512,6 +554,7 @@ export component SettingsPage inherits Rectangle {
     in property <int> error-code;
     in property <string> error-detail;
     in property <bool> busy;
+    in property <bool> dark;
     in property <string> vault-path;
     in property <string> vault-id;
     in property <string> kit-secret-key;
@@ -519,6 +562,7 @@ export component SettingsPage inherits Rectangle {
     in-out property <int> auto-lock-minutes;
     in-out property <int> clipboard-seconds;
     callback settings-changed();
+    callback appearance-changed(bool);
     callback change-password();
     callback show-kit();
     callback hide-kit();
@@ -526,14 +570,25 @@ export component SettingsPage inherits Rectangle {
 
     ScrollView {
         VerticalLayout {
-            padding: 44px;
-            padding-right: 52px;
-            spacing: 18px;
+            padding: 40px;
+            padding-right: 48px;
+            spacing: 14px;
             alignment: start;
 
             PageTitle { text: @tr("Settings"); }
 
-            SectionTitle { text: @tr("Locking"); }
+            SectionTitle { text: @tr("Appearance"); }
+            Choice {
+                options: [@tr("Dark"), @tr("Light")];
+                selected: root.dark ? 0 : 1;
+                changed(index) => { root.appearance-changed(index == 0); }
+            }
+
+            Rule { }
+            SectionTitle {
+                text: @tr("Locking");
+                hint: @tr("The vault locks itself after this long without use, and anything you copy is wiped from the clipboard after the second delay. Copied passwords never go to the Windows clipboard history.");
+            }
             Stepper {
                 label: @tr("Lock after");
                 unit: @tr("min");
@@ -551,37 +606,37 @@ export component SettingsPage inherits Rectangle {
                 changed => { root.settings-changed(); }
             }
 
-            Rectangle { height: 8px; }
-            SectionTitle { text: @tr("Master password and emergency kit"); }
-            Prose {
-                text: @tr("Confirm your current master password to change it, to see your Secret Key, or to replace your Recovery Key.");
+            Rule { }
+            SectionTitle {
+                text: @tr("Master password and emergency kit");
+                hint: @tr("These changes re-check your current master password against the vault file, so someone using an unlocked computer can't make them.");
             }
-            SecretLine {
+            SecretField {
                 field: 5;
                 label: @tr("Current master password");
                 error: root.error-code == 11;
             }
-            SecretLine {
-                field: 6;
-                label: @tr("New master password");
-                error: root.error-code == 4 || root.error-code == 5;
+            HorizontalLayout {
+                spacing: 16px;
+                SecretField {
+                    field: 6;
+                    label: @tr("New master password");
+                    error: root.error-code == 4 || root.error-code == 5;
+                }
+                SecretField {
+                    field: 7;
+                    label: @tr("Type it again");
+                    error: root.error-code == 4;
+                }
             }
-            SecretLine {
-                field: 7;
-                label: @tr("Type the new one again");
-                error: root.error-code == 4;
-            }
-            Text {
-                text: Messages.error(root.error-code, root.error-detail);
-                visible: root.error-code != 0;
-                font-size: Theme.body;
-                color: Theme.seal;
-                wrap: word-wrap;
+            ErrorText {
+                code: root.error-code;
+                detail: root.error-detail;
             }
             HorizontalLayout {
                 alignment: start;
-                spacing: 22px;
-                InkButton {
+                spacing: 8px;
+                Button {
                     text: @tr("Change master password");
                     busy-text: @tr("Working…");
                     busy: root.busy;
@@ -589,7 +644,7 @@ export component SettingsPage inherits Rectangle {
                 }
                 VerticalLayout {
                     alignment: center;
-                    TextButton {
+                    QuietButton {
                         text: root.kit-secret-key == "" ? @tr("Show Secret Key") : @tr("Hide kit");
                         clicked => {
                             if (root.kit-secret-key == "") { root.show-kit(); } else { root.hide-kit(); }
@@ -598,7 +653,7 @@ export component SettingsPage inherits Rectangle {
                 }
                 VerticalLayout {
                     alignment: center;
-                    TextButton {
+                    QuietButton {
                         text: @tr("Issue a new Recovery Key");
                         clicked => { root.new-recovery-key(); }
                     }
@@ -611,7 +666,7 @@ export component SettingsPage inherits Rectangle {
                 vault-path: root.vault-path;
             }
 
-            Rectangle { height: 8px; }
+            Rule { }
             SectionTitle { text: @tr("This vault"); }
             Prose { text: @tr("File: {}", root.vault-path); }
             Prose { text: @tr("Vault ID: {}", root.vault-id); }

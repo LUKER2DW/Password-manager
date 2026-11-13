@@ -25,11 +25,14 @@ struct VaultState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
     /// Lock after this many minutes without interaction.
     pub auto_lock_minutes: u32,
     /// Seconds before a copied secret is cleared from the clipboard.
     pub clipboard_clear_seconds: u32,
+    /// Desktop app appearance; dark is the default.
+    pub dark_theme: bool,
 }
 
 impl Default for Settings {
@@ -37,6 +40,7 @@ impl Default for Settings {
         Self {
             auto_lock_minutes: DEFAULT_AUTO_LOCK_MINUTES,
             clipboard_clear_seconds: 20,
+            dark_theme: true,
         }
     }
 }
@@ -121,6 +125,11 @@ mod tests {
         let json = r#"{"vaults": {"abc": {"highest_revision": 7}}}"#;
         let state: DeviceState = serde_json::from_str(json).unwrap();
         assert_eq!(state.settings, Settings::default());
+        // A settings block written before `dark_theme` existed still loads, with the default.
+        let partial = r#"{"settings": {"auto_lock_minutes": 9, "clipboard_clear_seconds": 30}}"#;
+        let older: DeviceState = serde_json::from_str(partial).unwrap();
+        assert_eq!(older.settings.auto_lock_minutes, 9);
+        assert!(older.settings.dark_theme);
         assert_eq!(
             state.check_rollback("abc", 6),
             RollbackStatus::Older {

@@ -21,7 +21,7 @@ use vault_platform::{DeviceState, RollbackStatus, SecretBuffer, clipboard, devic
 use zeroize::Zeroizing;
 
 use crate::{
-    ui::{AppWindow, DetailField, ItemRow, Panel, Screen, Secrets},
+    ui::{AppWindow, DetailField, ItemRow, Panel, Screen, Secrets, Theme},
     view,
 };
 
@@ -199,6 +199,8 @@ impl Controller {
         app.global::<Secrets>()
             .set_lengths(ModelRc::from(controller.lengths.clone()));
         app.set_items(ModelRc::from(controller.items.clone()));
+        app.global::<Theme>()
+            .set_dark(controller.state.borrow().settings.dark_theme);
         controller.wire(app);
         controller.show_start_screen();
         Ok(controller)
@@ -305,6 +307,7 @@ impl Controller {
         on!(on_use_generated, |c| c.use_generated());
 
         on!(on_settings_changed, |c| c.save_settings());
+        on!(on_appearance_changed, |c, dark| c.set_appearance(dark));
         on!(on_change_password, |c| c.change_password());
         on!(on_show_kit, |c| c.verify_then(KitAction::Show));
         on!(on_hide_kit, |c| {
@@ -1383,12 +1386,18 @@ impl Controller {
         self.set_error(error::NONE, "");
     }
 
+    fn set_appearance(&self, dark: bool) {
+        self.app().global::<Theme>().set_dark(dark);
+        self.save_settings();
+    }
+
     fn save_settings(&self) {
         let app = self.app();
         let settings = device::Settings {
             auto_lock_minutes: u32::try_from(app.get_auto_lock_minutes().clamp(1, 60)).unwrap_or(5),
             clipboard_clear_seconds: u32::try_from(app.get_clipboard_seconds().clamp(5, 120))
                 .unwrap_or(20),
+            dark_theme: app.global::<Theme>().get_dark(),
         };
         let mut device_state = DeviceState::load().unwrap_or_default();
         device_state.settings = settings.clone();

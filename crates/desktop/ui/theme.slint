@@ -1,18 +1,34 @@
-// Design tokens. Direction: a locksmith's notebook — cool carbon-copy paper, navy ink,
-// a yellow marker for the one thing that matters on screen, red only for danger.
+// Design tokens. Dark slate by default, light as an option (Settings → Appearance).
+// One warm accent — a highlighter yellow — marks the single thing that matters on screen.
+// Hand-drawn strokes are reserved for small details (see `Sketch`).
 
 export global Theme {
-    // Palette
-    out property <color> paper: #E9EDF1;      // window background
-    out property <color> sheet: #F8FAFB;      // raised surfaces (detail page, kit slip)
-    out property <color> ink: #1F2A3D;        // text and strokes
-    out property <color> graphite: #677385;   // secondary text
-    out property <color> rule: #C3CCD6;       // idle underlines and dividers
-    out property <color> marker: #F4D648;     // highlighter: selection and primary actions
-    out property <color> seal: #B3261E;       // danger, errors
+    in-out property <bool> dark: true;
+
+    // Surfaces, from back to front
+    out property <color> canvas: root.dark ? #121821 : #EEF1F4;     // window
+    out property <color> panel: root.dark ? #161D27 : #E6EAEF;      // index and list
+    out property <color> sheet: root.dark ? #1A222D : #FAFBFC;      // the page on the right
+    out property <color> field: root.dark ? #0F141B : #FFFFFF;      // inputs
+    out property <color> hover: root.dark ? #212A36 : #DFE4EA;      // hovered rows and quiet buttons
+    out property <color> selected: root.dark ? #243040 : #D9E0E8;   // selected row
+
+    // Ink
+    out property <color> ink: root.dark ? #E3E8EF : #1F2A3D;
+    out property <color> graphite: root.dark ? #8E9AAC : #5F6B7D;   // secondary text
+    out property <color> faint: root.dark ? #5E6A7B : #9AA5B3;      // placeholders
+    out property <color> rule: root.dark ? #283240 : #D3DAE2;       // hairlines and field edges
+
+    // Accent and signal
+    out property <color> marker: root.dark ? #E7C54B : #F2CF45;
+    out property <color> marker-hover: root.dark ? #F2D362 : #F6DA66;
+    out property <color> on-marker: #161A20;
+    // Thin strokes (stars, padlock, check outlines) need more contrast than a fill on light paper.
+    out property <color> accent-stroke: root.dark ? #E7C54B : #B88A00;
+    out property <color> seal: root.dark ? #F06A60 : #B3261E;       // danger and errors only
 
     // Type: Bahnschrift (DIN) for the interface, Cascadia Mono only for secrets shown as data,
-    // Ink Free only for handwritten notes on the emergency kit. All ship with Windows 10+.
+    // Ink Free only for the handwritten note on the emergency kit. All ship with Windows 10+.
     out property <string> ui-font: "Bahnschrift";
     out property <string> mono-font: "Cascadia Mono";
     out property <string> hand-font: "Ink Free";
@@ -20,29 +36,25 @@ export global Theme {
     // Scale (base 14 px, ratio ≈ 1.25)
     out property <length> small: 12px;
     out property <length> body: 14px;
-    out property <length> lead: 17px;
-    out property <length> title: 22px;
-    out property <length> headline: 30px;
-    out property <length> display: 46px;
+    out property <length> lead: 16px;
+    out property <length> title: 21px;
+    out property <length> headline: 28px;
+    out property <length> display: 44px;
 
-    out property <duration> quick: 140ms;
-    out property <duration> sweep: 220ms;
+    out property <length> radius: 6px;
+    out property <length> control-height: 38px;
+    out property <duration> quick: 120ms;
+    out property <duration> sweep: 200ms;
 }
 
-// Hand-drawn path data, generated in Rust (src/sketch.rs) and set once at startup.
+// Hand-drawn details, generated in Rust (src/sketch.rs) and set once at startup.
 export global Sketch {
-    in property <string> box-a;        // view box 200 × 48
-    in property <string> box-b;
-    in property <string> box-c;
-    in property <string> marker-a;     // view box 200 × 24
+    in property <string> marker-a;     // view box 200 × 24: short underline stroke
     in property <string> marker-b;
     in property <string> marker-c;
-    in property <string> underline-a;  // view box 200 × 8
-    in property <string> underline-b;
     in property <string> padlock;      // view box 64 × 72
     in property <string> check;        // view box 24 × 24
     in property <string> star;         // view box 24 × 24
-    in property <string> plus;         // view box 24 × 24
 }
 
 // Bridge for secure text entry: keystrokes go straight to Rust (locked, zeroized buffers);
