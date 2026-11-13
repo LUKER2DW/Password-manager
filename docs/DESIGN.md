@@ -70,7 +70,10 @@ Scale 12 / 14 / 16 / 21 / 28 / 44 px. Radius 6 px. Controls 38 px tall.
   missing files greyed out with Forget), then "Open a vault file…" and "Create a new vault…".
 - **Field icons** — a line icon in the field's own colour before each label (key, person,
   envelope, globe, card, calendar, shield, keypad, clock…), no tile behind it. The index uses the
-  same icons. A site's own icon is shown as it is, without a tile; without one, its initial on a
+  same icons. They come from Lucide (ISC licence, lucide.dev), converted to one path each.
+- **Problems in plain words** — the health page says what is wrong in a sentence under the
+  item ("Same password as 2 other logins", "Last changed 3 years ago"), red when it needs
+  changing; no badges. A site's own icon is shown as it is, without a tile; without one, its initial on a
   colour.
 - **Brand marks** — cards show their network's mark; the import page shows each source's icon.
   Source icons come from Simple Icons (CC0, simpleicons.org) in each brand's colour; Chrome, Edge,

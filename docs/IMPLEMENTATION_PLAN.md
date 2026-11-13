@@ -130,14 +130,17 @@ Rules:
   managers (Bitwarden, 1Password, LastPass, KeePass/KeePassXC, Dashlane, Proton Pass, NordPass,
   any CSV/JSON): how to export from each one, a button that opens an installed browser's
   passwords page, then a review of every entry (passwords hidden, duplicates unticked) and the
-  folder to put them in. One `import` function reads every format; browser stores are never
-  read directly
-- ✅ Field icons, the network's mark for cards (Visa, Mastercard, Amex, Elo, Hipercard…),
-  brand icons for import sources, icons in the index; tool pages use the full width
+  folder to put them in. One `import` function reads every format. On Windows a browser can
+  also be read directly, on request: Chromium browsers (DPAPI-protected key, AES-GCM; Chrome's
+  app-bound `v20` entries are reported and left to the CSV route) and Firefox (NSS `key4.db`,
+  optional primary password), databases opened from memory, never copied to disk
+- ✅ Field icons (Lucide), the network's mark for cards (Visa, Mastercard, Amex, Elo,
+  Hipercard…), brand icons for import sources, icons in the index; tool pages use the full width
 - ✅ Secure fields: Ctrl+A / double click selects all, typing replaces it, Ctrl+V and Shift+Insert
   paste the clipboard's first line, Ctrl+Backspace clears; copying out stays impossible
-- ✅ Emergency kit PDF: the Recovery Key (fixed shape) is written into boxes, one character each,
-  empty boxes when the app doesn't have it; lines to fill in and a checklist
+- ✅ Emergency kit PDF: the Recovery Key (fixed shape) is written into boxes on two lines, one
+  character each, empty when the app doesn't have it; a box for the master password; no file
+  location, the vault id only in small print
 - ⬜ Attachments, tags; passkeys
 - **Done when:** daily use on Windows is possible with a test vault.
 

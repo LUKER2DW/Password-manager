@@ -104,5 +104,6 @@ On top of that:
 9. **Network only when asked**: the app contacts nothing by default. Website icons and the leak
    check are opt-in, per action. The leak check is k-anonymous: only 5 hex characters of each
    password's SHA-1 are sent to Have I Been Pwned, with padded answers; matching happens on the
-   device. Imports never read browser password stores (the infostealer technique): the user
-   exports a file and the app offers to wipe it afterwards.
+   device. Reading a browser's own password store (the infostealer technique) happens only when
+   the user clicks for it, for the signed-in Windows user, in memory; otherwise the user exports
+   a file and the app offers to wipe it afterwards.
