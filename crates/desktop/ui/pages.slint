@@ -633,6 +633,8 @@ export component EditorPage inherits Rectangle {
     in-out property <string> title;
     in-out property <string> username;
     in-out property <string> url;
+    // A website whose icon stands for this item ("" = the item's own website).
+    in-out property <string> icon-url;
     in-out property <string> totp;
     in-out property <string> notes;
     in-out property <bool> favorite;
@@ -684,6 +686,7 @@ export component EditorPage inherits Rectangle {
                 LineField {
                     horizontal-stretch: 2;
                     label: @tr("Title");
+                    required: true;
                     icon: "tag";
                     placeholder: root.kind == 1 ? @tr("Visa ending 4242") : root.kind == 2 ? @tr("Home Wi-Fi") : @tr("GitHub");
                     text <=> root.title;
@@ -714,6 +717,13 @@ export component EditorPage inherits Rectangle {
                     placeholder: "https://";
                     text <=> root.url;
                 }
+            }
+            LineField {
+                label: @tr("Icon from");
+                icon: "globe";
+                hint: @tr("Type a website, for example nubank.com.br, to show its icon for this item. Leave it empty to use the item's own website. The icon is fetched once from that site and kept encrypted on this computer.");
+                placeholder: root.kind == 0 ? @tr("Same as the website") : @tr("e.g. nubank.com.br");
+                text <=> root.icon-url;
             }
             if root.kind == 1: HorizontalLayout {
                 spacing: 16px;
@@ -1413,6 +1423,7 @@ export component SettingsPage inherits Rectangle {
                 SecretField {
                     field: 5;
                     label: @tr("Current master password");
+                    required: true;
                     error: root.error-code == 11;
                 }
                 HorizontalLayout {
@@ -1420,11 +1431,13 @@ export component SettingsPage inherits Rectangle {
                     SecretField {
                         field: 6;
                         label: @tr("New master password");
+                        required: true;
                         error: root.error-code == 4 || root.error-code == 5;
                     }
                     SecretField {
                         field: 7;
                         label: @tr("Type it again");
+                        required: true;
                         error: root.error-code == 4;
                     }
                 }

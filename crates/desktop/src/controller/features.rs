@@ -628,13 +628,14 @@ impl Controller {
                         s.kind,
                         s.url.clone(),
                         view::brand_mark(s.card_brand),
+                        s.icon_url.clone(),
                     )
                 })
             };
-            let Some((title, subtitle, kind, url, brand)) = summary else {
+            let Some((title, subtitle, kind, url, brand, icon_url)) = summary else {
                 continue;
             };
-            let visual = self.icon_for(kind, &url, &title);
+            let visual = self.icon_for(kind, &url, &icon_url, &title);
             ids.push(id);
             rows.push(HealthRow {
                 title: SharedString::from(title),
@@ -998,6 +999,35 @@ impl Controller {
                 }
             }
             _ => FolderTarget::FromFile,
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Folders: name, icon, colour
+    // -----------------------------------------------------------------------------------------
+
+    pub(super) fn save_folder(&self, name: &str, icon: &str, color: i32) {
+        let Some(id) = self.browsed_folder() else {
+            return;
+        };
+        let color = u8::try_from(color.clamp(0, 15)).unwrap_or(0);
+        let result = self.state.borrow_mut().session.as_mut().map(|s| {
+            s.vault
+                .rename_folder(&id, name)
+                .and_then(|()| s.vault.style_folder(&id, icon, color))
+        });
+        match result {
+            Some(Ok(())) => {
+                if self.save_vault() {
+                    self.refresh_list();
+                    self.notify(notice::SAVED, "");
+                }
+            }
+            Some(Err(err)) => {
+                let (code, detail) = self.core_error(&err);
+                self.set_error(code, &detail);
+            }
+            None => {}
         }
     }
 

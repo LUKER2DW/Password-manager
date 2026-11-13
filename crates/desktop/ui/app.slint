@@ -112,6 +112,10 @@ export component AppWindow inherits Window {
     callback auth-open(int);
     // The folder being browsed (category >= 100), or "".
     in property <string> folder-name;
+    in property <string> folder-icon;
+    in property <int> folder-color;
+    in-out property <bool> editing-folder;
+    callback save-folder(string, string, int);
     callback create-folder(string);
     callback rename-folder(string);
     callback delete-folder();
@@ -186,6 +190,7 @@ export component AppWindow inherits Window {
     in-out property <string> ed-title;
     in-out property <string> ed-username;
     in-out property <string> ed-url;
+    in-out property <string> ed-icon-url;
     in-out property <string> ed-totp;
     in-out property <string> ed-notes;
     in-out property <bool> ed-favorite;
@@ -364,6 +369,10 @@ export component AppWindow inherits Window {
             vault-name: root.vault-name;
             panel: root.panel;
             open-health => { root.open-health(); }
+            edit-folder(i) => {
+                root.select-category(100 + i);
+                root.editing-folder = true;
+            }
             select-category(c) => { root.select-category(c); }
             create-folder(name) => { root.create-folder(name); }
             open-generator => { root.open-generator(); }
@@ -383,6 +392,10 @@ export component AppWindow inherits Window {
             selected: root.selected;
             total: root.total-items;
             folder-name: root.folder-name;
+            folder-icon: root.folder-icon;
+            folder-color: root.folder-color;
+            editing-folder <=> root.editing-folder;
+            save-folder(name, icon, color) => { root.save-folder(name, icon, color); }
             rename-folder(name) => { root.rename-folder(name); }
             delete-folder => { root.delete-folder(); }
             search-text <=> root.search-text;
@@ -458,6 +471,7 @@ export component AppWindow inherits Window {
                 title <=> root.ed-title;
                 username <=> root.ed-username;
                 url <=> root.ed-url;
+                icon-url <=> root.ed-icon-url;
                 totp <=> root.ed-totp;
                 notes <=> root.ed-notes;
                 favorite <=> root.ed-favorite;

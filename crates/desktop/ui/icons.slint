@@ -28,6 +28,7 @@ export global Glyphs {
     out property <string> download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10 L12 15 L17 10 M12 15 L12 3";
     out property <string> browser: "M4 4 H20 A2 2 0 0 1 22 6 V18 A2 2 0 0 1 20 20 H4 A2 2 0 0 1 2 18 V6 A2 2 0 0 1 4 4 Z M10 4v4 M2 8h20 M6 4v4";
     out property <string> vault: "M5 3 H19 A2 2 0 0 1 21 5 V19 A2 2 0 0 1 19 21 H5 A2 2 0 0 1 3 19 V5 A2 2 0 0 1 5 3 Z M7 7.5 A0.5 0.5 0 1 0 8 7.5 A0.5 0.5 0 1 0 7 7.5 Z M7.9 7.9 l2.7 2.7 M16 7.5 A0.5 0.5 0 1 0 17 7.5 A0.5 0.5 0 1 0 16 7.5 Z M13.4 10.6 l2.7-2.7 M7 16.5 A0.5 0.5 0 1 0 8 16.5 A0.5 0.5 0 1 0 7 16.5 Z M7.9 16.1 l2.7-2.7 M16 16.5 A0.5 0.5 0 1 0 17 16.5 A0.5 0.5 0 1 0 16 16.5 Z M13.4 13.4 l2.7 2.7 M10 12 A2 2 0 1 0 14 12 A2 2 0 1 0 10 12 Z";
+    out property <string> pencil: "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z M15 5 l4 4";
     out property <string> sliders: "M21 4 L14 4 M10 4 L3 4 M21 12 L12 12 M8 12 L3 12 M21 20 L16 20 M12 20 L3 20 M14 2 L14 6 M8 10 L8 14 M16 18 L16 22";
     out property <string> star: "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z";
     out property <string> gear: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z M9 12 A3 3 0 1 0 15 12 A3 3 0 1 0 9 12 Z";
@@ -66,6 +67,18 @@ export global FieldColors {
     }
 }
 
+// Choices for a folder's look: its icon and colour (index 0 = the default colour of the icon).
+export global FolderLook {
+    out property <[string]> icons: ["folder", "star", "heart", "globe", "mail", "key", "card", "lock", "gear", "user", "tag", "note", "clock", "shield", "vault", "sparkle"];
+    out property <[color]> colors: [
+        Theme.graphite, #4C8DF6, #8B6CF0, #2BB07F, #F08A3C, #E0569A, #23A6C9, #E05252, #D9B23A,
+    ];
+    public pure function tint(icon: string, color: int) -> color {
+        if (color <= 0 || color >= self.colors.length) { return FieldColors.of(icon == "" ? "folder" : icon); }
+        return self.colors[color];
+    }
+}
+
 export component Glyph inherits Path {
     in property <string> name;
     in property <color> tint: FieldColors.of(root.name);
@@ -100,6 +113,7 @@ export component Glyph inherits Path {
         : root.name == "browser" ? Glyphs.browser
         : root.name == "vault" ? Glyphs.vault
         : root.name == "sliders" ? Glyphs.sliders
+        : root.name == "pencil" ? Glyphs.pencil
         : root.name == "star" ? Glyphs.star
         : root.name == "gear" ? Glyphs.gear
         : root.name == "lock" ? Glyphs.lock

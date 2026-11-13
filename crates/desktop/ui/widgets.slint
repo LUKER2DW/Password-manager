@@ -215,6 +215,8 @@ component FieldLabel inherits HorizontalLayout {
     in property <string> hint;
     // A field icon name from icons.slint ("key", "user"…), or "" for none.
     in property <string> icon;
+    // Must be filled in: a red asterisk after the label.
+    in property <bool> required;
     spacing: 6px;
     alignment: start;
     if root.icon != "": VerticalLayout {
@@ -231,6 +233,14 @@ component FieldLabel inherits HorizontalLayout {
         color: Theme.graphite;
         vertical-alignment: center;
     }
+    if root.required: Text {
+        text: "*";
+        font-size: Theme.body;
+        font-weight: 700;
+        color: Theme.seal;
+        vertical-alignment: center;
+        accessible-label: @tr("required");
+    }
     if root.hint != "": VerticalLayout {
         alignment: center;
         Hint { text: root.hint; }
@@ -240,6 +250,7 @@ component FieldLabel inherits HorizontalLayout {
 export component LineField inherits VerticalLayout {
     in property <string> label;
     in property <string> icon;
+    in property <bool> required;
     in property <string> hint;
     in property <string> placeholder;
     in-out property <string> text;
@@ -251,7 +262,7 @@ export component LineField inherits VerticalLayout {
     forward-focus: input;
     spacing: 6px;
 
-    if root.label != "": FieldLabel { text: root.label; hint: root.hint; icon: root.icon; }
+    if root.label != "": FieldLabel { text: root.label; hint: root.hint; icon: root.icon; required: root.required; }
     Well {
         height: Theme.control-height;
         focused: input.has-focus;
@@ -398,13 +409,14 @@ export component Dropdown inherits VerticalLayout {
 export component NotesField inherits VerticalLayout {
     in property <string> label;
     in property <string> icon;
+    in property <bool> required;
     in property <string> hint;
     in property <string> placeholder;
     in property <length> field-height: 84px;
     in property <bool> mono: false;
     in-out property <string> text;
     spacing: 6px;
-    FieldLabel { text: root.label; hint: root.hint; icon: root.icon; }
+    FieldLabel { text: root.label; hint: root.hint; icon: root.icon; required: root.required; }
     Well {
         height: root.field-height;
         focused: input.has-focus;
@@ -442,6 +454,7 @@ export component SecretField inherits VerticalLayout {
     in property <int> field;
     in property <string> label;
     in property <string> icon;
+    in property <bool> required;
     in property <string> hint;
     in property <string> placeholder;
     in property <bool> error: false;
@@ -455,7 +468,7 @@ export component SecretField inherits VerticalLayout {
     forward-focus: scope;
     spacing: 6px;
 
-    if root.label != "": FieldLabel { text: root.label; hint: root.hint; icon: root.icon; }
+    if root.label != "": FieldLabel { text: root.label; hint: root.hint; icon: root.icon; required: root.required; }
     Well {
         height: Theme.control-height;
         focused: scope.has-focus;

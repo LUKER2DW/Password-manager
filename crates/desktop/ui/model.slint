@@ -66,6 +66,8 @@ export struct SourceRow {
 export struct FolderRow {
     name: string,
     count: int,
+    icon: string,     // icons.slint name; "" = the plain folder
+    color: int,       // FolderLook colour index; 0 = default
 }
 
 // An extra field in the editor.

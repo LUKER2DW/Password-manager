@@ -523,6 +523,8 @@ impl Controller {
         on!(on_pick_source, |c, index| c.pick_source(index));
         on!(on_open_browser, |c| c.open_browser());
         on!(on_import_direct, |c| c.import_direct());
+        on!(on_save_folder, |c, name, icon, color| c
+            .save_folder(&name, &icon, color));
         on!(on_import_toggle, |c, index, on| c.import_toggle(index, on));
         on!(on_import_select_all, |c, on| c.import_select_all(on));
         on!(on_open_authenticator, |c| c.open_authenticator());
@@ -1409,7 +1411,7 @@ impl Controller {
         let summaries = std::mem::take(&mut self.state.borrow_mut().summaries);
 
         // Folders: the index shows each with its count; category 100 + n browses folder n.
-        let folders: Vec<(FolderId, String)> = self
+        let folders: Vec<(FolderId, String, String, u8)> = self
             .state
             .borrow()
             .session
@@ -1418,7 +1420,7 @@ impl Controller {
                 s.vault
                     .folders()
                     .iter()
-                    .map(|f| (f.id, f.name.clone()))
+                    .map(|f| (f.id, f.name.clone(), f.icon.clone(), f.color))
                     .collect()
             })
             .unwrap_or_default();
@@ -1429,7 +1431,11 @@ impl Controller {
                 .ok()
                 .and_then(|i| folders.get(i))
             {
-                Some((id, name)) => browsing = Some((*id, name.clone())),
+                Some((id, name, icon, color)) => {
+                    browsing = Some((*id, name.clone()));
+                    app.set_folder_icon(SharedString::from(icon.as_str()));
+                    app.set_folder_color(i32::from(*color));
+                }
                 None => {
                     category = 0;
                     app.set_category(0);
@@ -1438,7 +1444,9 @@ impl Controller {
         }
         let folder_rows: Vec<FolderRow> = folders
             .iter()
-            .map(|(id, name)| FolderRow {
+            .map(|(id, name, icon, color)| FolderRow {
+                icon: SharedString::from(icon.as_str()),
+                color: i32::from(*color),
                 name: SharedString::from(name.as_str()),
                 count: i32::try_from(summaries.iter().filter(|s| s.folder == Some(*id)).count())
                     .unwrap_or(0),
@@ -1458,7 +1466,7 @@ impl Controller {
             .iter()
             .map(|&i| {
                 let s = &summaries[i];
-                let visual = self.icon_for(s.kind, &s.url, &s.title);
+                let visual = self.icon_for(s.kind, &s.url, &s.icon_url, &s.title);
                 ItemRow {
                     title: SharedString::from(s.title.as_str()),
                     subtitle: SharedString::from(view::subtitle(s)),
@@ -2015,7 +2023,7 @@ impl Controller {
                 continue;
             };
             let url = item.urls.first().map(String::as_str).unwrap_or_default();
-            let visual = self.icon_for(item.kind, url, &item.title);
+            let visual = self.icon_for(item.kind, url, &item.icon_url, &item.title);
             let host = url.split_once("://").map_or(url, |(_, rest)| rest);
             let subtitle = if item.username.is_empty() {
                 host.split('/').next().unwrap_or_default().to_owned()
@@ -2282,6 +2290,7 @@ impl Controller {
         app.set_ed_url(SharedString::from(
             item.urls.first().map(String::as_str).unwrap_or_default(),
         ));
+        app.set_ed_icon_url(SharedString::from(item.icon_url.as_str()));
         app.set_ed_totp(SharedString::from(item.totp.as_str()));
         app.set_ed_notes(SharedString::from(item.notes.as_str()));
         app.set_ed_favorite(item.favorite);
@@ -2409,6 +2418,7 @@ impl Controller {
             (false, false) => item.urls[0] = url,
         }
         item.totp = totp;
+        item.icon_url = view::icon_site(&app.get_ed_icon_url());
         item.notes = app.get_ed_notes().to_string();
         item.favorite = app.get_ed_favorite();
         item.folder = usize::try_from(app.get_ed_folder() - 1).ok().and_then(|i| {
@@ -2940,7 +2950,12 @@ impl Controller {
     // Website icons (opt-in; see favicon.rs for the privacy model)
     // -----------------------------------------------------------------------------------------
 
-    fn icon_for(&self, kind: ItemKind, url: &str, title: &str) -> IconVisual {
+    /// What to draw for an item: its site's icon when there is one to show, else its initial on
+    /// a colour. `icon_url` (chosen in the editor) wins over `url` and is shown even when
+    /// website icons are off, since the user asked for that icon.
+    fn icon_for(&self, kind: ItemKind, url: &str, icon_url: &str, title: &str) -> IconVisual {
+        let chosen = !icon_url.trim().is_empty();
+        let url = if chosen { icon_url } else { url };
         let host = favicon::host_of(url);
         let key = host.as_deref().map(favicon::cache_key);
         let (r, g, b) = view::tint(kind, key.as_deref().unwrap_or(title));
@@ -2951,7 +2966,7 @@ impl Controller {
             tint: slint::Color::from_rgb_u8(r, g, b),
         };
         let mut state = self.state.borrow_mut();
-        if kind != ItemKind::Login || !state.settings.website_icons {
+        if !chosen && (kind != ItemKind::Login || !state.settings.website_icons) {
             return visual;
         }
         let Some(key) = key else { return visual };
@@ -2973,7 +2988,7 @@ impl Controller {
 
     fn apply_detail_icon(&self, item: &ItemData) {
         let url = item.urls.first().map(String::as_str).unwrap_or_default();
-        let visual = self.icon_for(item.kind, url, &item.title);
+        let visual = self.icon_for(item.kind, url, &item.icon_url, &item.title);
         let app = self.app();
         app.set_detail_icon(visual.image);
         app.set_detail_has_icon(visual.has_image);
@@ -3040,15 +3055,24 @@ impl Controller {
     fn start_icon_fetch(&self) {
         let (hosts, runner) = {
             let state = self.state.borrow();
-            if !state.settings.website_icons || state.fetching_icons || state.session.is_none() {
+            if state.fetching_icons || state.session.is_none() {
                 return;
             }
+            let all_sites = state.settings.website_icons;
             let mut seen = std::collections::BTreeSet::new();
+            // Every login's site when website icons are on; the icons chosen per item always.
             let hosts: Vec<(String, String)> = state
                 .summaries
                 .iter()
-                .filter(|s| s.kind == ItemKind::Login)
-                .filter_map(|s| favicon::host_of(&s.url))
+                .filter_map(|s| {
+                    if !s.icon_url.trim().is_empty() {
+                        favicon::host_of(&s.icon_url)
+                    } else if all_sites && s.kind == ItemKind::Login {
+                        favicon::host_of(&s.url)
+                    } else {
+                        None
+                    }
+                })
                 .filter_map(|host| {
                     let key = favicon::cache_key(&host);
                     (state.icons.needs_fetch(&key) && seen.insert(key.clone()))

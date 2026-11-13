@@ -4,13 +4,17 @@ import { ListView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
 import { ItemRow, FolderRow, Panel, Messages } from "model.slint";
 import { Button, QuietButton, LineField, MarkStroke, ItemIcon } from "widgets.slint";
-import { BrandMark, Glyph } from "icons.slint";
+import { BrandMark, Glyph, FolderLook, FieldColors } from "icons.slint";
 
 component IndexTab inherits Rectangle {
     in property <string> text;
     // icons.slint name; "" for none.
     in property <string> icon;
+    in property <color> icon-tint: FieldColors.of(root.icon);
     in property <int> count: -1;
+    // Folders: a pencil on hover opens their settings.
+    in property <bool> editable;
+    callback edit();
     in property <bool> active;
     callback clicked;
 
@@ -30,6 +34,7 @@ component IndexTab inherits Rectangle {
                 width: 16px;
                 height: 16px;
                 name: root.icon;
+                tint: root.icon-tint;
                 opacity: root.active ? 1 : 0.8;
             }
         }
@@ -51,7 +56,7 @@ component IndexTab inherits Rectangle {
                 animate reveal { duration: Theme.sweep; easing: ease-out; }
             }
         }
-        if root.count >= 0: Text {
+        if root.count >= 0 && !(root.editable && touch.has-hover): Text {
             text: root.count;
             font-size: Theme.small;
             color: Theme.faint;
@@ -61,6 +66,21 @@ component IndexTab inherits Rectangle {
     touch := TouchArea {
         mouse-cursor: MouseCursor.pointer;
         clicked => { root.clicked(); }
+    }
+    if root.editable && touch.has-hover: Rectangle {
+        x: parent.width - self.width - 4px;
+        y: (parent.height - self.height) / 2;
+        width: 26px;
+        height: 26px;
+        border-radius: Theme.radius;
+        background: pencil-touch.has-hover ? Theme.selected : transparent;
+        accessible-role: button;
+        accessible-label: @tr("Edit folder");
+        Glyph { width: 14px; height: 14px; name: "pencil"; tint: Theme.graphite; }
+        pencil-touch := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.edit(); }
+        }
     }
 }
 
@@ -89,14 +109,14 @@ component ListRow inherits Rectangle {
             VerticalLayout {
                 alignment: center;
                 width: 34px;
-                if root.item.kind != 1 || root.item.brand == 0: ItemIcon {
+                if root.item.has-icon || root.item.kind != 1 || root.item.brand == 0: ItemIcon {
                     icon: root.item.icon;
                     has-icon: root.item.has-icon;
                     initial: root.item.initial;
                     tint: root.item.tint;
                     kind: root.item.kind;
                 }
-                if root.item.kind == 1 && root.item.brand != 0: BrandMark {
+                if !root.item.has-icon && root.item.kind == 1 && root.item.brand != 0: BrandMark {
                     brand: root.item.brand;
                     size: 34px;
                 }
@@ -149,6 +169,7 @@ export component VaultIndex inherits Rectangle {
     in property <string> vault-name;
     in property <Panel> panel;
     callback open-health();
+    callback edit-folder(int);
     callback select-category(int);
     callback create-folder(string);
     callback open-generator();
@@ -228,7 +249,10 @@ export component VaultIndex inherits Rectangle {
                 }
                 for folder[index] in root.folders: IndexTab {
                     text: folder.name;
-                    icon: "folder";
+                    icon: folder.icon != "" ? folder.icon : "folder";
+                    icon-tint: FolderLook.tint(folder.icon, folder.color);
+                    editable: true;
+                    edit => { root.edit-folder(index); }
                     count: folder.count;
                     active: root.category == 100 + index && root.browsing;
                     clicked => { root.select-category(100 + index); }
@@ -296,6 +320,11 @@ export component ItemList inherits Rectangle {
     in property <int> total;
     // Name of the folder being browsed, or "" when browsing a category.
     in property <string> folder-name;
+    in property <string> folder-icon;
+    in property <int> folder-color;
+    // The folder's settings are open (also from the pencil in the index).
+    in-out property <bool> editing-folder;
+    callback save-folder(string, string, int);
     in-out property <string> search-text;
     callback search(string);
     callback select(int);
@@ -303,12 +332,19 @@ export component ItemList inherits Rectangle {
     callback rename-folder(string);
     callback delete-folder();
 
-    property <bool> renaming;
     property <string> rename-text;
+    property <string> pick-icon;
+    property <int> pick-color;
     property <bool> confirming-delete;
     changed folder-name => {
-        root.renaming = false;
         root.confirming-delete = false;
+        root.load-folder();
+    }
+    changed editing-folder => { root.load-folder(); }
+    function load-folder() {
+        root.rename-text = root.folder-name;
+        root.pick-icon = root.folder-icon;
+        root.pick-color = root.folder-color;
     }
 
     background: Theme.panel;
@@ -334,11 +370,22 @@ export component ItemList inherits Rectangle {
         }
         // Folder header: its name, rename and delete.
         if root.folder-name != "": VerticalLayout {
+            vertical-stretch: 0;
+            alignment: start;
             padding-left: 22px;
             padding-right: 20px;
             spacing: 8px;
-            if !root.renaming && !root.confirming-delete: HorizontalLayout {
-                spacing: 4px;
+            if !root.editing-folder && !root.confirming-delete: HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    alignment: center;
+                    Glyph {
+                        width: 18px;
+                        height: 18px;
+                        name: root.folder-icon != "" ? root.folder-icon : "folder";
+                        tint: FolderLook.tint(root.folder-icon, root.folder-color);
+                    }
+                }
                 Text {
                     text: root.folder-name;
                     font-size: Theme.lead;
@@ -349,12 +396,9 @@ export component ItemList inherits Rectangle {
                     horizontal-stretch: 1;
                 }
                 QuietButton {
-                    text: @tr("Rename");
+                    text: @tr("Edit");
                     tint: Theme.graphite;
-                    clicked => {
-                        root.rename-text = root.folder-name;
-                        root.renaming = true;
-                    }
+                    clicked => { root.editing-folder = true; }
                 }
                 QuietButton {
                     text: @tr("Delete");
@@ -362,22 +406,95 @@ export component ItemList inherits Rectangle {
                     clicked => { root.confirming-delete = true; }
                 }
             }
-            if root.renaming: HorizontalLayout {
-                spacing: 6px;
+            // Folder settings: name, icon, colour.
+            if root.editing-folder: VerticalLayout {
+                spacing: 8px;
+                alignment: start;
                 LineField {
-                    horizontal-stretch: 1;
+                    label: @tr("Name");
+                    required: true;
                     text <=> root.rename-text;
                     accepted => {
-                        root.rename-folder(root.rename-text);
-                        root.renaming = false;
+                        root.save-folder(root.rename-text, root.pick-icon, root.pick-color);
+                        root.editing-folder = false;
                     }
                     init => { self.focus(); }
                 }
-                QuietButton {
-                    text: @tr("Save");
-                    clicked => {
-                        root.rename-folder(root.rename-text);
-                        root.renaming = false;
+                Text {
+                    text: @tr("Icon");
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                }
+                for row in 2: HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    for k in 8: Rectangle {
+                        property <string> name: FolderLook.icons[row * 8 + k];
+                        property <bool> chosen: (root.pick-icon == "" ? "folder" : root.pick-icon) == self.name;
+                        width: 30px;
+                        height: 30px;
+                        border-radius: Theme.radius;
+                        background: self.chosen ? Theme.selected : icon-touch.has-hover ? Theme.hover : transparent;
+                        border-width: self.chosen ? 1px : 0px;
+                        border-color: Theme.marker;
+                        accessible-role: button;
+                        accessible-label: self.name;
+                        Glyph {
+                            width: 16px;
+                            height: 16px;
+                            name: parent.name;
+                            tint: FolderLook.tint(parent.name, root.pick-color);
+                        }
+                        icon-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.pick-icon = parent.name == "folder" ? "" : parent.name; }
+                        }
+                    }
+                }
+                Text {
+                    text: @tr("Colour");
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    for c[i] in FolderLook.colors: Rectangle {
+                        width: 22px;
+                        height: 22px;
+                        border-radius: 11px;
+                        border-width: i == root.pick-color ? 2px : 0px;
+                        border-color: Theme.ink;
+                        accessible-role: button;
+                        accessible-label: i == 0 ? @tr("Default colour") : @tr("Colour {}", i);
+                        Rectangle {
+                            width: 14px;
+                            height: 14px;
+                            border-radius: 7px;
+                            background: i == 0 ? FieldColors.of(root.pick-icon == "" ? "folder" : root.pick-icon) : c;
+                        }
+                        TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.pick-color = i; }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 6px;
+                    Button {
+                        text: @tr("Save");
+                        clicked => {
+                            root.save-folder(root.rename-text, root.pick-icon, root.pick-color);
+                            root.editing-folder = false;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        QuietButton {
+                            text: @tr("Cancel");
+                            clicked => { root.editing-folder = false; }
+                        }
                     }
                 }
             }

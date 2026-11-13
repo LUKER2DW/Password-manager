@@ -264,6 +264,15 @@ fn whole_app_flow_headless() {
     );
     app.invoke_rename_folder("Google accounts".into());
     assert_eq!(app.get_folder_name(), "Google accounts");
+    // Folder settings: name, icon and colour in one go.
+    app.invoke_save_folder("Google".into(), "globe".into(), 3);
+    assert_eq!(app.get_folder_name(), "Google");
+    assert_eq!(app.get_folder_icon(), "globe");
+    assert_eq!(app.get_folder_color(), 3);
+    let row = app.get_folders().row_data(0).unwrap();
+    assert_eq!((row.icon.as_str(), row.color), ("globe", 3));
+    app.invoke_save_folder("".into(), "globe".into(), 3);
+    assert_ne!(app.get_error_code(), 0, "a folder needs a name");
     app.invoke_delete_folder();
     assert_eq!(app.get_folders().row_count(), 0);
     assert_eq!(app.get_category(), 0);
@@ -371,6 +380,15 @@ fn whole_app_flow_headless() {
     app.invoke_toggle_favorite();
     assert_eq!(app.get_error_code(), 0, "saves again once the file matches");
     app.invoke_toggle_favorite();
+
+    // ---- an icon taken from another website ----
+    app.invoke_edit_item();
+    app.set_ed_icon_url("  github.example ".into());
+    app.invoke_save_item();
+    app.invoke_edit_item();
+    assert_eq!(app.get_ed_icon_url(), "https://github.example");
+    app.set_ed_icon_url("".into());
+    app.invoke_save_item();
 
     // ---- password history: the old password is kept when it changes ----
     assert_eq!(app.get_detail_title(), "GitHub");

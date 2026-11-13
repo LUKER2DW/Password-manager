@@ -130,6 +130,20 @@ pub fn date(unix: i64) -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
+/// The website typed in "Icon from", tidied: trimmed, `https://` added when missing, empty
+/// when nothing usable was typed.
+pub fn icon_site(text: &str) -> String {
+    let text = text.trim();
+    if text.is_empty() || text.contains(char::is_whitespace) {
+        return String::new();
+    }
+    if text.contains("://") {
+        text.to_owned()
+    } else {
+        format!("https://{text}")
+    }
+}
+
 /// Current Unix time in seconds.
 pub fn now_unix() -> i64 {
     std::time::SystemTime::now()
@@ -457,6 +471,14 @@ mod tests {
         assert_eq!(group_code("12345678"), "1234 5678");
         assert_eq!(group_code("1234567"), "1234567");
         assert_eq!(int_to_kind(kind_to_int(ItemKind::Card)), ItemKind::Card);
+    }
+
+    #[test]
+    fn icon_sites() {
+        assert_eq!(icon_site("  nubank.com.br "), "https://nubank.com.br");
+        assert_eq!(icon_site("https://x.example/a"), "https://x.example/a");
+        assert_eq!(icon_site(""), "");
+        assert_eq!(icon_site("two words"), "");
     }
 
     #[test]

@@ -407,8 +407,12 @@ fn main() {
     app.invoke_select_category(101);
     camera.shot(
         "vault-folder",
-        "Browsing a folder (rename and delete at the top)",
+        "Browsing a folder (edit and delete at the top)",
     );
+    app.set_editing_folder(true);
+    camera.shot("vault-folder-edit", "Folder settings: name, icon, colour");
+    app.invoke_save_folder("Games".into(), "star".into(), 2);
+    app.set_editing_folder(false);
     app.invoke_select_category(0);
 
     select_title(&app, "Home Wi-Fi");
