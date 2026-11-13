@@ -43,6 +43,11 @@ export global Messages {
         if (code == 10) { return @tr("The one-time code secret isn't valid. Paste the otpauth:// link or the key shown by the website."); }
         if (code == 11) { return @tr("The current master password is wrong."); }
         if (code == 12) { return @tr("The clipboard isn't available right now. Try again."); }
+        if (code == 14) { return @tr("Windows Hello couldn't open the vault ({}). Use your master password.", detail); }
+        if (code == 15) { return @tr("The master password changed, so Windows Hello was turned off on this computer. Unlock with the master password, then turn it on again in Settings."); }
+        if (code == 16) { return @tr("It's been {} days: type your master password this time, so you keep remembering it. Windows Hello works again right after.", detail); }
+        if (code == 18) { return @tr("Windows Hello was reset on this computer, so this vault's key is gone. Unlock with the master password, then turn Windows Hello on again in Settings."); }
+        if (code == 17) { return @tr("Windows Hello isn't set up on this computer. Set it up in Windows Settings → Accounts → Sign-in options, or use your master password."); }
         return @tr("Something went wrong: {}", detail);
     }
 
@@ -58,6 +63,10 @@ export global Messages {
         if (code == 9) { return @tr("Settings saved."); }
         if (code == 10) { return @tr("Copied. The clipboard clears in {} seconds.", arg); }
         if (code == 11) { return @tr("Generated password copied. The clipboard clears in {} seconds.", arg); }
+        if (code == 12) { return @tr("Windows Hello is on. Next time, unlock with your face, fingerprint or PIN."); }
+        if (code == 13) { return @tr("Windows Hello is off for this vault."); }
+        if (code == 14) { return @tr("Windows Hello wasn't turned on: {}.", arg); }
+        if (code == 15) { return @tr("Master password changed. Windows Hello was turned off; turn it on again below."); }
         return "";
     }
 }

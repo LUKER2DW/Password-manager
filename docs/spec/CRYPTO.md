@@ -57,6 +57,29 @@ item_key     = 32 random bytes per item revision
 The vault key never changes when the password, Secret Key or Recovery Key changes; only the key
 slots that wrap it are rewritten.
 
+### 3.1 Device unlock (Windows Hello)
+
+A per-device wrapping of the vault key, kept **outside** the vault file
+(`<app dir>/quick-unlock-<vault id>.bin`):
+
+```
+device_secret = TPM signature (RSA-2048, PKCS#1 v1.5, SHA-256 — deterministic) over
+                "vault-v0/windows-hello/" ‖ vault_id_hex, released by Windows Hello
+                (KeyCredentialManager, key name "vault-quick-unlock-" ‖ vault_id_hex)
+KEK_device    = HKDF-SHA-256(ikm = device_secret, salt = vault_id, info = "vault-v0/kek/device")
+device_unlock = seal(KEK_device, vault_key, AAD_device)
+AAD_device    = "vault-v0/device" ‖ vault_id ‖ SHA-256(password slot's wrapped_vault_key)
+```
+
+- `device_secret` is never stored; the private key never leaves the TPM and signs only after
+  Windows Hello verifies the user (face, fingerprint or Windows PIN, with the TPM's
+  anti-hammering). Device secrets shorter than 32 bytes are refused.
+- Binding to the password slot means **changing the master password revokes every device
+  unlock** — including one made on another device, once the changed file arrives.
+- Every 14 days the master password is required once. The date of the last password unlock is
+  device-local data sealed with the vault key (`local/last-password-unlock`, see §6), so it can't
+  be moved forward without the vault key; missing or future dates count as expired.
+
 ## 4. Argon2id parameters
 
 | | memory (KiB) | iterations | parallelism |
@@ -98,6 +121,7 @@ Deriving a fresh `K_enc` per message also removes any risk from random-nonce col
 | Vault body | `subkey("body")` | `"vault-v0/body" ‖ header_bytes` |
 | Item key | `subkey("item-wrap")` | `"vault-v0/item-key" ‖ vault_id ‖ item_id` |
 | Item data | `item_key` | `"vault-v0/item" ‖ vault_id ‖ item_id ‖ revision (u64 LE)` |
+| Device unlock (§3.1) | `KEK_device` | `"vault-v0/device" ‖ vault_id ‖ SHA-256(password slot)` |
 | Device-local data (e.g. icon cache) | `subkey("local/" ‖ purpose)` | `"vault-v0/local" ‖ vault_id ‖ purpose` |
 
 Device-local data is not part of the vault file: it is a per-device cache that can be deleted and

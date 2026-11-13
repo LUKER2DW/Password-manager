@@ -60,7 +60,13 @@ export component AppWindow inherits Window {
 
     // ---- unlock / recover ----
     in property <bool> needs-secret-key;
+    // Windows Hello: usable on this computer / set up for this vault / prompt open now.
+    in property <bool> quick-unlock-available;
+    in-out property <bool> quick-unlock-on;
+    in property <bool> quick-waiting;
     callback unlock();
+    callback quick-unlock();
+    callback quick-unlock-toggled(bool);
     callback show-recovery();
     callback recover();
     callback back-to-unlock();
@@ -179,7 +185,10 @@ export component AppWindow inherits Window {
         error-detail: root.error-detail;
         needs-secret-key: root.needs-secret-key;
         vault-path: root.vault-path;
+        quick-unlock: root.quick-unlock-on;
+        quick-waiting: root.quick-waiting;
         unlock => { root.unlock(); }
+        quick => { root.quick-unlock(); }
         forgot => { root.show-recovery(); }
     }
 
@@ -294,6 +303,9 @@ export component AppWindow inherits Window {
                 auto-lock-minutes <=> root.auto-lock-minutes;
                 clipboard-seconds <=> root.clipboard-seconds;
                 website-icons <=> root.website-icons;
+                quick-unlock-available: root.quick-unlock-available;
+                quick-unlock-on <=> root.quick-unlock-on;
+                quick-unlock-toggled(on) => { root.quick-unlock-toggled(on); }
                 settings-changed => { root.settings-changed(); }
                 appearance-changed(dark) => { root.appearance-changed(dark); }
                 change-password => { root.change-password(); }

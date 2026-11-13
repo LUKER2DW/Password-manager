@@ -88,7 +88,10 @@ Rules:
 - ✅ Item icons (opt-in website icons cached encrypted, type glyphs, initials) and "(?)" hints
   that say what to type in each field
 - ⬜ Accessibility pass
-- ⬜ Windows Hello quick unlock (TPM-backed key slot), YubiKey (FIDO2 `hmac-secret`) slot
+- ✅ Windows Hello quick unlock: TPM-signed device secret wraps the vault key, revoked by a
+  password change, master password every 14 days (tested with a fake verifier; the real prompt
+  needs a manual check)
+- ⬜ YubiKey (FIDO2 `hmac-secret`) slot; optional "master password after every restart"
 - ⬜ Emergency kit as a printable PDF
 - ⬜ `pt-BR` translation file
 - ⬜ Custom fields editing, attachments, tags/folders

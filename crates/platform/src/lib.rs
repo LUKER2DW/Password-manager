@@ -6,6 +6,7 @@
 pub mod clipboard;
 pub mod device;
 pub mod paths;
+pub mod quick_unlock;
 pub mod screen;
 pub mod secret_store;
 pub mod secure_buffer;

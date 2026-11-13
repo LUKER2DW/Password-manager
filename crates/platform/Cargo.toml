@@ -33,6 +33,13 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Memory",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# Windows Hello (WinRT KeyCredentialManager: TPM-backed key, user verification by the OS).
+windows = { version = "0.62", features = [
+    "Foundation",
+    "Security_Credentials",
+    "Security_Cryptography",
+    "Storage_Streams",
+] }
 
 [dev-dependencies]
 tempfile = "3.27"

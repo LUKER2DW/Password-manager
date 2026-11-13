@@ -15,8 +15,12 @@ use std::{
     cell::Cell,
     path::{Path, PathBuf},
     rc::Rc,
+    sync::Arc,
     time::Duration,
 };
+
+use vault_platform::quick_unlock::{DeviceVerifier, QuickUnlockError};
+use zeroize::Zeroizing;
 
 use slint::{
     ComponentHandle, PhysicalSize, PlatformError, Rgb8Pixel,
@@ -127,6 +131,26 @@ fn click(app: &AppWindow, x: f32, y: f32) {
     advance(100);
 }
 
+/// Stands in for Windows Hello so the screens can show quick unlock without a prompt.
+#[derive(Debug)]
+struct DemoHello;
+
+impl DeviceVerifier for DemoHello {
+    fn name(&self) -> &'static str {
+        "Demo Hello"
+    }
+    fn is_available(&self) -> bool {
+        true
+    }
+    fn enroll(&self, vault_id: &str) -> Result<Zeroizing<Vec<u8>>, QuickUnlockError> {
+        self.secret(vault_id)
+    }
+    fn secret(&self, _vault_id: &str) -> Result<Zeroizing<Vec<u8>>, QuickUnlockError> {
+        Ok(Zeroizing::new(vec![9; 256]))
+    }
+    fn remove(&self, _vault_id: &str) {}
+}
+
 fn type_into(app: &AppWindow, field: i32, text: &str) {
     let secrets = app.global::<Secrets>();
     secrets.invoke_clear(field);
@@ -206,8 +230,13 @@ fn main() {
         (HEIGHT as f32 * scale) as u32,
     ));
     app.show().expect("show");
-    let controller = Controller::install(&app, temp.path().join("demo.vault"), Runner::Inline)
-        .expect("controller");
+    let controller = Controller::install(
+        &app,
+        temp.path().join("demo.vault"),
+        Runner::Inline,
+        Some(Arc::new(DemoHello)),
+    )
+    .expect("controller");
     let mut camera = Camera {
         window: window.clone(),
         dir: dir.clone(),
@@ -379,7 +408,9 @@ fn main() {
 
     // ---- settings ----
     app.invoke_open_settings();
-    camera.shot("settings", "Settings");
+    app.set_quick_unlock_on(true);
+    app.invoke_quick_unlock_toggled(true);
+    camera.shot("settings", "Settings, Windows Hello just turned on");
     click(&app, 729.0, 184.0); // (?) next to "Show website icons"
     camera.shot("settings-icons-hint", "Privacy note for website icons");
     click(&app, 1000.0, 720.0);
@@ -402,10 +433,14 @@ fn main() {
 
     // ---- locked ----
     app.invoke_lock();
-    camera.shot("unlock", "Locked");
+    camera.shot("unlock", "Locked, with Windows Hello set up");
     type_into(&app, 0, "wrong password");
     app.invoke_unlock();
     camera.shot("unlock-error", "Wrong master password");
+    app.set_quick_unlock_on(false);
+    app.set_error_code(0);
+    type_into(&app, 0, "");
+    camera.shot("unlock-password-only", "Locked, without Windows Hello");
     let _ = vault_platform::secret_store::forget(&vault_id);
     app.set_needs_secret_key(true);
     type_into(&app, 0, "");

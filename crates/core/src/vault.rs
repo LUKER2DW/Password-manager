@@ -114,8 +114,31 @@ impl Vault {
             &slot.wrapped_vault_key,
             &slot_aad(&header.vault_id, kind),
         )?;
-        let vault_key = VaultKey::from_slice(&key_bytes)?;
+        Self::from_parsed(parsed, VaultKey::from_slice(&key_bytes)?)
+    }
 
+    /// Opens the vault with a device unlock made by [`Vault::seal_for_device`] on this device.
+    ///
+    /// Fails with [`Error::DecryptionFailed`] when the device secret is different or when the
+    /// master password was changed since (here or on another device): the device unlock is
+    /// bound to the current password slot, so changing the password revokes it.
+    pub fn open_with_device(bytes: &[u8], device_secret: &[u8], sealed: &[u8]) -> Result<Self> {
+        let parsed = format::parse(bytes)?;
+        let kek = keys::device_kek(device_secret, &parsed.header.vault_id)?;
+        let key_bytes = aead::open(&kek, sealed, &device_aad(&parsed.header)?)?;
+        Self::from_parsed(parsed, VaultKey::from_slice(&key_bytes)?)
+    }
+
+    /// Wraps the vault key for quick unlock on this device (Windows Hello and similar).
+    /// The result is kept on the device, never in the vault file, and is useless without
+    /// `device_secret`, which only the device's secure hardware can produce again.
+    pub fn seal_for_device(&self, device_secret: &[u8]) -> Result<Vec<u8>> {
+        let kek = keys::device_kek(device_secret, &self.header.vault_id)?;
+        aead::seal(&kek, self.vault_key.as_bytes(), &device_aad(&self.header)?)
+    }
+
+    fn from_parsed(parsed: format::ParsedFile<'_>, vault_key: VaultKey) -> Result<Self> {
+        let header = &parsed.header;
         let body_key = vault_key.subkey(SUBKEY_BODY, &header.vault_id);
         let padded = aead::open(&body_key, parsed.body, &body_aad(parsed.header_bytes))?;
         let body: VaultBody = format::decode_exact(padding::unpad(&padded)?)?;
@@ -378,6 +401,21 @@ fn item_aad(vault_id: &[u8; 16], id: &ItemId, revision: u64) -> Vec<u8> {
     .concat()
 }
 
+/// Binds a device unlock to the vault and to the current password slot.
+fn device_aad(header: &VaultHeader) -> Result<Vec<u8>> {
+    use sha2::{Digest, Sha256};
+    let slot = header
+        .slot(SlotKind::Password)
+        .ok_or(Error::NoMatchingSlot)?;
+    let slot_hash = Sha256::digest(&slot.wrapped_vault_key);
+    Ok([
+        b"vault-v0/device".as_slice(),
+        &header.vault_id,
+        slot_hash.as_slice(),
+    ]
+    .concat())
+}
+
 fn local_aad(vault_id: &[u8; 16], purpose: &str) -> Vec<u8> {
     [b"vault-v0/local".as_slice(), vault_id, purpose.as_bytes()].concat()
 }
@@ -487,6 +525,62 @@ mod tests {
         vault.items[ib].data = data_a;
         assert!(vault.get_item(&a).is_err());
         assert!(vault.get_item(&b).is_err());
+    }
+
+    #[test]
+    fn device_unlock_opens_and_is_revoked_by_a_password_change() {
+        let secret_key = SecretKey::generate().unwrap();
+        let mut vault = Vault::create(
+            "device unlock test passphrase",
+            &secret_key,
+            None,
+            KdfParams::minimum().unwrap(),
+        )
+        .unwrap();
+        let item = vault
+            .add_item(&ItemData::login("Site", "me", "pw", "https://site.example"))
+            .unwrap();
+        let bytes = vault.to_bytes().unwrap();
+        let device_secret = [7u8; 256];
+        let sealed = vault.seal_for_device(&device_secret).unwrap();
+
+        let opened = Vault::open_with_device(&bytes, &device_secret, &sealed).unwrap();
+        assert_eq!(opened.get_item(&item).unwrap().title, "Site");
+
+        let mut other_secret = device_secret;
+        other_secret[0] ^= 1;
+        assert!(matches!(
+            Vault::open_with_device(&bytes, &other_secret, &sealed),
+            Err(Error::DecryptionFailed)
+        ));
+        assert!(
+            vault.seal_for_device(&[1u8; 16]).is_err(),
+            "short device secrets are refused"
+        );
+
+        // Another vault cannot use it.
+        let mut stranger = Vault::create(
+            "device unlock test passphrase",
+            &secret_key,
+            None,
+            KdfParams::minimum().unwrap(),
+        )
+        .unwrap();
+        let stranger_bytes = stranger.to_bytes().unwrap();
+        assert!(Vault::open_with_device(&stranger_bytes, &device_secret, &sealed).is_err());
+
+        // Changing the master password revokes every device unlock.
+        let kdf = vault.kdf_params().clone();
+        vault
+            .change_password("a brand new passphrase", &secret_key, &kdf)
+            .unwrap();
+        let changed = vault.to_bytes().unwrap();
+        assert!(matches!(
+            Vault::open_with_device(&changed, &device_secret, &sealed),
+            Err(Error::DecryptionFailed)
+        ));
+        let resealed = vault.seal_for_device(&device_secret).unwrap();
+        assert!(Vault::open_with_device(&changed, &device_secret, &resealed).is_ok());
     }
 
     #[test]

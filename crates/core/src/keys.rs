@@ -175,6 +175,19 @@ pub(crate) fn recovery_kek(
     )
 }
 
+/// KEK for a device unlock (Windows Hello and similar). `device_secret` is produced by the
+/// device's secure hardware after the user is verified (e.g. a deterministic TPM signature) and
+/// is never stored.
+pub(crate) fn device_kek(
+    device_secret: &[u8],
+    vault_id: &[u8; 16],
+) -> Result<Zeroizing<aead::Key>> {
+    if device_secret.len() < 32 {
+        return Err(Error::InvalidKeyFormat);
+    }
+    Ok(hkdf32(device_secret, vault_id, &[b"vault-v0/kek/device"]))
+}
+
 /// The random key that protects the vault contents. Never leaves the process unwrapped.
 pub(crate) struct VaultKey(Zeroizing<aead::Key>);
 

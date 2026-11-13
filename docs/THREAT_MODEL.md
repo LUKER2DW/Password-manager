@@ -48,7 +48,13 @@ On top of that:
   also needs the Secret Key (protected by the OS) and, if configured, the hardware key with a
   physical touch.
 - Quick unlock (Windows Hello / biometrics) avoids typing the master password day to day, which
-  reduces keylogger exposure.
+  reduces keylogger exposure. What it does and doesn't protect:
+  - The file it keeps (`quick-unlock-*.bin`) is useless when copied: it needs this PC's TPM.
+  - Malware running as the user *can* ask Windows Hello for the same signature, but Windows then
+    shows its prompt and the user must pass it; an unexpected Hello prompt is a warning sign.
+  - **Anyone who knows the Windows PIN can open the vault on this PC.** The TPM limits guesses,
+    the master password is still required every 14 days, and changing the master password
+    revokes it. Users who share or reuse their PIN should leave quick unlock off.
 
 **Vault unlocked (A8)**: shrink the window and the attack surface.
 - Aggressive auto-lock (inactivity, screen lock, sleep).

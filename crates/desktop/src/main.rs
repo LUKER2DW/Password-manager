@@ -17,7 +17,12 @@ fn main() -> anyhow::Result<()> {
     let app = AppWindow::new()?;
     apply_sketches(&app);
     let path = vault_platform::paths::default_vault_path()?;
-    let _controller = Controller::install(&app, path, Runner::Thread)?;
+    let _controller = Controller::install(
+        &app,
+        path,
+        Runner::Thread,
+        vault_platform::quick_unlock::system_verifier(),
+    )?;
 
     // The native window exists once the event loop runs.
     let weak = app.as_weak();

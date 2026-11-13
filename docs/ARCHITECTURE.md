@@ -52,10 +52,13 @@ Keyfile [optional] ────────────────────�
 - **Secret Key** combined with the password (1Password's "2SKD" model): even a mediocre master
   password becomes uncrackable offline.
 - **Quick unlock** is another wrapping of the same Vault Key, done by a hardware-held key:
-  - Windows: Windows Hello (IR face, fingerprint or PIN), key in the TPM; modeled on KeePassXC's Quick Unlock.
+  - Windows ✅: Windows Hello (IR face, fingerprint or PIN), key in the TPM; modeled on KeePassXC's
+    Quick Unlock (`crates/platform/src/quick_unlock.rs`, spec in [CRYPTO.md §3.1](spec/CRYPTO.md)).
   - Android: Keystore/StrongBox + `BiometricPrompt` Class 3.
   - Any platform: YubiKey touch (`hmac-secret`).
-  - Policy: full unlock required after reboot, every N days and after X failed attempts.
+  - Policy: the master password is asked every 14 days; changing it revokes every device unlock;
+    failed attempts are rate-limited by Windows Hello / the TPM itself. Planned: optional
+    "master password after every restart".
 - **Emergency kit**: printable PDF with the Secret Key, a QR code and instructions. Optionally a
   separate **recovery key** that wraps the Vault Key, which can be split with Shamir's Secret
   Sharing (e.g. 2 of 3 shares kept in different places).

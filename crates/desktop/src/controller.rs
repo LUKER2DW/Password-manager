@@ -8,6 +8,7 @@ use std::{
     collections::HashMap,
     path::PathBuf,
     rc::{Rc, Weak},
+    sync::Arc,
     time::Duration,
 };
 
@@ -22,7 +23,11 @@ use vault_core::{
     storage,
     totp::Totp,
 };
-use vault_platform::{DeviceState, RollbackStatus, SecretBuffer, clipboard, device, secret_store};
+use vault_platform::{
+    DeviceState, RollbackStatus, SecretBuffer, clipboard, device,
+    quick_unlock::{self, DeviceVerifier, QuickUnlockError},
+    secret_store,
+};
 use zeroize::Zeroizing;
 
 use crate::{
@@ -68,6 +73,11 @@ mod error {
     pub const WRONG_CURRENT: i32 = 11;
     pub const CLIPBOARD: i32 = 12;
     pub const OTHER: i32 = 13;
+    pub const HELLO_FAILED: i32 = 14;
+    pub const HELLO_REVOKED: i32 = 15;
+    pub const PASSWORD_DUE: i32 = 16;
+    pub const HELLO_UNAVAILABLE: i32 = 17;
+    pub const HELLO_KEY_GONE: i32 = 18;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -82,6 +92,10 @@ mod notice {
     pub const RECOVERY_ISSUED: i32 = 8;
     pub const FIELD_COPIED: i32 = 10;
     pub const GENERATED_COPIED: i32 = 11;
+    pub const HELLO_ON: i32 = 12;
+    pub const HELLO_OFF: i32 = 13;
+    pub const HELLO_NOT_ON: i32 = 14;
+    pub const PASSWORD_CHANGED_HELLO_OFF: i32 = 15;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -111,6 +125,14 @@ enum JobResult {
     Unlocked {
         session: Session,
         typed_secret_key: bool,
+    },
+    QuickUnlockEnabled {
+        session: Session,
+    },
+    /// `reason` is `None` when the person cancelled the prompt.
+    QuickUnlockNotEnabled {
+        session: Session,
+        reason: Option<String>,
     },
     Recovered {
         session: Session,
@@ -154,6 +176,9 @@ struct State {
     icons: IconCache,
     icon_images: HashMap<String, Image>,
     fetching_icons: bool,
+    /// Windows Hello (or a fake in tests); `quick_available` caches whether it is set up.
+    verifier: Option<Arc<dyn DeviceVerifier>>,
+    quick_available: bool,
 }
 
 #[derive(Default)]
@@ -186,8 +211,17 @@ impl std::fmt::Debug for Controller {
 }
 
 impl Controller {
-    pub fn install(app: &AppWindow, path: PathBuf, runner: Runner) -> anyhow::Result<Rc<Self>> {
+    /// `verifier` is the device's user verification for quick unlock
+    /// (`quick_unlock::system_verifier()` in the app, a fake in tests, `None` to disable).
+    pub fn install(
+        app: &AppWindow,
+        path: PathBuf,
+        runner: Runner,
+        verifier: Option<Arc<dyn DeviceVerifier>>,
+    ) -> anyhow::Result<Rc<Self>> {
         let settings = DeviceState::load().map(|s| s.settings).unwrap_or_default();
+        let quick_available = verifier.as_ref().is_some_and(|v| v.is_available());
+        app.set_quick_unlock_available(quick_available);
         let controller = Rc::new(Self {
             app: app.as_weak(),
             state: RefCell::new(State {
@@ -208,6 +242,8 @@ impl Controller {
                 icons: IconCache::default(),
                 icon_images: HashMap::new(),
                 fetching_icons: false,
+                verifier,
+                quick_available,
             }),
             timers: Timers::default(),
             lengths: Rc::new(VecModel::from(vec![0; field::COUNT])),
@@ -287,6 +323,8 @@ impl Controller {
         on!(on_use_suggestion, |c| c.use_suggestion());
         on!(on_finish_onboarding, |c| c.finish_onboarding());
         on!(on_unlock, |c| c.unlock());
+        on!(on_quick_unlock, |c| c.quick_unlock());
+        on!(on_quick_unlock_toggled, |c, on| c.set_quick_unlock(on));
         on!(on_show_recovery, |c| c.show_screen(Screen::Recover));
         on!(on_back_to_unlock, |c| c.show_screen(Screen::Unlock));
         on!(on_recover, |c| c.recover());
@@ -385,6 +423,9 @@ impl Controller {
         {
             Some(info) => {
                 let known = secret_store::load(&info.id_hex).ok().flatten().is_some();
+                app.set_quick_unlock_on(
+                    self.state.borrow().quick_available && quick_unlock::is_enrolled(&info.id_hex),
+                );
                 app.set_vault_id(SharedString::from(info.id_hex));
                 app.set_needs_secret_key(!known);
                 self.show_screen(Screen::Unlock);
@@ -462,6 +503,7 @@ impl Controller {
     fn finish_job(&self, result: JobResult) {
         let app = self.app();
         app.set_busy(false);
+        app.set_quick_waiting(false);
         match result {
             JobResult::Created {
                 session,
@@ -484,6 +526,7 @@ impl Controller {
                 self.state.borrow_mut().pending = Some(session);
             }
             JobResult::Recovered { session } => {
+                app.set_quick_unlock_on(false);
                 self.clear_secret(field::MASTER);
                 self.clear_secret(field::CONFIRM);
                 self.clear_secret(field::RECOVERY_KEY);
@@ -528,8 +571,29 @@ impl Controller {
                 for index in [field::CURRENT, field::NEW, field::NEW_AGAIN] {
                     self.clear_secret(index);
                 }
+                // The device unlock is bound to the old password slot and no longer opens the
+                // vault; remove it so the switch shows the truth.
+                let id = session.vault.id_hex();
+                let had_quick_unlock = quick_unlock::is_enrolled(&id);
                 self.state.borrow_mut().session = Some(session);
-                self.notify(notice::PASSWORD_CHANGED, "");
+                if had_quick_unlock {
+                    self.turn_off_quick_unlock(&id);
+                    self.notify(notice::PASSWORD_CHANGED_HELLO_OFF, "");
+                } else {
+                    self.notify(notice::PASSWORD_CHANGED, "");
+                }
+            }
+            JobResult::QuickUnlockEnabled { session } => {
+                self.state.borrow_mut().session = Some(session);
+                app.set_quick_unlock_on(true);
+                self.notify(notice::HELLO_ON, "");
+            }
+            JobResult::QuickUnlockNotEnabled { session, reason } => {
+                self.state.borrow_mut().session = Some(session);
+                app.set_quick_unlock_on(false);
+                if let Some(reason) = reason {
+                    self.notify(notice::HELLO_NOT_ON, &reason);
+                }
             }
             JobResult::KitVerified { session } => {
                 self.clear_secret(field::CURRENT);
@@ -560,6 +624,9 @@ impl Controller {
             } => {
                 if session.is_some() {
                     self.state.borrow_mut().session = session;
+                }
+                if code == error::HELLO_REVOKED || code == error::HELLO_KEY_GONE {
+                    app.set_quick_unlock_on(false);
                 }
                 self.set_error(code, &detail);
             }
@@ -622,6 +689,7 @@ impl Controller {
                     .map_err(|e| (error::OTHER, e.to_string()))?;
                 device::record_revision(&vault.id_hex(), vault.revision())
                     .map_err(|e| (error::FILE, e.to_string()))?;
+                let _ = quick_unlock::record_password_unlock(&vault);
                 Ok(JobResult::Created {
                     session: Session { vault, secret_key },
                     recovery_key,
@@ -724,10 +792,13 @@ impl Controller {
                     secret_key: &secret_key,
                 },
             ) {
-                Ok(vault) => JobResult::Unlocked {
-                    session: Session { vault, secret_key },
-                    typed_secret_key: typed,
-                },
+                Ok(vault) => {
+                    let _ = quick_unlock::record_password_unlock(&vault);
+                    JobResult::Unlocked {
+                        session: Session { vault, secret_key },
+                        typed_secret_key: typed,
+                    }
+                }
                 Err(CoreError::DecryptionFailed) => JobResult::Failed {
                     code: error::WRONG_PASSWORD,
                     detail: String::new(),
@@ -780,6 +851,9 @@ impl Controller {
                     .map_err(|e| (error::OTHER, e.to_string()))?;
                 device::record_revision(&vault.id_hex(), vault.revision())
                     .map_err(|e| (error::FILE, e.to_string()))?;
+                // The new password revoked any device unlock; drop its file too.
+                quick_unlock::forget(&vault.id_hex());
+                let _ = quick_unlock::record_password_unlock(&vault);
                 Ok(JobResult::Recovered {
                     session: Session { vault, secret_key },
                 })
@@ -792,9 +866,147 @@ impl Controller {
         });
     }
 
+    // -----------------------------------------------------------------------------------------
+    // Quick unlock (Windows Hello); see vault_platform::quick_unlock for the design
+    // -----------------------------------------------------------------------------------------
+
+    fn quick_unlock(&self) {
+        let Some(verifier) = self.state.borrow().verifier.clone() else {
+            return;
+        };
+        let app = self.app();
+        let path = self.state.borrow().path.clone();
+        let bytes = match storage::read(&path) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                let (code, detail) = self.core_error(&err);
+                self.set_error(code, &detail);
+                return;
+            }
+        };
+        let id = match Vault::inspect(&bytes) {
+            Ok(info) => info.id_hex,
+            Err(err) => {
+                self.set_error(error::FILE, &err.to_string());
+                return;
+            }
+        };
+        let Ok(Some(secret_key)) = secret_store::load(&id) else {
+            app.set_needs_secret_key(true);
+            return;
+        };
+        let Some(sealed) = quick_unlock::load(&id) else {
+            app.set_quick_unlock_on(false);
+            return;
+        };
+        app.set_quick_waiting(true);
+        self.run_job(move || {
+            let failed = |code: i32, detail: String| JobResult::Failed {
+                code,
+                detail,
+                session: None,
+            };
+            let secret = match verifier.secret(&id) {
+                Ok(secret) => secret,
+                Err(QuickUnlockError::Cancelled) => return failed(error::NONE, String::new()),
+                Err(QuickUnlockError::Unavailable) => {
+                    return failed(error::HELLO_UNAVAILABLE, String::new());
+                }
+                Err(QuickUnlockError::NotEnrolled) => {
+                    quick_unlock::forget(&id);
+                    return failed(error::HELLO_KEY_GONE, String::new());
+                }
+                Err(QuickUnlockError::Failed(detail)) => {
+                    return failed(error::HELLO_FAILED, detail);
+                }
+            };
+            match Vault::open_with_device(&bytes, &secret, &sealed) {
+                Ok(vault) if quick_unlock::password_is_recent(&vault) => JobResult::Unlocked {
+                    session: Session { vault, secret_key },
+                    typed_secret_key: false,
+                },
+                Ok(_) => failed(
+                    error::PASSWORD_DUE,
+                    quick_unlock::PASSWORD_INTERVAL_DAYS.to_string(),
+                ),
+                Err(CoreError::DecryptionFailed) => {
+                    // The master password changed (maybe on another device): this device
+                    // unlock is dead for good.
+                    quick_unlock::forget(&id);
+                    verifier.remove(&id);
+                    failed(error::HELLO_REVOKED, String::new())
+                }
+                Err(other) => failed(error::HELLO_FAILED, other.to_string()),
+            }
+        });
+    }
+
+    fn set_quick_unlock(&self, on: bool) {
+        let Some(verifier) = self.state.borrow().verifier.clone() else {
+            return;
+        };
+        let Some(id) = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .map(|s| s.vault.id_hex())
+        else {
+            return;
+        };
+        if !on {
+            self.turn_off_quick_unlock(&id);
+            self.notify(notice::HELLO_OFF, "");
+            return;
+        }
+        let Some(session) = self.state.borrow_mut().session.take() else {
+            return;
+        };
+        self.run_job(move || {
+            let outcome = verifier.enroll(&id).and_then(|secret| {
+                quick_unlock::enroll(&session.vault, &secret)
+                    .map_err(|e| QuickUnlockError::Failed(e.to_string()))
+            });
+            match outcome {
+                Ok(()) => JobResult::QuickUnlockEnabled { session },
+                Err(QuickUnlockError::Cancelled) => JobResult::QuickUnlockNotEnabled {
+                    session,
+                    reason: None,
+                },
+                Err(err) => JobResult::QuickUnlockNotEnabled {
+                    session,
+                    reason: Some(err.to_string()),
+                },
+            }
+        });
+    }
+
+    /// Deletes the wrapped key file now and the OS key in the background.
+    fn turn_off_quick_unlock(&self, id: &str) {
+        quick_unlock::forget(id);
+        self.app().set_quick_unlock_on(false);
+        let (verifier, runner) = {
+            let state = self.state.borrow();
+            (state.verifier.clone(), state.runner)
+        };
+        if let Some(verifier) = verifier {
+            let id = id.to_owned();
+            match runner {
+                Runner::Inline => verifier.remove(&id),
+                Runner::Thread => {
+                    std::thread::spawn(move || verifier.remove(&id));
+                }
+            }
+        }
+    }
+
     fn enter_vault(&self, session: Session) {
         let app = self.app();
-        app.set_vault_id(SharedString::from(session.vault.id_hex()));
+        let id = session.vault.id_hex();
+        app.set_quick_unlock_on(
+            self.state.borrow().quick_available && quick_unlock::is_enrolled(&id),
+        );
+        app.set_vault_id(SharedString::from(id));
         {
             let mut state = self.state.borrow_mut();
             state.session = Some(session);

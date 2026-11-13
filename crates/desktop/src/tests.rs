@@ -2,8 +2,17 @@
 //! callbacks the UI uses, with Slint's testing backend (nothing is drawn on screen).
 //! Argon2id runs at the format's minimum cost here to keep the test fast.
 
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
 use slint::{ComponentHandle, Model};
-use vault_platform::secret_store;
+use vault_platform::{
+    quick_unlock::{DeviceVerifier, QuickUnlockError},
+    secret_store,
+};
+use zeroize::Zeroizing;
 
 use crate::{
     apply_sketches,
@@ -29,6 +38,39 @@ fn length(app: &AppWindow, field: usize) -> i32 {
         .unwrap()
 }
 
+/// Stands in for Windows Hello: "verifies" instantly and returns a fixed secret.
+#[derive(Debug, Default)]
+struct FakeHello {
+    cancel: AtomicBool,
+    other_device: AtomicBool,
+}
+
+impl DeviceVerifier for FakeHello {
+    fn name(&self) -> &'static str {
+        "Fake Hello"
+    }
+    fn is_available(&self) -> bool {
+        true
+    }
+    fn enroll(&self, vault_id: &str) -> Result<Zeroizing<Vec<u8>>, QuickUnlockError> {
+        self.secret(vault_id)
+    }
+    fn secret(&self, vault_id: &str) -> Result<Zeroizing<Vec<u8>>, QuickUnlockError> {
+        if self.cancel.load(Ordering::SeqCst) {
+            return Err(QuickUnlockError::Cancelled);
+        }
+        let byte = if self.other_device.load(Ordering::SeqCst) {
+            2
+        } else {
+            1
+        };
+        let mut secret = vec![byte; 256];
+        secret[..vault_id.len()].copy_from_slice(vault_id.as_bytes());
+        Ok(Zeroizing::new(secret))
+    }
+    fn remove(&self, _vault_id: &str) {}
+}
+
 /// Removes the test vault's Secret Key from the OS credential store, even if the test fails.
 struct ForgetOnDrop(String);
 
@@ -52,7 +94,15 @@ fn whole_app_flow_headless() {
 
     let app = AppWindow::new().unwrap();
     apply_sketches(&app);
-    let _controller = Controller::install(&app, path.clone(), Runner::Inline).unwrap();
+    let hello = Arc::new(FakeHello::default());
+    let _controller = Controller::install(
+        &app,
+        path.clone(),
+        Runner::Inline,
+        Some(hello.clone() as Arc<dyn DeviceVerifier>),
+    )
+    .unwrap();
+    assert!(app.get_quick_unlock_available());
 
     // ---- onboarding ----
     assert_eq!(app.get_screen(), Screen::Onboarding);
@@ -212,6 +262,100 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_screen(), Screen::Vault);
     assert_eq!(app.get_total_items(), 1);
 
+    // ---- quick unlock (fake Windows Hello) ----
+    let id = app.get_vault_id().to_string();
+    let home = dir.path().join("home");
+    let enable = |app: &AppWindow| {
+        app.set_quick_unlock_on(true);
+        app.invoke_quick_unlock_toggled(true);
+    };
+    assert!(!app.get_quick_unlock_on());
+    hello.cancel.store(true, Ordering::SeqCst);
+    enable(&app);
+    assert!(!app.get_quick_unlock_on(), "cancelled prompt leaves it off");
+    hello.cancel.store(false, Ordering::SeqCst);
+    enable(&app);
+    assert!(app.get_quick_unlock_on());
+    assert_eq!(app.get_notice_code(), 12);
+    assert!(home.join(format!("quick-unlock-{id}.bin")).exists());
+
+    app.invoke_lock();
+    assert!(app.get_quick_unlock_on(), "offered on the lock screen");
+    app.invoke_quick_unlock();
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_total_items(), 1);
+
+    // Cancelling at unlock is silent.
+    app.invoke_lock();
+    hello.cancel.store(true, Ordering::SeqCst);
+    app.invoke_quick_unlock();
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    assert_eq!(app.get_error_code(), 0);
+    hello.cancel.store(false, Ordering::SeqCst);
+
+    // The master password is required again after the interval (here: no record at all).
+    std::fs::remove_file(home.join(format!("last-password-{id}.bin"))).unwrap();
+    app.invoke_quick_unlock();
+    assert_eq!(app.get_error_code(), 16, "password due");
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    type_into(&app, 0, NEW_PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_screen(), Screen::Vault);
+    app.invoke_lock();
+    app.invoke_quick_unlock();
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "works again after the password"
+    );
+
+    // A different device secret (another PC, a reset TPM) cannot open it, and it is dropped.
+    app.invoke_lock();
+    hello.other_device.store(true, Ordering::SeqCst);
+    app.invoke_quick_unlock();
+    assert_eq!(app.get_error_code(), 15);
+    assert!(!app.get_quick_unlock_on());
+    assert!(!home.join(format!("quick-unlock-{id}.bin")).exists());
+    hello.other_device.store(false, Ordering::SeqCst);
+    type_into(&app, 0, NEW_PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_screen(), Screen::Vault);
+
+    // Turned on again, then off from Settings.
+    app.invoke_open_settings();
+    enable(&app);
+    assert!(app.get_quick_unlock_on());
+    app.set_quick_unlock_on(false);
+    app.invoke_quick_unlock_toggled(false);
+    assert_eq!(app.get_notice_code(), 13);
+    assert!(!home.join(format!("quick-unlock-{id}.bin")).exists());
+
+    // Changing the master password turns it off.
+    enable(&app);
+    type_into(&app, 5, NEW_PASSWORD);
+    type_into(&app, 6, PASSWORD);
+    type_into(&app, 7, PASSWORD);
+    app.invoke_change_password();
+    assert_eq!(
+        app.get_notice_code(),
+        15,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert!(!app.get_quick_unlock_on());
+    type_into(&app, 5, PASSWORD);
+    type_into(&app, 6, NEW_PASSWORD);
+    type_into(&app, 7, NEW_PASSWORD);
+    app.invoke_change_password();
+    assert_eq!(app.get_notice_code(), 7);
+    enable(&app);
+    assert!(app.get_quick_unlock_on());
+
     // ---- a new device: the Secret Key must be typed once ----
     app.invoke_lock();
     secret_store::forget(&app.get_vault_id()).unwrap();
@@ -249,6 +393,8 @@ fn whole_app_flow_headless() {
         app.get_error_detail()
     );
     assert!(app.get_recovered());
+    assert!(!app.get_quick_unlock_on(), "recovery sets a new password");
+    assert!(!home.join(format!("quick-unlock-{id}.bin")).exists());
     let new_secret_key = app.get_kit_secret_key().to_string();
     assert!(new_secret_key.starts_with("S0-") && new_secret_key != secret_key);
     assert_eq!(

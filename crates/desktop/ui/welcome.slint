@@ -243,7 +243,11 @@ export component UnlockScreen inherits Rectangle {
     in property <string> error-detail;
     in property <bool> needs-secret-key;
     in property <string> vault-path;
+    // Windows Hello is set up for this vault on this computer.
+    in property <bool> quick-unlock;
+    in property <bool> quick-waiting;
     callback unlock();
+    callback quick();
     callback forgot();
 
     background: Theme.canvas;
@@ -280,6 +284,24 @@ export component UnlockScreen inherits Rectangle {
                 color: Theme.faint;
             }
             Rectangle { height: 4px; }
+            if root.quick-unlock && !root.needs-secret-key: VerticalLayout {
+                spacing: 14px;
+                HorizontalLayout {
+                    alignment: start;
+                    Button {
+                        text: @tr("Unlock with Windows Hello");
+                        busy-text: @tr("Waiting for Windows Hello…");
+                        busy: root.quick-waiting;
+                        enabled: !root.busy;
+                        clicked => { root.quick(); }
+                    }
+                }
+                Prose {
+                    text: @tr("Or type your master password:");
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                }
+            }
             if root.needs-secret-key: VerticalLayout {
                 spacing: 12px;
                 Prose {
@@ -308,10 +330,17 @@ export component UnlockScreen inherits Rectangle {
             HorizontalLayout {
                 alignment: start;
                 spacing: 12px;
-                Button {
+                // One yellow button per screen: with Windows Hello on, it is the Hello one.
+                if !root.quick-unlock || root.needs-secret-key: Button {
                     text: @tr("Unlock");
                     busy-text: @tr("Unlocking…");
                     busy: root.busy;
+                    clicked => { root.unlock(); }
+                }
+                if root.quick-unlock && !root.needs-secret-key: QuietButton {
+                    text: root.busy && !root.quick-waiting ? @tr("Unlocking…") : @tr("Unlock");
+                    outlined: true;
+                    enabled: !root.busy;
                     clicked => { root.unlock(); }
                 }
                 VerticalLayout {

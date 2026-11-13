@@ -589,6 +589,9 @@ export component SettingsPage inherits Rectangle {
     in-out property <int> auto-lock-minutes;
     in-out property <int> clipboard-seconds;
     in-out property <bool> website-icons;
+    in property <bool> quick-unlock-available;
+    in-out property <bool> quick-unlock-on;
+    callback quick-unlock-toggled(bool);
     callback settings-changed();
     callback appearance-changed(bool);
     callback change-password();
@@ -647,6 +650,21 @@ export component SettingsPage inherits Rectangle {
                 minimum: 5;
                 maximum: 120;
                 changed => { root.settings-changed(); }
+            }
+            if root.quick-unlock-available: HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Check {
+                    text: @tr("Unlock with Windows Hello");
+                    checked <=> root.quick-unlock-on;
+                    toggled(on) => { root.quick-unlock-toggled(on); }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Hint {
+                        text: @tr("Open this vault with your face, fingerprint or Windows PIN instead of typing the master password. The key is made inside this computer's security chip and only works here, after Windows Hello checks it's you. Every 14 days the master password is asked once, so you don't forget it, and changing the master password turns this off. Anyone who knows your Windows PIN could open the vault on this computer.");
+                    }
+                }
             }
 
             Rule { }
