@@ -43,8 +43,16 @@ Scale 12 / 14 / 16 / 21 / 28 / 44 px. Radius 6 px. Controls 38 px tall.
 - **Fields** — a recessed well with a hairline edge; the bottom edge lights up yellow on focus and
   red on error. Labels in sentence case above the well.
 - **SecretField** — same look; keystrokes go to Rust, the UI only draws dots.
-- **Hint "(?)"** — a small circle next to terms that need explaining (Secret Key, Recovery Key,
-  one-time code secret, locking, entropy). Click to open, click anywhere to close.
+- **Hint "(?)"** — a small circle next to every field and term that needs it. The text says
+  *what to type* there (and where to find it, e.g. the one-time code key behind "Can't scan
+  it?"), not just a definition. Click to open, click anywhere to close; the popup keeps a margin
+  from the window edge.
+- **ItemIcon** — a rounded tile in front of every item, three tiers:
+  1. the site's own icon on a pale tile (logins, only when "Show website icons" is on);
+  2. a line glyph for the type (card, secure note, passkey) on a fixed muted colour;
+  3. the title's initial on a muted colour hashed from the site, so a service keeps its colour.
+  On the light theme the pale favicon tile gets a hairline edge.
+- **List selection** — a soft background only; no accent bar.
 - **Choice** — a few words; the chosen one gets the hand-drawn marker stroke.
 - **Notice** — confirmations ("Copied", "Saved") bottom-right, never over content.
 
@@ -58,6 +66,18 @@ Scale 12 / 14 / 16 / 21 / 28 / 44 px. Radius 6 px. Controls 38 px tall.
 5. **Red means danger** (errors, delete).
 6. **Words say what happens** ("Create vault", "Open my vault", "Copy"); errors say what went
    wrong and how to fix it.
+
+## Website icons and privacy
+
+Off by default. When turned on, the app asks each saved site for its own icon (`<link rel=icon>`
+or `/favicon.ico`) directly, over HTTPS only, with size and time limits — never through a
+third-party icon service, so no one else learns the list of sites. Icons are cached on the
+device encrypted under a vault subkey (`Vault::seal_local("icons")`); a site without an icon is
+retried after a week. Turning the option off deletes the cache. The trade-off — someone on the
+network can see which sites were contacted — is stated in the setting's hint.
+
+`SHOT_ICONS=1 cargo run -p vault-desktop --example screenshots` renders the screens with real
+icons (it fetches them for the demo sites).
 
 ## Not yet
 

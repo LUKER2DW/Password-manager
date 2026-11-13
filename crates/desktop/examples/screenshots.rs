@@ -5,6 +5,9 @@
 //! cargo run -p vault-desktop --example screenshots -- [output-dir] [scale]
 //! ```
 //!
+//! Set `SHOT_ICONS=1` to also turn on website icons, which fetches real favicons for the demo
+//! sites over the network.
+//!
 //! Uses a throwaway vault with fake data in a temporary folder. The vault's Secret Key is put in
 //! the OS credential store during the run and removed at the end.
 
@@ -105,6 +108,23 @@ impl Camera {
         html.push_str("</main></body></html>");
         std::fs::write(self.dir.join("index.html"), html).expect("write gallery");
     }
+}
+
+/// A left click at a point of the window, in logical pixels.
+fn click(app: &AppWindow, x: f32, y: f32) {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let position = slint::LogicalPosition::new(x, y);
+    let window = app.window();
+    window.dispatch_event(WindowEvent::PointerMoved { position });
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position,
+        button: PointerEventButton::Left,
+    });
+    advance(100);
 }
 
 fn type_into(app: &AppWindow, field: i32, text: &str) {
@@ -298,6 +318,18 @@ fn main() {
 
     select_title(&app, "GitHub");
     camera.shot(
+        "vault-initials",
+        "Website icons off (default): initials and type glyphs",
+    );
+    if std::env::var_os("SHOT_ICONS").is_some() {
+        // Real network fetches from each demo site, like the app does when the user opts in.
+        app.invoke_open_settings(); // loads the other settings into the form first
+        app.set_website_icons(true);
+        app.invoke_settings_changed();
+        app.invoke_select_category(0);
+        select_title(&app, "GitHub");
+    }
+    camera.shot(
         "vault-detail",
         "Item page: username, hidden password, live one-time code",
     );
@@ -327,6 +359,9 @@ fn main() {
     select_title(&app, "GitHub");
     app.invoke_edit_item();
     camera.shot("editor", "Editing an item");
+    click(&app, 1106.0, 250.0); // (?) next to "One-time code secret"
+    camera.shot("editor-hint", "A (?) hint: what to type in the field");
+    click(&app, 800.0, 640.0); // anywhere closes it
     app.invoke_toggle_show_password();
     camera.shot("editor-password-shown", "Editing with the password shown");
     app.invoke_cancel_edit();
@@ -345,6 +380,9 @@ fn main() {
     // ---- settings ----
     app.invoke_open_settings();
     camera.shot("settings", "Settings");
+    click(&app, 729.0, 184.0); // (?) next to "Show website icons"
+    camera.shot("settings-icons-hint", "Privacy note for website icons");
+    click(&app, 1000.0, 720.0);
     type_into(&app, 5, PASSWORD);
     app.invoke_show_kit();
     camera.shot(

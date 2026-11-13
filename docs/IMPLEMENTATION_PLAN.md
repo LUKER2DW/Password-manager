@@ -84,7 +84,10 @@ Rules:
   password, show Secret Key, new Recovery Key — all re-verify the master password)
 - ✅ Auto-lock, screen-capture blocking, every UI string through `@tr()`
 - ✅ Headless end-to-end test of the whole app flow (Slint testing backend)
-- ⬜ Visual review and polish (built without screenshots), dark theme, accessibility pass
+- ✅ Visual review with off-screen screenshots; dark theme by default (light available)
+- ✅ Item icons (opt-in website icons cached encrypted, type glyphs, initials) and "(?)" hints
+  that say what to type in each field
+- ⬜ Accessibility pass
 - ⬜ Windows Hello quick unlock (TPM-backed key slot), YubiKey (FIDO2 `hmac-secret`) slot
 - ⬜ Emergency kit as a printable PDF
 - ⬜ `pt-BR` translation file
