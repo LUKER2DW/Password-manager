@@ -83,16 +83,16 @@ enum Command {
     },
     /// Remove this vault's Secret Key from this device's credential store.
     Forget,
-    /// Import from Bitwarden (JSON/CSV), KeePass (.kdbx) or a browser CSV export.
+    /// Import an export from another password manager or a browser (JSON, CSV or KDBX).
     Import(ImportArgs),
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ImportFormat {
     Auto,
-    Bitwarden,
+    Json,
     Csv,
-    Keepass,
+    Kdbx,
 }
 
 #[derive(Debug, Args)]
@@ -307,8 +307,13 @@ fn run() -> Result<()> {
                 Some(words) => commands::Recipe::Passphrase(generator::PassphraseOptions {
                     words,
                     separator: args.separator,
-                    capitalize: args.capitalize,
+                    case: if args.capitalize {
+                        generator::WordCase::Title
+                    } else {
+                        generator::WordCase::Lower
+                    },
                     include_number: args.number,
+                    wordlist: None,
                 }),
                 None => commands::Recipe::Password(generator::PasswordOptions {
                     length: args.length,
@@ -317,6 +322,7 @@ fn run() -> Result<()> {
                     digits: !args.no_digits,
                     symbols: !args.no_symbols,
                     avoid_ambiguous: args.avoid_ambiguous,
+                    ..generator::PasswordOptions::default()
                 }),
             };
             commands::generate(&recipe, args.copy)
@@ -333,9 +339,9 @@ fn run() -> Result<()> {
                 file: args.file,
                 format: match args.format {
                     ImportFormat::Auto => None,
-                    ImportFormat::Bitwarden => Some(vault_import::Format::BitwardenJson),
+                    ImportFormat::Json => Some(vault_import::Format::Json),
                     ImportFormat::Csv => Some(vault_import::Format::Csv),
-                    ImportFormat::Keepass => Some(vault_import::Format::Kdbx),
+                    ImportFormat::Kdbx => Some(vault_import::Format::Kdbx),
                 },
                 keyfile: args.keyfile,
                 dry_run: args.dry_run,

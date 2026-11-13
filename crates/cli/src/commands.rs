@@ -451,20 +451,23 @@ pub fn import(ctx: &Context, prompter: &mut Prompter, request: ImportRequest) ->
         .unwrap_or_else(|| vault_import::detect_format(&source));
     let mut session = ctx.unlock(prompter)?;
 
-    let report = match format {
-        Format::BitwardenJson => vault_import::import_bitwarden_json(&source)?,
-        Format::Csv => vault_import::import_csv(&source)?,
-        Format::Kdbx => {
-            let keyfile = match &request.keyfile {
-                Some(path) => Some(Zeroizing::new(
-                    std::fs::read(path).with_context(|| format!("reading {}", path.display()))?,
-                )),
-                None => None,
-            };
-            let password = prompter.secret("KeePass database password")?;
-            vault_import::import_kdbx(&source, &password, keyfile.as_deref().map(Vec::as_slice))?
-        }
+    let (password, keyfile) = if format == Format::Kdbx {
+        let keyfile = match &request.keyfile {
+            Some(path) => Some(Zeroizing::new(
+                std::fs::read(path).with_context(|| format!("reading {}", path.display()))?,
+            )),
+            None => None,
+        };
+        (prompter.secret("Database password")?, keyfile)
+    } else {
+        (Zeroizing::new(String::new()), None)
     };
+    let report = vault_import::import(
+        &source,
+        format,
+        &password,
+        keyfile.as_deref().map(Vec::as_slice),
+    )?;
 
     for warning in &report.warnings {
         eprintln!("warning: {warning}");
