@@ -49,6 +49,14 @@ libraries mitigate.
 - **Two secrets to open a vault:** the master password and the Secret Key (stored in the OS
   credential store on enrolled devices and printed on the emergency kit). An optional Recovery
   Key, printed on the kit, opens the vault on its own.
+- **Keyfile (optional):** a third factor mixed into the password key. The device stores only
+  where the file is; kept on removable storage, a stolen vault file, master password and
+  Secret Key still open nothing.
+- **Item lock:** with the vault open, passwords, codes and hidden fields can stay closed
+  until a second check (master password, PIN or another password), for every item or chosen
+  ones; five wrong tries lock the vault. This guards an unlocked, unattended computer and
+  shoulder surfing; it is not extra encryption and not a defence against malware already
+  running as the user.
 - **Windows Hello** quick unlock wraps the vault key with a TPM-backed key that only works on
   that computer after Windows verifies the user; changing the master password revokes it, and
   the master password is required again every 14 days.

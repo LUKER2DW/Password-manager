@@ -66,7 +66,9 @@ On top of that:
 - Window excluded from screen capture (`WDA_EXCLUDEFROMCAPTURE` on Windows, `FLAG_SECURE` on Android).
 - Clipboard: automatic clearing and exclusion from Windows clipboard history and cloud sync.
 - Optional re-prompt: critical items (bank, primary email, crypto) require a fresh check
-  (Hello, biometrics or a hardware-key touch) on every use.
+  on every use. Implemented as the item lock: the master password (re-derived against the
+  file), a PIN or another password, with the vault locking after five wrong tries; Windows
+  Hello or a hardware-key touch as the check comes later.
 - The browser extension stores no secrets; it asks the native app for each credential, and the
   app confirms.
 

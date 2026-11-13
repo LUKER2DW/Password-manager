@@ -1,6 +1,6 @@
-# Vault File Format — v4
+# Vault File Format — v5
 
-> Status: **draft v4**, not stable. v0–v3 files are still read and upgraded to v4 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
+> Status: **draft v5**, not stable. v0–v4 files are still read and upgraded to v5 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
 > Structures are serialized with [postcard](https://postcard.jamesmunns.com/wire-format) 1.x
 > (stable wire format). Integers in the file envelope are little-endian.
 
@@ -9,7 +9,7 @@
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 8 | magic `"PMVAULT\0"` |
-| 8 | 2 | `format_version` (u16) = `3` (`0`, `1` and `2` are read and upgraded) |
+| 8 | 2 | `format_version` (u16) = `5` (`0`–`4` are read and upgraded) |
 | 10 | 4 | `header_len` (u32) |
 | 14 | `header_len` | `header` (postcard `VaultHeader`) |
 | … | 4 | `body_len` (u32) |
@@ -28,7 +28,7 @@
 struct VaultHeader {
     vault_id: [u8; 16],      // random, never changes
     kdf: KdfParams,
-    slots: Vec<KeySlot>,     // exactly one Password slot, at most one Recovery slot
+    slots: Vec<KeySlot>,     // exactly one Password or PasswordKeyfile slot, at most one Recovery slot
 }
 
 struct KdfParams {
@@ -39,14 +39,18 @@ struct KdfParams {
 }
 
 struct KeySlot {
-    kind: SlotKind,          // postcard enum: Password (0), Recovery (1);
-                             // the slot AAD uses 0x01 / 0x02 (CRYPTO.md §6)
+    kind: SlotKind,          // postcard enum: Password (0), Recovery (1), PasswordKeyfile (2, v5);
+                             // the slot AAD uses 0x01 / 0x02 / 0x03 (CRYPTO.md §6)
     wrapped_vault_key: Vec<u8>, // seal(KEK, vault_key, slot AAD)
 }
 ```
 
-The header reveals only: that this is a vault, its random id, the KDF cost, and whether a
-recovery slot exists. It reveals nothing about the items.
+A `PasswordKeyfile` slot takes the place of the `Password` slot when the vault uses a keyfile:
+its KEK also depends on the keyfile (CRYPTO.md §3), so the master password and Secret Key alone
+don't open it. A reader that sees it without a keyfile fails before any hashing.
+
+The header reveals only: that this is a vault, its random id, the KDF cost, whether a
+recovery slot exists and whether a keyfile is needed. It reveals nothing about the items.
 
 ## 3. Body (sealed)
 
@@ -58,6 +62,18 @@ struct VaultBody {
     items: Vec<ItemRecord>,
     folders: Vec<Folder>,    // v1; absent in v0
     settings: VaultSettings, // v2; absent before
+    guard: ItemGuard,        // v5; absent before
+}
+
+struct ItemGuard {           // a second check before guarded items show their secrets
+    all_items: bool,         // every item, or only items with `reprompt`
+    check: GuardCheck,       // postcard enum: Master (0), Pin (1), Password (2)
+    verifier: Option<Verifier>, // present exactly for Pin and Password
+}
+
+struct Verifier {
+    kdf: KdfParams,          // Argon2id at the format's floor, own salt
+    hash: [u8; 32],          // Argon2id(PIN or password)
 }
 
 struct VaultSettings {
@@ -113,6 +129,7 @@ struct ItemData {
     password_history: Vec<PasswordChange>, // v2: earlier passwords, oldest first
     password_changed_at: i64,              // v2: when the password was set; 0 = unknown
     icon_url: String,                      // v3: website (or picture link) whose image stands for the item; "" = urls[0]
+    reprompt: bool,                        // v5: the item is guarded even when `guard.all_items` is off
 }
 
 struct PasswordChange {
@@ -136,10 +153,22 @@ struct CustomField {
 
 A v0 file has no `folders` in the body and its items end after `updated_at`; a v1 file has no
 `settings` and its items end after `recovery_codes`; a v2 file's folders end after `name` and its
-items after `password_changed_at`; a v3 file's folders end after `color` (its items already have
-the current layout). When a v0–v2 file is opened, every item is decrypted with its old layout and
+items after `password_changed_at`; a v3 file's folders end after `color`; v3 and v4 items end
+after `icon_url`. When an older file is opened, every item is decrypted with its old layout and
 re-encrypted with the current layout in memory (same ids and revisions, new item keys); the next
-save writes a v4 file. Fixtures for every version are committed
+save writes a v5 file.
+
+v0–v4 bodies have no `guard` (it defaults to: only marked items, master password).
+
+The item guard is a rule for clients, not extra encryption: guarded items are sealed like any
+other, and whoever holds the vault key can read them. With the vault open, a client shows a
+guarded item's title, username, websites, plain fields and notes (not a secure note's text),
+and keeps its password, one-time code, recovery codes, hidden fields, card number and history
+closed until the check passes: the master password re-derived against the file, or the PIN
+(4–8 digits) or password (6+ characters) matching `verifier`. Editing and deleting need the
+check too. After 5 wrong tries the client locks the whole vault; that limit is what makes a
+short PIN acceptable, since the hash itself (inside the encrypted body) would fall to anyone
+who already has the vault key. Fixtures for every version are committed
 (`crates/core/tests/fixtures`) and must keep opening.
 
 When an item's password changes, `Vault::update_item` moves the old one into

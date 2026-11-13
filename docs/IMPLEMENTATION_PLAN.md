@@ -159,6 +159,17 @@ Rules:
   Settings, applied after a master password check, with the unlock time on this computer
 - ✅ Buttons, checkboxes and dropdowns react to the first click (a focus scope on top used to
   take it)
+- ✅ Keyfile (format v5): an optional third factor next to the master password and Secret Key.
+  Created or chosen in Settings after a master password check, asked for on the lock screen
+  (its location is remembered per device, never the key), removed the same way; `vault keyfile
+  create|use|remove` and `--vault-keyfile` in the CLI. The Recovery Key still opens the vault
+- ✅ Item lock (format v5): with the vault open, an item still shows its name, username,
+  website, plain fields and notes, but its password, one-time code, recovery codes, hidden
+  fields and history open only after a second check. Settings choose the check (master
+  password, a 4–8 digit PIN, or another password) and whether it covers every item or only
+  the ones marked in the editor; 5 wrong tries lock the whole vault. Edit, delete and the
+  right-click menu follow the lock, and locked items' codes leave the Authenticator page.
+  The mark is imported from and exported to the `reprompt` field of other managers
 - ⬜ Attachments, tags; passkeys
 - **Done when:** daily use on Windows is possible with a test vault.
 

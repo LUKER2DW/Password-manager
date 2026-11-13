@@ -52,7 +52,8 @@ filesystem policy** beyond atomic writes.
 |---|---|
 | `aead.rs` | Key-committing XChaCha20-Poly1305 (`seal` / `open`) |
 | `kdf.rs` | Argon2id with a hard floor and ceiling on parameters |
-| `keys.rs` | Secret Key, Recovery Key, vault key, subkeys, device KEK |
+| `keys.rs` | Secret Key, Recovery Key, keyfile, vault key, subkeys, device KEK |
+| `guard.rs` | Item guard: which items ask for a second check, and the hashed PIN or password |
 | `encoding.rs` | Crockford Base32 for the printed keys |
 | `padding.rs` | Length-hiding padding for items and body |
 | `format.rs` | File envelope, header, body, and the layouts of older versions |
@@ -93,7 +94,7 @@ Importers only produce `ItemData`; they never touch keys.
 ### 2.4 `crates/cli` (vault-cli)
 
 `vault init | info | list | add | show | edit | rm | generate | totp | passwd | recover | kit |
-forget | import`. Same vault and device state as the desktop app.
+forget | keyfile | import`. Same vault and device state as the desktop app.
 
 ### 2.5 `crates/desktop` (vault-desktop)
 
@@ -104,6 +105,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller.rs` | Wires every callback, background jobs, timers, state |
 | `src/controller/features.rs` | Generator, password history, health, leak check, import review, vault settings, unlock protection (Argon2id level) |
 | `src/controller/folders.rs` | Folder dialog (create, settings, picture preview, delete) and reordering |
+| `src/controller/protection.rs` | Keyfile (unlock, set, remove) and the item lock (PIN, password or master password before secrets show) |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
 | `src/view.rs` | Pure presentation rules (unit-tested): filters, tints, crack times, dates |
 | `src/favicon.rs` | Opt-in website icons, fetched directly from each site |
@@ -183,7 +185,11 @@ to review layout; do not drive the real desktop to check UI.
    Plain-text exports the app reads are offered for secure wiping afterwards.
 7. **Never overwrite a vault changed by someone else.** Saves compare the file's hash with the
    one last read or written (`changed_outside`) and refuse otherwise.
-8. **Fail closed.** Unknown format versions, KDF parameters outside the floor/ceiling, duplicate
+8. **A locked item's secrets are reached only through `selected_item()`**, which returns
+   nothing while the item waits for its check. New code that shows or copies a secret, or
+   changes the item, must go through it; `selected_item_raw` is only for what a locked item
+   still shows (title, username, website, plain fields).
+9. **Fail closed.** Unknown format versions, KDF parameters outside the floor/ceiling, duplicate
    ids, and any AEAD failure are errors, never fallbacks.
 
 ### 4.2 Project rules
