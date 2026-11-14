@@ -103,11 +103,13 @@ forget | keyfile | import`. Same vault and device state as the desktop app.
 
 The extension holds no secrets. `origin.rs` decides which saved website belongs to which page
 (exact scheme, host and port; https only), `protocol.rs` is the JSON it exchanges with the
-app, `service.rs` answers from an open vault, `host.rs` + `main.rs` are the native host
+app, `pairing.rs` is the connection key and the proof on every request, `service.rs` answers
+from an open vault (with the item lock as a `Gate`), `host.rs` + `main.rs` are the native host
 (`vault-browser-host`) that relays between the browser and the app's pipe. In `extension/`,
-`popup.js` is the whole extension and `fill.js` the one function that runs in a page. See
+`popup.js` is the extension's window, `link.js` its connection key and request signing, and
+`fill.js` the one function that runs in a page. See
 [extension/README.md](extension/README.md). Tests: `cargo test -p vault-browser` and
-`node --test extension/test/fill.test.mjs`.
+`node --test extension/test/fill.test.mjs extension/test/link.test.mjs`.
 
 Rules for this part: no UI is ever injected into a page; no new permission, content script or
 background worker without a threat-model note; the app, not the extension, decides what a

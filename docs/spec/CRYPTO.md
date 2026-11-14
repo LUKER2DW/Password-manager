@@ -92,6 +92,26 @@ guard key is in memory). `sealed` sits inside the item, which is then sealed as 
 tampering, swapping and rollback protection are unchanged; the AAD ties the secrets to their
 item. The guard key leaves memory when the secrets are locked again.
 
+**On one device, Windows Hello can stand in for the PIN.** The security chip signs a fixed
+challenge after verifying the user (as in §3.1, with a key of its own), and
+
+```
+KEK_guard_device = HKDF-SHA-256(ikm = device_secret, salt = vault_id, info = "vault-v0/kek/guard-device")
+sealed = seal(KEK_guard_device, guard_key,
+              aad = "vault-v0/guard-device" ‖ vault_id ‖ SHA-256(wrapped check slot))
+```
+
+is kept on the device (`item-lock-<vault id>.bin`), never in the vault file. A new PIN or
+password changes the check slot and so revokes it. Unlike a short PIN, this key cannot be
+guessed offline: the chip holds it and limits tries.
+
+**Browser extension pairing** (not part of the vault file): the app and the connected
+extension share a random 256-bit key. Each request carries a counter (the sender's clock in
+milliseconds) and `HMAC-SHA-256(key, counter as 8 bytes LE ‖ request text)`; the app accepts
+it when the MAC verifies, the counter is within two minutes of its clock and larger than the
+last one seen. The app keeps the key sealed with the vault (`subkey("local/browser-pairing")`,
+§6); the extension keeps it as a non-extractable browser key.
+
 This puts a second key between an unlocked vault and its most sensitive data. It does not
 make a short PIN strong: with the vault key in hand, 10 000 four-digit PINs cost 10 000
 Argon2id runs.

@@ -106,8 +106,16 @@ Candidate libraries: the **RustCrypto** ecosystem (`argon2`, `chacha20poly1305`,
 - Exact origin matching (scheme + host + port), decided by the app with the WHATWG URL rules
   (`crates/browser/src/origin.rs`); the top frame only; no filling over plain HTTP. A password
   leaves the app only for the one login picked, and only for a page of its origin.
-- Nothing is answered while the vault is locked, and logins behind the item lock are listed
-  but not handed out until opened in the app.
+- **Pairing:** the first time, the extension asks to be connected; the app shows a code and
+  the person allows it there. From then on every request is signed with the shared key
+  (HMAC-SHA-256 over a counter and the request), so a program that merely starts the native
+  host gets nothing. The extension never holds the master password.
+- Nothing is answered while the vault is locked. A login behind the item lock is opened for
+  one fill only: by **Windows Hello** (the app shows the system's prompt; nothing is typed in
+  the browser) or by the item lock's **PIN**, typed in the extension's own window and counted
+  with the app's wrong tries. With the master password as the check, it is opened in the app.
+- A login is used on more sites only by choice: every website saved in it counts, and
+  `*.example.com` covers that site and everything under it.
 - On Android: Autofill Service + Credential Manager (`CredentialProviderService`, Android 14+),
   validating the app package and signature (defense against AutoSpill).
 

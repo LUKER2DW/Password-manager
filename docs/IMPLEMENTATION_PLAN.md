@@ -196,7 +196,14 @@ Rules:
   is announced in the app
 - ✅ Tests: origin matching and address tricks, the protocol against a vault, the pipe, the
   relay, the page-side fill function (`node --test`), a manual clickjacking page
+- ✅ Pairing: the extension is connected once, with a code allowed in the app; every request
+  is signed, replayed or unsigned ones are refused; Settings can disconnect it
+- ✅ Locked logins: opened for one fill by Windows Hello (the item lock can now be opened by
+  Hello in the app too, with its guard key wrapped by the security chip) or by the PIN typed
+  in the extension's window; Ctrl+Shift+L opens the extension
+- ✅ `*.example.com` as a login's website covers the site and its subdomains
 - ⬜ Checked by hand in Chrome and Edge with a test vault
+- ⬜ Encrypted export (a backup protected by a password)
 - ⬜ Offer to save a new login; fill one-time codes; pick among subdomains by choice
   ("this login also belongs to…"); Firefox
 - ⬜ Installer that puts the app and the host side by side; store listing

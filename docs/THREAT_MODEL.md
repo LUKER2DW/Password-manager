@@ -74,8 +74,11 @@ On top of that:
 - The browser extension stores no secrets; it asks the native app for each credential. The
   person picks the login in the extension's own window (never in the page), the app decides
   whether the page's origin is the login's, and announces every fill.
-  Known limit: a program already running as the same Windows user can start the native host
-  itself and ask like the extension does. It gets nothing while the vault is locked and
+  Requests are accepted only from the extension the person connected (pairing, with a code
+  allowed in the app), and a locked login needs Windows Hello or the item lock's PIN for
+  each fill.
+  Known limit: a program already running as the same Windows user can copy the browser's
+  stored data, pairing key included, and then ask like the extension does. It gets nothing while the vault is locked and
   nothing behind the item lock, and it must name the exact site of a login to get it; the
   notice in the app makes it visible. The same program could already read an unlocked
   vault's memory, so the link adds no new reach, but it is one more reason for the item lock.
