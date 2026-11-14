@@ -106,10 +106,7 @@ impl Server {
 
 /// Makes a [`Server::serve_one`] that is waiting return, so its thread can stop.
 pub fn wake(name: &str) {
-    let _ = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(name);
+    imp::wake(name);
 }
 
 /// The host's end: sends one message to the app and returns its answer. Fails when the app is
@@ -200,6 +197,16 @@ mod imp {
 
     fn wide(text: &str) -> Vec<u16> {
         text.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    /// Opens and closes the pipe. Whoever holds the name may identify this program but not
+    /// act as it (the name could be held by another account's program).
+    pub(super) fn wake(name: &str) {
+        let _ = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .security_qos_flags(SECURITY_IDENTIFICATION)
+            .open(name);
     }
 
     pub(super) fn register(manifest: &Path) -> Result<()> {
@@ -485,6 +492,8 @@ mod imp {
     }
 
     pub(super) fn unregister() {}
+
+    pub(super) fn wake(_name: &str) {}
 
     pub(super) fn pipe_name() -> Result<String> {
         bail!("the browser extension link is available on Windows only for now")
