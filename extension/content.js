@@ -36,7 +36,37 @@
     set("border", "0");
     set("color-scheme", "normal");
     set("background", "transparent");
+    // The frosted glass behind the card. It is a separate element under the frame, never an
+    // effect on the frame itself: with a blur, filter, clip or opacity on the frame the
+    // browser no longer vouches that it is fully visible, and every click there would be
+    // refused. This layer only blurs the page behind; it takes no clicks.
+    const glass = document.createElement("div");
+    const paint = (name, value) => glass.style.setProperty(name, value, "important");
+    paint("all", "initial");
+    paint("position", "fixed");
+    paint("z-index", "2147483646");
+    paint("border-radius", "12px");
+    paint("pointer-events", "none");
+    paint("backdrop-filter", "blur(14px) saturate(1.3)");
+    frame.glass = glass;
     return frame;
+  }
+
+  /** Puts the glass exactly under the card: the frame minus the card's margins. */
+  function fitGlass(frame, up) {
+    const glass = frame.glass;
+    if (!glass) return;
+    const box = frame.getBoundingClientRect();
+    const corner = frame.dataset.which === "save";
+    const [top, bottom] = corner ? [10, 10] : up ? [14, 9] : [9, 14];
+    glass.style.setProperty("left", `${box.left + 10}px`, "important");
+    glass.style.setProperty("top", `${box.top + top}px`, "important");
+    glass.style.setProperty("width", `${Math.max(0, box.width - 20)}px`, "important");
+    glass.style.setProperty("height", `${Math.max(0, box.height - top - bottom)}px`, "important");
+  }
+
+  function show(frame) {
+    document.documentElement.append(frame.glass, frame);
   }
 
   function place() {
@@ -56,9 +86,11 @@
     // Only the part after "#" changes: the frame learns where to draw its arrow, unreloaded.
     const hash = `#${frame.dataset.which}${fits ? "" : ":up"}`;
     if (!frame.src.endsWith(hash)) frame.src = chrome.runtime.getURL(`inline.html${hash}`);
+    fitGlass(frame, !fits);
   }
 
   function close(which) {
+    frames[which]?.glass?.remove();
     frames[which]?.remove();
     frames[which] = null;
     if (which === "logins") anchor = null;
@@ -76,7 +108,7 @@
     close("logins");
     anchor = field;
     frames.logins = makeFrame(fresh ? "new" : "logins");
-    document.documentElement.append(frames.logins);
+    show(frames.logins);
     place();
   }
 
@@ -87,7 +119,8 @@
     frame.style.setProperty("right", "8px", "important");
     frame.style.setProperty("height", "140px", "important");
     frames.save = frame;
-    document.documentElement.append(frame);
+    show(frame);
+    fitGlass(frame, false);
   }
 
   document.addEventListener("focusin", (event) => offer(event.target), true);
@@ -151,6 +184,7 @@
       const frame = frames[message.which === "save" ? "save" : "logins"];
       frame?.style.setProperty("height", `${message.height}px`, "important");
       place();
+      if (frame && frame === frames.save) fitGlass(frame, false);
     }
   });
 

@@ -91,7 +91,10 @@ On top of that:
   site the login is saved for, top frame only; and a locked login still needs Windows Hello
   (the system's own prompt, which a page can't click) or the PIN, typed in the extension's
   window. New vaults lock every item by default for that reason. The site's icon in the frame
-  comes from the browser's own cache (`favicon` permission): nothing is fetched for it. Residual risk: a site with
+  comes from the browser's own cache (`favicon` permission): nothing is fetched for it.
+  The frosted look comes from a separate, click-through layer under the frame: a blur,
+  clip or opacity on the frame itself would make the browser stop vouching for its
+  visibility (checked: `isVisible` turns false), and the click check would refuse every click. Residual risk: a site with
   an XSS flaw can read what is filled into its own page, as it can read what the person types.
 - **What a page sends when a form is submitted**: the content script reads the typed username
   and password (in the extension's isolated world) and passes them to the background worker,

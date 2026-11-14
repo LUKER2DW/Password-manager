@@ -42,9 +42,13 @@ function genuine(event) {
   return event.isTrusted && visibleSince > 0 && performance.now() - visibleSince >= VISIBLE_FOR_MS;
 }
 
+/** Tells the page how tall the frame must be: the card, its arrow and its shadow. */
 function fit() {
-  say({ kind: "frame-size", which, height: Math.ceil(document.body.getBoundingClientRect().height) });
+  const card = document.querySelector(".card");
+  const below = parseFloat(getComputedStyle(card).marginBottom) || 0;
+  say({ kind: "frame-size", which, height: Math.ceil(card.getBoundingClientRect().bottom + below) });
 }
+window.addEventListener("hashchange", fit);
 
 /** The site's icon as the browser already has it (nothing is fetched), or its first letter. */
 function siteIcon(origin, letter) {

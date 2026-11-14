@@ -1,16 +1,17 @@
 /* The small card a page shows under a field: compact, rounded, with a little arrow pointing
    at the field. The frame itself is transparent; only the card is drawn, and it is opaque. */
 :root {
-  --pop: #1d242e;
-  --pop-hover: #29323e;
-  --pop-rule: #2e3846;
+  /* Slightly see-through: the page shows faintly, blurred by the glass layer under it. */
+  --pop: rgba(27, 34, 44, 0.86);
+  --pop-hover: rgba(255, 255, 255, 0.07);
+  --pop-rule: rgba(255, 255, 255, 0.08);
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --pop: #ffffff;
-    --pop-hover: #eef1f5;
-    --pop-rule: #e2e7ee;
+    --pop: rgba(255, 255, 255, 0.84);
+    --pop-hover: rgba(20, 30, 45, 0.06);
+    --pop-rule: rgba(20, 30, 45, 0.1);
   }
 }
 
@@ -37,18 +38,21 @@ body {
     0 0 0 1px var(--pop-rule);
 }
 
-/* The arrow: a small rotated square under the card's top edge, near the field's start. */
+/* The arrow: a small rotated square whose outer half sticks out of the card's top edge,
+   centred on the first row's icon. Only that half is drawn, so the see-through card is not
+   darkened twice where they overlap. */
 .card::before {
   content: "";
   position: absolute;
   top: -6px;
-  left: 20px;
+  left: 19px;
   width: 12px;
   height: 12px;
   background: var(--pop);
   box-shadow: -1px -1px 0 0 var(--pop-rule);
   transform: rotate(45deg);
   border-top-left-radius: 2px;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
 }
 
 body.up .card {
@@ -61,6 +65,7 @@ body.up .card::before {
   box-shadow: 1px 1px 0 0 var(--pop-rule);
   border-top-left-radius: 0;
   border-bottom-right-radius: 2px;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
 }
 
 body.corner .card {
@@ -111,9 +116,9 @@ section {
 .key,
 .letter {
   flex: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
 }
 
 .letter {
@@ -121,7 +126,7 @@ section {
   place-items: center;
   background: var(--marker);
   color: var(--on-marker);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -143,8 +148,8 @@ section {
 }
 
 .key svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
 }
 
 .lines {
@@ -246,8 +251,8 @@ hr {
 
 .save-head .favicon,
 .save-head .letter {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
 }
 
 #save-note {
