@@ -237,25 +237,65 @@ function eye(button, open) {
 
 // ---- rows ----
 
-function row(entry, listing, { detail, onPick, onMore }) {
+/** The address a saved website stands for (`example.com`, `*.example.com` → https://…). */
+function siteUrl(site) {
+  const bare = (site || "").trim().replace(/^\*\./, "");
+  if (!bare) return "";
+  return originOf(/^https?:\/\//i.test(bare) ? bare : `https://${bare}`);
+}
+
+/**
+ * The site's icon as the browser already has it (nothing is fetched), or a letter tile.
+ * `size` is the shown size in pixels.
+ */
+function siteIcon(site, letter, size = 24) {
+  const tile = () => {
+    const span = document.createElement("span");
+    span.className = "tile";
+    span.textContent = (letter || "?").trim().charAt(0);
+    return span;
+  };
+  const url = siteUrl(site);
+  if (!url) return tile();
+  const img = document.createElement("img");
+  img.className = "favicon";
+  img.alt = "";
+  img.src = `${chrome.runtime.getURL("/_favicon/")}?pageUrl=${encodeURIComponent(url)}&size=${size * 2}`;
+  img.addEventListener("error", () => img.replaceWith(tile()));
+  return img;
+}
+
+function lockIcon(title) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "lock");
+  const label = document.createElementNS(ns, "title");
+  label.textContent = title;
+  const body = document.createElementNS(ns, "rect");
+  for (const [name, value] of Object.entries({ x: 4, y: 10.5, width: 16, height: 10.5, rx: 2.5 })) {
+    body.setAttribute(name, String(value));
+  }
+  const shackle = document.createElementNS(ns, "path");
+  shackle.setAttribute("d", "M8 10.5V7.5a4 4 0 0 1 8 0v3");
+  svg.append(label, body, shackle);
+  return svg;
+}
+
+function row(entry, listing, { detail, site, onPick, onMore }) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "login";
-  const tile = document.createElement("span");
-  tile.className = "tile";
-  tile.textContent = (entry.title || entry.username || "?").trim().charAt(0);
   const title = document.createElement("span");
   title.className = "title";
-  title.textContent = entry.title;
+  title.textContent = entry.title || entry.username || t("noUsername");
   const sub = document.createElement("span");
   sub.className = "detail";
   sub.textContent = detail || t("noUsername");
-  button.append(tile, title, sub);
+  button.append(siteIcon(site ?? entry.site, entry.title || entry.username), title, sub);
   if (entry.locked) {
-    const asks = document.createElement("span");
-    asks.className = "asks";
-    asks.textContent = asksFor(listing) || t("lockedItem");
-    button.append(asks);
+    const asks = asksFor(listing);
+    button.append(lockIcon(asks ? t("entryAsks", asks) : t("lockedItem")));
   }
   button.addEventListener("click", () => onPick(entry));
   if (!onMore) return button;
@@ -292,6 +332,7 @@ function showSite() {
   const rows = reply.items.map((entry) =>
     row(entry, reply, {
       detail: entry.username,
+      site: reply.origin,
       onPick: (picked) => {
         for (const other of document.querySelectorAll("#list button")) other.disabled = true;
         fill(picked, showSite);
@@ -380,7 +421,7 @@ function showEntry(entry, listing, back) {
   view("entry", "foot");
   $("entry-back").textContent = t("backToList");
   $("entry-back").onclick = back;
-  $("entry-tile").textContent = (entry.title || entry.username || "?").trim().charAt(0);
+  $("entry-tile").replaceChildren(siteIcon(entry.site, entry.title || entry.username, 32));
   $("entry-title").textContent = entry.title;
   for (const name of ["username", "password", "code", "site"]) {
     $(`label-${name}`).textContent = t(`label_${name}`);

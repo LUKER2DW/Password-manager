@@ -51,11 +51,11 @@ p {
 
 .login {
   display: grid;
-  grid-template-columns: 32px 1fr auto;
-  column-gap: 10px;
+  grid-template-columns: 24px 1fr auto;
+  column-gap: 12px;
   align-items: center;
   width: 100%;
-  padding: 8px;
+  padding: 8px 10px;
   border: 0;
   border-radius: 6px;
   background: none;
@@ -79,19 +79,35 @@ p {
   color: var(--graphite);
 }
 
+/* The site's own icon, or its first letter on the highlighter yellow. */
+.favicon,
 .tile {
   grid-row: 1 / span 2;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+
+.tile {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 7px;
-  background: var(--panel);
-  border: 1px solid var(--rule);
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 600;
+  background: var(--marker);
+  color: var(--on-marker);
+  font-size: 13px;
+  font-weight: 700;
   text-transform: uppercase;
+}
+
+.lock {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: var(--graphite);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .title {

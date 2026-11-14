@@ -43,10 +43,43 @@ body > :last-child:not(footer) {
   background: var(--hover);
 }
 
+#tabs button {
+  position: relative;
+}
+
 #tabs button[aria-pressed="true"] {
   color: var(--ink);
   font-weight: 600;
-  background: var(--panel);
+}
+
+/* The page you are on is underlined with the highlighter, as in the app: a slightly uneven
+   stroke drawn in from the left. */
+#tabs button::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 1px;
+  height: 2.5px;
+  border-radius: 2px;
+  background: var(--marker);
+  transform: scaleX(0) rotate(-0.6deg);
+  transform-origin: left center;
+  transition: transform 260ms ease-out;
+}
+
+#tabs button[aria-pressed="true"]::after {
+  transform: scaleX(1) rotate(-0.6deg);
+}
+
+#tabs button[aria-pressed="true"]:hover {
+  background: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #tabs button::after {
+    transition: none;
+  }
 }
 
 /* ---- the site ---- */
@@ -366,7 +399,15 @@ button.icon:active svg {
 #entry .who {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+}
+
+.entry-icon .favicon,
+.entry-icon .tile {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  font-size: 16px;
 }
 
 #entry-title {

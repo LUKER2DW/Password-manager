@@ -45,9 +45,9 @@
     paint("all", "initial");
     paint("position", "fixed");
     paint("z-index", "2147483646");
-    paint("border-radius", "12px");
+    paint("border-radius", "14px");
     paint("pointer-events", "none");
-    paint("backdrop-filter", "blur(14px) saturate(1.3)");
+    paint("backdrop-filter", "blur(20px) saturate(1.7)");
     frame.glass = glass;
     return frame;
   }
