@@ -3,6 +3,7 @@
 //! Everything here is about *where* things live on this device and *how* the OS is asked to
 //! protect them. Cryptography stays in `vault-core`.
 
+pub mod browser_link;
 pub mod browsers;
 pub mod clipboard;
 pub mod device;

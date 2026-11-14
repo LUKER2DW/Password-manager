@@ -44,6 +44,8 @@ pub struct Settings {
     pub dark_theme: bool,
     /// Download website icons (contacts each saved site once). Off by default for privacy.
     pub website_icons: bool,
+    /// Let the browser extension ask this app for logins. Off by default.
+    pub browser_extension: bool,
     /// The generator's last options.
     pub generator: GeneratorPrefs,
 }
@@ -55,6 +57,7 @@ impl Default for Settings {
             clipboard_clear_seconds: 20,
             dark_theme: true,
             website_icons: false,
+            browser_extension: false,
             generator: GeneratorPrefs::default(),
         }
     }
