@@ -6,19 +6,25 @@
 // visible, with nothing drawn over it, for a moment.
 //
 // The frame's address says what to show and where the field is: `#logins`, `#new` or
-// `#save`, with `:up` when the card sits above the field. The content script changes only
-// that part when the card has to move above, which doesn't reload this page.
+// `#save`, with `:up` when the card sits above the field, then `|` and the page's colour
+// scheme. The content script changes only that part when the card has to move above, which
+// doesn't reload this page.
 
 const t = (key, ...parts) => chrome.i18n.getMessage(key, parts) || key;
 const $ = (id) => document.getElementById(id);
 const say = (message) => chrome.runtime.sendMessage(message).catch(() => undefined);
-const [mode = "logins"] = location.hash.slice(1).split(":");
+const [mode = "logins"] = location.hash.slice(1).split("|")[0].split(":");
 // The card under a field (logins or a new password) and the one in the corner (save).
 const which = mode === "save" ? "save" : "logins";
 
 function placement() {
-  document.body.classList.toggle("up", location.hash.endsWith(":up"));
+  const [where, scheme = "normal"] = location.hash.slice(1).split("|");
+  document.body.classList.toggle("up", where.endsWith(":up"));
   document.body.classList.toggle("corner", mode === "save");
+  // The page's colour scheme, so the browser draws no opaque box behind this frame (see
+  // content.js). Only known words are taken.
+  const words = decodeURIComponent(scheme);
+  document.documentElement.style.colorScheme = /^(normal|only|light|dark| )+$/.test(words) ? words : "normal";
 }
 placement();
 window.addEventListener("hashchange", placement);

@@ -49,9 +49,50 @@
   let anchor = null;
   const dismissed = new WeakSet();
 
+  // The page's colour scheme (`dark`, `light dark`…, or `normal`). The frame element and the
+  // frame's page both take it: when the frame's scheme differs from the page's, the browser
+  // paints an opaque box (white or dark) behind the whole frame.
+  function pageScheme() {
+    const declared = getComputedStyle(document.documentElement).colorScheme;
+    if (declared && declared !== "normal") return declared;
+    const meta = document.querySelector('meta[name="color-scheme" i]')?.content?.trim();
+    return meta && /^[a-z ]+$/i.test(meta) ? meta : "normal";
+  }
+
+  /** The frame's address: what to show, `:up` above the field, and the page's scheme. */
+  function frameUrl(which, up = false) {
+    return chrome.runtime.getURL(`inline.html#${which}${up ? ":up" : ""}|${encodeURIComponent(pageScheme())}`);
+  }
+
+  // The box the person sees around a field: often a bordered wrapper taller than the input
+  // inside it (a field with a show-password button, for one). Up to three levels of parents
+  // that hug the input and draw a border, background or shadow.
+  function visibleBox(field) {
+    let box = field.getBoundingClientRect();
+    let node = field.parentElement;
+    for (let level = 0; level < 3 && node && node !== document.body; level++, node = node.parentElement) {
+      const outer = node.getBoundingClientRect();
+      const hugs =
+        outer.left <= box.left + 1 &&
+        outer.right >= box.right - 1 &&
+        outer.top <= box.top + 1 &&
+        outer.bottom >= box.bottom - 1 &&
+        outer.height - box.height <= 24 &&
+        outer.width - box.width <= 120;
+      if (!hugs) break;
+      const style = getComputedStyle(node);
+      const drawn =
+        parseFloat(style.borderBottomWidth) > 0 ||
+        style.boxShadow !== "none" ||
+        !/rgba\(0, 0, 0, 0\)|transparent/.test(style.backgroundColor);
+      if (drawn) box = outer;
+    }
+    return box;
+  }
+
   function makeFrame(which) {
     const frame = document.createElement("iframe");
-    frame.src = chrome.runtime.getURL(`inline.html#${which}`);
+    frame.src = frameUrl(which);
     frame.dataset.which = which;
     frame.title = "Vault";
     frame.setAttribute("scrolling", "no");
@@ -63,7 +104,7 @@
     set("width", "300px");
     set("height", "80px");
     set("border", "0");
-    set("color-scheme", "normal");
+    set("color-scheme", pageScheme());
     set("background", "transparent");
     // No filter, blur, clip or opacity on the frame itself: with one, the browser no longer
     // vouches that the frame is fully visible, and every click in it would be refused. The
@@ -79,7 +120,7 @@
     const frame = frames.logins;
     if (!frame || !anchor) return;
     if (!anchor.isConnected) return close("logins");
-    const box = anchor.getBoundingClientRect();
+    const box = visibleBox(anchor);
     const height = parseFloat(frame.style.height) || 80;
     // The card's arrow points at the field from just below it (or above, when there is no
     // room below); the card lines up with the field's start.
@@ -90,8 +131,8 @@
     frame.style.setProperty("top", `${top}px`, "important");
     frame.style.setProperty("left", `${left}px`, "important");
     // Only the part after "#" changes: the frame learns where to draw its arrow, unreloaded.
-    const hash = `#${frame.dataset.which}${fits ? "" : ":up"}`;
-    if (!frame.src.endsWith(hash)) frame.src = chrome.runtime.getURL(`inline.html${hash}`);
+    const url = frameUrl(frame.dataset.which, !fits);
+    if (frame.src !== url) frame.src = url;
   }
 
   function close(which) {

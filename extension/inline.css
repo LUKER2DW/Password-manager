@@ -1,29 +1,29 @@
 /* The small card a page shows under a field: compact, rounded, with a little arrow pointing
    at the field. The frame itself is transparent; only the card is drawn.
 
-   Half see-through: the page behind shows faintly, the text stays clear. Frosted glass (blurring the page behind)
+   Mostly opaque: the page behind shows only faintly, the text stays clear. Frosted glass (blurring the page behind)
    would need `backdrop-filter` on the frame, since a frame can't reach the page's pixels from
    inside; and with any filter on the frame the browser stops vouching that it is fully
    visible, so every click in it would be refused (see inline.js). Tested: the frame then
    reports `isVisible: false`. A faint sheen at the top and a clear rim stand in for it. */
 :root {
-  --pop: rgba(22, 28, 37, 0.9);
+  --pop: rgba(22, 28, 37, 0.94);
   --pop-sheen: rgba(255, 255, 255, 0.05);
   --pop-hover: rgba(255, 255, 255, 0.08);
   --pop-rule: rgba(255, 255, 255, 0.16);
 }
 
-/* This frame's page keeps the browser's default colour scheme, like the frame element the
-   page holds: when the two differ, the browser paints the whole frame with an opaque
-   background (the dark box seen around the card). Dark and light still follow the system
-   through the media queries. */
+/* This frame's page takes the colour scheme of the page around it (set from inline.js, as
+   the frame element's is from content.js): when the two differ, the browser paints the whole
+   frame with an opaque background (a white or dark box around the card). Dark and light
+   still follow the system through the media queries. */
 :root {
   color-scheme: normal;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --pop: rgba(255, 255, 255, 0.92);
+    --pop: rgba(255, 255, 255, 0.95);
     --pop-sheen: rgba(255, 255, 255, 0.5);
     --pop-hover: rgba(20, 30, 45, 0.06);
     --pop-rule: rgba(20, 30, 45, 0.12);
