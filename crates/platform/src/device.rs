@@ -48,6 +48,9 @@ pub struct Settings {
     pub browser_extension: bool,
     /// Closing the window keeps the app running in the notification area. On by default.
     pub close_to_tray: bool,
+    /// The browser extension can fill logins while the vault is locked, with Windows Hello
+    /// for each one. On by default; it needs the item lock's Windows Hello.
+    pub browser_locked_fill: bool,
     /// The generator's last options.
     pub generator: GeneratorPrefs,
 }
@@ -61,6 +64,7 @@ impl Default for Settings {
             website_icons: false,
             browser_extension: false,
             close_to_tray: true,
+            browser_locked_fill: true,
             generator: GeneratorPrefs::default(),
         }
     }
