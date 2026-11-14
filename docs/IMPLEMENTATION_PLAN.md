@@ -218,6 +218,9 @@ Rules:
   after a sign-in
 - ✅ History of generated passwords in the app (sealed per vault on this computer, behind the
   item lock, cleared on demand)
+- ✅ Fill while the vault is locked, with Windows Hello for each password (a file only
+  Windows Hello opens); the connection survives locking; replay check tolerant of requests
+  sent at once
 - ⬜ Fill one-time codes; update a saved password after a change; Firefox
 - ⬜ Installer that puts the app and the host side by side; store listing
 - **Done when:** fills logins on Chromium with confirmation; clickjacking test page fails to leak.

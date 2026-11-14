@@ -111,6 +111,10 @@ Candidate libraries: the **RustCrypto** ecosystem (`argon2`, `chacha20poly1305`,
   item lock), the generator and a form for a new login. The app announces each fill.
 - Copying from the extension is done by the app (`copy` request): the value never reaches the
   browser, and the clipboard copy is kept out of Windows clipboard history.
+- With the vault locked the app still answers, from a file kept for the extension
+  (`vault_core::locked_fill`, `vault_browser::locked`): logins are listed, and one password
+  leaves after Windows Hello. Saving, generating and one-time codes wait for the vault to be
+  unlocked. See CRYPTO.md §3.4.
 - Exact origin matching (scheme + host + port), decided by the app with the WHATWG URL rules
   (`crates/browser/src/origin.rs`); the top frame only; no filling over plain HTTP. A password
   leaves the app only for the one login picked, and only for a page of its origin.

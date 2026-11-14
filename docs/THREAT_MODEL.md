@@ -107,6 +107,19 @@ On top of that:
   done by the app, so the clipboard copy stays out of Windows clipboard history.
 - **Tray mode** keeps an unlocked vault in memory while the window is hidden; the idle lock
   still applies, and the tray menu locks at once.
+- **Filling while the vault is locked** (setting, on by default; needs the item lock's
+  Windows Hello): the passwords of logins sit in a file of their own, under a key that only
+  Windows Hello opens (TPM signature after the person is verified), so a locked vault can fill
+  one login at a time with the person's face, fingerprint or Windows PIN. The item lock's PIN
+  does not open it: a copied file could be tried against every PIN offline, a TPM-backed
+  signature can't. What changes: names, usernames and websites of logins are readable to
+  malware running as the same Windows user (DPAPI), as are the extension's connection key
+  and the browser's own data; passwords still need Windows Hello. Turning the setting off
+  deletes the file.
+- **Requests are checked against replay** by counter: the sender's clock in ms × 1000 plus a
+  random part; each counter is accepted once and only within two minutes of the app's clock.
+  The extension never forgets its connection key by itself; it offers to connect again only
+  when the app keeps refusing it.
 
 **Files with secrets outside the vault** (each a deliberate, visible choice):
 - Printed emergency kit: the temporary PDF lives in `<app dir>/print` and is overwritten and

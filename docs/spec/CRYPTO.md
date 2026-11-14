@@ -156,6 +156,35 @@ AAD_device    = "vault-v0/device" ‖ vault_id ‖ SHA-256(password slot's wrapp
   device-local data sealed with the vault key (`local/last-password-unlock`, see §6), so it can't
   be moved forward without the vault key; missing or future dates count as expired.
 
+### 3.4 Filling from the browser while the vault is locked
+
+Kept **outside** the vault file, per vault, in `<app dir>/browser-locked-<vault id>.bin`, only
+while the setting is on and the item lock opens with Windows Hello (`vault_core::locked_fill`):
+
+```
+K               = 32 random bytes (the blob's key)
+device_secret   = the item lock's Windows Hello secret (§3.2: TPM signature after verification)
+KEK_locked      = HKDF-SHA-256(ikm = device_secret, salt = vault_id_hex,
+                               info = "vault-v0/kek/locked-fill")
+key_by_device   = seal(KEK_locked, K, "vault-v0/locked-fill/key/" ‖ vault_id_hex)
+key_by_vault    = seal_local("browser-locked-fill", K)          (vault-key subkey, §6)
+passwords       = seal(K, pad(postcard([(item_id_hex, password)…])),
+                       "vault-v0/locked-fill/passwords/" ‖ vault_id_hex)
+logins          = DPAPI(postcard([(id, title, username, urls, fillable)…]))  (current user)
+```
+
+- The locked app opens `key_by_device` only with Windows Hello, once per request, and hands
+  out one password. Nothing typed opens it: a PIN could be guessed offline against a copied
+  file, a TPM-backed signature can't (each try needs the person and the chip's
+  anti-hammering).
+- The open app keeps `passwords` current through `key_by_vault` without asking. Passwords of
+  logins whose secrets are behind the closed item lock are carried over from the previous
+  blob; they are refreshed the next time the item lock is opened in the app.
+- Saving the item lock makes `K` anew; turning Windows Hello or the setting off deletes the
+  file.
+- The extension's connection key is kept a second time, DPAPI-protected
+  (`browser-pairing-<vault id>.dpapi`), so the locked app can check requests.
+
 ## 4. Argon2id parameters
 
 | | memory (KiB) | iterations | parallelism |
