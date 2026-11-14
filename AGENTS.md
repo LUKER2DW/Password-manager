@@ -108,13 +108,17 @@ app, `pairing.rs` is the connection key and the proof on every request, `service
 from an open vault (with the item lock as a `Gate`), `host.rs` + `main.rs` are the native host
 (`vault-browser-host`) that relays between the browser and the app's pipe. In `extension/`,
 `popup.js` is the extension's window, `link.js` its connection key and request signing, and
-`fill.js` the one function that runs in a page. See
+`fill.js` the function that types a login into a page, `content.js` + `fields.js` the
+content script (sign-in fields, submitted forms), `inline.html`/`inline.js` the frame shown
+under a field, `background.js` the worker between them and the app, `generator.js` the
+reading of a site's password rules, `app.js` the native messaging calls. See
 [extension/README.md](extension/README.md). Tests: `cargo test -p vault-browser` and
-`node --test extension/test/fill.test.mjs extension/test/link.test.mjs`.
+`node --test extension/test/fill.test.mjs extension/test/link.test.mjs extension/test/generator.test.mjs`.
 
-Rules for this part: no UI is ever injected into a page; no new permission, content script or
-background worker without a threat-model note; the app, not the extension, decides what a
-page may get; the extension stays free of packages and build steps.
+Rules for this part: UI in a page only as the extension's own frame (`inline.html`), never as
+page DOM, and every click there goes through the visibility check; no new permission without
+a threat-model note; passwords are made, copied and decided on by the app, not the extension;
+the extension stays free of packages and build steps.
 
 ### 2.5 `crates/desktop` (vault-desktop)
 
@@ -127,6 +131,8 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/folders.rs` | Folder dialog (create, settings, picture preview, delete) and reordering |
 | `src/controller/protection.rs` | Keyfile (unlock, set, remove) and the item lock (PIN, password or master password before secrets show) |
 | `src/controller/browser.rs` | The browser extension's link: listens on the pipe, answers from the open vault |
+| `src/controller/generated.rs` | History of generated passwords (sealed per vault on this computer) |
+| `src/tray.rs` | The notification area icon (tray mode) |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
 | `src/view.rs` | Pure presentation rules (unit-tested): filters, tints, crack times, dates |
 | `src/favicon.rs` | Opt-in website icons, fetched directly from each site |

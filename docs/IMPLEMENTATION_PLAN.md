@@ -182,6 +182,10 @@ Rules:
 - ✅ Faster builds and app: the Slint screens are a crate of their own (`vault-desktop-ui`), so
   a change to the controller rebuilds in about a third of the time; `vault-core` is optimized
   in debug builds; the password health audit runs off the UI thread
+- ✅ Onboarding sets up the item lock (PIN on every item and Windows Hello suggested) and
+  offers to import passwords, or to skip
+- ✅ Tray mode: closing the window keeps the app in the notification area (nothing drawn,
+  timers stopped), with Open, Lock and Quit
 - ⬜ Attachments, tags; passkeys
 - **Done when:** daily use on Windows is possible with a test vault.
 
@@ -189,8 +193,7 @@ Rules:
 - ✅ Native Messaging host (`vault-browser-host`) relaying to the desktop app over a per-user
   named pipe; both ends check the other program; off until turned on in Settings, which also
   registers the host for Chrome and Edge
-- ✅ Extension (Manifest V3, plain JavaScript, no packages) with no secrets: `activeTab` only,
-  no background worker, no content scripts
+- ✅ Extension (Manifest V3, plain JavaScript, no packages) with no secrets
 - ✅ Fill with the login chosen in the extension's own window; strict origin matching in the
   app (scheme + host + port, https only, top frame only); the item lock is respected; each fill
   is announced in the app
@@ -208,8 +211,14 @@ Rules:
   by itself once connected
 - ✅ Export protected by a password (`.vaultx`): every item in one file encrypted with a
   password chosen for it; Import (app and CLI) reads it back
-- ⬜ Offer to save a new login; fill one-time codes; pick among subdomains by choice
-  ("this login also belongs to…"); Firefox
+- ✅ Extension 0.2: connect on first open; tabs for this site, all logins (show or copy one
+  at a time, through the item lock; copying done by the app) and the generator; a form for a
+  new login; a frame under sign-in fields with the site's logins; a strong password offered on
+  new-password fields, made by the app and fitted to the field's rules; "Save this login?"
+  after a sign-in
+- ✅ History of generated passwords in the app (sealed per vault on this computer, behind the
+  item lock, cleared on demand)
+- ⬜ Fill one-time codes; update a saved password after a change; Firefox
 - ⬜ Installer that puts the app and the host side by side; store listing
 - **Done when:** fills logins on Chromium with confirmation; clickjacking test page fails to leak.
 

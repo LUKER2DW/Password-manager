@@ -99,10 +99,18 @@ Candidate libraries: the **RustCrypto** ecosystem (`argon2`, `chacha20poly1305`,
   browser, accepts only our extension id) → named pipe of the signed-in user → desktop app.
   The app and the host each check the other end is the program installed next to them. The
   link is off until turned on in Settings.
-- The extension has no access to any site until its button is clicked (`activeTab`), runs no
-  background worker and no content script.
-- **The login is chosen in the extension's own window**, never in UI injected into the page
-  (defense against DOM-based extension clickjacking, DEF CON 2025). The app announces each fill.
+- A content script on https pages (top frame) notices sign-in fields and submitted forms; a
+  background worker relays to the app. When a sign-in field is focused and the app has a
+  login for the site, a small frame (the extension's own page, `inline.html`, in a
+  cross-origin iframe) lists usernames; on a new-password field it offers a password made by
+  the app's generator, fitted to the field's `maxlength`, `minlength`, `pattern` and
+  `passwordrules`; after a sign-in it offers to save the login. Clicks in the frame count only
+  while the browser reports it fully visible (IntersectionObserver v2), against extension
+  clickjacking (DEF CON 2025). The extension's window (button or Ctrl+Shift+L) lists the
+  site's logins and the whole vault (passwords shown or copied one at a time, each through the
+  item lock), the generator and a form for a new login. The app announces each fill.
+- Copying from the extension is done by the app (`copy` request): the value never reaches the
+  browser, and the clipboard copy is kept out of Windows clipboard history.
 - Exact origin matching (scheme + host + port), decided by the app with the WHATWG URL rules
   (`crates/browser/src/origin.rs`); the top frame only; no filling over plain HTTP. A password
   leaves the app only for the one login picked, and only for a page of its origin.

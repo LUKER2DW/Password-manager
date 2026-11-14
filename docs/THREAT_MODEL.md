@@ -72,8 +72,8 @@ On top of that:
   from malware that reads an unlocked vault until the user opens them; Windows
   Hello or a hardware-key touch as the check comes later.
 - The browser extension stores no secrets; it asks the native app for each credential. The
-  person picks the login in the extension's own window (never in the page), the app decides
-  whether the page's origin is the login's, and announces every fill.
+  app decides whether the page's origin is the login's, and announces every fill. Logins are
+  picked in the extension's own window or in a small frame under a sign-in field.
   Requests are accepted only from the extension the person connected (pairing, with a code
   allowed in the app), and a locked login needs Windows Hello or the item lock's PIN for
   each fill.
@@ -82,6 +82,27 @@ On top of that:
   nothing behind the item lock, and it must name the exact site of a login to get it; the
   notice in the app makes it visible. The same program could already read an unlocked
   vault's memory, so the link adds no new reach, but it is one more reason for the item lock.
+- **The frame shown inside pages** (since extension 0.2) brings back the risk the extension's
+  own window avoided: a page can draw over it, make it see-through or move it under the
+  pointer (extension clickjacking). What limits it: the frame is the extension's page in a
+  cross-origin iframe, so the page can't read or script it; a click counts only once the
+  browser has reported the frame fully visible, with nothing over it, for 400 ms
+  (IntersectionObserver v2); it shows usernames, never passwords; a fill goes only into the
+  site the login is saved for, top frame only; and a locked login still needs Windows Hello
+  (the system's own prompt, which a page can't click) or the PIN, typed in the extension's
+  window. New vaults lock every item by default for that reason. Residual risk: a site with
+  an XSS flaw can read what is filled into its own page, as it can read what the person types.
+- **What a page sends when a form is submitted**: the content script reads the typed username
+  and password (in the extension's isolated world) and passes them to the background worker,
+  which keeps them in `chrome.storage.session` (memory only, closed to content scripts) for
+  at most two minutes, until the person answers "Save this login?". They reach the app only if
+  the person says Save; a page can't trigger the save by itself (same visibility check).
+- **Generated passwords** come from the app's generator, never from the page or the
+  extension. A password the person used is kept in the app's history, sealed with the vault
+  key on this computer and shown behind the item lock; "Clear history" deletes it. Copying is
+  done by the app, so the clipboard copy stays out of Windows clipboard history.
+- **Tray mode** keeps an unlocked vault in memory while the window is hidden; the idle lock
+  still applies, and the tray menu locks at once.
 
 **Files with secrets outside the vault** (each a deliberate, visible choice):
 - Printed emergency kit: the temporary PDF lives in `<app dir>/print` and is overwritten and
