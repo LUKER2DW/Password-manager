@@ -18,13 +18,14 @@ mod export;
 mod json;
 mod kdbx;
 
-pub use export::{export_csv, export_json};
+pub use export::{export_csv, export_json, export_sealed};
 
 pub(crate) use csv_import::import_csv;
 pub(crate) use json::import_json;
 pub(crate) use kdbx::import_kdbx;
 
-/// Reads an export. `password` (and `keyfile`) only matter for KDBX databases.
+/// Reads an export. `password` matters for KDBX databases and password-protected exports,
+/// `keyfile` for KDBX only.
 pub fn import(
     bytes: &[u8],
     format: Format,
@@ -35,6 +36,11 @@ pub fn import(
         Format::Json => import_json(bytes),
         Format::Csv => import_csv(bytes),
         Format::Kdbx => import_kdbx(bytes, password, keyfile),
+        Format::Sealed => {
+            let plain = vault_core::sealed_export::open(password, bytes)
+                .map_err(|_| ImportError::SealedExport)?;
+            import_json(&plain)
+        }
     }
 }
 
@@ -47,10 +53,22 @@ pub enum Format {
     Json,
     Csv,
     Kdbx,
+    /// This app's own export protected by a password (JSON inside).
+    Sealed,
+}
+
+impl Format {
+    /// The file is opened with a password typed for it.
+    pub fn needs_password(self) -> bool {
+        matches!(self, Format::Kdbx | Format::Sealed)
+    }
 }
 
 /// Guesses the format from the file contents.
 pub fn detect_format(bytes: &[u8]) -> Format {
+    if vault_core::sealed_export::is_sealed_export(bytes) {
+        return Format::Sealed;
+    }
     // KDBX signature: 0x9AA2D903 (little-endian).
     if bytes.starts_with(&[0x03, 0xd9, 0xa2, 0x9a]) {
         return Format::Kdbx;
@@ -362,6 +380,8 @@ fn known_fingerprints(
 pub enum ImportError {
     #[error("this export is encrypted; export again choosing the unencrypted JSON format")]
     EncryptedExport,
+    #[error("could not open the protected export (wrong password, or the file is damaged)")]
+    SealedExport,
     #[error("invalid JSON: {0}")]
     Json(#[from] serde_json::Error),
     #[error("invalid CSV: {0}")]

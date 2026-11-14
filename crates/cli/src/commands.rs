@@ -550,7 +550,9 @@ pub fn import(ctx: &Context, prompter: &mut Prompter, request: ImportRequest) ->
         .unwrap_or_else(|| vault_import::detect_format(&source));
     let mut session = ctx.unlock(prompter)?;
 
-    let (password, keyfile) = if format == Format::Kdbx {
+    let (password, keyfile) = if format == Format::Sealed {
+        (prompter.secret("Password of the export")?, None)
+    } else if format == Format::Kdbx {
         let keyfile = match &request.keyfile {
             Some(path) => Some(Zeroizing::new(
                 std::fs::read(path).with_context(|| format!("reading {}", path.display()))?,
@@ -595,7 +597,7 @@ pub fn import(ctx: &Context, prompter: &mut Prompter, request: ImportRequest) ->
         outcome.added, outcome.new_folders, outcome.duplicates
     );
 
-    if format != Format::Kdbx {
+    if !format.needs_password() {
         if request.delete_source {
             wipe_file(&request.file)?;
             println!("The export file was overwritten and deleted.");

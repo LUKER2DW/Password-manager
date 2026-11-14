@@ -65,6 +65,13 @@ fn iso8601(unix: i64) -> String {
     )
 }
 
+/// The JSON export sealed under a password of its own (`vault_core::sealed_export`): for a
+/// copy to carry elsewhere that is not readable by whoever finds the file.
+pub fn export_sealed(vault: &Vault, password: &str) -> Result<Vec<u8>, vault_core::Error> {
+    let json = export_json(vault)?;
+    vault_core::sealed_export::seal(password, json.as_bytes())
+}
+
 /// Unencrypted JSON in the common layout (keeps folders, cards and fields).
 pub fn export_json(vault: &Vault) -> Result<Zeroizing<String>, vault_core::Error> {
     let folders: Vec<Value> = vault
