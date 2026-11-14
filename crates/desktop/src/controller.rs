@@ -1808,6 +1808,7 @@ impl Controller {
         ] {
             timer.stop();
         }
+        self.state.borrow_mut().editor_generated = None;
         {
             // The lock screen asks for the keyfile again when the vault uses one.
             let keyfile = self.state.borrow().session.as_ref().map(|s| {

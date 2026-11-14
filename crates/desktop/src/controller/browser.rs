@@ -174,10 +174,18 @@ impl Controller {
     /// Whether this message asks for Windows Hello, and Hello can open the item lock here (or,
     /// with the vault locked, the passwords kept for the extension).
     fn browser_hello_inputs(&self, message: &[u8]) -> Option<HelloInputs> {
-        let Envelope::Signed { body, .. } = Envelope::parse(message) else {
+        let Envelope::Signed { counter, body, mac } = Envelope::parse(message) else {
             return None;
         };
         if !service::wants_hello(body.as_bytes()) {
+            return None;
+        }
+        // Only the connected extension may bring up a Windows Hello prompt. (Whether the
+        // request was seen before is checked when it is answered.)
+        if !self
+            .pairing_key()
+            .is_some_and(|key| key.verify(counter, body.as_bytes(), &mac))
+        {
             return None;
         }
         if self.state.borrow().session.is_none() {
@@ -207,7 +215,13 @@ impl Controller {
     ) -> Zeroizing<Vec<u8>> {
         let fixed = |bytes: &[u8]| Zeroizing::new(bytes.to_vec());
         match Envelope::parse(message) {
-            Envelope::Status => self.browser_inner(br#"{"type":"status"}"#, None),
+            // Asked by anyone who can start the helper program: whether the vault is locked,
+            // and nothing more (its name goes to the connected extension only).
+            Envelope::Status => fixed(if self.state.borrow().session.is_none() {
+                br#"{"type":"status","locked":true,"name":""}"#
+            } else {
+                br#"{"type":"status","locked":false,"name":""}"#
+            }),
             Envelope::Pair => self.start_pairing(),
             Envelope::Signed { counter, body, mac } => {
                 let now = SystemTime::now()
