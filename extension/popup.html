@@ -6,15 +6,39 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <header id="heading" hidden>
-      <span id="heading-text"></span>
-      <span id="origin"></span>
+    <!-- The site the logins belong to: the one thing to look at before filling. -->
+    <header id="site" hidden>
+      <h1 id="origin"></h1>
+      <svg id="stroke" viewBox="0 0 200 8" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M2 5.2 C 28 2.4, 52 6.6, 84 4.1 S 150 2.2, 198 4.8" />
+      </svg>
     </header>
-    <main id="list"></main>
+
+    <main id="list" hidden></main>
+
+    <form id="check" hidden>
+      <p class="who"><strong id="check-title"></strong> <span id="check-username"></span></p>
+      <p id="check-text"></p>
+      <div class="row">
+        <input id="check-input" type="password" autocomplete="off" spellcheck="false" />
+        <button id="check-fill" class="primary" type="submit"></button>
+      </div>
+      <p id="check-error" class="problem" role="alert"></p>
+      <button id="check-back" class="quiet" type="button"></button>
+    </form>
+
+    <section id="pair" hidden>
+      <h2 id="pair-title"></h2>
+      <p id="pair-text"></p>
+      <p id="pair-code" hidden></p>
+      <button id="pair-button" class="primary" type="button"></button>
+    </section>
+
     <section id="message" hidden>
-      <h1 id="message-title"></h1>
+      <h2 id="message-title"></h2>
       <p id="message-text"></p>
     </section>
+
     <script type="module" src="popup.js"></script>
   </body>
 </html>

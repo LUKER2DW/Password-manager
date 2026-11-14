@@ -1,14 +1,18 @@
-/* Same tokens as the desktop app (docs/DESIGN.md): dark slate, one highlighter yellow. */
+/* The desktop app's tokens (docs/DESIGN.md): dark slate, one highlighter yellow, a single
+   hand-drawn stroke. Here the stroke sits under the site's name, because that name is what
+   the person should read before anything is filled. */
 :root {
   color-scheme: dark light;
   --canvas: #121821;
   --panel: #161d27;
+  --field: #0f141b;
   --hover: #212a36;
   --ink: #e3e8ef;
   --graphite: #8e9aac;
-  --faint: #5e6a7b;
   --rule: #283240;
   --marker: #e7c54b;
+  --on-marker: #161a20;
+  --stroke: #e7c54b;
   --seal: #f06a60;
 }
 
@@ -16,12 +20,14 @@
   :root {
     --canvas: #eef1f4;
     --panel: #e6eaef;
+    --field: #ffffff;
     --hover: #dfe4ea;
     --ink: #1f2a3d;
     --graphite: #5f6b7d;
-    --faint: #9aa5b3;
     --rule: #d3dae2;
-    --marker: #b88a00;
+    --marker: #f2cf45;
+    --on-marker: #161a20;
+    --stroke: #b88a00;
     --seal: #b3261e;
   }
 }
@@ -30,75 +36,91 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
-  width: 340px;
+  width: 344px;
   margin: 0;
-  padding: 14px;
+  padding: 18px 16px 16px;
   background: var(--canvas);
   color: var(--ink);
-  font: 14px/1.4 Bahnschrift, "Segoe UI", system-ui, sans-serif;
+  font: 14px/1.45 Bahnschrift, "Segoe UI", system-ui, sans-serif;
 }
 
-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 4px 10px;
+h1,
+h2,
+p {
+  margin: 0;
 }
 
-#heading-text {
-  font-size: 12px;
-  color: var(--graphite);
-  white-space: nowrap;
+/* ---- the site ---- */
+
+#site {
+  margin: 0 2px 14px;
 }
 
-/* The site the logins belong to, as the app matched it: the thing to glance at. */
 #origin {
-  font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 12px;
-  color: var(--ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
+  font-size: 21px;
+  font-weight: 300;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
+
+#stroke {
+  display: block;
+  width: min(100%, 132px);
+  height: 8px;
+  margin-top: 3px;
+}
+
+#stroke path {
+  fill: none;
+  stroke: var(--stroke);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+
+/* ---- logins ---- */
 
 #list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-height: 360px;
+  gap: 2px;
+  max-height: 336px;
+  margin: 0 -6px;
   overflow-y: auto;
 }
 
 .login {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 12px;
+  align-items: center;
   width: 100%;
-  padding: 10px 12px;
-  border: 1px solid transparent;
+  padding: 9px 8px;
+  border: 0;
   border-radius: 6px;
-  background: var(--panel);
+  background: none;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.login:hover:enabled {
-  background: var(--hover);
-}
-
+.login:hover:enabled,
 .login:focus-visible {
+  background: var(--hover);
   outline: none;
-  border-color: var(--marker);
 }
 
 .login:disabled {
   cursor: default;
-  opacity: 0.6;
+}
+
+.login:disabled .title {
+  color: var(--graphite);
 }
 
 .title {
@@ -109,6 +131,7 @@ header {
 }
 
 .detail {
+  grid-column: 1;
   font-size: 12px;
   color: var(--graphite);
   overflow: hidden;
@@ -116,28 +139,135 @@ header {
   white-space: nowrap;
 }
 
-#message {
-  padding: 6px 4px;
+/* What the row will ask for before it fills. */
+.asks {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  font-size: 12px;
+  color: var(--graphite);
+  white-space: nowrap;
 }
 
-#message h1 {
-  margin: 0 0 6px;
+/* ---- the PIN, pairing and messages ---- */
+
+#check,
+#pair,
+#message {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 2px;
+}
+
+h2 {
   font-size: 16px;
   font-weight: 600;
 }
 
-#message p {
-  margin: 0;
+p {
   font-size: 12px;
   color: var(--graphite);
 }
 
-#message p:empty {
+p:empty {
   display: none;
 }
 
-#message.error h1 {
+.who {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.who span {
+  color: var(--graphite);
+}
+
+.problem,
+#message.error h2 {
   color: var(--seal);
+}
+
+#message.error h2 {
   font-size: 14px;
   font-weight: 400;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+#check-input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--field);
+  color: var(--ink);
+  font: 16px "Cascadia Mono", Consolas, monospace;
+  letter-spacing: 3px;
+}
+
+#check-input::placeholder {
+  font: 14px Bahnschrift, "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0;
+  color: var(--graphite);
+}
+
+#check-input:focus {
+  outline: none;
+  border-bottom-color: var(--marker);
+}
+
+/* The connection code, read against the one the app shows. */
+#pair-code {
+  font: 28px "Cascadia Mono", Consolas, monospace;
+  color: var(--ink);
+  letter-spacing: 2px;
+}
+
+button.primary,
+button.quiet {
+  height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.primary {
+  align-self: flex-start;
+  background: var(--marker);
+  color: var(--on-marker);
+  font-weight: 600;
+}
+
+button.primary:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+button.quiet {
+  align-self: flex-start;
+  height: 30px;
+  margin-left: -8px;
+  padding: 0 8px;
+  background: none;
+  color: var(--graphite);
+  font-size: 12px;
+}
+
+button.quiet:hover,
+button.quiet:focus-visible {
+  background: var(--hover);
+  color: var(--ink);
+  outline: none;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
 }

@@ -4,7 +4,8 @@
 
   Serve the `extension` folder (for example `python -m http.server 8765` inside it) and open
   http://localhost:8765/test/preview.html?state=logins
-  States: logins, empty, locked, not_running, insecure, item_locked, username.
+  States: logins, pin, wrong_pin, hello, pair, empty, locked, not_running, insecure,
+  item_locked, username.
   A stand-in for the browser's `chrome` object answers with fixed test data; nothing here
   talks to the app.
 -->
@@ -21,6 +22,8 @@
       const logins = {
         type: "logins",
         origin: "https://github.com",
+        check: ["pin", "wrong_pin", "hello"].includes(state) ? "pin" : "app",
+        hello: state === "hello",
         items: [
           { id: "01", title: "GitHub", username: "octocat", locked: false },
           { id: "02", title: "GitHub (work)", username: "hubot@work.example", locked: false },
@@ -29,6 +32,9 @@
       };
       const answers = {
         logins,
+        pin: logins,
+        hello: logins,
+        wrong_pin: logins,
         username: logins,
         item_locked: logins,
         empty: { type: "logins", origin: "https://github.com", items: [] },
@@ -43,6 +49,13 @@
         runtime: {
           sendNativeMessage: async (_host, message) => {
             if (state === "not_running") throw new Error("no host");
+            if (message.type === "pair") {
+              return { type: "pairing", key: "ab".repeat(32), code: "482 913" };
+            }
+            if (message.type === "signed") message = JSON.parse(message.body);
+            if (message.type === "fill" && state === "wrong_pin") {
+              return { type: "error", code: "wrong_check", check: "pin", left: 3 };
+            }
             if (message.type === "fill") {
               return state === "item_locked"
                 ? { type: "error", code: "item_locked" }
@@ -65,7 +78,11 @@
       style.rel = "stylesheet";
       style.href = "../popup.css";
       document.head.append(style);
-      document.body.replaceChildren(...popup.body.querySelectorAll("header, main, section"));
+      document.body.replaceChildren(...popup.body.querySelectorAll("header, main, form, section"));
+      // Connected already, except when the connecting view itself is under review.
+      const link = await import("../link.js");
+      if (state === "pair") await link.dropKey();
+      else await link.saveKey("ab".repeat(32));
       await import("../popup.js");
     </script>
   </body>

@@ -8,8 +8,11 @@ Status: early development, like the rest of the project. Use a test vault.
 
 ## How it works
 
-1. You click the extension's button. Only then does it learn the address of the tab
-   (`activeTab`); it has no access to any site otherwise and runs nothing in the background.
+0. Once: you connect the extension to the app. The app shows a code and you allow it there.
+   The extension then holds a connection key (never a password) and signs every request.
+1. You click the extension's button (or press Ctrl+Shift+L). Only then does it learn the
+   address of the tab (`activeTab`); it has no access to any site otherwise and runs nothing
+   in the background.
 2. It sends that address to the app. The app answers with the logins saved for **exactly that
    site** (same scheme, host and port; https only), without passwords.
 3. You pick one **in the extension's own window**. The app then hands over that one login,
@@ -17,7 +20,12 @@ Status: early development, like the rest of the project. Use a test vault.
 4. The app shows a notice for every fill.
 
 Nothing is ever drawn inside a web page, so a page has nothing to cover or click on your
-behalf. Logins behind the app's item lock are listed but must be opened in the app first.
+behalf. A login behind the app's item lock is opened for that one fill by Windows Hello
+(the system's own prompt) or by the item lock's PIN typed in the extension's window; five
+wrong tries lock the vault, as in the app.
+
+To use one login on several sites, save `*.example.com` as its website in the app: it then
+covers `example.com` and every site under it.
 
 ## Install (development)
 
@@ -37,9 +45,10 @@ The `key` in `manifest.json` fixes the extension's id, which is the only id the 
 |---|---|
 | `manifest.json` | Manifest V3: `activeTab`, `scripting`, `nativeMessaging`; no host permissions, no content scripts, no background worker |
 | `popup.html`, `popup.css`, `popup.js` | The extension's window: asks the app, lists logins, fills the one picked |
+| `link.js` | The connection key (a non-extractable browser key) and the signature on each request |
 | `fill.js` | The function typed into the page (top frame, same origin, sign-in fields only) |
 | `_locales/en/messages.json` | Every text shown |
-| `test/fill.test.mjs` | Tests for `fill.js`: `node --test extension/test/fill.test.mjs` |
+| `test/fill.test.mjs`, `test/link.test.mjs` | Tests: `node --test extension/test/fill.test.mjs extension/test/link.test.mjs` |
 | `test/preview.html` | Visual review of the window with fixed test data |
 | `test/pages/clickjacking.html` | Manual test page that tries to steal a fill |
 
