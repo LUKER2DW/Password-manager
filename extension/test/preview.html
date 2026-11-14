@@ -4,7 +4,7 @@
 
   Serve the `extension` folder (for example `python -m http.server 8765` inside it) and open
   http://localhost:8765/test/preview.html?state=logins
-  States: logins, pin, wrong_pin, hello, pair, empty, locked, not_running, insecure,
+  States: logins, pin, wrong_pin, hello, pair, pair_wait, empty, locked, not_running, insecure,
   item_locked, username.
   A stand-in for the browser's `chrome` object answers with fixed test data; nothing here
   talks to the app.
@@ -53,6 +53,7 @@
               return { type: "pairing", key: "ab".repeat(32), code: "482 913" };
             }
             if (message.type === "signed") message = JSON.parse(message.body);
+            if (state === "pair_wait") return { type: "error", code: "not_paired" };
             if (message.type === "fill" && state === "wrong_pin") {
               return { type: "error", code: "wrong_check", check: "pin", left: 3 };
             }
@@ -81,7 +82,7 @@
       document.body.replaceChildren(...popup.body.querySelectorAll("header, main, form, section"));
       // Connected already, except when the connecting view itself is under review.
       const link = await import("../link.js");
-      if (state === "pair") await link.dropKey();
+      if (state === "pair" || state === "pair_wait") await link.dropKey();
       else await link.saveKey("ab".repeat(32));
       await import("../popup.js");
     </script>

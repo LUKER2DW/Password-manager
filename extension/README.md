@@ -8,8 +8,9 @@ Status: early development, like the rest of the project. Use a test vault.
 
 ## How it works
 
-0. Once: you connect the extension to the app. The app shows a code and you allow it there.
-   The extension then holds a connection key (never a password) and signs every request.
+0. Once: you click Connect in the extension. The app comes forward, shows a code and asks
+   for your master password (typed in the app, never in the browser). The extension then
+   holds a connection key (never a password), signs every request, and carries on by itself.
 1. You click the extension's button (or press Ctrl+Shift+L). Only then does it learn the
    address of the tab (`activeTab`); it has no access to any site otherwise and runs nothing
    in the background.
@@ -35,7 +36,18 @@ covers `example.com` and every site under it.
    helper's manifest under the app's data folder and points Chrome and Edge at it (one registry
    value each, for your Windows user). Turning it off removes them.
 3. Open `chrome://extensions` (or `edge://extensions`), turn on *Developer mode*, choose
-   *Load unpacked* and pick this `extension` folder.
+   *Load unpacked* and pick this `extension` folder. Pin the extension to the toolbar.
+4. Open any https site, click the extension (or Ctrl+Shift+L) and choose *Connect*. In the
+   app, type your master password and choose *Connect*. Done: the extension lists the logins
+   saved for the site you are on.
+5. Optional, for a PIN or Windows Hello on each fill: in the app, Settings → Item lock →
+   PIN, tick "Lock every item" (or mark single items) and "Open locked items with Windows
+   Hello too".
+
+If the extension says the app isn't answering: the app must be running with the browser
+extension turned on, and `vault-browser-host.exe` must sit next to `vault-desktop.exe`
+(both are in `target/release` after step 1). Restart the browser after turning the setting
+on for the first time.
 
 The `key` in `manifest.json` fixes the extension's id, which is the only id the helper accepts.
 

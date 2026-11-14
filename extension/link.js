@@ -51,6 +51,35 @@ export async function saveKey(hex) {
 export async function dropKey() {
   try {
     await store("readwrite", (keys) => keys.delete(NAME));
+    await store("readwrite", (keys) => keys.delete(WAITING));
+  } catch {
+    // Nothing to forget.
+  }
+}
+
+// A connection the app has not confirmed yet: its code, and when it was asked for. The
+// browser closes this window when the app comes forward, so the wait must survive that.
+
+const WAITING = "waiting";
+const WAIT_FOR_MS = 5 * 60 * 1000;
+
+export async function startWaiting(code) {
+  await store("readwrite", (keys) => keys.put({ code, since: Date.now() }, WAITING));
+}
+
+/** The code of a connection still waiting for the app, or `undefined`. */
+export async function waitingCode() {
+  try {
+    const waiting = await store("readonly", (keys) => keys.get(WAITING));
+    return waiting && Date.now() - waiting.since < WAIT_FOR_MS ? waiting.code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function stopWaiting() {
+  try {
+    await store("readwrite", (keys) => keys.delete(WAITING));
   } catch {
     // Nothing to forget.
   }

@@ -10,7 +10,7 @@
 // scripts (this one included) can use but not read.
 
 import { fillLogin } from "./fill.js";
-import { dropKey, loadKey, saveKey, sign } from "./link.js";
+import { dropKey, loadKey, saveKey, sign, startWaiting, stopWaiting, waitingCode } from "./link.js";
 
 const HOST = "vault.desktop.browser_host";
 const t = (key, ...parts) => chrome.i18n.getMessage(key, parts) || key;
@@ -64,7 +64,7 @@ function explain(code, tab) {
     case "no_match":
       return say(t("noLoginsTitle"), t("noLoginsText", originOf(tab?.url)));
     case "not_paired":
-      return offerPairing(tab);
+      return connect(tab);
     default:
       return say(t("failed"), "", true);
   }
@@ -81,14 +81,23 @@ function originOf(url) {
 
 // ---- connecting to the app ----
 
-/** First use (or the app forgot us): ask the app to connect, then show its code. */
+/** Not connected: carry on with a connection the app is still asking about, or offer one. */
+async function connect(tab) {
+  const code = await waitingCode();
+  return code ? waitForApp(tab, code) : offerPairing(tab);
+}
+
+/** First use (or the app forgot us): one button that sends the person to the app. */
 async function offerPairing(tab) {
+  watching = 0;
   await dropKey();
   view("pair");
   $("pair-title").textContent = t("pairTitle");
   $("pair-text").textContent = t("pairText");
   $("pair-code").hidden = true;
+  $("pair-restart").hidden = true;
   const button = $("pair-button");
+  button.hidden = false;
   button.textContent = t("pairButton");
   button.disabled = false;
   button.onclick = async () => {
@@ -98,15 +107,44 @@ async function offerPairing(tab) {
       return explain(reply.code === "not_paired" ? "failed" : reply.code, tab);
     }
     await saveKey(reply.key);
-    $("pair-title").textContent = t("pairWaitTitle");
-    $("pair-text").textContent = t("pairWaitText");
-    $("pair-code").textContent = reply.code;
-    $("pair-code").hidden = false;
-    button.textContent = t("pairDone");
-    button.disabled = false;
-    button.onclick = () => main();
+    await startWaiting(reply.code);
+    waitForApp(tab, reply.code);
   };
   button.focus();
+}
+
+/** Counts the waits started, so an older one stops when a newer view takes over. */
+let watching = 0;
+
+/**
+ * The app has come forward and asks for the master password. Nothing more to do here: this
+ * window asks again every second and carries on by itself once the app has connected it.
+ */
+function waitForApp(tab, code) {
+  view("pair");
+  $("pair-title").textContent = t("pairWaitTitle");
+  $("pair-text").textContent = t("pairWaitText");
+  $("pair-code").textContent = code;
+  $("pair-code").hidden = false;
+  $("pair-button").hidden = true;
+  const restart = $("pair-restart");
+  restart.textContent = t("pairRestart");
+  restart.hidden = false;
+  restart.onclick = () => offerPairing(tab);
+  const mine = ++watching;
+  const look = async () => {
+    if (mine !== watching) return;
+    const reply = await ask({ type: "logins", url: tab.url });
+    if (mine !== watching) return;
+    if (reply.code === "not_paired" || reply.code === "locked") {
+      return setTimeout(look, 1000);
+    }
+    watching = 0;
+    await stopWaiting();
+    if (reply.type === "logins" && Array.isArray(reply.items)) return show(tab, reply);
+    explain(reply.code, tab);
+  };
+  setTimeout(look, 1000);
 }
 
 // ---- filling ----
@@ -243,8 +281,12 @@ async function main() {
   }
   const reply = await ask({ type: "logins", url: tab.url });
   if (reply.type === "logins" && Array.isArray(reply.items)) {
+    await stopWaiting();
     return show(tab, reply);
   }
+  // Locked while a connection waits: the app asks after it is unlocked, so keep waiting.
+  const code = reply.code === "locked" ? await waitingCode() : undefined;
+  if (code) return waitForApp(tab, code);
   explain(reply.code, tab);
 }
 

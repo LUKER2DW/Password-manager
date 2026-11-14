@@ -36,11 +36,11 @@
   "wrongCheck": { "message": "That isn't it. $LEFT$ tries left before the vault locks.", "placeholders": { "left": { "content": "$1" } } },
   "wrongCheckLast": { "message": "That isn't it. One more wrong try locks the vault." },
   "pairTitle": { "message": "Connect to your vault" },
-  "pairText": { "message": "Do this once. Open the password manager, unlock it, then connect: the app shows a code and asks you to allow this extension. No password is stored here." },
+  "pairText": { "message": "Do this once. Connect opens the password manager, where you type your master password. No password is typed or kept here." },
   "pairButton": { "message": "Connect" },
-  "pairWaitTitle": { "message": "Allow it in the app" },
-  "pairWaitText": { "message": "The app is showing a code. If it is this one, choose Allow there." },
-  "pairDone": { "message": "I allowed it" },
+  "pairWaitTitle": { "message": "Continue in the app" },
+  "pairWaitText": { "message": "The password manager is asking for your master password. It shows the code below. This window carries on by itself once you connect." },
+  "pairRestart": { "message": "Start over" },
   "itemLockedText": {
     "message": "This login is behind the item lock, which asks for your master password. Open it in the app, then try again. To open logins from here, choose a PIN in the app's Settings → Item lock."
   },
