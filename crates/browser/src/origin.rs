@@ -87,7 +87,8 @@ impl Origin {
 
 /// The site a `*.example.com` entry is about (`example.com`, as the browser writes it), or
 /// `None` when the text is not such an entry. The part after `*.` must be a name with at
-/// least one dot (not `*.com`, not an IP address), on HTTPS and its default port.
+/// least one dot (not `*.com`, not an IP address) that is not a public suffix (not
+/// `*.co.uk`), on HTTPS and its default port.
 pub fn wildcard_base(saved: &str) -> Option<String> {
     let text = saved.trim();
     let rest = text.strip_prefix("https://").unwrap_or(text);
@@ -99,11 +100,19 @@ pub fn wildcard_base(saved: &str) -> Option<String> {
     }
     let url = Url::parse(&format!("https://{name}")).ok()?;
     match url.host()? {
-        url::Host::Domain(domain) if domain.contains('.') && !domain.ends_with('.') => {
+        url::Host::Domain(domain)
+            if domain.contains('.') && !domain.ends_with('.') && !is_public_suffix(domain) =>
+        {
             Some(domain.to_owned())
         }
         _ => None,
     }
+}
+
+/// Whether anyone can register a name right under `domain` (`co.uk`, `github.io`): a `*.`
+/// entry over it would hand a login to sites of other people.
+fn is_public_suffix(domain: &str) -> bool {
+    psl::suffix(domain.as_bytes()).is_some_and(|suffix| suffix.as_bytes() == domain.as_bytes())
 }
 
 /// Whether one saved website covers the page: its exact origin, or by `*.` its site and
@@ -232,6 +241,9 @@ mod tests {
         let anywhere = page("https://accounts.example.com/");
         for bad in [
             "*.com",
+            "*.co.uk",
+            "*.com.br",
+            "*.github.io",
             "*.",
             "*",
             "*.*.example.com",

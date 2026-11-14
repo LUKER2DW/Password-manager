@@ -24,6 +24,9 @@ vault-core = { path = "../core" }
 vault-platform = { path = "../platform" }
 getrandom = "0.4"
 hmac = "0.13"
+# The Public Suffix List, compiled in (no network): a `*.` entry may not cover a whole
+# registry such as `*.co.uk`.
+psl = "2.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
