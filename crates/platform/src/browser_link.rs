@@ -174,7 +174,7 @@ mod imp {
             Pipes::{
                 ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
                 GetNamedPipeClientProcessId, GetNamedPipeServerProcessId, PIPE_READMODE_BYTE,
-                PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
+                PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT, PeekNamedPipe,
             },
             Registry::{HKEY_CURRENT_USER, REG_SZ, RegDeleteTreeW, RegSetKeyValueW},
             Threading::{
@@ -433,7 +433,13 @@ mod imp {
             if !allowed {
                 return Ok(false);
             }
-            let Some(message) = read_frame(&self.pipe)? else {
+            // A caller that connects and then says nothing would hold the only instance of
+            // the pipe: it gets a few seconds.
+            let waiting = Patient {
+                pipe: &self.pipe,
+                until: Instant::now() + Duration::from_secs(5),
+            };
+            let Some(message) = read_frame(waiting)? else {
                 return Ok(false);
             };
             let mut reply = answer(&message);
@@ -444,6 +450,44 @@ mod imp {
             // Waits until the caller has read the answer, so the disconnect doesn't drop it.
             self.pipe.sync_all().ok();
             Ok(true)
+        }
+    }
+
+    /// Reads from the pipe, giving up when nothing arrives before `until`.
+    struct Patient<'a> {
+        pipe: &'a File,
+        until: Instant,
+    }
+
+    impl std::io::Read for Patient<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            loop {
+                let mut ready = 0u32;
+                // SAFETY: the handle belongs to `self.pipe`, alive for the call; no data is
+                // copied (null buffer of size 0) and `ready` is a valid output.
+                #[allow(unsafe_code)]
+                let peeked = unsafe {
+                    PeekNamedPipe(
+                        self.pipe.as_raw_handle().cast(),
+                        std::ptr::null_mut(),
+                        0,
+                        std::ptr::null_mut(),
+                        &mut ready,
+                        std::ptr::null_mut(),
+                    ) != 0
+                };
+                if !peeked {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if ready > 0 {
+                    let mut pipe = self.pipe;
+                    return pipe.read(buffer);
+                }
+                if Instant::now() >= self.until {
+                    return Err(std::io::ErrorKind::TimedOut.into());
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
         }
     }
 
