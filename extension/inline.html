@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vault</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="inline.css" />
+  </head>
+  <body>
+    <!-- Shown under a sign-in field: the logins saved for this site. -->
+    <section id="logins" hidden>
+      <header>
+        <span id="logins-title"></span>
+        <button id="logins-close" class="quiet" type="button"></button>
+      </header>
+      <div id="list"></div>
+    </section>
+
+    <!-- Shown under a new-password field: a strong password that fits the site. -->
+    <section id="new" hidden>
+      <header>
+        <span id="new-title"></span>
+        <button id="new-close" class="quiet" type="button"></button>
+      </header>
+      <p id="new-password"></p>
+      <p id="new-note"></p>
+      <div class="actions">
+        <button id="new-use" class="primary" type="button"></button>
+        <button id="new-again" class="plain" type="button"></button>
+      </div>
+    </section>
+
+    <!-- Shown in the corner after a sign-in: save what was typed? -->
+    <section id="save" hidden>
+      <h1 id="save-title"></h1>
+      <p id="save-who"></p>
+      <p id="save-note" role="status"></p>
+      <div class="actions">
+        <button id="save-yes" class="primary" type="button"></button>
+        <button id="save-no" class="plain" type="button"></button>
+      </div>
+    </section>
+
+    <script type="module" src="inline.js"></script>
+  </body>
+</html>

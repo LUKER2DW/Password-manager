@@ -1,90 +1,166 @@
 <!doctype html>
 <!--
-  Visual review of the popup without installing the extension.
+  Visual review of the extension's windows without installing it.
 
-  Serve the `extension` folder (for example `python -m http.server 8765` inside it) and open
-  http://localhost:8765/test/preview.html?state=logins
-  States: logins, pin, wrong_pin, hello, pair, pair_wait, empty, locked, not_running, insecure,
-  item_locked, username.
+  Serve the `extension` folder (for example `python -m http.server 8766` inside it) and open
+  http://localhost:8766/test/preview.html?state=logins
+  Popup states: logins, offer, vault, entry, revealed, generator, new_login, pin, wrong_pin, hello, pair, pair_wait,
+  empty, locked, not_running, insecure, item_locked, username.
+  In-page frames: inline (the logins under a field), suggest (a new password), save (the
+  save offer).
   A stand-in for the browser's `chrome` object answers with fixed test data; nothing here
   talks to the app.
 -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Popup preview</title>
+    <title>Extension preview</title>
   </head>
   <body>
     <script type="module">
       const state = new URLSearchParams(location.search).get("state") || "logins";
       const messages = await (await fetch("../_locales/en/messages.json")).json();
-      const page = "https://github.com/login";
+      const page = state === "vault" || state === "entry" || state === "revealed" ? "https://news.example/" : "https://github.com/login";
+      const pinStates = ["pin", "wrong_pin", "hello"];
+      const listing = {
+        check: pinStates.includes(state) ? "pin" : "app",
+        hello: state === "hello" || state === "entry" || state === "revealed",
+      };
       const logins = {
         type: "logins",
         origin: "https://github.com",
-        check: ["pin", "wrong_pin", "hello"].includes(state) ? "pin" : "app",
-        hello: state === "hello",
+        ...listing,
         items: [
           { id: "01", title: "GitHub", username: "octocat", locked: false },
-          { id: "02", title: "GitHub (work)", username: "hubot@work.example", locked: false },
+          { id: "02", title: "GitHub (work)", username: "hubot@work.example", locked: true },
           { id: "03", title: "GitHub admin", username: "root", locked: true },
         ],
       };
+      const vault = {
+        type: "vault",
+        ...listing,
+        items: [
+          { id: "11", title: "Bank", username: "test.user", site: "https://bank.example", locked: true, has_password: true, has_code: false },
+          { id: "01", title: "GitHub", username: "octocat", site: "github.com", locked: true, has_password: true, has_code: true },
+          { id: "12", title: "Mail", username: "test.user@mail.example", site: "mail.example", locked: true, has_password: true, has_code: false },
+          { id: "13", title: "Shop", username: "", site: "*.shop.example", locked: false, has_password: true, has_code: false },
+          { id: "14", title: "Video games", username: "player-one", site: "games.example", locked: true, has_password: true, has_code: true },
+        ],
+      };
       const answers = {
-        logins,
-        pin: logins,
-        hello: logins,
-        wrong_pin: logins,
-        username: logins,
-        item_locked: logins,
         empty: { type: "logins", origin: "https://github.com", items: [] },
         locked: { type: "error", code: "locked" },
         insecure: { type: "error", code: "insecure_page" },
+        vault: { type: "logins", origin: "https://news.example", ...listing, items: [] },
+        entry: { type: "logins", origin: "https://news.example", ...listing, items: [] },
+        revealed: { type: "logins", origin: "https://news.example", ...listing, items: [] },
       };
+      const session = {};
+      if (state === "offer") {
+        session.pendingSaves = { 1: { url: page, origin: "https://github.com", username: "new.user@example.com", password: "test", at: Date.now() } };
+      }
       window.chrome = {
         i18n: {
-          getMessage: (key, parts = []) =>
-            (messages[key]?.message || "").replace(/\$[A-Z]+\$/, parts[0] ?? ""),
+          getMessage: (key, parts = []) => (messages[key]?.message || "").replace(/\$[A-Z]+\$/, parts[0] ?? ""),
         },
         runtime: {
+          getURL: (path) => `../${path}`,
+          sendMessage: async (message) => {
+            if (message.kind === "frame-logins") return { origin: logins.origin, hello: true, check: "pin", items: logins.items };
+            if (message.kind === "frame-suggest") return { password: "q7#Vm2-kTz9@pLw4Rx8n", bits: 129 };
+            if (message.kind === "frame-save-info") return { origin: "https://github.com", username: "new.user@example.com" };
+            return undefined;
+          },
           sendNativeMessage: async (_host, message) => {
             if (state === "not_running") throw new Error("no host");
-            if (message.type === "pair") {
-              return { type: "pairing", key: "ab".repeat(32), code: "482 913" };
-            }
+            if (message.type === "pair") return { type: "pairing", key: "ab".repeat(32), code: "482 913" };
+            if (message.type === "status") return { type: "status", locked: false, name: "Test vault" };
             if (message.type === "signed") message = JSON.parse(message.body);
             if (state === "pair_wait") return { type: "error", code: "not_paired" };
+            if (state === "locked") return { type: "error", code: "locked" };
+            if (message.type === "vault") return vault;
+            if (message.type === "generate") return { type: "generated", id: "g1", password: "Hn4$wq9-Tz2#vLp8Kx3m", bits: 129 };
+            if (message.type === "reveal") return { type: "reveal", password: "correct-horse-battery" };
             if (message.type === "fill" && state === "wrong_pin") {
               return { type: "error", code: "wrong_check", check: "pin", left: 3 };
             }
+            if (message.type === "fill" && (state === "pin" || state === "wrong_pin") && !message.check) {
+              return { type: "error", code: "item_locked", check: "pin" };
+            }
             if (message.type === "fill") {
               return state === "item_locked"
-                ? { type: "error", code: "item_locked" }
+                ? { type: "error", code: "item_locked", check: "app" }
                 : { type: "fill", origin: "https://github.com", username: "octocat", password: "test" };
             }
             return answers[state] ?? logins;
           },
         },
+        storage: {
+          session: {
+            get: async (key) => ({ [key]: session[key] }),
+            set: async (values) => Object.assign(session, values),
+          },
+        },
         tabs: {
           query: async () => [{ id: 1, url: page }],
           get: async () => ({ id: 1, url: page }),
+          create: async () => {},
+          sendMessage: async () => {},
         },
         scripting: {
           executeScript: async () => [{ result: state === "username" ? "username" : "none" }],
         },
       };
-      const html = await (await fetch("../popup.html")).text();
-      const popup = new DOMParser().parseFromString(html, "text/html");
-      const style = document.createElement("link");
-      style.rel = "stylesheet";
-      style.href = "../popup.css";
-      document.head.append(style);
-      document.body.replaceChildren(...popup.body.querySelectorAll("header, main, form, section"));
-      // Connected already, except when the connecting view itself is under review.
-      const link = await import("../link.js");
-      if (state === "pair" || state === "pair_wait") await link.dropKey();
-      else await link.saveKey("ab".repeat(32));
-      await import("../popup.js");
+      window.close = () => {};
+
+      const frame = state === "inline" || state === "save" || state === "suggest";
+      const html = await (await fetch(frame ? "../inline.html" : "../popup.html")).text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      for (const href of frame ? ["../tokens.css", "../inline.css"] : ["../tokens.css", "../popup.css"]) {
+        const style = document.createElement("link");
+        style.rel = "stylesheet";
+        style.href = href;
+        document.head.append(style);
+      }
+      document.body.replaceChildren(...[...doc.body.children].filter((el) => el.tagName !== "SCRIPT"));
+      if (frame) {
+        // The frame's size in a page.
+        document.body.style.width = "320px";
+        if (state === "save") location.hash = "#save";
+        if (state === "suggest") location.hash = "#new";
+        window.IntersectionObserver = class { observe() {} };
+        await import("../inline.js");
+      } else {
+        // Connected already, except when the connecting view itself is under review.
+        const link = await import("../link.js");
+        if (state === "pair" || state === "pair_wait") await link.dropKey();
+        else await link.saveKey("ab".repeat(32));
+        await import("../popup.js");
+        const click = (selector) => document.querySelector(selector)?.click();
+        const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+        await wait(150);
+        if (state === "generator") click("#tab-gen");
+        if (state === "new_login") {
+          click("#tab-gen");
+          await wait(80);
+          click("#gen-use");
+        }
+        if (state === "entry" || state === "revealed") {
+          click("#vault-list .login:nth-child(2)");
+          if (state === "revealed") {
+            await wait(50);
+            click("#show-password");
+          }
+        }
+        if (state === "pin" || state === "wrong_pin") {
+          click("#list .with-more:nth-child(2) .login");
+          if (state === "wrong_pin") {
+            await wait(50);
+            document.querySelector("#check-input").value = "0000";
+            click("#check-go");
+          }
+        }
+      }
     </script>
   </body>
 </html>

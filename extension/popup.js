@@ -1,94 +1,81 @@
-// The extension's own window: the only place a login is ever chosen.
+// The extension's own window.
 //
-// Nothing is drawn inside web pages, so a page can't cover, move or click it (the trick
-// behind "extension clickjacking"). The extension keeps no passwords: it asks the desktop app
-// through the native host, and a password passes through here only on its way into the page
-// the person is looking at.
+// The extension keeps no passwords: it asks the desktop app through the native host. A
+// password passes through here only on its way into the page the person is looking at, or
+// while they asked to see it; copying is done by the app itself, so a copied password never
+// reaches the browser.
 //
 // What it does keep is a connection key, made when the person connects it to the app and
 // allowed there. Every request is signed with it; the browser holds it as a key object that
 // scripts (this one included) can use but not read.
 
+import { ask, originOf, pendingSave, send, setPendingSave } from "./app.js";
 import { fillLogin } from "./fill.js";
-import { dropKey, loadKey, saveKey, sign, startWaiting, stopWaiting, waitingCode } from "./link.js";
+import { dropKey, loadKey, saveKey, startWaiting, stopWaiting, waitingCode } from "./link.js";
 
-const HOST = "vault.desktop.browser_host";
 const t = (key, ...parts) => chrome.i18n.getMessage(key, parts) || key;
 const $ = (id) => document.getElementById(id);
 
-async function send(message) {
-  try {
-    const reply = await chrome.runtime.sendNativeMessage(HOST, message);
-    return reply && typeof reply.type === "string" ? reply : { type: "error", code: "bad_request" };
-  } catch {
-    // The host could not be started: the app is closed or its browser link is off.
-    return { type: "error", code: "not_running" };
-  }
-}
-
-/** One signed question to the desktop app. */
-async function ask(request) {
-  const key = await loadKey();
-  if (!key) return { type: "error", code: "not_paired" };
-  return send(await sign(key, request));
-}
+/** The tab this window was opened over, and what the app said about it. */
+const here = { tab: undefined, site: undefined, vault: undefined, place: "site" };
 
 // ---- views ----
 
-const VIEWS = ["site", "list", "check", "pair", "message"];
+const VIEWS = ["tabs", "site", "offer", "list", "vault", "gen", "new-login", "entry", "check", "pair", "message", "foot"];
 
 function view(...shown) {
   for (const id of VIEWS) $(id).hidden = !shown.includes(id);
 }
 
-/** A title and a sentence in place of everything else. */
-function say(title, text = "", isError = false) {
-  view("message");
+/** A title and a sentence in place of the lists. `chrome` keeps the tabs around it. */
+function say(title, text = "", { isError = false, chrome: keep = false } = {}) {
+  view(...(keep ? ["tabs", "message", "foot"] : ["message"]));
   $("message-title").textContent = title;
   $("message-text").textContent = text;
   $("message").classList.toggle("error", isError);
 }
 
-function explain(code, tab) {
+let toastTimer = 0;
+function toast(text) {
+  const el = $("toast");
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.hidden = true), 2600);
+}
+
+function explain(code) {
+  const connected = { chrome: Boolean(here.vault || here.site) };
   switch (code) {
     case "not_running":
       return say(t("notRunningTitle"), t("notRunningText"));
     case "locked":
       return say(t("lockedTitle"), t("lockedText"));
     case "insecure_page":
-      return say(t("insecureTitle"), t("insecureText"));
+      return say(t("insecureTitle"), t("insecureText"), connected);
     case "not_a_website":
-      return say(t("notAWebsiteTitle"), t("notAWebsiteText"));
+      return say(t("notAWebsiteTitle"), t("notAWebsiteText"), connected);
     case "item_locked":
-      return say(t("lockedTitle"), t("itemLockedText"));
+      return say(t("lockedTitle"), t("itemLockedText"), connected);
     case "no_match":
-      return say(t("noLoginsTitle"), t("noLoginsText", originOf(tab?.url)));
+      return say(t("goneTitle"), t("goneText"), connected);
     case "not_paired":
-      return connect(tab);
+      return connect();
     default:
-      return say(t("failed"), "", true);
-  }
-}
-
-/** The origin of a tab address, or "" when it has none worth comparing. */
-function originOf(url) {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return "";
+      return say(t("failed"), "", { isError: true });
   }
 }
 
 // ---- connecting to the app ----
 
 /** Not connected: carry on with a connection the app is still asking about, or offer one. */
-async function connect(tab) {
+async function connect() {
   const code = await waitingCode();
-  return code ? waitForApp(tab, code) : offerPairing(tab);
+  return code ? waitForApp(code) : offerPairing();
 }
 
 /** First use (or the app forgot us): one button that sends the person to the app. */
-async function offerPairing(tab) {
+async function offerPairing() {
   watching = 0;
   await dropKey();
   view("pair");
@@ -104,11 +91,11 @@ async function offerPairing(tab) {
     button.disabled = true;
     const reply = await send({ type: "pair" });
     if (reply.type !== "pairing" || typeof reply.key !== "string") {
-      return explain(reply.code === "not_paired" ? "failed" : reply.code, tab);
+      return explain(reply.code === "not_paired" ? "failed" : reply.code);
     }
     await saveKey(reply.key);
     await startWaiting(reply.code);
-    waitForApp(tab, reply.code);
+    waitForApp(reply.code);
   };
   button.focus();
 }
@@ -120,7 +107,7 @@ let watching = 0;
  * The app has come forward and asks for the master password. Nothing more to do here: this
  * window asks again every second and carries on by itself once the app has connected it.
  */
-function waitForApp(tab, code) {
+function waitForApp(code) {
   view("pair");
   $("pair-title").textContent = t("pairWaitTitle");
   $("pair-text").textContent = t("pairWaitText");
@@ -130,47 +117,90 @@ function waitForApp(tab, code) {
   const restart = $("pair-restart");
   restart.textContent = t("pairRestart");
   restart.hidden = false;
-  restart.onclick = () => offerPairing(tab);
+  restart.onclick = () => offerPairing();
   const mine = ++watching;
   const look = async () => {
     if (mine !== watching) return;
-    const reply = await ask({ type: "logins", url: tab.url });
+    const reply = await ask({ type: "vault" });
     if (mine !== watching) return;
     if (reply.code === "not_paired" || reply.code === "locked") {
       return setTimeout(look, 1000);
     }
     watching = 0;
     await stopWaiting();
-    if (reply.type === "logins" && Array.isArray(reply.items)) return show(tab, reply);
-    explain(reply.code, tab);
+    start();
   };
   setTimeout(look, 1000);
 }
 
-// ---- filling ----
+// ---- the item lock ----
+
+/** What a locked login will ask for, in a word; "" when nothing typed here opens it. */
+function asksFor(listing) {
+  if (listing.hello) return t("asksHello");
+  if (listing.check === "pin") return t("asksPin");
+  if (listing.check === "password") return t("asksPassword");
+  return "";
+}
 
 /**
- * Asks the app for the login and types it into the page. A locked login is opened by
- * Windows Hello (`how.hello`: the app shows the system's prompt) or by the PIN or item
- * password typed here (`how.check`), which goes to the app with this one request and is
- * kept nowhere. Returns the app's reply when it wants the PIN (again).
+ * Sends `request` for a login that may be locked. Windows Hello first when the app offers it
+ * (its prompt belongs to the system); otherwise, or when Hello is closed, the PIN or item
+ * password typed here, which goes to the app with this one request and is kept nowhere.
+ * Resolves with the app's final reply, or `undefined` when the person turned back.
  */
-async function fill(tab, entry, how = {}) {
-  const request = { type: "fill", url: tab.url, id: entry.id };
-  if (how.check) request.check = how.check;
-  if (how.hello) request.hello = true;
-  const reply = await ask(request);
-  if (reply.type === "error" && (reply.code === "wrong_check" || (reply.code === "item_locked" && reply.check !== "app"))) {
-    return reply;
-  }
-  if (reply.type !== "fill") {
-    return explain(reply.code, tab);
-  }
+async function guarded(entry, listing, request, goLabel, back) {
+  const reply = await ask({ ...request, hello: entry.locked && listing.hello });
+  if (reply.code !== "item_locked" || !["pin", "password"].includes(reply.check)) return reply;
+  return new Promise((resolve) => {
+    const pin = reply.check === "pin";
+    view("check");
+    $("check-title").textContent = entry.title;
+    $("check-username").textContent = entry.username;
+    $("check-text").textContent = t(pin ? "pinText" : "passwordText");
+    $("check-error").textContent = "";
+    $("check-go").textContent = goLabel;
+    $("check-back").textContent = t("backButton");
+    const input = $("check-input");
+    input.value = "";
+    input.placeholder = t(pin ? "pinLabel" : "passwordLabel");
+    input.inputMode = pin ? "numeric" : "text";
+    input.maxLength = pin ? 8 : 256;
+    input.focus();
+    $("check-back").onclick = () => {
+      back();
+      resolve(undefined);
+    };
+    $("check").onsubmit = async (event) => {
+      event.preventDefault();
+      const typed = input.value;
+      if (!typed) return;
+      input.value = "";
+      $("check-go").disabled = true;
+      const answer = await ask({ ...request, check: typed });
+      $("check-go").disabled = false;
+      if (answer.code === "wrong_check") {
+        $("check-error").textContent =
+          answer.left === 1 ? t("wrongCheckLast") : t("wrongCheck", String(answer.left));
+        return input.focus();
+      }
+      resolve(answer);
+    };
+  });
+}
+
+// ---- filling ----
+
+async function fill(entry, back) {
+  const tab = here.tab;
+  const reply = await guarded(entry, here.site, { type: "fill", url: tab.url, id: entry.id }, t("fillButton"), back);
+  if (!reply) return;
+  if (reply.type !== "fill") return explain(reply.code);
   // The tab may have navigated while the app answered: look again, and let the page-side
   // function check once more where it really runs.
   const now = await chrome.tabs.get(tab.id);
   if (originOf(now.url) !== reply.origin) {
-    return say(t("pageChanged"), "", true);
+    return say(t("pageChanged"), "", { isError: true });
   }
   let outcome = "none";
   try {
@@ -190,104 +220,415 @@ async function fill(tab, entry, how = {}) {
     case "username":
       return say(t("filledUsername"));
     case "wrong_page":
-      return say(t("pageChanged"), "", true);
+      return say(t("pageChanged"), "", { isError: true });
     case "none":
-      return say(t("noFields"), "", true);
+      return say(t("noFields"), "", { isError: true });
     default:
-      return say(t("failed"), "", true);
+      return say(t("failed"), "", { isError: true });
   }
 }
 
-/** The PIN view: the login picked, one field, Fill. */
-function askCheck(tab, entry, kind, back) {
-  const pin = kind === "pin";
-  view("site", "check");
-  $("check-title").textContent = entry.title;
-  $("check-username").textContent = entry.username;
-  $("check-text").textContent = t(pin ? "pinText" : "passwordText");
-  $("check-error").textContent = "";
-  $("check-fill").textContent = t("fillButton");
-  $("check-back").textContent = t("backButton");
-  const input = $("check-input");
-  input.value = "";
-  input.placeholder = t(pin ? "pinLabel" : "passwordLabel");
-  input.inputMode = pin ? "numeric" : "text";
-  input.maxLength = pin ? 8 : 256;
-  input.focus();
-  $("check-back").onclick = back;
-  $("check").onsubmit = async (event) => {
-    event.preventDefault();
-    const typed = input.value;
-    if (!typed) return;
-    input.value = "";
-    $("check-fill").disabled = true;
-    const reply = await fill(tab, entry, { check: typed });
-    $("check-fill").disabled = false;
-    if (reply?.code === "wrong_check") {
-      $("check-error").textContent = reply.left === 1 ? t("wrongCheckLast") : t("wrongCheck", String(reply.left));
-      input.focus();
-    }
+/** Sets an eye button open (the secret is shown) or shut, with its accessible name. */
+function eye(button, open) {
+  button.setAttribute("aria-pressed", String(open));
+  button.setAttribute("aria-label", t(open ? "hideButton" : "showButton"));
+  button.title = t(open ? "hideButton" : "showButton");
+}
+
+// ---- rows ----
+
+function row(entry, listing, { detail, onPick, onMore }) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "login";
+  const tile = document.createElement("span");
+  tile.className = "tile";
+  tile.textContent = (entry.title || entry.username || "?").trim().charAt(0);
+  const title = document.createElement("span");
+  title.className = "title";
+  title.textContent = entry.title;
+  const sub = document.createElement("span");
+  sub.className = "detail";
+  sub.textContent = detail || t("noUsername");
+  button.append(tile, title, sub);
+  if (entry.locked) {
+    const asks = document.createElement("span");
+    asks.className = "asks";
+    asks.textContent = asksFor(listing) || t("lockedItem");
+    button.append(asks);
+  }
+  button.addEventListener("click", () => onPick(entry));
+  if (!onMore) return button;
+  // The row fills; the small button beside it opens the login instead.
+  const wrap = document.createElement("div");
+  wrap.className = "with-more";
+  const more = document.createElement("button");
+  more.type = "button";
+  more.className = "quiet more";
+  more.textContent = t("detailsButton");
+  more.addEventListener("click", () => onMore(entry));
+  wrap.append(button, more);
+  return wrap;
+}
+
+// ---- this site ----
+
+function showSite() {
+  here.place = "site";
+  mark();
+  const reply = here.site;
+  if (!reply) return explain(here.siteProblem || "not_a_website");
+  $("origin").textContent = reply.origin.replace(/^https:\/\//, "");
+  const shown = ["tabs", "site", "foot"];
+  if (here.pending) shown.push("offer");
+  if (reply.items.length === 0) {
+    view(...shown, "message");
+    $("message").classList.remove("error");
+    $("message-title").textContent = t("noLoginsTitle");
+    $("message-text").textContent = t("noLoginsText", reply.origin);
+    return;
+  }
+  view(...shown, "list");
+  const rows = reply.items.map((entry) =>
+    row(entry, reply, {
+      detail: entry.username,
+      onPick: (picked) => {
+        for (const other of document.querySelectorAll("#list button")) other.disabled = true;
+        fill(picked, showSite);
+      },
+      onMore: (picked) => showEntry({ ...picked, site: reply.origin, has_password: true }, reply, showSite),
+    }),
+  );
+  $("list").replaceChildren(...rows);
+  $("list").querySelector("button:enabled")?.focus();
+}
+
+/** A login typed into this page and not saved yet: offer it at the top. */
+function showOffer() {
+  const pending = here.pending;
+  if (!pending) return;
+  $("offer-text").textContent = t("offerText", pending.username || t("noUsername"));
+  const yes = $("offer-yes");
+  const no = $("offer-no");
+  yes.textContent = t("saveYes");
+  no.textContent = t("saveNo");
+  const done = async () => {
+    here.pending = undefined;
+    await setPendingSave(here.tab.id, undefined);
+    chrome.tabs.sendMessage(here.tab.id, { kind: "close", which: "save" }).catch(() => {});
+  };
+  no.onclick = async () => {
+    await done();
+    showSite();
+  };
+  yes.onclick = async () => {
+    yes.disabled = true;
+    const entry = { title: originOf(pending.url).replace(/^https:\/\//, ""), username: pending.username, locked: true };
+    const listing = here.site || { hello: true };
+    const request = { type: "save", url: pending.url, username: pending.username, password: pending.password };
+    const reply = await guarded(entry, { ...listing, hello: true }, request, t("saveYes"), showSite);
+    yes.disabled = false;
+    if (!reply) return;
+    if (reply.type !== "saved") return explain(reply.code);
+    await done();
+    toast(t("savedToast"));
+    await load();
+    showSite();
   };
 }
 
-function show(tab, reply) {
-  $("origin").textContent = reply.origin.replace(/^https:\/\//, "");
-  if (reply.items.length === 0) {
-    return say(t("noLoginsTitle"), t("noLoginsText", reply.origin));
-  }
-  view("site", "list");
-  const typed = reply.check === "pin" || reply.check === "password";
-  const again = () => show(tab, reply);
-  const rows = reply.items.map((entry) => {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "login";
-    const opens = entry.locked && (reply.hello || typed);
-    row.disabled = entry.locked && !opens;
-    const title = document.createElement("span");
-    title.className = "title";
-    title.textContent = entry.title;
-    const detail = document.createElement("span");
-    detail.className = "detail";
-    detail.textContent = entry.username || t("noUsername");
-    row.append(title, detail);
-    if (entry.locked) {
-      const asks = document.createElement("span");
-      asks.className = "asks";
-      asks.textContent = !opens ? t("lockedItem") : reply.hello ? t("asksHello") : t(reply.check === "pin" ? "asksPin" : "asksPassword");
-      row.append(asks);
-    }
-    row.addEventListener("click", async () => {
-      if (opens && !reply.hello) return askCheck(tab, entry, reply.check, again);
-      for (const other of document.querySelectorAll(".login")) other.disabled = true;
-      // Windows Hello closed or unavailable, or locked meanwhile in the app: the PIN.
-      const answer = await fill(tab, entry, { hello: opens });
-      if (answer?.code === "item_locked") askCheck(tab, entry, answer.check, again);
+// ---- the whole vault ----
+
+function showVault() {
+  here.place = "vault";
+  mark();
+  const reply = here.vault;
+  if (!reply) return explain(here.vaultProblem || "failed");
+  view("tabs", "vault", "foot");
+  const search = $("search");
+  search.placeholder = t("searchLabel");
+  const draw = () => {
+    const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+    const found = reply.items.filter((entry) => {
+      const text = `${entry.title} ${entry.username} ${entry.site}`.toLowerCase();
+      return words.every((word) => text.includes(word));
     });
-    return row;
-  });
-  $("list").replaceChildren(...rows);
-  rows.find((row) => !row.disabled)?.focus();
+    $("vault-list").replaceChildren(
+      ...found.map((entry) =>
+        row(entry, reply, {
+          detail: entry.username || entry.site,
+          onPick: (picked) => showEntry(picked, reply, showVault),
+        }),
+      ),
+    );
+    const empty = $("vault-empty");
+    empty.hidden = found.length > 0;
+    empty.textContent = reply.items.length === 0 ? t("vaultEmpty") : t("searchEmpty");
+  };
+  search.oninput = draw;
+  draw();
+  search.focus();
 }
 
-async function main() {
+// ---- one login ----
+
+let hideTimer = 0;
+
+function showEntry(entry, listing, back) {
+  clearTimeout(hideTimer);
+  const again = () => showEntry(entry, listing, back);
+  view("entry", "foot");
+  $("entry-back").textContent = t("backToList");
+  $("entry-back").onclick = back;
+  $("entry-tile").textContent = (entry.title || entry.username || "?").trim().charAt(0);
+  $("entry-title").textContent = entry.title;
+  for (const name of ["username", "password", "code", "site"]) {
+    $(`label-${name}`).textContent = t(`label_${name}`);
+  }
+  for (const id of ["copy-username", "copy-password", "copy-code"]) $(id).textContent = t("copyButton");
+
+  /** Asks the app to copy; the value never comes here. */
+  const copy = (what) => async () => {
+    const needsCheck = what !== "username";
+    const request = { type: "copy", id: entry.id, what };
+    const reply = needsCheck
+      ? await guarded(entry, listing, request, t("copyButton"), again)
+      : await ask(request);
+    if (!reply) return;
+    if (reply.type !== "copied") return explain(reply.code);
+    again();
+    toast(reply.seconds ? t("copiedSecret", String(reply.seconds)) : t("copied"));
+  };
+
+  $("field-username").hidden = !entry.username;
+  $("value-username").textContent = entry.username;
+  $("copy-username").onclick = copy("username");
+
+  $("field-password").hidden = entry.has_password === false;
+  const password = $("value-password");
+  password.textContent = "••••••••••";
+  password.classList.remove("shown");
+  const show = $("show-password");
+  eye(show, false);
+  show.onclick = async () => {
+    if (password.classList.contains("shown")) return again();
+    const reply = await guarded(entry, listing, { type: "reveal", id: entry.id }, t("showButton"), again);
+    if (!reply) return;
+    if (reply.type !== "reveal") return explain(reply.code);
+    again();
+    $("value-password").textContent = reply.password;
+    $("value-password").classList.add("shown");
+    eye($("show-password"), true);
+    hideTimer = setTimeout(again, 30000);
+  };
+  $("copy-password").onclick = copy("password");
+
+  $("field-code").hidden = !entry.has_code;
+  $("value-code").textContent = "••• •••";
+  $("copy-code").onclick = copy("code");
+
+  const address = (entry.site || "").replace(/^\*\./, "");
+  $("field-site").hidden = !address;
+  $("value-site").textContent = (entry.site || "").replace(/^https:\/\//, "");
+  $("open-site").textContent = t("openButton");
+  $("open-site").onclick = () => {
+    const url = /^https?:\/\//i.test(address) ? address : `https://${address}`;
+    if (originOf(url)) chrome.tabs.create({ url });
+  };
+
+  const asks = entry.locked ? asksFor(listing) : "";
+  $("entry-asks").textContent = entry.locked ? (asks ? t("entryAsks", asks) : t("itemLockedText")) : "";
+
+  // Offered only when this login belongs to the page in front: the app decides that.
+  const fits = here.site?.items.some((item) => item.id === entry.id);
+  const fillButton = $("entry-fill");
+  fillButton.hidden = !fits;
+  fillButton.textContent = t("fillHere");
+  fillButton.onclick = () => fill(entry, again);
+}
+
+// ---- start ----
+
+function mark() {
+  for (const place of ["site", "vault", "gen"]) {
+    $(`tab-${place}`).setAttribute("aria-pressed", String(here.place === place));
+  }
+}
+
+// ---- the generator: the app makes the password ----
+
+/** The last password the app made here, and the id that keeps it in the app's history. */
+let made;
+
+function generatorOptions() {
+  return {
+    length: Number($("gen-length").value),
+    upper: $("gen-upper").checked,
+    lower: $("gen-lower").checked,
+    digits: $("gen-digits").checked,
+    symbols: $("gen-symbols").checked,
+  };
+}
+
+async function generate(options = generatorOptions()) {
+  const reply = await ask({ type: "generate", ...options, url: here.tab?.url });
+  if (reply.type !== "generated") return undefined;
+  made = { id: reply.id, password: reply.password, bits: reply.bits };
+  return made;
+}
+
+async function showGenerator() {
+  here.place = "gen";
+  mark();
+  view("tabs", "gen", "foot");
+  $("gen-length-label").textContent = t("lengthLabel");
+  $("gen-copy").textContent = t("copyButton");
+  $("gen-again").textContent = t("anotherButton");
+  $("gen-use").textContent = t("useForLogin");
+  $("gen-note").textContent = t("genNote");
+  const draw = async () => {
+    $("gen-length-value").textContent = $("gen-length").value;
+    const result = await generate();
+    $("gen-password").textContent = result ? result.password : t("genImpossible");
+    $("gen-bits").textContent = result ? t("strengthBits", String(result.bits)) : "";
+    $("gen-copy").disabled = !result;
+    $("gen-use").disabled = !result;
+  };
+  $("gen-length").oninput = () => ($("gen-length-value").textContent = $("gen-length").value);
+  $("gen-length").onchange = draw;
+  for (const id of ["gen-upper", "gen-lower", "gen-digits", "gen-symbols"]) $(id).onchange = draw;
+  $("gen-again").onclick = draw;
+  $("gen-copy").onclick = async () => {
+    if (!made) return;
+    // The app copies it (out of clipboard history, cleared later) and keeps it in its history.
+    const reply = await ask({ type: "keep", id: made.id, copy: true });
+    if (reply.type === "copied") toast(t("copiedSecret", String(reply.seconds)));
+    else if (reply.code === "no_match") await draw();
+    else explain(reply.code);
+  };
+  $("gen-use").onclick = () => made && showNewLogin(made);
+  await draw();
+}
+
+// ---- a new login ----
+
+function showNewLogin(generated) {
+  view("new-login", "foot");
+  $("new-title").textContent = t("newLoginTitle");
+  $("new-site-label").textContent = t("label_site");
+  $("new-name-label").textContent = t("nameLabel");
+  $("new-user-label").textContent = t("label_username");
+  $("new-pass-label").textContent = t("label_password");
+  eye($("new-show"), false);
+  $("new-generate").textContent = t("generateButton");
+  $("new-save").textContent = t("saveYes");
+  $("new-cancel").textContent = t("cancelButton");
+  $("new-error").textContent = "";
+  const site = $("new-site");
+  const page = originOf(here.tab?.url || "");
+  site.value = page.startsWith("https://") ? page.replace(/^https:\/\//, "") : "";
+  $("new-name").value = "";
+  $("new-name").placeholder = t("nameHint");
+  $("new-user").value = "";
+  const pass = $("new-pass");
+  pass.type = "password";
+  pass.value = generated?.password || "";
+  let kept = generated;
+  $("new-show").onclick = () => {
+    pass.type = pass.type === "password" ? "text" : "password";
+    eye($("new-show"), pass.type === "text");
+  };
+  $("new-generate").onclick = async () => {
+    kept = await generate({ length: 20 });
+    if (kept) {
+      pass.value = kept.password;
+      pass.type = "text";
+      eye($("new-show"), true);
+    }
+  };
+  $("new-cancel").onclick = () => (here.place === "gen" ? showGenerator() : showVault());
+  (site.value ? $("new-user") : site).focus();
+  $("new-login").onsubmit = async (event) => {
+    event.preventDefault();
+    const address = site.value.trim();
+    const url = /^https?:\/\//i.test(address) ? address : `https://${address}`;
+    if (!originOf(url).startsWith("https://")) {
+      $("new-error").textContent = t("newSiteError");
+      return;
+    }
+    if (!pass.value) return pass.focus();
+    $("new-save").disabled = true;
+    const entry = { title: $("new-name").value || address, username: $("new-user").value, locked: true };
+    const listing = here.vault || here.site || { hello: false };
+    const request = {
+      type: "save",
+      url,
+      title: $("new-name").value.trim() || undefined,
+      username: $("new-user").value.trim(),
+      password: pass.value,
+    };
+    const reply = await guarded(entry, listing, request, t("saveYes"), () => showNewLogin(kept));
+    $("new-save").disabled = false;
+    if (!reply) return;
+    if (reply.type !== "saved") return explain(reply.code);
+    if (reply.existing) {
+      $("new-error").textContent = t("newExists");
+      return;
+    }
+    if (kept && kept.password === request.password) await ask({ type: "keep", id: kept.id });
+    pass.value = "";
+    toast(t("savedToast"));
+    await load();
+    showVault();
+  };
+}
+
+/** Asks the app for this page's logins and for the vault's list. */
+async function load() {
+  const tab = here.tab;
+  const [site, vault, status] = await Promise.all([
+    tab?.url ? ask({ type: "logins", url: tab.url }) : { type: "error", code: "not_a_website" },
+    ask({ type: "vault" }),
+    send({ type: "status" }),
+  ]);
+  here.site = site.type === "logins" && Array.isArray(site.items) ? site : undefined;
+  here.siteProblem = site.code;
+  here.vault = vault.type === "vault" && Array.isArray(vault.items) ? vault : undefined;
+  here.vaultProblem = vault.code;
+  here.pending = tab?.id ? await pendingSave(tab.id) : undefined;
+  $("foot-text").textContent = status.name ? t("connectedTo", status.name) : t("connected");
+  return vault;
+}
+
+async function start() {
+  // The PIN form never navigates, whatever is clicked before its handler is in place.
+  $("check").addEventListener("submit", (event) => event.preventDefault());
   say(t("checking"));
+  $("tab-site").textContent = t("tabSite");
+  $("tab-vault").textContent = t("tabVault");
+  $("tab-gen").textContent = t("tabGen");
+  $("tab-site").onclick = showSite;
+  $("tab-vault").onclick = showVault;
+  $("tab-gen").onclick = showGenerator;
+  $("add-login").textContent = t("addLogin");
+  $("add-login").onclick = () => showNewLogin();
+  $("new-login").addEventListener("submit", (event) => event.preventDefault());
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.url) {
-    return explain("not_a_website", tab);
+  here.tab = tab;
+  // Before anything else: an extension that is not connected offers to connect, whatever
+  // page is in front.
+  if (!(await loadKey())) return offerPairing();
+  const vault = await load();
+  if (!here.vault) {
+    // Locked while a connection waits: the app asks after it is unlocked, so keep waiting.
+    const code = vault.code === "locked" ? await waitingCode() : undefined;
+    return code ? waitForApp(code) : explain(vault.code);
   }
-  if (!(await loadKey())) {
-    return offerPairing(tab);
-  }
-  const reply = await ask({ type: "logins", url: tab.url });
-  if (reply.type === "logins" && Array.isArray(reply.items)) {
-    await stopWaiting();
-    return show(tab, reply);
-  }
-  // Locked while a connection waits: the app asks after it is unlocked, so keep waiting.
-  const code = reply.code === "locked" ? await waitingCode() : undefined;
-  if (code) return waitForApp(tab, code);
-  explain(reply.code, tab);
+  await stopWaiting();
+  showOffer();
+  // On a page with nothing to fill, the vault itself is the useful place to land.
+  if (here.site?.items.length || here.pending) showSite();
+  else showVault();
 }
 
-main();
+start();

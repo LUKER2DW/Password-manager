@@ -1,0 +1,96 @@
+/* The small frame shown inside a page. Opaque on purpose: nothing of the page shows through. */
+html,
+body {
+  margin: 0;
+  background: var(--canvas);
+}
+
+body {
+  color: var(--ink);
+  font: 14px/1.4 var(--text);
+  overflow: hidden;
+}
+
+section {
+  padding: 8px;
+}
+
+#logins header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 4px 8px;
+  font-size: 12px;
+  color: var(--graphite);
+}
+
+#new {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 12px;
+}
+
+#new header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--graphite);
+}
+
+#new-password {
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--field);
+  font: 15px/1.4 var(--mono);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+#new-note {
+  font-size: 12px;
+  color: var(--graphite);
+}
+
+#list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 232px;
+  overflow-y: auto;
+}
+
+#save {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 14px 12px;
+}
+
+#save h1 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+#save p {
+  font-size: 12px;
+  color: var(--graphite);
+  overflow-wrap: anywhere;
+}
+
+#save p:empty {
+  display: none;
+}
+
+#save-who strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}

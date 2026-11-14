@@ -1,29 +1,47 @@
 # Browser extension (Chrome, Edge)
 
-Fills logins from the desktop app. It keeps no passwords and does no cryptography: it asks the
-app on the same computer, through a small helper program the browser starts
-(`vault-browser-host`, built from `crates/browser`).
+Fills, shows and saves logins from the desktop app, and suggests strong passwords. It keeps
+no passwords and does no cryptography of its own: it asks the app on the same computer,
+through a small helper program the browser starts (`vault-browser-host`, built from
+`crates/browser`).
 
 Status: early development, like the rest of the project. Use a test vault.
 
-## How it works
+## What it does
 
-0. Once: you click Connect in the extension. The app comes forward, shows a code and asks
-   for your master password (typed in the app, never in the browser). The extension then
-   holds a connection key (never a password), signs every request, and carries on by itself.
-1. You click the extension's button (or press Ctrl+Shift+L). Only then does it learn the
-   address of the tab (`activeTab`); it has no access to any site otherwise and runs nothing
-   in the background.
-2. It sends that address to the app. The app answers with the logins saved for **exactly that
-   site** (same scheme, host and port; https only), without passwords.
-3. You pick one **in the extension's own window**. The app then hands over that one login,
-   after checking the site again, and the extension types it into the page's top frame.
-4. The app shows a notice for every fill.
+- **Connect once.** The first time you open it, it offers *Connect*. The app comes forward,
+  shows a code and asks for your master password (typed in the app, never in the browser).
+  The extension then holds a connection key (never a password) and signs every request.
+- **Under a sign-in field**, a small frame lists the usernames saved for that exact site
+  (same scheme, host and port; https only). Pick one and it is filled.
+- **On a sign-up or change-password field**, the frame offers a strong password made by the
+  app's generator, fitted to what the field allows (`maxlength`, `minlength`, `pattern`,
+  `passwordrules`). *Use this password* types it into the new-password fields.
+- **After you sign in or sign up** with a login that isn't saved, it asks *Save this login?*.
+- **Its window** (the toolbar button or Ctrl+Shift+L) has three tabs:
+  - *This site*: the logins for the page in front, to fill; *Details* opens one.
+  - *All logins*: search the whole vault; show a password or copy username, password or
+    one-time code. *New* adds a login by hand.
+  - *Generator*: a password from the app's generator; *Copy* or *Use for a new login*.
+- Copying is done **by the app**: the value never reaches the browser, it stays out of
+  Windows clipboard history, and it is cleared after the time set in the app.
+- Generated passwords you used are listed in the app's Generator page (encrypted with the
+  vault on this computer, behind the item lock), with *Clear history*.
 
-Nothing is ever drawn inside a web page, so a page has nothing to cover or click on your
-behalf. A login behind the app's item lock is opened for that one fill by Windows Hello
-(the system's own prompt) or by the item lock's PIN typed in the extension's window; five
-wrong tries lock the vault, as in the app.
+## How it stays safe
+
+- Every password comes from the app, which decides whether a page may have it: the exact site
+  saved in the login, top frame only, nothing while the vault is locked. Each fill or shown
+  password is announced in the app.
+- A login behind the item lock (every item, by default, for new vaults) needs **Windows Hello**
+  (the system's own prompt) or the item lock's PIN, typed in the extension's window, for each
+  fill, show or copy. Five wrong tries lock the vault, as in the app.
+- The frame in pages is the extension's own page in a cross-origin iframe: the page can't read
+  or script it. A click there counts only once the browser reports the frame fully visible,
+  with nothing drawn over it (against extension clickjacking). It never shows a password
+  except a freshly generated one.
+- A login typed into a page waits in the browser's memory (never on disk) for at most two
+  minutes, and goes to the app only if you choose *Save*.
 
 To use one login on several sites, save `*.example.com` as its website in the app: it then
 covers `example.com` and every site under it.
@@ -36,18 +54,15 @@ covers `example.com` and every site under it.
    helper's manifest under the app's data folder and points Chrome and Edge at it (one registry
    value each, for your Windows user). Turning it off removes them.
 3. Open `chrome://extensions` (or `edge://extensions`), turn on *Developer mode*, choose
-   *Load unpacked* and pick this `extension` folder. Pin the extension to the toolbar.
-4. Open any https site, click the extension (or Ctrl+Shift+L) and choose *Connect*. In the
-   app, type your master password and choose *Connect*. Done: the extension lists the logins
-   saved for the site you are on.
-5. Optional, for a PIN or Windows Hello on each fill: in the app, Settings → Item lock →
-   PIN, tick "Lock every item" (or mark single items) and "Open locked items with Windows
-   Hello too".
+   *Load unpacked* and pick this `extension` folder. Pin the extension to the toolbar. After an
+   update of this folder, click the reload arrow on the extension's card.
+4. Click the extension and choose *Connect*. In the app, type your master password and choose
+   *Connect*. Done.
 
-If the extension says the app isn't answering: the app must be running with the browser
-extension turned on, and `vault-browser-host.exe` must sit next to `vault-desktop.exe`
-(both are in `target/release` after step 1). Restart the browser after turning the setting
-on for the first time.
+If the extension says the app isn't answering: the app must be running (the window may be
+closed to the notification area) with the browser extension turned on, and
+`vault-browser-host.exe` must sit next to `vault-desktop.exe` (both are in `target/release`
+after step 1). Restart the browser after turning the setting on for the first time.
 
 The `key` in `manifest.json` fixes the extension's id, which is the only id the helper accepts.
 
@@ -55,13 +70,19 @@ The `key` in `manifest.json` fixes the extension's id, which is the only id the 
 
 | File | Role |
 |---|---|
-| `manifest.json` | Manifest V3: `activeTab`, `scripting`, `nativeMessaging`; no host permissions, no content scripts, no background worker |
-| `popup.html`, `popup.css`, `popup.js` | The extension's window: asks the app, lists logins, fills the one picked |
+| `manifest.json` | Manifest V3: `activeTab`, `scripting`, `nativeMessaging`, `storage`; https pages for the content script |
+| `popup.html`, `popup.css`, `popup.js` | The extension's window: this site, all logins, generator, new login |
+| `content.js`, `fields.js` | Content script: sign-in and new-password fields, submitted forms, placing the frame |
+| `inline.html`, `inline.css`, `inline.js` | The frame under a field (logins or a new password) and the save offer |
+| `background.js` | The worker between the content script, the frame and the app |
+| `app.js` | Native messaging calls, and the login waiting to be saved |
 | `link.js` | The connection key (a non-extractable browser key) and the signature on each request |
-| `fill.js` | The function typed into the page (top frame, same origin, sign-in fields only) |
+| `fill.js` | The function that types a login into the page (top frame, same origin) |
+| `generator.js` | Reads a field's password rules for the app's generator |
+| `tokens.css` | Colours and shared pieces (the desktop app's tokens) |
 | `_locales/en/messages.json` | Every text shown |
-| `test/fill.test.mjs`, `test/link.test.mjs` | Tests: `node --test extension/test/fill.test.mjs extension/test/link.test.mjs` |
-| `test/preview.html` | Visual review of the window with fixed test data |
+| `test/*.test.mjs` | Tests: `node --test extension/test/fill.test.mjs extension/test/link.test.mjs extension/test/generator.test.mjs` |
+| `test/preview.html` | Visual review of the window and the frames with fixed test data |
 | `test/pages/clickjacking.html` | Manual test page that tries to steal a fill |
 
 Plain JavaScript on purpose: no build step and no packages, so what is reviewed in this folder

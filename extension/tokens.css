@@ -1,0 +1,249 @@
+/* The desktop app's tokens (docs/DESIGN.md): dark slate, one highlighter yellow, a single
+   hand-drawn stroke. Shared by the extension's window and the small frame shown in pages. */
+:root {
+  color-scheme: dark light;
+  --canvas: #121821;
+  --panel: #18202b;
+  --field: #0f141b;
+  --hover: #212a36;
+  --ink: #e3e8ef;
+  --graphite: #8e9aac;
+  --rule: #283240;
+  --marker: #e7c54b;
+  --on-marker: #161a20;
+  --stroke: #e7c54b;
+  --seal: #f06a60;
+  --text: Bahnschrift, "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", Consolas, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --canvas: #eef1f4;
+    --panel: #e4e9ee;
+    --field: #ffffff;
+    --hover: #dce2e9;
+    --ink: #1f2a3d;
+    --graphite: #5a6678;
+    --rule: #cfd7e0;
+    --marker: #f2cf45;
+    --on-marker: #161a20;
+    --stroke: #b88a00;
+    --seal: #b3261e;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+/* ---- a login: a letter tile, its name, who it is, and what it asks for ---- */
+
+.login {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  column-gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.login:hover:enabled,
+.login:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+
+.login:disabled {
+  cursor: default;
+}
+
+.login:disabled .title {
+  color: var(--graphite);
+}
+
+.tile {
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.title {
+  grid-column: 2;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--graphite);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asks {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  font-size: 12px;
+  color: var(--graphite);
+  white-space: nowrap;
+}
+
+/* ---- buttons ---- */
+
+button.primary,
+button.plain,
+button.quiet {
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--marker);
+  color: var(--on-marker);
+  font-weight: 600;
+}
+
+button.plain {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+}
+
+button.plain:hover:enabled {
+  background: var(--hover);
+}
+
+button.primary:focus-visible,
+button.plain:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+button.quiet {
+  height: 28px;
+  padding: 0 8px;
+  background: none;
+  color: var(--graphite);
+  font-size: 12px;
+}
+
+button.quiet:hover:enabled,
+button.quiet:focus-visible {
+  background: var(--hover);
+  color: var(--ink);
+  outline: none;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Show / hide: an eye that opens while the secret is shown, and blinks shut. */
+button.eye {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--graphite);
+  cursor: pointer;
+}
+
+button.eye:hover,
+button.eye:focus-visible {
+  background: var(--hover);
+  color: var(--ink);
+  outline: none;
+}
+
+button.eye svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+button.eye .open {
+  transform-origin: 12px 12px;
+  transform: scaleY(0.06);
+  opacity: 0;
+  transition:
+    transform 220ms ease-in-out,
+    opacity 120ms ease-in-out;
+}
+
+button.eye .shut {
+  opacity: 1;
+  transition: opacity 160ms ease-in-out 60ms;
+}
+
+button.eye[aria-pressed="true"] .open {
+  transform: scaleY(1);
+  opacity: 1;
+}
+
+button.eye[aria-pressed="true"] .shut {
+  opacity: 0;
+  transition-delay: 0ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.eye .open,
+  button.eye .shut {
+    transition: none;
+  }
+}
+
+.stroke {
+  display: block;
+  height: 7px;
+}
+
+.stroke path {
+  fill: none;
+  stroke: var(--stroke);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}

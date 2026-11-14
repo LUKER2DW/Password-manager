@@ -3,31 +3,138 @@
   <head>
     <meta charset="utf-8" />
     <title>Vault</title>
+    <link rel="stylesheet" href="tokens.css" />
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
+    <!-- Two places: the site in front of you, and everything in the vault. -->
+    <nav id="tabs" hidden>
+      <button id="tab-site" type="button" aria-pressed="true"></button>
+      <button id="tab-vault" type="button" aria-pressed="false"></button>
+      <button id="tab-gen" type="button" aria-pressed="false"></button>
+    </nav>
+
     <!-- The site the logins belong to: the one thing to look at before filling. -->
     <header id="site" hidden>
       <h1 id="origin"></h1>
-      <svg id="stroke" viewBox="0 0 200 8" preserveAspectRatio="none" aria-hidden="true">
+      <svg class="stroke" viewBox="0 0 200 8" preserveAspectRatio="none" aria-hidden="true">
         <path d="M2 5.2 C 28 2.4, 52 6.6, 84 4.1 S 150 2.2, 198 4.8" />
       </svg>
     </header>
 
+    <!-- A login typed into this page a moment ago, not in the vault yet. -->
+    <section id="offer" hidden>
+      <p id="offer-text"></p>
+      <div class="row">
+        <button id="offer-yes" class="primary" type="button"></button>
+        <button id="offer-no" class="quiet" type="button"></button>
+      </div>
+    </section>
+
     <main id="list" hidden></main>
+
+    <section id="vault" hidden>
+      <div class="row">
+        <input id="search" type="search" autocomplete="off" spellcheck="false" />
+        <button id="add-login" class="plain" type="button"></button>
+      </div>
+      <div id="vault-list"></div>
+      <p id="vault-empty" hidden></p>
+    </section>
+
+    <!-- A password from the app's generator. -->
+    <section id="gen" hidden>
+      <p id="gen-password" aria-live="polite"></p>
+      <p id="gen-bits"></p>
+      <label class="slider">
+        <span id="gen-length-label"></span>
+        <input id="gen-length" type="range" min="8" max="64" value="20" />
+        <output id="gen-length-value">20</output>
+      </label>
+      <div class="kinds">
+        <label><input id="gen-upper" type="checkbox" checked /> A–Z</label>
+        <label><input id="gen-lower" type="checkbox" checked /> a–z</label>
+        <label><input id="gen-digits" type="checkbox" checked /> 0–9</label>
+        <label><input id="gen-symbols" type="checkbox" checked /> !#$</label>
+      </div>
+      <div class="row">
+        <button id="gen-copy" class="primary" type="button"></button>
+        <button id="gen-again" class="plain" type="button"></button>
+        <button id="gen-use" class="quiet" type="button"></button>
+      </div>
+      <p id="gen-note"></p>
+    </section>
+
+    <!-- A new login, made here and saved by the app. -->
+    <form id="new-login" hidden>
+      <h2 id="new-title"></h2>
+      <label class="field-input"><span id="new-site-label"></span><input id="new-site" type="text" autocomplete="off" spellcheck="false" required /></label>
+      <label class="field-input"><span id="new-name-label"></span><input id="new-name" type="text" autocomplete="off" /></label>
+      <label class="field-input"><span id="new-user-label"></span><input id="new-user" type="text" autocomplete="off" spellcheck="false" /></label>
+      <label class="field-input"><span id="new-pass-label"></span>
+        <span class="row">
+          <input id="new-pass" type="password" autocomplete="off" spellcheck="false" required />
+          <button id="new-show" class="eye" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><g class="open"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /><circle cx="12" cy="12" r="3" /></g><path class="shut" d="M3 10.5c4.8 5.6 13.2 5.6 18 0M7 14.2l-1.6 2.6M12 15.6v3M17 14.2l1.6 2.6" /></svg></button>
+          <button id="new-generate" class="quiet" type="button"></button>
+        </span>
+      </label>
+      <p id="new-error" class="problem" role="alert"></p>
+      <div class="row">
+        <button id="new-save" class="primary" type="submit"></button>
+        <button id="new-cancel" class="quiet" type="button"></button>
+      </div>
+    </form>
+
+    <!-- One login, opened from the list. -->
+    <section id="entry" hidden>
+      <button id="entry-back" class="quiet" type="button"></button>
+      <div class="who">
+        <span id="entry-tile" class="tile"></span>
+        <h2 id="entry-title"></h2>
+      </div>
+      <dl>
+        <div class="field" id="field-username">
+          <dt id="label-username"></dt>
+          <dd id="value-username"></dd>
+          <button id="copy-username" class="quiet" type="button"></button>
+        </div>
+        <div class="field" id="field-password">
+          <dt id="label-password"></dt>
+          <dd id="value-password" class="secret"></dd>
+          <button id="show-password" class="eye" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><g class="open"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /><circle cx="12" cy="12" r="3" /></g><path class="shut" d="M3 10.5c4.8 5.6 13.2 5.6 18 0M7 14.2l-1.6 2.6M12 15.6v3M17 14.2l1.6 2.6" /></svg></button>
+          <button id="copy-password" class="quiet" type="button"></button>
+        </div>
+        <div class="field" id="field-code">
+          <dt id="label-code"></dt>
+          <dd id="value-code"></dd>
+          <button id="copy-code" class="quiet" type="button"></button>
+        </div>
+        <div class="field" id="field-site">
+          <dt id="label-site"></dt>
+          <dd id="value-site"></dd>
+          <button id="open-site" class="quiet" type="button"></button>
+        </div>
+      </dl>
+      <p id="entry-asks"></p>
+      <button id="entry-fill" class="primary" type="button" hidden></button>
+    </section>
 
     <form id="check" hidden>
       <p class="who"><strong id="check-title"></strong> <span id="check-username"></span></p>
       <p id="check-text"></p>
       <div class="row">
         <input id="check-input" type="password" autocomplete="off" spellcheck="false" />
-        <button id="check-fill" class="primary" type="submit"></button>
+        <button id="check-go" class="primary" type="submit"></button>
       </div>
       <p id="check-error" class="problem" role="alert"></p>
       <button id="check-back" class="quiet" type="button"></button>
     </form>
 
     <section id="pair" hidden>
+      <svg id="pair-mark" viewBox="0 0 64 40" aria-hidden="true">
+        <path d="M6 22 C 14 9, 24 9, 30 20 S 46 33, 58 16" />
+        <path d="M49 13 L 58 16 L 54 25" />
+      </svg>
       <h2 id="pair-title"></h2>
       <p id="pair-text"></p>
       <p id="pair-code" hidden></p>
@@ -39,6 +146,13 @@
       <h2 id="message-title"></h2>
       <p id="message-text"></p>
     </section>
+
+    <p id="toast" role="status" hidden></p>
+
+    <footer id="foot" hidden>
+      <span id="foot-dot" aria-hidden="true"></span>
+      <span id="foot-text"></span>
+    </footer>
 
     <script type="module" src="popup.js"></script>
   </body>
