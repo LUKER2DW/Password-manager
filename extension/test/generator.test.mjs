@@ -36,6 +36,15 @@ test("checks the field's pattern, and ignores one that doesn't compile", () => {
   assert.equal(patternTest(""), undefined);
 });
 
+test("doesn't run a pattern that could take forever", () => {
+  assert.equal(patternTest("(a+)+b"), undefined);
+  assert.equal(patternTest("([a-z]*)*\\d"), undefined);
+  assert.equal(patternTest("(?:\\w{2,})+!"), undefined);
+  assert.equal(patternTest("(.)\\1"), undefined);
+  assert.equal(patternTest("a".repeat(300)), undefined);
+  assert.ok(patternTest("(?=.*\\d)(?=.*[a-z]).{8,}")("abc12345"), "an ordinary one still runs");
+});
+
 test("narrows step by step", () => {
   const steps = fallbacks({ length: 8, lower: true, upper: true, digits: true, symbols: true });
   assert.equal(steps.length, 4);

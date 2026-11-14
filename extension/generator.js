@@ -62,7 +62,11 @@ export function rulesFor(field = {}) {
 
 /** The field's `pattern` as a test, or `undefined` when it has none or it doesn't compile. */
 export function patternTest(pattern) {
-  if (typeof pattern !== "string" || !pattern) return undefined;
+  if (typeof pattern !== "string" || !pattern || pattern.length > 256) return undefined;
+  // The pattern is the page's: one built to take forever (a repeated group that itself
+  // repeats, a back-reference) is not run, it would stall the extension. The suggestion is
+  // then made from the field's other rules alone.
+  if (/[+*}]\??\)[+*{]|\\[1-9]|\\k</.test(pattern)) return undefined;
   try {
     const regex = new RegExp(`^(?:${pattern})$`, "v");
     return (password) => regex.test(password);

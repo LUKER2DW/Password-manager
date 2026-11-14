@@ -142,6 +142,7 @@ async function handle(message, sender) {
         if (message.fresh) {
           const rules = message.rules && typeof message.rules === "object" ? message.rules : {};
           fresh.set(tab.id, {
+            origin: originOf(tab.url),
             rules: {
               maxLength: Number(rules.maxLength) || undefined,
               minLength: Number(rules.minLength) || undefined,
@@ -190,7 +191,8 @@ async function handle(message, sender) {
     }
     case "frame-suggest": {
       const entry = fresh.get(tab.id);
-      if (!entry) return {};
+      // The field it was asked for is on the site still in front.
+      if (!entry || entry.origin !== originOf(tab.url)) return {};
       const made = await suggestFor(tab, entry.rules);
       if (!made) return {};
       entry.password = made.password;
@@ -199,7 +201,7 @@ async function handle(message, sender) {
     }
     case "frame-use-password": {
       const entry = fresh.get(tab.id);
-      if (!entry?.password) return { done: false };
+      if (!entry?.password || entry.origin !== originOf(tab.url)) return { done: false };
       tell(tab.id, { kind: "put-password", password: entry.password });
       fresh.delete(tab.id);
       // The app adds it to its history of generated passwords.

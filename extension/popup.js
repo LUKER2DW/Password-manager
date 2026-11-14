@@ -684,8 +684,10 @@ async function load() {
   const [site, vault, status] = await Promise.all([
     tab?.url ? ask({ type: "logins", url: tab.url }) : { type: "error", code: "not_a_website" },
     ask({ type: "vault" }),
-    send({ type: "status" }),
+    // Signed like the rest: the app tells the vault's name to the connected extension only.
+    ask({ type: "status" }),
   ]);
+  if (status.code === "locked") status.locked = true;
   here.site = site.type === "logins" && Array.isArray(site.items) ? site : undefined;
   here.siteProblem = site.code;
   here.vault = vault.type === "vault" && Array.isArray(vault.items) ? vault : undefined;

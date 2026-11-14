@@ -23,7 +23,12 @@ function placement() {
   document.body.classList.toggle("corner", mode === "save");
   // The page's colour scheme, so the browser draws no opaque box behind this frame (see
   // content.js). Only known words are taken.
-  const words = decodeURIComponent(scheme);
+  let words = "normal";
+  try {
+    words = decodeURIComponent(scheme);
+  } catch {
+    // Not written by the content script: the default stays.
+  }
   document.documentElement.style.colorScheme = /^(normal|only|light|dark| )+$/.test(words) ? words : "normal";
 }
 placement();
@@ -44,9 +49,25 @@ new IntersectionObserver(
   { threshold: 1, trackVisibility: true, delay: 100 },
 ).observe(document.documentElement);
 
+// The page can move this frame. Slid under the pointer just before a click meant for the
+// page, it would take that click: so a mouse click also counts only when the pointer has
+// been over the card for a moment. (A tap or a key press has no pointer resting anywhere.)
+const HOVERED_FOR_MS = 150;
+let hoveredSince = 0;
+document.addEventListener("pointermove", () => (hoveredSince ||= performance.now()), true);
+document.documentElement.addEventListener("pointerleave", () => (hoveredSince = 0));
+
 function genuine(event) {
-  return event.isTrusted && visibleSince > 0 && performance.now() - visibleSince >= VISIBLE_FOR_MS;
+  const now = performance.now();
+  if (!event.isTrusted || visibleSince === 0 || now - visibleSince < VISIBLE_FOR_MS) return false;
+  const byMouse = event.detail > 0 && (event.pointerType ?? "mouse") === "mouse";
+  return !byMouse || (hoveredSince > 0 && now - hoveredSince >= HOVERED_FOR_MS);
 }
+
+// This card belongs right inside a page's own document. Inside a frame of the page (an
+// advert, an embedded widget) it shows nothing: such a frame is not the site in front.
+const around = location.ancestorOrigins;
+const direct = !around || around.length === 1;
 
 /** Tells the page how tall the frame must be: the card, its arrow and its shadow. */
 function fit() {
@@ -96,6 +117,8 @@ const DOTS = "••••••••••••";
 async function showLogins() {
   const listed = await say({ kind: "frame-logins" });
   if (!listed?.items?.length) return say({ kind: "frame-dismiss", which });
+  // The logins are those of the page this card sits in, or they are not shown.
+  if (around && around[0] !== listed.origin) return say({ kind: "frame-dismiss", which });
   $("logins").hidden = false;
   const site = listed.origin.replace(/^https:\/\//, "");
   const typed = listed.check === "pin" || listed.check === "password";
@@ -195,6 +218,8 @@ async function showSave() {
   fit();
 }
 
-if (mode === "save") showSave();
+if (!direct) {
+  // Nothing is shown and nothing is asked.
+} else if (mode === "save") showSave();
 else if (mode === "new") showNew();
 else showLogins();
