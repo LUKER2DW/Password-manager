@@ -107,12 +107,46 @@ pub fn wants_hello(message: &[u8]) -> bool {
     )
 }
 
-/// Answers one raw message. `vault` is `None` while locked.
-pub fn answer(message: &[u8], vault: Option<&mut Vault>, gate: &mut dyn Gate) -> Answer {
-    let outcome = match serde_json::from_slice::<Request>(message) {
-        Ok(request) => respond(request, vault, gate),
-        Err(_) => error(ErrorCode::BadRequest).into(),
-    };
+/// Where generated passwords wait until the person uses one (see [`Request::Keep`]).
+pub trait Held {
+    /// Holds a generated password until the person uses it or it is replaced; returns its id.
+    fn remember(&mut self, password: Zeroizing<String>, site: String) -> String;
+    /// The generated password `id`, taken out of what is held.
+    fn take(&mut self, id: &str) -> Option<Kept>;
+    /// How long the app keeps a copied secret on the clipboard.
+    fn clipboard_seconds(&self) -> u32 {
+        30
+    }
+}
+
+/// The open vault's [`Gate`] holds the generated passwords too.
+struct GateHeld<'a>(&'a mut dyn Gate);
+
+impl Held for GateHeld<'_> {
+    fn remember(&mut self, password: Zeroizing<String>, site: String) -> String {
+        self.0.remember(password, site)
+    }
+    fn take(&mut self, id: &str) -> Option<Kept> {
+        self.0.take(id)
+    }
+    fn clipboard_seconds(&self) -> u32 {
+        self.0.clipboard_seconds()
+    }
+}
+
+/// Answers the requests that need no vault: a new password from the generator, and keeping
+/// (or copying) one that was used. The generator works the same with the vault locked; the
+/// app adds a kept password to its history once the vault is open again. `None` for any
+/// other request.
+pub fn answer_generator(message: &[u8], held: &mut dyn Held) -> Option<Answer> {
+    let request = serde_json::from_slice::<Request>(message).ok()?;
+    if !matches!(request, Request::Generate { .. } | Request::Keep { .. }) {
+        return None;
+    }
+    Some(finish(generator_outcome(request, held)))
+}
+
+fn finish(outcome: Outcome) -> Answer {
     // Serializing cannot fail for these types; an empty answer would only confuse the caller.
     let bytes = serde_json::to_vec(&outcome.response)
         .unwrap_or_else(|_| br#"{"type":"error","code":"bad_request"}"#.to_vec());
@@ -123,6 +157,98 @@ pub fn answer(message: &[u8], vault: Option<&mut Vault>, gate: &mut dyn Gate) ->
         saved: outcome.saved,
         kept: outcome.kept,
     }
+}
+
+/// A [`Request::Generate`] or [`Request::Keep`]; anything else is a bad request.
+fn generator_outcome(request: Request, held: &mut dyn Held) -> Outcome {
+    match request {
+        Request::Generate {
+            length,
+            lower,
+            upper,
+            digits,
+            symbols,
+            avoid_ambiguous,
+            words,
+            separator,
+            capitalize,
+            number,
+            url,
+        } => {
+            let made = match words {
+                Some(words) => {
+                    let options = PassphraseOptions {
+                        words: usize::try_from(words).unwrap_or(6).clamp(3, 20),
+                        separator: separator.unwrap_or_else(|| "-".into()),
+                        case: if capitalize {
+                            WordCase::Title
+                        } else {
+                            WordCase::Lower
+                        },
+                        include_number: number,
+                        wordlist: None,
+                    };
+                    generator::generate_passphrase(&options)
+                        .ok()
+                        .map(|password| (password, options.entropy_bits()))
+                }
+                None => generator_options(length, lower, upper, digits, symbols).and_then(
+                    |mut options| {
+                        options.avoid_ambiguous = avoid_ambiguous;
+                        generator::generate_password(&options)
+                            .ok()
+                            .map(|password| (password, options.entropy_bits()))
+                    },
+                ),
+            };
+            let Some((password, entropy)) = made else {
+                return error(ErrorCode::BadRequest).into();
+            };
+            let site = url
+                .and_then(|url| Origin::of_page(&url).ok())
+                .map(|origin| origin.host().to_owned())
+                .unwrap_or_default();
+            let text = password.as_str().to_owned();
+            let id = held.remember(password, site);
+            // `entropy_bits` is small and positive: the cast only drops the fraction.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let bits = entropy.round() as u32;
+            Response::Generated(GeneratedPassword {
+                id,
+                password: text,
+                bits,
+            })
+            .into()
+        }
+        Request::Keep { id, copy } => match held.take(&id) {
+            Some(kept) => Outcome {
+                copy: copy.then(|| Copy {
+                    what: CopyWhat::Password,
+                    value: kept.password.clone(),
+                }),
+                kept: Some(kept),
+                ..if copy {
+                    Response::Copied {
+                        seconds: held.clipboard_seconds(),
+                    }
+                } else {
+                    Response::Kept {}
+                }
+                .into()
+            },
+            None => error(ErrorCode::NoMatch).into(),
+        },
+        _ => error(ErrorCode::BadRequest).into(),
+    }
+}
+
+/// Answers one raw message. `vault` is `None` while locked.
+pub fn answer(message: &[u8], vault: Option<&mut Vault>, gate: &mut dyn Gate) -> Answer {
+    let outcome = match serde_json::from_slice::<Request>(message) {
+        Ok(request) => respond(request, vault, gate),
+        Err(_) => error(ErrorCode::BadRequest).into(),
+    };
+    finish(outcome)
 }
 
 struct Outcome {
@@ -465,85 +591,9 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 Err(_) => error(ErrorCode::BadRequest).into(),
             }
         }
-        (
-            Request::Generate {
-                length,
-                lower,
-                upper,
-                digits,
-                symbols,
-                avoid_ambiguous,
-                words,
-                separator,
-                capitalize,
-                number,
-                url,
-            },
-            _,
-        ) => {
-            let made = match words {
-                Some(words) => {
-                    let options = PassphraseOptions {
-                        words: usize::try_from(words).unwrap_or(6).clamp(3, 20),
-                        separator: separator.unwrap_or_else(|| "-".into()),
-                        case: if capitalize {
-                            WordCase::Title
-                        } else {
-                            WordCase::Lower
-                        },
-                        include_number: number,
-                        wordlist: None,
-                    };
-                    generator::generate_passphrase(&options)
-                        .ok()
-                        .map(|password| (password, options.entropy_bits()))
-                }
-                None => generator_options(length, lower, upper, digits, symbols).and_then(
-                    |mut options| {
-                        options.avoid_ambiguous = avoid_ambiguous;
-                        generator::generate_password(&options)
-                            .ok()
-                            .map(|password| (password, options.entropy_bits()))
-                    },
-                ),
-            };
-            let Some((password, entropy)) = made else {
-                return error(ErrorCode::BadRequest).into();
-            };
-            let site = url
-                .and_then(|url| Origin::of_page(&url).ok())
-                .map(|origin| origin.host().to_owned())
-                .unwrap_or_default();
-            let text = password.as_str().to_owned();
-            let id = gate.remember(password, site);
-            // `entropy_bits` is small and positive: the cast only drops the fraction.
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let bits = entropy.round() as u32;
-            Response::Generated(GeneratedPassword {
-                id,
-                password: text,
-                bits,
-            })
-            .into()
+        (request @ (Request::Generate { .. } | Request::Keep { .. }), _) => {
+            generator_outcome(request, &mut GateHeld(gate))
         }
-        (Request::Keep { id, copy }, _) => match gate.take(&id) {
-            Some(kept) => Outcome {
-                copy: copy.then(|| Copy {
-                    what: CopyWhat::Password,
-                    value: kept.password.clone(),
-                }),
-                kept: Some(kept),
-                ..if copy {
-                    Response::Copied {
-                        seconds: gate.clipboard_seconds(),
-                    }
-                } else {
-                    Response::Kept {}
-                }
-                .into()
-            },
-            None => error(ErrorCode::NoMatch).into(),
-        },
         // A page request always has its origin by now.
         _ => error(ErrorCode::BadRequest).into(),
     }
@@ -1149,9 +1199,55 @@ mod tests {
         assert!(text.chars().any(|c| c.is_ascii_digit()));
         assert!(text.chars().any(|c| c.is_ascii_uppercase()));
         assert!(phrase["bits"].as_u64().unwrap() > 60);
-        // Locked vault: no generator either.
+        // Through the vault's own answer, a locked vault refuses it…
         let (locked, _) = ask(None, request);
         assert_eq!(locked, json!({"type": "error", "code": "locked"}));
+    }
+
+    /// Holds generated passwords without a vault (the locked app).
+    #[derive(Default)]
+    struct Holder(Vec<(String, Kept)>);
+
+    impl Held for Holder {
+        fn remember(&mut self, password: Zeroizing<String>, site: String) -> String {
+            let id = format!("h{}", self.0.len());
+            self.0.push((id.clone(), Kept { password, site }));
+            id
+        }
+        fn take(&mut self, id: &str) -> Option<Kept> {
+            let at = self.0.iter().position(|(held, _)| held == id)?;
+            Some(self.0.remove(at).1)
+        }
+    }
+
+    #[test]
+    fn the_generator_needs_no_vault() {
+        let mut held = Holder::default();
+        let ask = |held: &mut Holder, request: Value| {
+            answer_generator(request.to_string().as_bytes(), held)
+                .map(|answer| serde_json::from_slice::<Value>(&answer.bytes).unwrap())
+        };
+        let made = ask(
+            &mut held,
+            json!({"type": "generate", "length": 16, "url": "https://shop.example/join"}),
+        )
+        .unwrap();
+        assert_eq!(made["type"], "generated");
+        assert_eq!(made["password"].as_str().unwrap().len(), 16);
+        let id = made["id"].as_str().unwrap().to_owned();
+        let kept = answer_generator(
+            json!({"type": "keep", "id": id, "copy": true})
+                .to_string()
+                .as_bytes(),
+            &mut held,
+        )
+        .unwrap();
+        assert_eq!(kept.kept.unwrap().site, "shop.example");
+        assert!(kept.copy.is_some());
+        // Nothing else is answered here.
+        assert!(ask(&mut held, json!({"type": "vault"})).is_none());
+        assert!(ask(&mut held, json!({"type": "status"})).is_none());
+        assert!(answer_generator(b"not json", &mut held).is_none());
     }
 
     #[test]

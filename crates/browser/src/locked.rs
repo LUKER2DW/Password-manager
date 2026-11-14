@@ -7,8 +7,9 @@
 //! - a password leaves only after Windows Hello, which the app asks for before answering,
 //!   for one login of the page's own origin (fill) or one picked in the extension's window
 //!   (show, copy). Nothing typed in the browser opens anything here: no PIN.
-//! - anything that needs the vault itself (saving, generating, one-time codes) is refused as
-//!   locked.
+//! - anything that needs the vault itself (saving, one-time codes) is refused as locked. The
+//!   generator needs no vault: the app answers it first with
+//!   [`crate::service::answer_generator`], locked or not.
 
 use zeroize::Zeroizing;
 
