@@ -385,6 +385,14 @@ fn read_login(
     opened.ok_or_else(|| item_locked(kind))
 }
 
+/// Whether a login to save is of a size a sign-in form could hold: what the extension sends
+/// is typed by a person or read from a page, never trusted for its length.
+pub(crate) fn save_fits(title: Option<&str>, username: &str, password: &Secret) -> bool {
+    title.is_none_or(|title| title.len() <= 256)
+        && username.len() <= 1024
+        && password.as_str().len() <= 1024
+}
+
 fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> Outcome {
     if matches!(request, Request::Status {}) {
         return Response::Status {
@@ -557,7 +565,7 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
             },
             Some(origin),
         ) => {
-            if password.as_str().is_empty() {
+            if password.as_str().is_empty() || !save_fits(title.as_deref(), &username, &password) {
                 return error(ErrorCode::BadRequest).into();
             }
             let existing = vault.item_ids().any(|id| {
@@ -1084,6 +1092,14 @@ mod tests {
                              "username": "me", "password": "made-here"});
         let answer = super::answer(request.to_string().as_bytes(), Some(&mut vault), &mut gate);
         assert_eq!(answer.saved.as_deref(), Some("Forum"));
+        // Nothing longer than a form would hold is stored.
+        for (field, length) in [("title", 257), ("username", 1025), ("password", 1025)] {
+            let mut request = json!({"type": "save", "url": "https://long.example",
+                                     "title": "Long", "username": "me", "password": "pw"});
+            request[field] = json!("x".repeat(length));
+            let answer = super::answer(request.to_string().as_bytes(), Some(&mut vault), &mut gate);
+            assert!(answer.saved.is_none(), "{field}");
+        }
     }
 
     #[test]

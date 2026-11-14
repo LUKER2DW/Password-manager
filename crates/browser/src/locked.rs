@@ -75,7 +75,9 @@ pub fn answer_locked_save(
         Ok(origin) => origin,
         Err(response) => return Some(finish(response, None, None)),
     };
-    if password.as_str().is_empty() || username.len() > 1024 || password.as_str().len() > 1024 {
+    if password.as_str().is_empty()
+        || !crate::service::save_fits(title.as_deref(), &username, &password)
+    {
         return Some(finish(error(ErrorCode::BadRequest), None, None));
     }
     let existing = logins
