@@ -62,6 +62,21 @@ pub enum Request {
         digits: bool,
         #[serde(default)]
         symbols: Symbols,
+        /// Leave out characters people misread (I l 1 O 0 o |).
+        #[serde(default)]
+        avoid_ambiguous: bool,
+        /// A passphrase of this many words instead of characters.
+        #[serde(default)]
+        words: Option<u32>,
+        /// Between the words of a passphrase (at most 3 characters).
+        #[serde(default)]
+        separator: Option<String>,
+        /// Passphrase words with a capital first letter.
+        #[serde(default)]
+        capitalize: bool,
+        /// A digit added to one word of a passphrase.
+        #[serde(default)]
+        number: bool,
         #[serde(default)]
         url: Option<String>,
     },

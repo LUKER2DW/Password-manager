@@ -2,7 +2,7 @@
 
 use vault_core::{
     ItemData, ItemId, ItemKind, Vault,
-    generator::{self, PasswordOptions},
+    generator::{self, PassphraseOptions, PasswordOptions, WordCase},
     totp::Totp,
 };
 use zeroize::Zeroizing;
@@ -472,14 +472,42 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 upper,
                 digits,
                 symbols,
+                avoid_ambiguous,
+                words,
+                separator,
+                capitalize,
+                number,
                 url,
             },
             _,
         ) => {
-            let Some(options) = generator_options(length, lower, upper, digits, symbols) else {
-                return error(ErrorCode::BadRequest).into();
+            let made = match words {
+                Some(words) => {
+                    let options = PassphraseOptions {
+                        words: usize::try_from(words).unwrap_or(6).clamp(3, 20),
+                        separator: separator.unwrap_or_else(|| "-".into()),
+                        case: if capitalize {
+                            WordCase::Title
+                        } else {
+                            WordCase::Lower
+                        },
+                        include_number: number,
+                        wordlist: None,
+                    };
+                    generator::generate_passphrase(&options)
+                        .ok()
+                        .map(|password| (password, options.entropy_bits()))
+                }
+                None => generator_options(length, lower, upper, digits, symbols).and_then(
+                    |mut options| {
+                        options.avoid_ambiguous = avoid_ambiguous;
+                        generator::generate_password(&options)
+                            .ok()
+                            .map(|password| (password, options.entropy_bits()))
+                    },
+                ),
             };
-            let Ok(password) = generator::generate_password(&options) else {
+            let Some((password, entropy)) = made else {
                 return error(ErrorCode::BadRequest).into();
             };
             let site = url
@@ -490,7 +518,7 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
             let id = gate.remember(password, site);
             // `entropy_bits` is small and positive: the cast only drops the fraction.
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let bits = options.entropy_bits().round() as u32;
+            let bits = entropy.round() as u32;
             Response::Generated(GeneratedPassword {
                 id,
                 password: text,
@@ -1109,6 +1137,18 @@ mod tests {
         assert_eq!(reply.copy.unwrap().value.as_str(), password);
         let (again, _) = ask_with(Some(&mut vault), &mut gate, keep);
         assert_eq!(again, json!({"type": "error", "code": "no_match"}));
+        // A passphrase: words from the bundled list, capitalised, with a digit.
+        let (phrase, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "generate", "words": 5, "separator": ".", "capitalize": true,
+                   "number": true}),
+        );
+        let text = phrase["password"].as_str().unwrap();
+        assert_eq!(text.split('.').count(), 5, "{text}");
+        assert!(text.chars().any(|c| c.is_ascii_digit()));
+        assert!(text.chars().any(|c| c.is_ascii_uppercase()));
+        assert!(phrase["bits"].as_u64().unwrap() > 60);
         // Locked vault: no generator either.
         let (locked, _) = ask(None, request);
         assert_eq!(locked, json!({"type": "error", "code": "locked"}));
