@@ -3,7 +3,7 @@
 import { ListView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
 import { ItemRow, FolderRow, Panel, Messages } from "model.slint";
-import { Button, QuietButton, LineField, MarkStroke, ItemIcon } from "widgets.slint";
+import { Button, QuietButton, LineField, MarkStroke, ItemIcon, Logo, Backdrop } from "widgets.slint";
 import { BrandMark, Glyph, FolderLook, FieldColors } from "icons.slint";
 
 component IndexTab inherits Rectangle {
@@ -298,12 +298,27 @@ export component VaultIndex inherits Rectangle {
         Math.clamp(from + Math.round(dy / root.tab-step), 0, root.folders.length - 1)
     }
 
+    if Theme.backdrop >= 2: Backdrop {
+        width: parent.width;
+        height: parent.height;
+        strength: Theme.backdrop == 4 ? 0.45 : 0.6;
+    }
+
     VerticalLayout {
         padding: 18px;
         spacing: 2px;
         HorizontalLayout {
-            padding-left: 10px;
+            padding-left: 8px;
             spacing: 2px;
+            VerticalLayout {
+                alignment: center;
+                Logo {
+                    small: true;
+                    width: 26px;
+                    height: 26px;
+                }
+            }
+            Rectangle { width: 8px; }
             Text {
                 horizontal-stretch: 1;
                 text: root.vault-name != "" ? root.vault-name : @tr("Vault");
@@ -449,6 +464,12 @@ export component ItemList inherits Rectangle {
     callback new-item();
 
     background: Theme.panel;
+
+    if Theme.backdrop == 3 || Theme.backdrop == 4: Backdrop {
+        width: parent.width;
+        height: parent.height;
+        strength: Theme.backdrop == 4 ? 0.45 : 0.6;
+    }
 
     VerticalLayout {
         padding-top: 20px;

@@ -2,14 +2,19 @@
 //!
 //! Privacy model:
 //! - Icons are requested **directly from each site** (no third-party icon service), HTTPS only,
-//!   without cookies, one request chain per site, and only for sites saved in the vault.
+//!   without cookies, one request chain per site, and only for sites saved in the vault. A site
+//!   on its own port (`https://192.168.1.10:8443`) is asked on that port. An IP address or a
+//!   home-network name may answer with a certificate of its own; for those the icon is asked
+//!   again without the certificate check when the checked request failed (see
+//!   [`own_certificate_allowed`]).
 //! - Results (and "this site has no icon") are cached in a file encrypted with the vault key
 //!   (`Vault::seal_local`), so each site is contacted once, and the cache reveals nothing.
 //! - Even so, someone watching the network can see which sites were contacted. That is why the
 //!   feature is off until the user turns it on.
 //!
 //! Every downloaded image is untrusted input: size-limited, decoded by pure-Rust decoders with
-//! allocation limits, and reduced to a 64 × 64 RGBA bitmap.
+//! allocation limits (SVG drawn without fetching anything it links to), and reduced to a
+//! 64 × 64 RGBA bitmap.
 
 use std::{
     collections::BTreeMap,
@@ -21,7 +26,7 @@ use serde::{Deserialize, Serialize};
 
 pub const ICON_SIZE: u32 = 64;
 const MAX_RESPONSE_BYTES: u64 = 512 * 1024;
-const MAX_CANDIDATES: usize = 4;
+const MAX_CANDIDATES: usize = 6;
 const RETRY_MISSING_AFTER_SECS: u64 = 7 * 24 * 3600;
 const USER_AGENT: &str = "Mozilla/5.0 (compatible; vault-desktop icon fetcher)";
 
@@ -82,7 +87,8 @@ fn now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-/// The host part of a URL, lowercase. `None` for anything that isn't a plain web host.
+/// The site part of a URL: its host, lowercase, with the port when it isn't the usual one
+/// (`192.168.1.10:8443`). `None` for anything that isn't a plain web address.
 pub fn host_of(url: &str) -> Option<String> {
     let url = url.trim();
     let rest = match url.split_once("://") {
@@ -94,37 +100,97 @@ pub fn host_of(url: &str) -> Option<String> {
         Some(_) => return None,
         None => url,
     };
-    let host = rest
+    let authority = rest
         .split(['/', '?', '#'])
         .next()?
         .rsplit('@')
         .next()?
-        .split(':')
-        .next()?
         .to_lowercase();
-    let valid = !host.is_empty()
-        && host.contains('.')
-        && host
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
-    valid.then_some(host)
+    let (host, port) = split_port(&authority)?;
+    let valid = if let Some(inner) = host.strip_prefix('[') {
+        // An IPv6 address in brackets.
+        inner.strip_suffix(']').is_some_and(|address| {
+            address.contains(':')
+                && address
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.')
+        })
+    } else {
+        !host.is_empty()
+            && host.contains('.')
+            && !host.starts_with('.')
+            && !host.ends_with('.')
+            && host
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+    };
+    if !valid {
+        return None;
+    }
+    Some(match port {
+        Some(port) if port != 443 && port != 80 => format!("{host}:{port}"),
+        _ => host.to_owned(),
+    })
 }
 
-/// Cache key for a host: `www.github.com` and `github.com` share one icon.
+/// `host:port` → host and port (`[::1]:8443` too). `None` for a port that isn't a number.
+fn split_port(authority: &str) -> Option<(&str, Option<u16>)> {
+    let (host, port) = if authority.starts_with('[') {
+        let end = authority.find(']')?;
+        let (host, rest) = authority.split_at(end + 1);
+        (host, rest.strip_prefix(':'))
+    } else {
+        match authority.rsplit_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        }
+    };
+    let port = match port.filter(|port| !port.is_empty()) {
+        Some(port) => Some(port.parse::<u16>().ok()?),
+        None => None,
+    };
+    Some((host, port))
+}
+
+/// Cache key for a site: `www.github.com` and `github.com` share one icon.
 pub fn cache_key(host: &str) -> String {
     host.strip_prefix("www.").unwrap_or(host).to_owned()
+}
+
+/// Whether a site may answer with a certificate of its own (one no public authority signed):
+/// an IP address, or a name that only exists on a home or company network. Routers, NAS boxes
+/// and self-hosted apps usually do. For these, and only after the normal check failed, the
+/// icon is fetched without checking the certificate: the worst a forged answer can do is show
+/// a wrong picture, which is decoded with the same limits as any other.
+pub fn own_certificate_allowed(site: &str) -> bool {
+    let host = split_port(site).map_or(site, |(host, _)| host);
+    if host.starts_with('[') || host.parse::<std::net::Ipv4Addr>().is_ok() {
+        return true;
+    }
+    const LOCAL: [&str; 7] = [
+        ".local",
+        ".lan",
+        ".home",
+        ".internal",
+        ".home.arpa",
+        ".localdomain",
+        ".intranet",
+    ];
+    LOCAL.iter().any(|suffix| host.ends_with(suffix))
 }
 
 /// Where a chosen icon comes from: a website (its own icon) or a direct link to a picture.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IconSource {
-    /// A host whose icon is looked up like any saved site.
+    /// A site (host and port) whose icon is looked up like any saved site.
     Site(String),
-    /// An `https://` link to a PNG, JPEG, GIF, WebP, BMP or ICO file.
+    /// An `https://` link to a PNG, JPEG, GIF, WebP, BMP, ICO or SVG file.
     Image(String),
 }
 
-const IMAGE_EXTENSIONS: [&str; 7] = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp"];
+const IMAGE_EXTENSIONS: [&str; 8] = [
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".svg",
+];
 
 impl IconSource {
     /// Reads what the user typed: a link whose path ends in a picture extension is a picture,
@@ -158,68 +224,116 @@ impl IconSource {
     pub fn fetch(&self) -> Option<Vec<u8>> {
         match self {
             Self::Site(host) => fetch(host),
-            Self::Image(url) => get(&agent(), url).and_then(|bytes| decode(&bytes)),
+            Self::Image(url) => {
+                let site = host_of(url)?;
+                let picture = |agent: &ureq::Agent| {
+                    get(agent, url, false).and_then(|(_, bytes)| decode(&bytes))
+                };
+                picture(&agent(false)).or_else(|| {
+                    own_certificate_allowed(&site)
+                        .then(|| picture(&agent(true)))
+                        .flatten()
+                })
+            }
         }
     }
 }
 
-fn agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
+fn agent(own_certificate: bool) -> ureq::Agent {
+    let mut config = ureq::Agent::config_builder()
         .https_only(true)
         .max_redirects(5)
         .timeout_global(Some(Duration::from_secs(8)))
-        .user_agent(USER_AGENT)
-        .build()
-        .into()
+        // Statuses are judged here: a sign-in page often answers 401 or 403 with a page that
+        // still names its icon.
+        .http_status_as_error(false)
+        .user_agent(USER_AGENT);
+    if own_certificate {
+        config = config.tls_config(
+            ureq::tls::TlsConfig::builder()
+                .disable_verification(true)
+                .build(),
+        );
+    }
+    config.build().into()
 }
 
-/// Fetches and decodes the best icon for `host`. Blocking; call from a worker thread.
-pub fn fetch(host: &str) -> Option<Vec<u8>> {
-    let agent = agent();
+/// Fetches and decodes the best icon for `site` (a host, maybe with a port). Blocking; call
+/// from a worker thread.
+pub fn fetch(site: &str) -> Option<Vec<u8>> {
+    fetch_with(&agent(false), site).or_else(|| {
+        own_certificate_allowed(site)
+            .then(|| fetch_with(&agent(true), site))
+            .flatten()
+    })
+}
 
-    let origin = format!("https://{host}");
+fn fetch_with(agent: &ureq::Agent, site: &str) -> Option<Vec<u8>> {
+    let origin = format!("https://{site}");
     let mut candidates: Vec<String> = Vec::new();
-    if let Some(html) = get(&agent, &format!("{origin}/")) {
+    if let Some((page, html)) = get(agent, &format!("{origin}/"), true) {
         let html = String::from_utf8_lossy(&html);
+        let base = base_href(&html)
+            .and_then(|href| resolve(&page, &href))
+            .unwrap_or(page);
         candidates.extend(
             icon_links(&html)
                 .iter()
-                .filter_map(|href| resolve(&origin, href)),
+                .filter_map(|href| resolve(&base, href)),
         );
+        // A web app manifest lists icons too (self-hosted apps often have only those).
+        if let Some(manifest) = manifest_link(&html).and_then(|href| resolve(&base, &href))
+            && let Some((manifest_url, json)) = get(agent, &manifest, false)
+        {
+            candidates.extend(
+                manifest_icons(&json)
+                    .iter()
+                    .filter_map(|src| resolve(&manifest_url, src)),
+            );
+        }
     }
-    candidates.push(format!("{origin}/favicon.ico"));
-    candidates.dedup();
+    for path in ["/favicon.ico", "/apple-touch-icon.png", "/favicon.svg"] {
+        candidates.push(format!("{origin}{path}"));
+    }
+    let mut seen = std::collections::HashSet::new();
+    candidates.retain(|url| seen.insert(url.clone()));
 
     candidates
         .iter()
         .take(MAX_CANDIDATES)
-        .find_map(|url| get(&agent, url).and_then(|bytes| decode(&bytes)))
+        .find_map(|url| get(agent, url, false).and_then(|(_, bytes)| decode(&bytes)))
 }
 
-fn get(agent: &ureq::Agent, url: &str) -> Option<Vec<u8>> {
+/// The body of `url` and the address it finally came from (after redirects). A page is read
+/// whatever its status below 500; anything else needs a success.
+fn get(agent: &ureq::Agent, url: &str, page: bool) -> Option<(String, Vec<u8>)> {
+    use ureq::ResponseExt;
     let mut response = agent.get(url).call().ok()?;
-    response
+    let status = response.status().as_u16();
+    let fine = if page {
+        status < 500
+    } else {
+        (200..300).contains(&status)
+    };
+    if !fine {
+        return None;
+    }
+    let from = response.get_uri().to_string();
+    let bytes = response
         .body_mut()
         .with_config()
         .limit(MAX_RESPONSE_BYTES)
         .read_to_vec()
-        .ok()
+        .ok()?;
+    Some((from, bytes))
 }
 
 /// Icon URLs declared in a page's `<link>` tags, best first: Apple touch icons (usually 180 px),
-/// then icons by declared size. SVG and inline data URIs are skipped.
+/// then drawings (SVG, sharp at any size), then icons by declared size. Inline data URIs are
+/// skipped.
 pub fn icon_links(html: &str) -> Vec<String> {
-    let lower = html.to_ascii_lowercase();
     let mut found: Vec<(u32, String)> = Vec::new();
-    let mut start = 0;
-    while let Some(offset) = lower[start..].find("<link") {
-        let tag_start = start + offset;
-        let Some(tag_len) = lower[tag_start..].find('>') else {
-            break;
-        };
-        let tag = &html[tag_start..tag_start + tag_len];
-        start = tag_start + tag_len;
-
+    for tag in tags(html, "<link") {
         let Some(rel) = attribute(tag, "rel").map(|r| r.to_ascii_lowercase()) else {
             continue;
         };
@@ -227,14 +341,14 @@ pub fn icon_links(html: &str) -> Vec<String> {
             continue;
         };
         let href_lower = href.to_ascii_lowercase();
-        if href_lower.starts_with("data:")
-            || href_lower
-                .split(['?', '#'])
-                .next()
-                .is_some_and(|p| p.ends_with(".svg"))
-        {
+        if href_lower.starts_with("data:") {
             continue;
         }
+        let svg = href_lower
+            .split(['?', '#'])
+            .next()
+            .is_some_and(|p| p.ends_with(".svg"))
+            || attribute(tag, "type").is_some_and(|t| t.eq_ignore_ascii_case("image/svg+xml"));
         let size = attribute(tag, "sizes")
             .and_then(|s| {
                 s.split(['x', 'X'])
@@ -244,8 +358,18 @@ pub fn icon_links(html: &str) -> Vec<String> {
             .unwrap_or(0);
         let score = if rel.contains("apple-touch-icon") {
             10_000 + size.max(180)
-        } else if rel.split_whitespace().any(|r| r == "icon") {
-            size.max(16)
+        } else if rel
+            .split_whitespace()
+            .any(|r| r == "icon" || r == "mask-icon")
+        {
+            if rel.contains("mask-icon") {
+                // A one-colour silhouette for pinned tabs: a last resort.
+                1
+            } else if svg {
+                5_000
+            } else {
+                size.max(16)
+            }
         } else {
             continue;
         };
@@ -253,6 +377,80 @@ pub fn icon_links(html: &str) -> Vec<String> {
     }
     found.sort_by_key(|entry| std::cmp::Reverse(entry.0));
     found.into_iter().map(|(_, href)| href).collect()
+}
+
+/// The `href` of the page's `<link rel="manifest">`.
+fn manifest_link(html: &str) -> Option<String> {
+    tags(html, "<link").find_map(|tag| {
+        let rel = attribute(tag, "rel")?.to_ascii_lowercase();
+        rel.split_whitespace()
+            .any(|r| r == "manifest")
+            .then(|| attribute(tag, "href"))
+            .flatten()
+    })
+}
+
+/// The `href` of the page's `<base>` tag, which relative links are resolved against.
+fn base_href(html: &str) -> Option<String> {
+    tags(html, "<base").find_map(|tag| attribute(tag, "href"))
+}
+
+/// Icon sources listed in a web app manifest, biggest first (drawings count as big).
+pub fn manifest_icons(json: &[u8]) -> Vec<String> {
+    #[derive(Deserialize)]
+    struct Manifest {
+        #[serde(default)]
+        icons: Vec<Icon>,
+    }
+    #[derive(Deserialize)]
+    struct Icon {
+        src: String,
+        #[serde(default)]
+        sizes: String,
+        #[serde(default, rename = "type")]
+        kind: String,
+    }
+    let Ok(manifest) = serde_json::from_slice::<Manifest>(json) else {
+        return Vec::new();
+    };
+    let mut icons: Vec<(u32, String)> = manifest
+        .icons
+        .into_iter()
+        .filter(|icon| !icon.src.to_ascii_lowercase().starts_with("data:"))
+        .map(|icon| {
+            let size = if icon.sizes.eq_ignore_ascii_case("any") || icon.kind.contains("svg") {
+                512
+            } else {
+                icon.sizes
+                    .split_whitespace()
+                    .filter_map(|s| s.split(['x', 'X']).next()?.parse::<u32>().ok())
+                    .max()
+                    .unwrap_or(0)
+            };
+            (size, icon.src)
+        })
+        .collect();
+    icons.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+    icons.into_iter().map(|(_, src)| src).collect()
+}
+
+/// Each tag of a kind (`"<link"`), up to its `>`.
+fn tags<'a>(html: &'a str, open: &'static str) -> impl Iterator<Item = &'a str> + 'a {
+    let lower = html.to_ascii_lowercase();
+    let mut start = 0;
+    std::iter::from_fn(move || {
+        loop {
+            let offset = lower[start..].find(open)?;
+            let tag_start = start + offset;
+            let tag_len = lower[tag_start..].find('>')?;
+            start = tag_start + tag_len;
+            // `<linkfoo` is another tag.
+            let next = lower.as_bytes().get(tag_start + open.len()).copied();
+            if next.is_some_and(|c| c.is_ascii_whitespace() || c == b'/') {
+                return Some(&html[tag_start..tag_start + tag_len]);
+            }
+        }
+    })
 }
 
 /// Value of `name="…"`, `name='…'` or `name=…` inside a tag.
@@ -276,13 +474,13 @@ fn attribute(tag: &str, name: &str) -> Option<String> {
                 .trim_end_matches('/')
                 .to_owned(),
         };
-        return Some(parsed.trim().to_owned());
+        return Some(parsed.trim().replace("&amp;", "&"));
     }
     None
 }
 
-/// Resolves an icon `href` against the site origin, upgrading to HTTPS.
-pub fn resolve(origin: &str, href: &str) -> Option<String> {
+/// Resolves a link found at `base` (the address of the page or manifest), upgrading to HTTPS.
+pub fn resolve(base: &str, href: &str) -> Option<String> {
     let href = href.trim();
     if href.is_empty() {
         return None;
@@ -296,19 +494,47 @@ pub fn resolve(origin: &str, href: &str) -> Option<String> {
     if let Some(rest) = href.strip_prefix("//") {
         return Some(format!("https://{rest}"));
     }
-    if href.contains("://") {
+    if href.contains("://") || href.starts_with('#') {
         return None;
     }
-    let path = href.trim_start_matches("./");
-    Some(if path.starts_with('/') {
-        format!("{origin}{path}")
+    let base = base.split(['?', '#']).next().unwrap_or(base);
+    let after_scheme = base.strip_prefix("https://")?;
+    let (authority, path) = match after_scheme.find('/') {
+        Some(at) => after_scheme.split_at(at),
+        None => (after_scheme, "/"),
+    };
+    let origin = format!("https://{authority}");
+    if href.starts_with('/') {
+        return Some(format!("{origin}{href}"));
+    }
+    // Relative to the base's folder, with `./` and `../` worked out.
+    let mut parts: Vec<&str> = path.split('/').collect();
+    parts.pop(); // the file name (or "" after a final slash)
+    for segment in href.split('/') {
+        match segment {
+            "." => {}
+            ".." => {
+                if parts.len() > 1 {
+                    parts.pop();
+                }
+            }
+            other => parts.push(other),
+        }
+    }
+    let joined = parts.join("/");
+    Some(if joined.starts_with('/') {
+        format!("{origin}{joined}")
     } else {
-        format!("{origin}/{path}")
+        format!("{origin}/{joined}")
     })
 }
 
-/// Decodes an untrusted image into a centered 64 × 64 RGBA bitmap.
+/// Decodes an untrusted image (PNG, JPEG, GIF, WebP, BMP, ICO or SVG) into a centered
+/// 64 × 64 RGBA bitmap.
 pub fn decode(bytes: &[u8]) -> Option<Vec<u8>> {
+    if looks_like_svg(bytes) {
+        return decode_svg(bytes);
+    }
     let mut reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .ok()?;
@@ -331,6 +557,53 @@ pub fn decode(bytes: &[u8]) -> Option<Vec<u8>> {
     Some(canvas.into_raw())
 }
 
+fn looks_like_svg(bytes: &[u8]) -> bool {
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(1024)]).to_ascii_lowercase();
+    head.contains("<svg")
+}
+
+/// Draws an SVG icon at 64 × 64. It may not reach anything outside itself: linked pictures and
+/// files are refused, and compressed SVG (which could unpack into far more than was
+/// downloaded) is not read.
+fn decode_svg(bytes: &[u8]) -> Option<Vec<u8>> {
+    use resvg::{tiny_skia, usvg};
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        return None;
+    }
+    let options = usvg::Options {
+        image_href_resolver: usvg::ImageHrefResolver {
+            resolve_data: Box::new(|_, _, _| None),
+            resolve_string: Box::new(|_, _| None),
+        },
+        ..usvg::Options::default()
+    };
+    let tree = usvg::Tree::from_data(bytes, &options).ok()?;
+    let size = tree.size();
+    let longest = size.width().max(size.height());
+    if !longest.is_finite() || longest <= 0.0 {
+        return None;
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let side = ICON_SIZE as f32;
+    let scale = side / longest;
+    let transform = tiny_skia::Transform::from_scale(scale, scale).post_translate(
+        (side - size.width() * scale) / 2.0,
+        (side - size.height() * scale) / 2.0,
+    );
+    let mut pixmap = tiny_skia::Pixmap::new(ICON_SIZE, ICON_SIZE)?;
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
+    let mut pixels = Vec::with_capacity((ICON_SIZE * ICON_SIZE * 4) as usize);
+    for pixel in pixmap.pixels() {
+        let color = pixel.demultiply();
+        pixels.extend([color.red(), color.green(), color.blue(), color.alpha()]);
+    }
+    // Nothing drawn (an empty or unsupported file) is no icon.
+    pixels
+        .chunks_exact(4)
+        .any(|pixel| pixel[3] != 0)
+        .then_some(pixels)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,12 +617,42 @@ mod tests {
         assert_eq!(host_of("github.com").as_deref(), Some("github.com"));
         assert_eq!(
             host_of("http://user@bank.example:8443/").as_deref(),
+            Some("bank.example:8443"),
+            "a site on its own port is asked on that port"
+        );
+        assert_eq!(
+            host_of("https://203.0.113.10:18443/").as_deref(),
+            Some("203.0.113.10:18443")
+        );
+        assert_eq!(
+            host_of("https://github.com:443/x").as_deref(),
+            Some("github.com")
+        );
+        assert_eq!(
+            host_of("https://[fd00::1]:8443/").as_deref(),
+            Some("[fd00::1]:8443")
+        );
+        assert_eq!(host_of("https://bank.example:port/"), None);
+        assert_eq!(
+            host_of("https://bank.example:/").as_deref(),
             Some("bank.example")
         );
         assert_eq!(host_of("android://hash@com.example.app/"), None);
         assert_eq!(host_of("Expires 12/29"), None);
         assert_eq!(host_of("localhost"), None);
         assert_eq!(cache_key("www.github.com"), "github.com");
+    }
+
+    #[test]
+    fn own_certificates_only_for_addresses_and_home_names() {
+        assert!(own_certificate_allowed("203.0.113.10:18443"));
+        assert!(own_certificate_allowed("192.168.1.1"));
+        assert!(own_certificate_allowed("[fd00::1]:8443"));
+        assert!(own_certificate_allowed("nas.local"));
+        assert!(own_certificate_allowed("router.home.arpa:8443"));
+        assert!(!own_certificate_allowed("github.com"));
+        assert!(!own_certificate_allowed("bank.example:8443"));
+        assert!(!own_certificate_allowed("local.example.com"));
     }
 
     #[test]
@@ -404,11 +707,35 @@ mod tests {
             icon_links(html),
             [
                 "https://cdn.example/apple.png",
+                "/logo.svg",
                 "icons/192.png",
                 "/icons/32.png",
                 "/favicon.ico"
             ]
         );
+        assert_eq!(
+            manifest_link(r#"<link rel="manifest" href="/site.webmanifest"><linked>"#).as_deref(),
+            Some("/site.webmanifest")
+        );
+        assert_eq!(
+            base_href(r#"<head><base href="/app/"></head>"#).as_deref(),
+            Some("/app/")
+        );
+    }
+
+    #[test]
+    fn reads_manifest_icons() {
+        let json = br#"{"name": "App", "icons": [
+            {"src": "icons/192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "icons/512.png", "sizes": "256x256 512x512"},
+            {"src": "data:image/png;base64,AAAA", "sizes": "1024x1024"},
+            {"src": "logo.svg", "sizes": "any", "type": "image/svg+xml"}
+        ]}"#;
+        assert_eq!(
+            manifest_icons(json),
+            ["icons/512.png", "logo.svg", "icons/192.png"]
+        );
+        assert!(manifest_icons(b"not json").is_empty());
     }
 
     #[test]
@@ -431,6 +758,24 @@ mod tests {
             "https://x.example/a.png"
         );
         assert_eq!(resolve(origin, "javascript://alert(1)"), None);
+        // Relative to the page that named it, port kept.
+        let page = "https://203.0.113.10:18443/app/login?next=/";
+        assert_eq!(
+            resolve(page, "favicon.png").unwrap(),
+            "https://203.0.113.10:18443/app/favicon.png"
+        );
+        assert_eq!(
+            resolve(page, "../static/i.png").unwrap(),
+            "https://203.0.113.10:18443/static/i.png"
+        );
+        assert_eq!(
+            resolve(page, "/i.svg").unwrap(),
+            "https://203.0.113.10:18443/i.svg"
+        );
+        assert_eq!(
+            resolve("https://a.example/app/", "./i.png").unwrap(),
+            "https://a.example/app/i.png"
+        );
     }
 
     #[test]
@@ -446,6 +791,26 @@ mod tests {
         let middle = ((ICON_SIZE / 2) * ICON_SIZE * 4 + (ICON_SIZE / 2) * 4) as usize;
         assert_eq!(&pixels[middle..middle + 4], &[10, 20, 30, 255]);
         assert!(decode(b"<html>not an image</html>").is_none());
+    }
+
+    #[test]
+    fn draws_svg_icons_without_reaching_out() {
+        let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 20">
+            <rect width="10" height="20" fill="#ff0000"/>
+            <image href="file:///C:/Windows/win.ini" width="10" height="10"/>
+        </svg>"##;
+        let pixels = decode(svg).unwrap();
+        assert_eq!(pixels.len(), (ICON_SIZE * ICON_SIZE * 4) as usize);
+        let middle = ((ICON_SIZE / 2) * ICON_SIZE * 4 + (ICON_SIZE / 2) * 4) as usize;
+        assert_eq!(&pixels[middle..middle + 4], &[255, 0, 0, 255]);
+        // Pillarboxed: the left edge stays transparent.
+        assert_eq!(pixels[(ICON_SIZE / 2 * ICON_SIZE * 4 + 3) as usize], 0);
+        // Empty or compressed drawings are no icon.
+        assert!(
+            decode(br#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>"#)
+                .is_none()
+        );
+        assert!(decode(&[0x1f, 0x8b, 8, 0, 0, 0]).is_none());
     }
 
     #[test]
@@ -476,5 +841,10 @@ mod tests {
     #[ignore = "network"]
     fn fetches_a_real_icon() {
         assert!(fetch("github.com").is_some());
+        // VAULT_ICON_SITE=host[:port] tries one more site (for example one of your own).
+        if let Ok(site) = std::env::var("VAULT_ICON_SITE") {
+            let site = host_of(&site).expect("a host, maybe with a port");
+            assert!(fetch(&site).is_some(), "no icon from {site}");
+        }
     }
 }

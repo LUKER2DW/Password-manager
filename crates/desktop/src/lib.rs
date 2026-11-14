@@ -5,6 +5,7 @@
 
 pub mod controller;
 mod favicon;
+pub mod i18n;
 mod sketch;
 #[cfg(test)]
 mod tests;

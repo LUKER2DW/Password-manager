@@ -1,6 +1,29 @@
 import { Theme, Sketch, Secrets } from "theme.slint";
 import { Glyph } from "icons.slint";
 
+// The app's logo: a safe with a dial (docs/brand/logo-variations, 08b1). `small` is the version
+// redrawn for 16–48 px (thicker rim, bigger knob, no rivets); the full one reads from about 64 px.
+export component Logo inherits Image {
+    in property <bool> small;
+    image-fit: contain;
+    source: root.small
+        ? (Theme.dark ? @image-url("brand/logo-small.svg") : @image-url("brand/logo-small-light.svg"))
+        : (Theme.dark ? @image-url("brand/logo.svg") : @image-url("brand/logo-light.svg"));
+    accessible-role: image;
+    accessible-label: "Vault";
+}
+
+// The open vault's background: a light doodle texture (brand/vault-texture*.png, a seamless
+// tile of hand-drawn security and bank things), kept faint with `strength`.
+export component Backdrop inherits Image {
+    in property <float> strength: 0.6;
+    source: Theme.dark ? @image-url("brand/vault-texture.png") : @image-url("brand/vault-texture-light.png");
+    horizontal-tiling: repeat;
+    vertical-tiling: repeat;
+    opacity: root.strength;
+    accessible-role: none;
+}
+
 // The one recurring hand-drawn detail: a short marker stroke under a chosen label.
 // `reveal` (0–1) draws it in from the left.
 export component MarkStroke inherits Rectangle {
@@ -78,6 +101,9 @@ export component Button inherits Rectangle {
 // Everything else: text that gains a soft background on hover.
 export component QuietButton inherits Rectangle {
     in property <string> text;
+    // A small line icon before the text (a name from icons.slint → Glyphs), drawn in the
+    // button's colour.
+    in property <string> icon;
     in property <bool> enabled: true;
     in property <color> tint: Theme.ink;
     // A hairline outline, for secondary actions that should read as buttons (Edit, Show notes).
@@ -88,17 +114,31 @@ export component QuietButton inherits Rectangle {
     accessible-label: root.text;
     forward-focus: focus;
     height: root.outlined ? 34px : 32px;
-    min-width: label.preferred-width + (root.outlined ? 28px : 20px);
+    min-width: label.preferred-width + (root.icon != "" ? 22px : 0px) + (root.outlined ? 28px : 20px);
     border-radius: Theme.radius;
     border-width: root.outlined ? 1px : 0px;
     border-color: Theme.rule;
     background: root.enabled && (touch.has-hover || focus.has-focus) ? Theme.hover : transparent;
     animate background { duration: Theme.quick; }
 
-    label := Text {
-        text: root.text;
-        font-size: Theme.body;
-        color: root.enabled ? root.tint : Theme.faint;
+    HorizontalLayout {
+        alignment: center;
+        spacing: 6px;
+        if root.icon != "": VerticalLayout {
+            alignment: center;
+            Glyph {
+                width: 16px;
+                height: 16px;
+                name: root.icon;
+                tint: root.enabled ? root.tint : Theme.faint;
+            }
+        }
+        label := Text {
+            text: root.text;
+            font-size: Theme.body;
+            color: root.enabled ? root.tint : Theme.faint;
+            vertical-alignment: center;
+        }
     }
     touch := TouchArea {
         enabled: root.enabled;
@@ -643,6 +683,10 @@ export component SecretField inherits VerticalLayout {
                 font-size: Theme.body;
                 color: Theme.ink;
                 vertical-alignment: center;
+                // A long passphrase ends in "…" instead of widening the page.
+                overflow: elide;
+                min-width: 0px;
+                horizontal-stretch: 1;
             }
             if root.revealed == "" && root.length == 0 && !scope.has-focus: Text {
                 text: root.placeholder;

@@ -4,7 +4,10 @@ import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage } from "pages.slint";
 import { FolderDialog, PairingDialog } from "dialogs.slint";
-import { MenuCard, MenuEntry, MenuRule } from "widgets.slint";
+import { MenuCard, MenuEntry, MenuRule, Backdrop } from "widgets.slint";
+import { Glyph } from "icons.slint";
+// A second window: the notification area icon's menu (src/tray.rs).
+export { TrayMenu } from "tray.slint";
 
 export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, SourceRow, Messages }
 
@@ -28,8 +31,63 @@ component Notice inherits Rectangle {
     }
 }
 
+// Shortly before the auto-lock: how long is left, and a button that keeps the vault open.
+component LockWarning inherits Rectangle {
+    in property <int> seconds;
+    callback stay();
+    height: 50px;
+    // Icon, words and button, with their gaps and the padding on both sides.
+    width: label.preferred-width + stay-label.preferred-width + 100px;
+    border-radius: Theme.radius;
+    background: Theme.dark ? #2A3442 : #1F2A3D;
+    drop-shadow-blur: 18px;
+    drop-shadow-offset-y: 4px;
+    drop-shadow-color: #00000050;
+    HorizontalLayout {
+        x: 16px;
+        width: parent.width - 26px;
+        height: parent.height;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            Glyph {
+                width: 18px;
+                height: 18px;
+                name: "lock";
+                tint: Theme.marker;
+            }
+        }
+        label := Text {
+            text: @tr("The vault locks in {n} second" | "The vault locks in {n} seconds" % root.seconds);
+            font-size: Theme.body;
+            color: #EEF1F5;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                height: 30px;
+                width: stay-label.preferred-width + 20px;
+                border-radius: Theme.radius;
+                background: stay-touch.has-hover ? #FFFFFF26 : #FFFFFF14;
+                stay-label := Text {
+                    text: @tr("Stay unlocked");
+                    font-size: Theme.body;
+                    font-weight: 600;
+                    color: #EEF1F5;
+                }
+                stay-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.stay(); }
+                }
+            }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title: @tr("Vault");
+    icon: @image-url("brand/icon-64.png");
     preferred-width: 1180px;
     preferred-height: 760px;
     min-width: 940px;
@@ -45,6 +103,9 @@ export component AppWindow inherits Window {
     in property <string> error-detail;
     in property <int> notice-code;
     in property <string> notice-arg;
+    // Seconds left before the auto-lock, while the countdown shows (0 = hidden).
+    in property <int> lock-warning-seconds;
+    callback stay-unlocked();
     in property <string> vault-path;
     in property <string> vault-id;
 
@@ -289,6 +350,8 @@ export component AppWindow inherits Window {
     callback cancel-edit();
     callback toggle-show-password();
     callback generate-for-item();
+    // The generator's options are open under the password (closed each time the editor opens).
+    in-out property <bool> ed-gen-open;
 
     // ---- generator ----
     in property <string> gen-result;
@@ -343,6 +406,9 @@ export component AppWindow inherits Window {
     callback vault-settings-changed();
     callback settings-changed();
     callback appearance-changed(bool);
+    // 0 follows Windows, then src/i18n.rs → LANGUAGES in order.
+    in-out property <int> language;
+    callback language-changed(int);
     callback change-password();
     in-out property <int> kdf-level: 1;
     in property <int> kdf-current: 1;
@@ -521,6 +587,13 @@ export component AppWindow inherits Window {
             horizontal-stretch: 1;
             background: Theme.sheet;
 
+            // The doodle texture, so the open vault doesn't look like the unlock screen's wall.
+            if Theme.backdrop == 1 || Theme.backdrop == 4: Backdrop {
+                width: parent.width;
+                height: parent.height;
+                strength: Theme.backdrop == 4 ? 0.45 : 0.6;
+            }
+
             if root.panel == Panel.detail: DetailPage {
                 has-item: root.has-selection;
                 locked: root.detail-locked;
@@ -628,6 +701,18 @@ export component AppWindow inherits Window {
                 cancel => { root.cancel-edit(); }
                 toggle-show-password => { root.toggle-show-password(); }
                 generate-password => { root.generate-for-item(); }
+                gen-mode <=> root.gen-mode;
+                gen-length <=> root.gen-length;
+                gen-words <=> root.gen-words;
+                gen-lowercase <=> root.gen-lowercase;
+                gen-uppercase <=> root.gen-uppercase;
+                gen-digits <=> root.gen-digits;
+                gen-symbols <=> root.gen-symbols;
+                gen-avoid-ambiguous <=> root.gen-avoid-ambiguous;
+                gen-word-case <=> root.gen-word-case;
+                gen-number <=> root.gen-number;
+                gen-separator <=> root.gen-separator;
+                gen-open <=> root.ed-gen-open;
             }
             if root.panel == Panel.generator: GeneratorPage {
                 result: root.gen-result;
@@ -702,6 +787,8 @@ export component AppWindow inherits Window {
                 quick-unlock-toggled(on) => { root.quick-unlock-toggled(on); }
                 settings-changed => { root.settings-changed(); }
                 appearance-changed(dark) => { root.appearance-changed(dark); }
+                language <=> root.language;
+                language-changed(choice) => { root.language-changed(choice); }
                 change-password => { root.change-password(); }
                 kdf-level <=> root.kdf-level;
                 kdf-current: root.kdf-current;
@@ -737,6 +824,7 @@ export component AppWindow inherits Window {
                 error-detail: root.error-detail;
                 unlock => { root.unlock-item(); }
                 lock-secrets => { root.lock-secrets(); }
+                add-code => { root.new-item(); }
             }
             if root.panel == Panel.transfer: TransferPage {
                 error-code: root.error-code;
@@ -806,8 +894,14 @@ export component AppWindow inherits Window {
 
             if root.notice-code != 0: Notice {
                 x: parent.width - self.width - 28px;
-                y: parent.height - self.height - 24px;
+                y: parent.height - self.height - 24px - (root.lock-warning-seconds > 0 ? 64px : 0px);
                 text: Messages.notice(root.notice-code, root.notice-arg);
+            }
+            if root.lock-warning-seconds > 0: LockWarning {
+                x: parent.width - self.width - 28px;
+                y: parent.height - self.height - 24px;
+                seconds: root.lock-warning-seconds;
+                stay => { root.stay-unlocked(); }
             }
         }
     }

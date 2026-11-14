@@ -183,12 +183,47 @@ pub fn kind_to_int(kind: ItemKind) -> i32 {
     }
 }
 
-pub fn int_to_kind(value: i32) -> ItemKind {
+/// Seconds before the auto-lock when the countdown shows: the last minute, or the last half
+/// of a shorter wait.
+pub fn lock_warning_lead(total_seconds: u64) -> u64 {
+    60.min(total_seconds / 2)
+}
+
+/// The editor's kind for a login kept for its two-step codes only (see [`editor_kind`]).
+pub const EDITOR_AUTHENTICATOR: i32 = 3;
+
+/// What the editor shows an item as: 0 login, 1 card, 2 secure note, or
+/// [`EDITOR_AUTHENTICATOR`] for a login with a one-time code secret and no password.
+pub fn editor_kind(item: &vault_core::ItemData) -> i32 {
+    match item.kind {
+        ItemKind::Login if item.password.is_empty() && !item.totp.is_empty() => {
+            EDITOR_AUTHENTICATOR
+        }
+        ItemKind::Card => 1,
+        ItemKind::SecureNote => 2,
+        _ => 0,
+    }
+}
+
+/// The kind an editor kind is saved as (an authenticator entry is a login).
+pub fn editor_kind_to_kind(value: i32) -> ItemKind {
     match value {
         1 => ItemKind::Card,
         2 => ItemKind::SecureNote,
-        3 => ItemKind::Passkey,
         _ => ItemKind::Login,
+    }
+}
+
+/// The editor kind for a new item asked for from list `category` (2 logins, 3 cards, 4 notes)
+/// or from the Authenticator page.
+pub fn new_item_kind(category: i32, authenticator: bool) -> i32 {
+    if authenticator {
+        return EDITOR_AUTHENTICATOR;
+    }
+    match category {
+        3 => 1,
+        4 => 2,
+        _ => 0,
     }
 }
 
@@ -319,7 +354,18 @@ const MILESTONES: [(f64, i32); 12] = [
     (4.5e9, 18),     // the Earth formed
 ];
 
+/// Bits above which there are more passwords than atoms in the whole Earth (about 1.3 × 10⁵⁰,
+/// close to 2¹⁶⁷).
+const EARTH_ATOMS_BITS: f64 = 167.0;
+/// Bits above which there are more passwords than atoms in the observable universe (about
+/// 10⁸⁰, close to 2²⁶⁶).
+const UNIVERSE_ATOMS_BITS: f64 = 266.0;
+/// Years until the last, smallest stars (red dwarfs) burn out: about ten trillion.
+const LAST_STARS_YEARS: f64 = 1e13;
+
 /// Light-hearted comparison for an average crack time (see `Messages.crack-comparison`).
+/// Past the age of the universe it keeps changing as the password grows, instead of
+/// repeating the same line.
 pub fn crack_comparison(bits: f64) -> i32 {
     let seconds = (bits - 1.0).exp2() / GUESSES_PER_SECOND;
     let years = seconds / (365.25 * 24.0 * 3600.0);
@@ -333,15 +379,24 @@ pub fn crack_comparison(bits: f64) -> i32 {
         4
     } else if years < 1.0 {
         5
-    } else if years >= AGE_OF_UNIVERSE_YEARS {
-        19
-    } else {
+    } else if years < AGE_OF_UNIVERSE_YEARS {
         // The oldest milestone it outlasts: "if they'd started when …, they'd still be at it".
         MILESTONES
             .iter()
             .rev()
             .find(|(ago, _)| years >= *ago)
             .map_or(6, |(_, code)| *code)
+    } else if bits >= UNIVERSE_ATOMS_BITS {
+        23
+    } else if bits >= EARTH_ATOMS_BITS {
+        22
+    } else if years >= AGE_OF_UNIVERSE_YEARS * 1e9 {
+        // Even a billion times more guesses per second would outlast the universe.
+        21
+    } else if years >= LAST_STARS_YEARS {
+        20
+    } else {
+        19
     }
 }
 
@@ -356,8 +411,15 @@ pub mod crack {
     pub const THOUSAND_YEARS: i32 = 6;
     pub const MILLION_YEARS: i32 = 7;
     pub const BILLION_YEARS: i32 = 8;
-    /// Longer than the universe has existed (13.8 billion years).
-    pub const BEYOND: i32 = 9;
+    /// Past the age of the universe (13.8 billion years), counted in ages of the universe:
+    /// `n` times, then thousands, millions, billions and trillions of times…
+    pub const UNIVERSE_TIMES: i32 = 9;
+    pub const UNIVERSE_THOUSANDS: i32 = 10;
+    pub const UNIVERSE_MILLIONS: i32 = 11;
+    pub const UNIVERSE_BILLIONS: i32 = 12;
+    pub const UNIVERSE_TRILLIONS: i32 = 13;
+    /// …and beyond that, a 1 followed by `n` zeros times the age of the universe.
+    pub const UNIVERSE_POWER: i32 = 14;
 }
 
 /// Average time to guess a secret with `bits` of entropy (half the search space), as a unit and
@@ -369,6 +431,7 @@ pub fn crack_time(bits: f64) -> (i32, i32) {
     const YEAR: f64 = 365.25 * DAY;
     let seconds = (bits - 1.0).exp2() / GUESSES_PER_SECOND;
     let years = seconds / YEAR;
+    let ages = years / AGE_OF_UNIVERSE_YEARS;
     let (unit, amount) = if seconds < 1.0 {
         (crack::INSTANT, 0.0)
     } else if seconds < MINUTE {
@@ -385,14 +448,24 @@ pub fn crack_time(bits: f64) -> (i32, i32) {
         (crack::THOUSAND_YEARS, years / 1e3)
     } else if years < 1e9 {
         (crack::MILLION_YEARS, years / 1e6)
-    } else if years < AGE_OF_UNIVERSE_YEARS {
+    } else if ages < 1.0 {
         (crack::BILLION_YEARS, years / 1e9)
+    } else if ages < 999.5 {
+        (crack::UNIVERSE_TIMES, ages)
+    } else if ages < 999.5e3 {
+        (crack::UNIVERSE_THOUSANDS, ages / 1e3)
+    } else if ages < 999.5e6 {
+        (crack::UNIVERSE_MILLIONS, ages / 1e6)
+    } else if ages < 999.5e9 {
+        (crack::UNIVERSE_BILLIONS, ages / 1e9)
+    } else if ages < 999.5e12 {
+        (crack::UNIVERSE_TRILLIONS, ages / 1e12)
     } else {
-        (crack::BEYOND, 0.0)
+        (crack::UNIVERSE_POWER, ages.log10().floor())
     };
     (
         unit,
-        (amount.round() as i32).max(i32::from(unit != crack::INSTANT && unit != crack::BEYOND)),
+        (amount.round().min(f64::from(i32::MAX)) as i32).max(i32::from(unit != crack::INSTANT)),
     )
 }
 
@@ -474,7 +547,10 @@ mod tests {
         assert_eq!(group_code("123456"), "123 456");
         assert_eq!(group_code("12345678"), "1234 5678");
         assert_eq!(group_code("1234567"), "1234567");
-        assert_eq!(int_to_kind(kind_to_int(ItemKind::Card)), ItemKind::Card);
+        assert_eq!(
+            editor_kind_to_kind(kind_to_int(ItemKind::Card)),
+            ItemKind::Card
+        );
     }
 
     #[test]
@@ -525,6 +601,35 @@ mod tests {
     }
 
     #[test]
+    fn lock_warning_leads() {
+        assert_eq!(lock_warning_lead(300), 60);
+        assert_eq!(lock_warning_lead(60), 30);
+        assert_eq!(lock_warning_lead(3600), 60);
+    }
+
+    #[test]
+    fn editor_kinds() {
+        let mut login = vault_core::ItemData::new(ItemKind::Login, "GitHub");
+        assert_eq!(editor_kind(&login), 0);
+        login.totp = "JBSWY3DPEHPK3PXP".into();
+        assert_eq!(editor_kind(&login), EDITOR_AUTHENTICATOR);
+        login.password = "pw".into();
+        assert_eq!(
+            editor_kind(&login),
+            0,
+            "a login with a password stays a login"
+        );
+        let card = vault_core::ItemData::new(ItemKind::Card, "Visa");
+        assert_eq!(editor_kind(&card), 1);
+        assert_eq!(editor_kind_to_kind(EDITOR_AUTHENTICATOR), ItemKind::Login);
+        assert_eq!(editor_kind_to_kind(2), ItemKind::SecureNote);
+        assert_eq!(new_item_kind(3, false), 1);
+        assert_eq!(new_item_kind(4, false), 2);
+        assert_eq!(new_item_kind(2, false), 0);
+        assert_eq!(new_item_kind(0, true), EDITOR_AUTHENTICATOR);
+    }
+
+    #[test]
     fn crack_time_estimates() {
         assert_eq!(crack_time(20.0), (crack::INSTANT, 0));
         // 2^49 / 1e12 ≈ 563 s ≈ 9 minutes
@@ -532,7 +637,20 @@ mod tests {
         // 2^69 / 1e12 s ≈ 18.7 years
         assert_eq!(crack_time(70.0), (crack::YEARS, 19));
         assert_eq!(crack_time(90.0).0, crack::MILLION_YEARS);
-        assert_eq!(crack_time(128.0), (crack::BEYOND, 0));
+        // Past the age of the universe the wording keeps growing with the password.
+        assert_eq!(crack_time(98.0), (crack::BILLION_YEARS, 5));
+        assert_eq!(crack_time(100.0), (crack::UNIVERSE_TIMES, 1));
+        assert_eq!(crack_time(110.0), (crack::UNIVERSE_THOUSANDS, 1));
+        assert_eq!(crack_time(128.0), (crack::UNIVERSE_MILLIONS, 391));
+        assert_eq!(crack_time(140.0), (crack::UNIVERSE_TRILLIONS, 2));
+        assert_eq!(crack_time(256.0), (crack::UNIVERSE_POWER, 47));
+        // Every step from 60 to 300 bits reads differently from the one 10 bits earlier.
+        let mut last = crack_time(50.0);
+        for bits in (60..=300).step_by(10) {
+            let now = crack_time(f64::from(bits));
+            assert_ne!(now, last, "{bits} bits");
+            last = now;
+        }
     }
 
     #[test]
@@ -559,7 +677,19 @@ mod tests {
             16,
             "~20 million years: since the first humans"
         );
-        assert_eq!(crack_comparison(128.0), 19, "beyond the universe");
+        assert_eq!(crack_comparison(105.0), 19, "beyond the universe");
+        assert_eq!(crack_comparison(128.0), 20, "the last stars burn out first");
+        assert_eq!(
+            crack_comparison(150.0),
+            21,
+            "a billion times faster wouldn't do"
+        );
+        assert_eq!(crack_comparison(180.0), 22, "more than the Earth's atoms");
+        assert_eq!(
+            crack_comparison(300.0),
+            23,
+            "more than the universe's atoms"
+        );
     }
 
     #[test]

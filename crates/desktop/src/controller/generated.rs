@@ -93,7 +93,21 @@ impl Controller {
 
     /// Adds a password that was just used (copied, put into an item, filled by the extension).
     pub(super) fn record_generated(&self, password: &str, site: &str) {
-        if password.is_empty() || self.state.borrow().session.is_none() {
+        if password.is_empty() {
+            return;
+        }
+        if self.state.borrow().session.is_none() {
+            // The extension used one while the vault was locked: kept until it is open.
+            if let Some(id) = self.locked_vault_id() {
+                let mut state = self.state.borrow_mut();
+                if state.generated_pending.len() < KEEP {
+                    state.generated_pending.push((
+                        id,
+                        Zeroizing::new(password.to_owned()),
+                        site.to_owned(),
+                    ));
+                }
+            }
             return;
         }
         let mut list = self.generated_entries();
@@ -111,6 +125,22 @@ impl Controller {
         list.truncate(KEEP);
         self.store_generated(list);
         self.fill_generated_history();
+    }
+
+    /// Adds what the extension used while this vault was locked, oldest first.
+    pub(super) fn record_pending_generated(&self) {
+        let pending = std::mem::take(&mut self.state.borrow_mut().generated_pending);
+        let id = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .map(|session| session.vault.id_hex());
+        for (vault, password, site) in &pending {
+            if id.as_deref() == Some(vault.as_str()) {
+                self.record_generated(password, site);
+            }
+        }
     }
 
     /// Whether the history waits for the item lock: one is in use and not open.

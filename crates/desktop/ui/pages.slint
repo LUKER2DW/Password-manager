@@ -775,6 +775,9 @@ export component StrengthMeter inherits VerticalLayout {
             font-weight: 600;
             color: root.bits >= 70 ? Theme.good : root.bits >= 50 ? Theme.ink : Theme.seal;
             vertical-alignment: center;
+            // Long ones ("a 1 followed by 47 zeros times…") wrap instead of widening the page.
+            wrap: word-wrap;
+            min-width: 0;
         }
         Text {
             text: @tr("· {} bits", root.bits);
@@ -800,6 +803,176 @@ export component StrengthMeter inherits VerticalLayout {
         font-size: Theme.small;
         color: Theme.graphite;
         wrap: word-wrap;
+    }
+}
+
+// What goes between the words of a passphrase: the usual ones as buttons, and a small box
+// for anything else, on one line (the one chosen is outlined).
+component SeparatorPicker inherits VerticalLayout {
+    in-out property <string> separator;
+    callback changed();
+    property <bool> preset: root.separator == "-" || root.separator == "." || root.separator == "_" || root.separator == "/" || root.separator == " " || root.separator == "";
+    // What is typed in the box (kept apart so a button can empty it).
+    property <string> custom;
+    init => {
+        if (!root.preset) {
+            root.custom = root.separator;
+        }
+    }
+    // Set from elsewhere (the other generator, saved options): the box follows.
+    changed separator => {
+        if (!root.preset && root.custom != root.separator) {
+            root.custom = root.separator;
+        }
+    }
+    spacing: 6px;
+    Text {
+        text: @tr("Between the words");
+        font-size: Theme.small;
+        color: Theme.graphite;
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: start;
+        for choice in [{ shown: "-", value: "-" }, { shown: ".", value: "." }, { shown: "_", value: "_" }, { shown: "/", value: "/" }, { shown: @tr("space"), value: " " }, { shown: @tr("nothing"), value: "" }]: VerticalLayout {
+            alignment: center;
+            QuietButton {
+                text: choice.shown;
+                outlined: root.separator == choice.value;
+                clicked => {
+                    root.separator = choice.value;
+                    root.custom = "";
+                    root.changed();
+                }
+            }
+        }
+        LineField {
+            width: 120px;
+            placeholder: @tr("Other…");
+            mono: true;
+            text <=> root.custom;
+            edited(text) => {
+                root.separator = text;
+                root.changed();
+            }
+        }
+    }
+}
+
+// The generator's main options, opened under an item's password by Generate: characters or
+// words, the length, and what goes in. Every change makes a new password at once.
+component QuickGenerator inherits Rectangle {
+    in-out property <int> mode;
+    in-out property <int> length;
+    in-out property <int> words;
+    in-out property <bool> lowercase;
+    in-out property <bool> uppercase;
+    in-out property <bool> digits;
+    in-out property <bool> symbols;
+    in-out property <bool> avoid-ambiguous;
+    in-out property <int> word-case;
+    in-out property <bool> number;
+    in-out property <string> separator;
+    callback changed();
+    callback close();
+
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.rule;
+    background: Theme.panel;
+    VerticalLayout {
+        padding: 14px;
+        spacing: 12px;
+        HorizontalLayout {
+            spacing: 8px;
+            Choice {
+                options: [@tr("Random characters"), @tr("Words (passphrase)")];
+                selected <=> root.mode;
+                changed => { root.changed(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout {
+                alignment: center;
+                QuietButton {
+                    text: @tr("Hide options");
+                    tint: Theme.graphite;
+                    clicked => { root.close(); }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 14px;
+            Text {
+                text: root.mode == 0 ? @tr("Length") : @tr("Words");
+                font-size: Theme.body;
+                color: Theme.ink;
+                vertical-alignment: center;
+                width: 64px;
+            }
+            if root.mode == 0: Slider {
+                label: @tr("Length");
+                minimum: 8;
+                maximum: 64;
+                value <=> root.length;
+                changed => { root.changed(); }
+            }
+            if root.mode == 1: Slider {
+                label: @tr("Words");
+                minimum: 3;
+                maximum: 12;
+                value <=> root.words;
+                changed => { root.changed(); }
+            }
+            Text {
+                text: root.mode == 0 ? root.length : root.words;
+                font-size: Theme.lead;
+                font-weight: 600;
+                color: Theme.ink;
+                vertical-alignment: center;
+                horizontal-alignment: right;
+                width: 36px;
+            }
+        }
+        if root.mode == 0: HorizontalLayout {
+            spacing: 18px;
+            alignment: start;
+            Check { text: @tr("A–Z"); checked <=> root.uppercase; toggled => { root.changed(); } }
+            Check { text: @tr("a–z"); checked <=> root.lowercase; toggled => { root.changed(); } }
+            Check { text: @tr("0–9"); checked <=> root.digits; toggled => { root.changed(); } }
+            Check { text: @tr("!@#$ symbols"); checked <=> root.symbols; toggled => { root.changed(); } }
+            Check { text: @tr("No look-alikes"); checked <=> root.avoid-ambiguous; toggled => { root.changed(); } }
+        }
+        if root.mode == 1: VerticalLayout {
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 16px;
+                Dropdown {
+                    horizontal-stretch: 1;
+                    label: @tr("Word case");
+                    options: [@tr("lower case"), @tr("UPPER CASE"), @tr("Title Case"), @tr("MIXED case")];
+                    selected <=> root.word-case;
+                    changed => { root.changed(); }
+                }
+                VerticalLayout {
+                    alignment: end;
+                    horizontal-stretch: 1;
+                    HorizontalLayout {
+                        height: Theme.control-height;
+                        Check { text: @tr("Add a digit to one word"); checked <=> root.number; toggled => { root.changed(); } }
+                    }
+                }
+            }
+            SeparatorPicker {
+                separator <=> root.separator;
+                changed => { root.changed(); }
+            }
+        }
+        Text {
+            text: @tr("More options (extra characters, characters to leave out, your own word lists) are on the Password generator page.");
+            font-size: Theme.small;
+            color: Theme.faint;
+            wrap: word-wrap;
+        }
     }
 }
 
@@ -846,6 +1019,20 @@ export component EditorPage inherits Rectangle {
     callback cancel();
     callback toggle-show-password();
     callback generate-password();
+    // The generator's options, shared with the generator page (opened under the password by
+    // Generate).
+    in-out property <int> gen-mode;
+    in-out property <int> gen-length;
+    in-out property <int> gen-words;
+    in-out property <bool> gen-lowercase;
+    in-out property <bool> gen-uppercase;
+    in-out property <bool> gen-digits;
+    in-out property <bool> gen-symbols;
+    in-out property <bool> gen-avoid-ambiguous;
+    in-out property <int> gen-word-case;
+    in-out property <bool> gen-number;
+    in-out property <string> gen-separator;
+    in-out property <bool> gen-open;
 
     ScrollView {
         VerticalLayout {
@@ -860,8 +1047,9 @@ export component EditorPage inherits Rectangle {
                     text: root.is-new ? @tr("New item") : @tr("Edit item");
                     horizontal-stretch: 1;
                 }
+                // 3 is a login made for its two-step codes only (no password).
                 Choice {
-                    options: [@tr("Login"), @tr("Card"), @tr("Secure note")];
+                    options: [@tr("Login"), @tr("Card"), @tr("Secure note"), @tr("Authenticator")];
                     selected <=> root.kind;
                 }
             }
@@ -872,7 +1060,7 @@ export component EditorPage inherits Rectangle {
                     label: @tr("Title");
                     required: true;
                     icon: "tag";
-                    placeholder: root.kind == 1 ? @tr("Visa ending 4242") : root.kind == 2 ? @tr("Home Wi-Fi") : @tr("GitHub");
+                    placeholder: root.kind == 1 ? @tr("Visa ending 4242") : root.kind == 2 ? @tr("Home Wi-Fi") : root.kind == 3 ? @tr("e.g. GitHub, Google, Microsoft") : @tr("GitHub");
                     text <=> root.title;
                     error: root.error-code == 9;
                 }
@@ -889,18 +1077,28 @@ export component EditorPage inherits Rectangle {
                 spacing: 16px;
                 LineField {
                     horizontal-stretch: 1;
-                    label: root.kind == 1 ? @tr("Name on card") : @tr("Username or email");
+                    label: root.kind == 1 ? @tr("Name on card") : root.kind == 3 ? @tr("Account") : @tr("Username or email");
                     icon: "user";
                     placeholder: root.kind == 1 ? "" : @tr("you@example.com");
                     text <=> root.username;
                 }
-                if root.kind == 0: LineField {
+                if root.kind == 0 || root.kind == 3: LineField {
                     horizontal-stretch: 1;
                     label: @tr("Website");
                     icon: "globe";
                     placeholder: "https://";
                     text <=> root.url;
                 }
+            }
+            if root.kind == 3: LineField {
+                label: @tr("Setup key");
+                icon: "clock";
+                required: true;
+                hint: @tr("When you turn on two-step sign-in, the site shows a QR code and a text key, often under “Can't scan it?” or “Enter a setup key”. Paste that key here, or an otpauth:// link. The 6-digit codes then appear on the Authenticator page.");
+                placeholder: @tr("otpauth:// link or key, e.g. JBSW Y3DP EHPK 3PXP");
+                mono: true;
+                error: root.error-code == 10 || root.error-code == 41;
+                text <=> root.totp;
             }
             LineField {
                 label: @tr("Icon from");
@@ -961,7 +1159,7 @@ export component EditorPage inherits Rectangle {
                     }
                 }
             }
-            if root.kind != 2: HorizontalLayout {
+            if root.kind == 0 || root.kind == 1: HorizontalLayout {
                 spacing: 16px;
                 HorizontalLayout {
                     horizontal-stretch: 1;
@@ -986,8 +1184,12 @@ export component EditorPage inherits Rectangle {
                     if root.kind == 0: VerticalLayout {
                         alignment: end;
                         QuietButton {
-                            text: @tr("Generate");
-                            clicked => { root.generate-password(); }
+                            icon: root.gen-open ? "refresh" : "sparkle";
+                            text: root.gen-open ? @tr("Another") : @tr("Generate");
+                            clicked => {
+                                root.gen-open = true;
+                                root.generate-password();
+                            }
                         }
                     }
                 }
@@ -1011,6 +1213,21 @@ export component EditorPage inherits Rectangle {
                     text <=> root.totp;
                 }
             }
+            if root.kind == 0 && root.gen-open: QuickGenerator {
+                mode <=> root.gen-mode;
+                length <=> root.gen-length;
+                words <=> root.gen-words;
+                lowercase <=> root.gen-lowercase;
+                uppercase <=> root.gen-uppercase;
+                digits <=> root.gen-digits;
+                symbols <=> root.gen-symbols;
+                avoid-ambiguous <=> root.gen-avoid-ambiguous;
+                word-case <=> root.gen-word-case;
+                number <=> root.gen-number;
+                separator <=> root.gen-separator;
+                changed => { root.generate-password(); }
+                close => { root.gen-open = false; }
+            }
             if root.kind == 0 && root.strength-bits > 0: StrengthMeter {
                 compact: true;
                 bits: root.strength-bits;
@@ -1018,7 +1235,7 @@ export component EditorPage inherits Rectangle {
                 crack-amount: root.crack-amount;
                 weakness: root.weakness;
             }
-            if root.kind == 0: NotesField {
+            if root.kind == 0 || root.kind == 3: NotesField {
                 label: @tr("Recovery codes");
                 icon: "list";
                 hint: @tr("The single-use backup codes a site gives you when you turn on two-step sign-in (also called backup codes). They get you in if you lose your phone. Paste them all, one per line; numbering is removed. On the item page you can copy one and mark it as used.");
@@ -1214,6 +1431,7 @@ export component GeneratorPage inherits Rectangle {
                 VerticalLayout {
                     alignment: center;
                     QuietButton {
+                        icon: "refresh";
                         text: @tr("Generate another");
                         clicked => { root.regenerate(); }
                     }
@@ -1338,36 +1556,18 @@ export component GeneratorPage inherits Rectangle {
                         changed => { root.regenerate(); }
                     }
                     VerticalLayout {
-                        spacing: 6px;
-                        width: 220px;
-                        LineField {
-                            label: @tr("Word separator");
-                            placeholder: @tr("none");
-                            mono: true;
-                            text <=> root.separator;
-                            edited => { root.regenerate(); }
+                        alignment: end;
+                        horizontal-stretch: 1;
+                        HorizontalLayout {
+                            height: Theme.control-height;
+                            Check { text: @tr("Add a digit to one word"); checked <=> root.number; toggled => { root.regenerate(); } }
                         }
                     }
                 }
-                HorizontalLayout {
-                    spacing: 6px;
-                    alignment: start;
-                    Text {
-                        text: @tr("Separator:");
-                        font-size: Theme.small;
-                        color: Theme.graphite;
-                        vertical-alignment: center;
-                    }
-                    for preset[i] in [{ shown: "-", value: "-" }, { shown: ".", value: "." }, { shown: "_", value: "_" }, { shown: "/", value: "/" }, { shown: @tr("space"), value: " " }, { shown: @tr("none"), value: "" }]: QuietButton {
-                        text: preset.shown;
-                        outlined: root.separator == preset.value;
-                        clicked => {
-                            root.separator = preset.value;
-                            root.regenerate();
-                        }
-                    }
+                SeparatorPicker {
+                    separator <=> root.separator;
+                    changed => { root.regenerate(); }
                 }
-                Check { text: @tr("Add a digit to one word"); checked <=> root.number; toggled => { root.regenerate(); } }
                 HorizontalLayout {
                     spacing: 12px;
                     Dropdown {
@@ -1592,6 +1792,8 @@ export component SettingsPage inherits Rectangle {
     callback settings-changed();
     callback vault-settings-changed();
     callback appearance-changed(bool);
+    in-out property <int> language;
+    callback language-changed(int);
     callback change-password();
     // Unlock protection (Argon2id cost): the level chosen on screen, the vault's current one
     // (-1 = custom values), whether the last error came from changing it.
@@ -1693,6 +1895,17 @@ export component SettingsPage inherits Rectangle {
                     options: [@tr("Dark"), @tr("Light")];
                     selected: root.dark ? 0 : 1;
                     changed(index) => { root.appearance-changed(index == 0); }
+                }
+                // Each language is named in itself; the list follows src/i18n.rs → LANGUAGES.
+                HorizontalLayout {
+                    Dropdown {
+                        width: 280px;
+                        label: @tr("Language");
+                        icon: "globe";
+                        options: [@tr("Same as Windows"), "English", "Português (Brasil)"];
+                        selected <=> root.language;
+                        changed(index) => { root.language-changed(index); }
+                    }
                 }
                 HorizontalLayout {
                     spacing: 8px;
@@ -2069,6 +2282,8 @@ export component AuthenticatorPage inherits Rectangle {
     callback open-item(int);
     callback unlock();
     callback lock-secrets();
+    // A new item made for its codes only (the editor opens on "Authenticator").
+    callback add-code();
 
     ScrollView {
         VerticalLayout {
@@ -2077,7 +2292,23 @@ export component AuthenticatorPage inherits Rectangle {
             spacing: 14px;
             alignment: start;
 
-            PageTitle { text: @tr("Authenticator"); }
+            HorizontalLayout {
+                spacing: 16px;
+                PageTitle {
+                    text: @tr("Authenticator");
+                    horizontal-stretch: 1;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 0;
+                    QuietButton {
+                        outlined: true;
+                        icon: "clock";
+                        text: @tr("Add a code");
+                        clicked => { root.add-code(); }
+                    }
+                }
+            }
             Prose {
                 text: @tr("Every two-step sign-in code in your vault, always current. Click Copy, then paste the code where the site asks for it.");
             }
@@ -2120,7 +2351,7 @@ export component AuthenticatorPage inherits Rectangle {
                         color: Theme.ink;
                     }
                     Prose {
-                        text: @tr("When a site offers two-step sign-in with an authenticator app, it shows a QR code and a text key (often under “Can't scan it?”). Edit that site's login here and paste the key into “One-time code secret”: its codes appear on this page, and you no longer need a separate authenticator app.");
+                        text: @tr("When a site offers two-step sign-in with an authenticator app, it shows a QR code and a text key (often under “Can't scan it?”). Click Add a code and paste that key, or edit the site's login and paste it into “One-time code secret”: its codes appear on this page, and you no longer need a separate authenticator app.");
                     }
                 }
             }

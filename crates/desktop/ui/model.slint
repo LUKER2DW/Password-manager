@@ -128,9 +128,6 @@ export struct DetailField {
 export global Messages {
     // The notification area icon and its menu.
     out property <string> tray-tooltip: @tr("Vault");
-    out property <string> tray-open: @tr("Open");
-    out property <string> tray-lock: @tr("Lock");
-    out property <string> tray-quit: @tr("Quit");
 
     public pure function kind-name(kind: int) -> string {
         if (kind == 1) { return @tr("Card"); }
@@ -168,6 +165,7 @@ export global Messages {
         if (code == 34) { return @tr("That master password and keyfile don't open this vault. Check Caps Lock, and that it is the right file."); }
         if (code == 35) { return detail == "1" ? @tr("That isn't it. One more wrong try locks the vault.") : @tr("That isn't it. {} tries left before the vault locks.", detail); }
         if (code == 36) { return @tr("A PIN has 4 to 8 digits; an item password at least 6 characters."); }
+        if (code == 41) { return @tr("Paste the setup key the site shows for its authenticator app (often under “Can't scan it?”), or an otpauth:// link."); }
         if (code == 40) { return @tr("Filling while the vault is locked uses Windows Hello: turn it on in Settings → Item lock first (with a PIN or another password)."); }
         if (code == 39) { return @tr("Windows Hello no longer opens the item lock on this computer (its PIN or password was changed). Use the PIN, then turn Windows Hello on again in Settings → Item lock."); }
         if (code == 38) { return @tr("The helper program for browsers ({}) is missing next to the app, so the extension can't be connected.", detail); }
@@ -193,7 +191,14 @@ export global Messages {
         if (unit == 6) { return @tr("About {n} thousand years to crack" | "About {n} thousand years to crack" % n); }
         if (unit == 7) { return @tr("About {n} million years to crack" | "About {n} million years to crack" % n); }
         if (unit == 8) { return @tr("About {n} billion years to crack" | "About {n} billion years to crack" % n); }
-        return @tr("Longer to crack than the universe has existed");
+        // Past the age of the universe, counted in ages of the universe so it keeps growing.
+        if (unit == 9 && n <= 1) { return @tr("About as long to crack as the universe has existed"); }
+        if (unit == 9) { return @tr("About {} times the age of the universe to crack", n); }
+        if (unit == 10) { return @tr("About {} thousand times the age of the universe to crack", n); }
+        if (unit == 11) { return @tr("About {} million times the age of the universe to crack", n); }
+        if (unit == 12) { return @tr("About {} billion times the age of the universe to crack", n); }
+        if (unit == 13) { return @tr("About {} trillion times the age of the universe to crack", n); }
+        return @tr("About a 1 followed by {} zeros times the age of the universe to crack", n);
     }
 
     // Codes from view.rs → crack_comparison.
@@ -217,6 +222,10 @@ export global Messages {
         if (code == 17) { return @tr("If they'd started when the dinosaurs died out, they'd still be at it."); }
         if (code == 18) { return @tr("If they'd started when the Earth formed, they'd still be at it."); }
         if (code == 19) { return @tr("The universe is only 13.8 billion years old."); }
+        if (code == 20) { return @tr("The last stars in the sky would burn out before it's found."); }
+        if (code == 21) { return @tr("Even with computers a billion times faster, it would outlast the universe."); }
+        if (code == 22) { return @tr("There are more possible passwords like it than atoms in the whole Earth."); }
+        if (code == 23) { return @tr("There are more possible passwords like it than atoms in the observable universe."); }
         return "";
     }
 

@@ -23,7 +23,7 @@ use vault_browser::{
     host::NOT_RUNNING,
     pairing::{Envelope, PairingKey},
     protocol::{Check, CopyWhat},
-    service::{self, Gate, Kept, Opened},
+    service::{self, Gate, Held, Kept, Opened},
 };
 use vault_core::{GuardCheck, ItemData, ItemGuard, Vault, storage};
 use vault_platform::{
@@ -272,7 +272,7 @@ impl Controller {
     }
 
     /// The id of the vault this window would unlock, read from its file's header.
-    fn locked_vault_id(&self) -> Option<String> {
+    pub(super) fn locked_vault_id(&self) -> Option<String> {
         let path = self.state.borrow().path.clone();
         let bytes = storage::read(&path).ok()?;
         Some(Vault::inspect(&bytes).ok()?.id_hex)
@@ -286,6 +286,26 @@ impl Controller {
         device: Option<Zeroizing<Vec<u8>>>,
     ) -> Zeroizing<Vec<u8>> {
         let locked = || Zeroizing::new(LOCKED.to_vec());
+        // The generator needs no vault. A password used meanwhile joins the history of
+        // generated passwords once the vault is open again.
+        let generated = {
+            let mut state = self.state.borrow_mut();
+            let state = &mut *state;
+            let mut held = LockedHeld {
+                generated: &mut state.browser_generated,
+                clipboard_seconds: state.settings.clipboard_clear_seconds.max(5),
+            };
+            vault_browser::service::answer_generator(request, &mut held)
+        };
+        if let Some(answer) = generated {
+            if let Some(copy) = answer.copy {
+                self.copy(copy.value, true, notice::PASSWORD_COPIED);
+            }
+            if let Some(kept) = answer.kept {
+                self.record_generated(&kept.password, &kept.site);
+            }
+            return answer.bytes;
+        }
         let Some(id) = self.locked_vault_id() else {
             return locked();
         };
@@ -624,21 +644,49 @@ impl Gate for AppGate<'_> {
     }
 
     fn remember(&mut self, password: Zeroizing<String>, site: String) -> String {
-        let id = PairingKey::generate()
-            .map(|key| key.to_hex()[..16].to_owned())
-            .unwrap_or_default();
-        if self.generated.len() >= HELD_GENERATED {
-            self.generated.remove(0);
-        }
-        self.generated.push((id.clone(), Kept { password, site }));
-        id
+        hold(self.generated, password, site)
     }
 
     fn take(&mut self, id: &str) -> Option<Kept> {
-        let at = self
-            .generated
-            .iter()
-            .position(|(held, _)| !held.is_empty() && held == id)?;
-        Some(self.generated.remove(at).1)
+        take_held(self.generated, id)
+    }
+}
+
+/// Holds a generated password for the extension; returns its id.
+fn hold(generated: &mut Vec<(String, Kept)>, password: Zeroizing<String>, site: String) -> String {
+    let id = PairingKey::generate()
+        .map(|key| key.to_hex()[..16].to_owned())
+        .unwrap_or_default();
+    if generated.len() >= HELD_GENERATED {
+        generated.remove(0);
+    }
+    generated.push((id.clone(), Kept { password, site }));
+    id
+}
+
+fn take_held(generated: &mut Vec<(String, Kept)>, id: &str) -> Option<Kept> {
+    let at = generated
+        .iter()
+        .position(|(held, _)| !held.is_empty() && held == id)?;
+    Some(generated.remove(at).1)
+}
+
+/// The generated passwords held while the vault is locked.
+struct LockedHeld<'a> {
+    generated: &'a mut Vec<(String, Kept)>,
+    clipboard_seconds: u32,
+}
+
+impl Held for LockedHeld<'_> {
+    fn remember(&mut self, password: Zeroizing<String>, site: String) -> String {
+        hold(self.generated, password, site)
+    }
+
+    fn take(&mut self, id: &str) -> Option<Kept> {
+        take_held(self.generated, id)
+    }
+
+    fn clipboard_seconds(&self) -> u32 {
+        self.clipboard_seconds
     }
 }

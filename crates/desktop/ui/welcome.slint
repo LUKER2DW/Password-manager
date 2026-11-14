@@ -5,8 +5,9 @@
 
 import { Theme, Sketch } from "theme.slint";
 import { Messages, RecentVault } from "model.slint";
-import { Button, QuietButton, SecretField, Check, Choice, MarkStroke, Hint, Rule } from "widgets.slint";
+import { Button, QuietButton, SecretField, Check, Choice, MarkStroke, Hint, Rule, Logo } from "widgets.slint";
 import { KitSlip } from "kit.slint";
+import { Glyph } from "icons.slint";
 
 component StepMark inherits HorizontalLayout {
     in property <int> number;
@@ -82,6 +83,8 @@ component ErrorLine inherits Text {
 component Fact inherits HorizontalLayout {
     in property <string> text;
     in property <bool> ok: true;
+    // With an icon, the icon leads (faint when the fact isn't true yet) and a check follows.
+    in property <string> icon;
     spacing: 10px;
     VerticalLayout {
         alignment: start;
@@ -89,7 +92,13 @@ component Fact inherits HorizontalLayout {
         Rectangle {
             width: 16px;
             height: 16px;
-            if root.ok: Path {
+            if root.icon != "": Glyph {
+                name: root.icon;
+                tint: root.ok ? Theme.accent-stroke : Theme.faint;
+                width: 16px;
+                height: 16px;
+            }
+            if root.ok && root.icon == "": Path {
                 width: 15px;
                 height: 15px;
                 viewbox-width: 24;
@@ -99,7 +108,7 @@ component Fact inherits HorizontalLayout {
                 stroke-width: 2px;
                 fill: transparent;
             }
-            if !root.ok: Rectangle {
+            if !root.ok && root.icon == "": Rectangle {
                 width: 8px;
                 height: 8px;
                 border-radius: 4px;
@@ -115,14 +124,93 @@ component Fact inherits HorizontalLayout {
         wrap: word-wrap;
         horizontal-stretch: 1;
     }
+    if root.icon != "" && root.ok: VerticalLayout {
+        alignment: start;
+        padding-top: 2px;
+        Path {
+            width: 13px;
+            height: 13px;
+            viewbox-width: 24;
+            viewbox-height: 24;
+            commands: Sketch.check;
+            stroke: Theme.accent-stroke;
+            stroke-width: 2px;
+            fill: transparent;
+        }
+    }
+}
+
+// A quiet link with an icon (secondary ways out of a form).
+component LinkButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    callback clicked;
+    accessible-role: button;
+    accessible-label: root.text;
+    forward-focus: focus;
+    height: 32px;
+    min-width: row.preferred-width;
+    border-radius: Theme.radius;
+    background: touch.has-hover || focus.has-focus ? Theme.hover : transparent;
+    animate background { duration: Theme.quick; }
+    row := HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 10px;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            Glyph {
+                name: root.icon;
+                tint: touch.has-hover ? Theme.ink : Theme.graphite;
+                width: 15px;
+                height: 15px;
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: Theme.small;
+            color: touch.has-hover ? Theme.ink : Theme.graphite;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+    focus := FocusScope {
+        focus-on-click: false;
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
 }
 
 // Left side panel: brand at the top, then whatever the screen puts in it.
 component SidePanel inherits Rectangle {
+    // With `scene`, the vault wall shows faintly at the bottom of the panel.
+    in property <bool> scene;
     background: Theme.panel;
     min-width: 340px;
     max-width: 440px;
     horizontal-stretch: 0.6;
+    clip: true;
+
+    if root.scene: Image {
+        width: parent.width;
+        height: parent.height;
+        source: Theme.dark ? @image-url("brand/lock-scene.svg") : @image-url("brand/lock-scene-light.svg");
+        image-fit: cover;
+        opacity: 0.45;
+    }
+    if root.scene: Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: @linear-gradient(180deg, Theme.panel 0%, Theme.panel 35%, Theme.panel.with-alpha(0.4) 75%, Theme.panel.with-alpha(0.1) 100%);
+    }
 
     VerticalLayout {
         padding: 40px;
@@ -131,15 +219,10 @@ component SidePanel inherits Rectangle {
         HorizontalLayout {
             spacing: 10px;
             alignment: start;
-            Path {
-                width: 20px;
-                height: 23px;
-                viewbox-width: 64;
-                viewbox-height: 72;
-                commands: Sketch.padlock;
-                stroke: Theme.accent-stroke;
-                stroke-width: 1.4px;
-                fill: transparent;
+            Logo {
+                small: true;
+                width: 28px;
+                height: 28px;
             }
             Text {
                 text: "Vault";
@@ -154,19 +237,54 @@ component SidePanel inherits Rectangle {
 }
 
 // The right side: content centered in the free space, at a comfortable reading width.
+// With `scene`, the space behind is the vault's wall of safe-deposit boxes (brand/lock-scene*.svg,
+// a few drawers pulled open) and the form sits on a card in front of it.
 component FormArea inherits Rectangle {
     in property <length> form-width: 400px;
+    in property <bool> scene;
+    property <length> pad: root.scene ? 36px : 0px;
     horizontal-stretch: 1;
     background: Theme.canvas;
+    clip: true;
+    if root.scene: Image {
+        width: parent.width;
+        height: parent.height;
+        source: Theme.dark ? @image-url("brand/lock-scene.svg") : @image-url("brand/lock-scene-light.svg");
+        image-fit: cover;
+        opacity: 0.55;
+    }
     HorizontalLayout {
         padding: 48px;
         alignment: center;
         VerticalLayout {
-            min-width: 280px;
-            preferred-width: root.form-width;
-            max-width: root.form-width;
+            min-width: 280px + 2 * root.pad;
+            preferred-width: root.form-width + 2 * root.pad;
+            max-width: root.form-width + 2 * root.pad;
             alignment: center;
-            @children
+            Rectangle {
+                if root.scene: Rectangle {
+                    for i in 5: Rectangle {
+                        x: -(i + 1) * 3px;
+                        y: -(i + 1) * 3px + 6px;
+                        width: parent.width + (i + 1) * 6px;
+                        height: parent.height + (i + 1) * 6px;
+                        border-radius: 12px + (i + 1) * 3px;
+                        background: Theme.dark ? #00000009 : #1F2A3D03;
+                    }
+                }
+                if root.scene: Rectangle {
+                    width: parent.width;
+                    height: parent.height;
+                    background: Theme.sheet;
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: Theme.rule;
+                }
+                VerticalLayout {
+                    padding: root.pad;
+                    @children
+                }
+            }
         }
     }
 }
@@ -398,6 +516,7 @@ export component OnboardingScreen inherits Rectangle {
                     spacing: 10px;
                     alignment: start;
                     QuietButton {
+                        icon: root.suggestion == "" ? "sparkle" : "refresh";
                         text: root.suggestion == "" ? @tr("Suggest a passphrase") : @tr("Suggest another");
                         clicked => { root.suggest(); }
                     }
@@ -661,18 +780,13 @@ export component UnlockScreen inherits Rectangle {
 
     HorizontalLayout {
         SidePanel {
+            scene: Theme.lock-backdrop == 2 || Theme.lock-backdrop == 3;
             Spacer { }
-            Path {
-                width: 84px;
-                height: 95px;
-                viewbox-width: 64;
-                viewbox-height: 72;
-                commands: Sketch.padlock;
-                stroke: Theme.accent-stroke;
-                stroke-width: 1.8px;
-                fill: transparent;
+            Logo {
+                width: 120px;
+                height: 120px;
             }
-            Rectangle { height: 22px; }
+            Rectangle { height: 26px; }
             Text {
                 text: @tr("Locked");
                 font-size: Theme.display;
@@ -683,29 +797,69 @@ export component UnlockScreen inherits Rectangle {
             Prose {
                 text: @tr("Everything inside is encrypted on this computer.");
             }
+            Rectangle { height: 18px; }
+            // Which vault this is.
+            HorizontalLayout {
+                alignment: start;
+                Rectangle {
+                    height: 30px;
+                    max-width: 340px;
+                    border-radius: 15px;
+                    background: Theme.dark ? #FFFFFF08 : #1F2A3D0A;
+                    border-width: 1px;
+                    border-color: Theme.rule;
+                    HorizontalLayout {
+                        padding-left: 11px;
+                        padding-right: 14px;
+                        spacing: 8px;
+                        VerticalLayout {
+                            alignment: center;
+                            Glyph {
+                                name: "vault";
+                                tint: Theme.graphite;
+                                width: 14px;
+                                height: 14px;
+                            }
+                        }
+                        Text {
+                            text: root.vault-path;
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
             Spacer { }
-            VerticalLayout {
-                spacing: 12px;
+            // What is set up on this computer, on a quiet card.
+            Rectangle {
                 vertical-stretch: 0;
-                Fact {
-                    text: root.needs-secret-key
-                        ? @tr("This computer needs your Secret Key once")
-                        : @tr("Secret Key saved on this computer");
-                    ok: !root.needs-secret-key;
-                }
-                if root.quick-available: Fact {
-                    text: root.quick-unlock
-                        ? @tr("Windows Hello is set up")
-                        : @tr("Windows Hello is off (Settings → Locking)");
-                    ok: root.quick-unlock;
-                }
-                Fact { text: @tr("Locks itself when you step away"); }
-                Rectangle { height: 4px; }
-                Text {
-                    text: root.vault-path;
-                    font-size: Theme.small;
-                    color: Theme.faint;
-                    wrap: word-wrap;
+                border-radius: 10px;
+                background: Theme.dark ? #0F141BB0 : #FFFFFFB0;
+                border-width: 1px;
+                border-color: Theme.rule;
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+                    Fact {
+                        icon: "key";
+                        text: root.needs-secret-key
+                            ? @tr("This computer needs your Secret Key once")
+                            : @tr("Secret Key saved on this computer");
+                        ok: !root.needs-secret-key;
+                    }
+                    if root.quick-available: Fact {
+                        icon: "shield";
+                        text: root.quick-unlock
+                            ? @tr("Windows Hello is set up")
+                            : @tr("Windows Hello is off (Settings → Locking)");
+                        ok: root.quick-unlock;
+                    }
+                    Fact {
+                        icon: "clock";
+                        text: @tr("Locks itself when you step away");
+                    }
                 }
             }
         }
@@ -713,6 +867,7 @@ export component UnlockScreen inherits Rectangle {
 
         FormArea {
             form-width: 420px;
+            scene: Theme.lock-backdrop == 1 || Theme.lock-backdrop == 3;
             if root.choosing: VaultChooser {
                 vaults: root.vaults;
                 pick(i) => { root.pick-vault(i); }
@@ -724,7 +879,15 @@ export component UnlockScreen inherits Rectangle {
             if !root.choosing: VerticalLayout {
                 spacing: 16px;
 
-                Heading { text: @tr("Unlock your vault"); }
+                VerticalLayout {
+                    spacing: 6px;
+                    Heading { text: @tr("Unlock your vault"); }
+                    if !root.needs-secret-key: Prose {
+                        text: root.hello-first
+                            ? @tr("Use Windows Hello, or your master password.")
+                            : @tr("Type your master password to open it.");
+                    }
+                }
                 if root.hello-first: VerticalLayout {
                     spacing: 18px;
                     Button {
@@ -771,6 +934,7 @@ export component UnlockScreen inherits Rectangle {
                 password := SecretField {
                     field: 0;
                     label: @tr("Master password");
+                    icon: "key";
                     required: true;
                     error: root.error-code == 1;
                     init => { self.focus(); }
@@ -829,17 +993,18 @@ export component UnlockScreen inherits Rectangle {
                     enabled: !root.busy;
                     clicked => { root.unlock(); }
                 }
+                Rule { }
                 HorizontalLayout {
-                    alignment: start;
                     spacing: 4px;
-                    QuietButton {
+                    LinkButton {
+                        icon: "lifebuoy";
                         text: @tr("Forgot it? Use your emergency kit");
-                        tint: Theme.graphite;
                         clicked => { root.forgot(); }
                     }
-                    QuietButton {
+                    Rectangle { horizontal-stretch: 1; }
+                    LinkButton {
+                        icon: "swap";
                         text: @tr("Use another vault");
-                        tint: Theme.graphite;
                         clicked => { root.choosing = true; }
                     }
                 }
@@ -859,6 +1024,7 @@ export component RecoverScreen inherits Rectangle {
 
     HorizontalLayout {
         SidePanel {
+            scene: Theme.lock-backdrop == 2 || Theme.lock-backdrop == 3;
             Rectangle { height: 56px; }
             Text {
                 text: @tr("Recover access");
@@ -883,6 +1049,7 @@ export component RecoverScreen inherits Rectangle {
 
         FormArea {
             form-width: 420px;
+            scene: Theme.lock-backdrop == 1 || Theme.lock-backdrop == 3;
             VerticalLayout {
                 spacing: 16px;
 

@@ -124,6 +124,7 @@ mod error {
     pub const BROWSER_HOST: i32 = 38;
     pub const GUARD_HELLO: i32 = 39;
     pub const LOCKED_FILL_NEEDS_HELLO: i32 = 40;
+    pub const TOTP_REQUIRED: i32 = 41;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -375,6 +376,13 @@ struct State {
     browser_generated: Vec<(String, vault_browser::service::Kept)>,
     /// The history of generated passwords, once read; the entry shown.
     generated_history: Option<Vec<generated::GeneratedEntry>>,
+    /// Generated passwords the extension used while the vault was locked, with that vault's
+    /// id: added to its history once it is open again.
+    generated_pending: Vec<(String, Zeroizing<String>, String)>,
+    /// The password Generate just put in the editor (its SHA-256) and its real entropy: the
+    /// strength estimate, which reads random characters as only ~3.3 bits each, shows that
+    /// instead while the password is unchanged.
+    editor_generated: Option<([u8; 32], f64)>,
     generated_shown: Option<usize>,
     /// Wrong tries at a guarded item since the last right one.
     guard_attempts: u32,
@@ -386,6 +394,10 @@ struct Timers {
     clipboard: Timer,
     notice: Timer,
     auto_lock: Timer,
+    /// Shows the "locks in …" countdown shortly before the auto-lock.
+    lock_warning: Timer,
+    /// Ticks that countdown.
+    lock_countdown: Timer,
     totp: Timer,
     auth: Timer,
     relock: Timer,
@@ -398,6 +410,8 @@ pub struct Controller {
     lengths: Rc<VecModel<i32>>,
     items: Rc<VecModel<ItemRow>>,
     this: RefCell<Weak<Controller>>,
+    /// When the auto-lock will lock the vault (while it is open).
+    lock_deadline: std::cell::Cell<Option<std::time::Instant>>,
 }
 
 thread_local! {
@@ -496,6 +510,8 @@ impl Controller {
                 browser_replay: Default::default(),
                 browser_generated: Vec::new(),
                 generated_history: None,
+                generated_pending: Vec::new(),
+                editor_generated: None,
                 generated_shown: None,
                 guard_attempts: 0,
             }),
@@ -503,6 +519,7 @@ impl Controller {
             lengths: Rc::new(VecModel::from(vec![0; field::COUNT])),
             items: Rc::new(VecModel::default()),
             this: RefCell::new(Weak::new()),
+            lock_deadline: std::cell::Cell::new(None),
         });
         *controller.this.borrow_mut() = Rc::downgrade(&controller);
         CURRENT.with(|current| *current.borrow_mut() = Rc::downgrade(&controller));
@@ -515,6 +532,9 @@ impl Controller {
         app.set_items(ModelRc::from(controller.items.clone()));
         app.global::<Theme>()
             .set_dark(controller.state.borrow().settings.dark_theme);
+        let language = controller.state.borrow().settings.language.clone();
+        crate::i18n::apply(&language);
+        app.set_language(crate::i18n::choice_of(&language));
         controller.wire(app);
         controller.install_shortcuts(app);
         controller.load_generator_prefs();
@@ -618,6 +638,8 @@ impl Controller {
             .select_category(category));
         on!(on_select, |c, index| c.select(index));
         on!(on_new_item, |c| c.open_editor(None));
+        // The `on!` macro counts the click as activity, which restarts the auto-lock.
+        on!(on_stay_unlocked, |c| c.stop_lock_warning());
         on!(on_open_generator, |c| c.open_generator());
         on!(on_open_settings, |c| c.open_settings());
         on!(on_open_kit, |c| c.open_kit());
@@ -753,6 +775,7 @@ impl Controller {
 
         on!(on_settings_changed, |c| c.save_settings());
         on!(on_appearance_changed, |c, dark| c.set_appearance(dark));
+        on!(on_language_changed, |c, choice| c.set_language(choice));
         on!(on_change_password, |c| c.change_password());
         on!(on_show_kit, |c| c.verify_then(KitAction::Show));
         on!(on_hide_kit, |c| {
@@ -1684,6 +1707,25 @@ impl Controller {
         self.start_icon_fetch();
         self.refresh_health();
         self.refresh_locked_fill();
+        self.record_pending_generated();
+    }
+
+    /// What the notification area icon's menu shows: whether the vault is locked, its name,
+    /// the minutes left before the auto-lock, and whether the app is dark.
+    pub fn tray_status() -> Option<(bool, String, i32, bool)> {
+        let controller = CURRENT.with(|c| c.borrow().upgrade())?;
+        let state = controller.state.borrow();
+        let name = state
+            .session
+            .as_ref()
+            .map(|s| s.vault.settings().name.clone())
+            .unwrap_or_default();
+        Some((
+            state.session.is_none(),
+            name,
+            controller.minutes_left().max(1),
+            controller.app().global::<Theme>().get_dark(),
+        ))
     }
 
     /// What the notification area icon's menu asks for.
@@ -1733,6 +1775,8 @@ impl Controller {
     }
 
     fn lock(&self) {
+        self.stop_lock_warning();
+        self.lock_deadline.set(None);
         for timer in [
             &self.timers.reveal,
             &self.timers.auto_lock,
@@ -1848,17 +1892,63 @@ impl Controller {
     }
 
     fn restart_auto_lock(&self) {
-        let minutes = u64::from(self.state.borrow().settings.auto_lock_minutes.max(1));
+        let total = u64::from(self.state.borrow().settings.auto_lock_minutes.max(1)) * 60;
+        self.stop_lock_warning();
         let weak = self.weak();
         self.timers.auto_lock.start(
             TimerMode::SingleShot,
-            Duration::from_secs(minutes * 60),
+            Duration::from_secs(total),
             move || {
                 if let Some(controller) = weak.upgrade() {
                     controller.lock();
                 }
             },
         );
+        // The last minute (half of a one-minute wait) is counted down in the corner.
+        let lead = view::lock_warning_lead(total);
+        let deadline = std::time::Instant::now() + Duration::from_secs(total);
+        self.lock_deadline.set(Some(deadline));
+        let weak = self.weak();
+        self.timers.lock_warning.start(
+            TimerMode::SingleShot,
+            Duration::from_secs(total - lead),
+            move || {
+                if let Some(controller) = weak.upgrade() {
+                    controller.start_lock_countdown(deadline);
+                }
+            },
+        );
+    }
+
+    fn start_lock_countdown(&self, deadline: std::time::Instant) {
+        let tick = {
+            let weak = self.weak();
+            move || {
+                if let Some(controller) = weak.upgrade() {
+                    let left = deadline.saturating_duration_since(std::time::Instant::now());
+                    let seconds = i32::try_from(left.as_secs().saturating_add(1)).unwrap_or(1);
+                    controller.app().set_lock_warning_seconds(seconds);
+                }
+            }
+        };
+        tick();
+        self.timers
+            .lock_countdown
+            .start(TimerMode::Repeated, Duration::from_millis(500), tick);
+    }
+
+    /// Whole minutes (rounded up) before the auto-lock; 0 when locked.
+    fn minutes_left(&self) -> i32 {
+        let left = self.lock_deadline.get().map_or(Duration::ZERO, |deadline| {
+            deadline.saturating_duration_since(std::time::Instant::now())
+        });
+        i32::try_from(left.as_secs().div_ceil(60)).unwrap_or(0)
+    }
+
+    fn stop_lock_warning(&self) {
+        self.timers.lock_warning.stop();
+        self.timers.lock_countdown.stop();
+        self.app().set_lock_warning_seconds(0);
     }
 
     // -----------------------------------------------------------------------------------------
@@ -2969,8 +3059,14 @@ impl Controller {
                 .get_item(&id)
                 .ok()
         });
+        let new = item.is_none();
         let item = item.unwrap_or_else(|| ItemData::new(vault_core::ItemKind::Login, ""));
-        app.set_ed_kind(view::kind_to_int(item.kind).min(2));
+        // A new item starts as the kind of the list (or page) it was asked for from.
+        app.set_ed_kind(if new {
+            view::new_item_kind(app.get_category(), app.get_panel() == Panel::Authenticator)
+        } else {
+            view::editor_kind(&item)
+        });
         app.set_ed_title(SharedString::from(item.title.as_str()));
         app.set_ed_username(SharedString::from(item.username.as_str()));
         app.set_ed_url(SharedString::from(
@@ -3044,6 +3140,7 @@ impl Controller {
             buffer.set(&item.password);
         });
         self.state.borrow_mut().editing = Some(id);
+        app.set_ed_gen_open(false);
         app.set_editor_is_new(id.is_none());
         app.set_editing_item(true);
         app.set_panel(Panel::Editor);
@@ -3090,7 +3187,11 @@ impl Controller {
                 .get_item(&id)
                 .ok()
         });
-        let kind = view::int_to_kind(app.get_ed_kind());
+        let kind = view::editor_kind_to_kind(app.get_ed_kind());
+        if app.get_ed_kind() == view::EDITOR_AUTHENTICATOR && totp.is_empty() {
+            self.set_error(error::TOTP_REQUIRED, "");
+            return;
+        }
         let mut item = existing.unwrap_or_else(|| ItemData::new(kind, &title));
         item.kind = kind;
         item.title = title;
@@ -3224,6 +3325,8 @@ impl Controller {
 
     fn generate_for_item(&self) {
         if let Some(password) = self.generate() {
+            let bits = f64::from(self.app().get_gen_bits());
+            self.state.borrow_mut().editor_generated = Some((file_hash(password.as_bytes()), bits));
             self.edit_secret(field::ITEM_PASSWORD as i32, |buffer| {
                 buffer.set(&password);
             });
@@ -3686,6 +3789,14 @@ impl Controller {
         self.save_settings();
     }
 
+    /// Settings → Appearance → Language: every screen changes at once.
+    fn set_language(&self, choice: i32) {
+        let language = crate::i18n::setting_of(choice);
+        crate::i18n::apply(&language);
+        self.state.borrow_mut().settings.language = language;
+        self.save_settings();
+    }
+
     fn save_settings(&self) {
         let app = self.app();
         let settings = device::Settings {
@@ -3698,6 +3809,7 @@ impl Controller {
             close_to_tray: app.get_close_to_tray(),
             browser_locked_fill: app.get_browser_locked_fill(),
             generator: self.state.borrow().settings.generator.clone(),
+            language: self.state.borrow().settings.language.clone(),
         };
         let mut device_state = DeviceState::load().unwrap_or_default();
         device_state.settings = settings.clone();

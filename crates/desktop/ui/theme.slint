@@ -5,6 +5,13 @@
 export global Theme {
     in-out property <bool> dark: true;
 
+    // Where the hand-drawn backgrounds go (see docs/DESIGN.md). The other placements stay
+    // available for review in the screenshots.
+    // Open vault: 0 none, 1 the page, 2 the index, 3 the index and the list, 4 everywhere.
+    in-out property <int> backdrop: 1;
+    // Lock and recovery: 0 none, 1 behind the form, 2 the side panel, 3 both.
+    in-out property <int> lock-backdrop: 3;
+
     // Surfaces, from back to front
     out property <color> canvas: root.dark ? #121821 : #EEF1F4;     // window
     out property <color> panel: root.dark ? #161D27 : #E6EAEF;      // index and list

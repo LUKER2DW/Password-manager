@@ -32,7 +32,7 @@ use slint::{
 use vault_desktop::{
     apply_sketches,
     controller::{Controller, Runner},
-    ui::{AppWindow, Secrets},
+    ui::{AppWindow, Secrets, Theme},
 };
 
 const WIDTH: u32 = 1180;
@@ -477,6 +477,27 @@ fn main() {
     app.invoke_new_item();
     app.invoke_save_item();
     camera.shot("editor-new-error", "New item: title required");
+    app.set_ed_title("Shop".into());
+    app.set_ed_gen_open(true);
+    app.invoke_generate_for_item();
+    app.invoke_toggle_show_password();
+    camera.shot(
+        "editor-generate",
+        "Generate: the generator's options open under the password",
+    );
+    app.set_gen_mode(1);
+    app.invoke_generate_for_item();
+    camera.shot(
+        "editor-generate-words",
+        "Generate: a passphrase, separator buttons and box on one line",
+    );
+    app.set_gen_mode(0);
+    app.set_ed_kind(3);
+    app.set_ed_title("".into());
+    camera.shot(
+        "editor-authenticator",
+        "New item: an authenticator code only",
+    );
     app.invoke_cancel_edit();
 
     // ---- generator ----
@@ -486,8 +507,22 @@ fn main() {
     app.set_gen_word_case(2);
     app.invoke_regenerate();
     camera.shot("generator-words", "Generator: words, Title Case");
+    app.set_gen_separator("+".into());
+    app.invoke_regenerate();
+    camera.shot(
+        "generator-words-own-separator",
+        "Generator: words with a separator typed in the box",
+    );
+    app.set_gen_separator("-".into());
     app.set_gen_word_case(0);
     app.set_gen_mode(0);
+    app.set_gen_length(64);
+    app.invoke_regenerate();
+    camera.shot(
+        "generator-long",
+        "Generator: 64 characters, counted in ages of the universe",
+    );
+    app.set_gen_length(24);
     app.invoke_regenerate();
 
     // ---- settings ----
@@ -515,6 +550,15 @@ fn main() {
     camera.window.set_size(normal);
     app.invoke_open_authenticator();
     camera.shot("authenticator", "Authenticator: every one-time code, live");
+    app.invoke_new_item();
+    camera.shot(
+        "authenticator-add",
+        "Authenticator → Add a code: the editor opens on Authenticator",
+    );
+    app.invoke_cancel_edit();
+    app.set_lock_warning_seconds(42);
+    camera.shot("lock-warning", "The last minute before the auto-lock");
+    app.set_lock_warning_seconds(0);
 
     // ---- password health: one weak, two sharing a password ----
     add_item(
@@ -626,6 +670,24 @@ fn main() {
     }
     app.invoke_hide_kit();
 
+    // ---- where the doodle texture goes (the page is the default), for review ----
+    app.invoke_select_category(0);
+    select_title(&app, "GitHub");
+    for (value, name, caption) in [
+        (0, "backdrop-none", "Background: none"),
+        (2, "backdrop-index", "Background: on the index only"),
+        (
+            3,
+            "backdrop-index-list",
+            "Background: on the index and the list",
+        ),
+        (4, "backdrop-everywhere", "Background: everywhere, fainter"),
+    ] {
+        app.global::<Theme>().set_backdrop(value);
+        camera.shot(name, caption);
+    }
+    app.global::<Theme>().set_backdrop(1);
+
     // ---- light theme, for comparison ----
     app.invoke_appearance_changed(false);
     app.invoke_select_category(0);
@@ -703,6 +765,24 @@ fn main() {
     // ---- locked ----
     app.invoke_lock();
     camera.shot("unlock", "Locked, with Windows Hello set up");
+    // Where the vault wall goes (side panel and behind the form is the default), for review.
+    for (value, name, caption) in [
+        (0, "unlock-plain", "Lock screen background: none"),
+        (
+            1,
+            "unlock-wall-form",
+            "Lock screen background: behind the form only",
+        ),
+        (
+            2,
+            "unlock-wall-side",
+            "Lock screen background: in the side panel only",
+        ),
+    ] {
+        app.global::<Theme>().set_lock_backdrop(value);
+        camera.shot(name, caption);
+    }
+    app.global::<Theme>().set_lock_backdrop(3);
     app.set_choosing_vault(true);
     camera.shot("unlock-chooser", "Choosing among vaults");
     app.set_choosing_vault(false);
@@ -731,8 +811,25 @@ fn main() {
     app.invoke_show_recovery();
     camera.shot("recover", "Recovery with the emergency kit");
 
-    camera.write_gallery();
+    // ---- the notification area menu (a window of its own) ----
+    app.hide().expect("hide");
     drop(controller);
+    let menu = vault_desktop::ui::TrayMenu::new().expect("tray menu");
+    menu.set_locked(false);
+    menu.set_vault_name("Personal".into());
+    menu.set_minutes_left(4);
+    menu.show().expect("show menu");
+    window.set_size(PhysicalSize::new(
+        (240.0 * scale) as u32,
+        (menu.get_content_height() * scale) as u32,
+    ));
+    camera.shot("tray-menu", "The notification area icon's menu");
+    vault_desktop::i18n::apply("pt_BR");
+    menu.set_locked(true);
+    camera.shot("tray-menu-pt", "The same menu in Portuguese (locked)");
+    vault_desktop::i18n::apply("en");
+
+    camera.write_gallery();
     println!("Gallery: {}", dir.join("index.html").display());
 }
 

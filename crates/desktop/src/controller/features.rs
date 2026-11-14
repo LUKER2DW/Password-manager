@@ -492,12 +492,20 @@ impl Controller {
                     .filter(|w| !w.is_empty())
                     .collect();
                 let strength = health::strength(password, &words);
-                let weakness = if strength.is_weak() {
+                // Just made by Generate: its entropy is known exactly.
+                let generated = state
+                    .editor_generated
+                    .filter(|(hash, _)| *hash == super::file_hash(password.as_bytes()))
+                    .map(|(_, bits)| bits);
+                let weakness = if strength.is_weak() && generated.is_none() {
                     view::weakness_code(&strength)
                 } else {
                     0
                 };
-                (strength.bits.max(1.0), weakness)
+                (
+                    strength.bits.max(generated.unwrap_or(0.0)).max(1.0),
+                    weakness,
+                )
             }
         };
         app.set_ed_strength_bits(bits as i32);
