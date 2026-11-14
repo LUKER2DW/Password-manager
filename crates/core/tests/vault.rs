@@ -124,7 +124,16 @@ fn guarded_secrets_are_encrypted_under_the_pin() {
         Err(Error::SecretsLocked)
     ));
     assert!(vault.needs_unlock_to_store(&bank));
-    assert!(matches!(vault.add_item(&bank), Err(Error::SecretsLocked)));
+    // A new item needs no PIN: it is sealed the next time the guard opens.
+    let shop = vault.add_item(&bank).unwrap();
+    assert_eq!(vault.pending_seal().unwrap(), 1);
+    assert_eq!(vault.seal_pending().unwrap(), 0, "the guard is closed");
+    assert!(vault.unlock_secrets("4821").unwrap());
+    assert_eq!(vault.seal_pending().unwrap(), 1);
+    assert_eq!(vault.pending_seal().unwrap(), 0);
+    vault.lock_secrets();
+    assert!(vault.get_item(&shop).unwrap().is_locked());
+    vault.remove_item(&shop).unwrap();
     let mut view = locked.clone();
     view.favorite = true;
     view.title = "Bank ✓".into();

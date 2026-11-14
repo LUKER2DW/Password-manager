@@ -524,8 +524,9 @@ impl Vault {
         self.guard_key.is_some()
     }
 
-    /// Whether storing this item needs open secrets first: the guard encrypts, covers the
-    /// item, and its key is not in memory.
+    /// Whether changing this item needs open secrets first: the guard encrypts, covers the
+    /// item, and its key is not in memory. Adding a new item never does (see
+    /// [`Vault::add_item`]).
     pub fn needs_unlock_to_store(&self, item: &ItemData) -> bool {
         self.guard.encrypts() && self.guards(item) && self.guard_key.is_none()
     }
@@ -726,6 +727,12 @@ impl Vault {
     }
 
     /// Adds an item and returns its new id.
+    ///
+    /// A new item the guard covers is sealed under the guard key right away when that key is
+    /// in memory. When it isn't, the item is stored under the vault key alone, like an item the
+    /// guard doesn't cover, and sealed the next time the guard is opened
+    /// ([`Vault::seal_pending`]): saving a login needs no PIN. Until then the app still asks
+    /// for the guard's check before showing its secrets.
     pub fn add_item(&mut self, data: &ItemData) -> Result<ItemId> {
         let id = loop {
             let candidate = ItemId::generate()?;
@@ -737,9 +744,58 @@ impl Vault {
         if data.password_changed_at == 0 && !data.password.is_empty() {
             data.password_changed_at = data.created_at;
         }
-        let record = self.store_item(id, 1, &data)?;
+        let record = if self.needs_unlock_to_store(&data) {
+            self.seal_item(id, 1, &data)?
+        } else {
+            self.store_item(id, 1, &data)?
+        };
         self.items.push(record);
         Ok(id)
+    }
+
+    /// Items the guard covers whose secrets are not sealed under its key yet (added while it
+    /// was closed, see [`Vault::add_item`]).
+    pub fn pending_seal(&self) -> Result<usize> {
+        if !self.guard.encrypts() {
+            return Ok(0);
+        }
+        let mut count = 0;
+        for record in &self.items {
+            if self.waits_for_seal(record)? {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    /// Seals the secrets of the items added while the guard was closed, now that its key is in
+    /// memory. Returns how many were sealed: the vault must then be saved.
+    pub fn seal_pending(&mut self) -> Result<usize> {
+        if !self.guard.encrypts() || self.guard_key.is_none() {
+            return Ok(0);
+        }
+        let mut sealed = 0;
+        for index in 0..self.items.len() {
+            if !self.waits_for_seal(&self.items[index])? {
+                continue;
+            }
+            let record = &self.items[index];
+            let (id, revision) = (
+                record.id,
+                record.revision.checked_add(1).ok_or(Error::Malformed)?,
+            );
+            let data = self.open_item(record)?;
+            self.items[index] = self.store_item(id, revision, &data)?;
+            sealed += 1;
+        }
+        Ok(sealed)
+    }
+
+    /// Whether this stored item is covered by the guard but its secrets are not sealed.
+    fn waits_for_seal(&self, record: &ItemRecord) -> Result<bool> {
+        let padded = self.decrypt_item(record)?;
+        let item: ItemData = format::decode_exact(padding::unpad(&padded)?)?;
+        Ok(item.sealed.is_none() && self.guards(&item))
     }
 
     /// Decrypts one item. While its secrets are locked ([`ItemData::is_locked`]) the fields
