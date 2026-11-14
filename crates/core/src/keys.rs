@@ -256,6 +256,11 @@ pub(crate) fn guard_kek(stretched: &[u8; 32], vault_id: &[u8; 16]) -> Zeroizing<
     hkdf32(stretched, vault_id, &[b"vault-v0/kek/guard"])
 }
 
+/// Key of a password-protected export, from Argon2id of its password.
+pub(crate) fn export_key(stretched: &[u8; 32]) -> Zeroizing<aead::Key> {
+    hkdf32(stretched, b"vault-v0/export", &[b"vault-v0/key/export"])
+}
+
 /// KEK that wraps the item guard key for this device (Windows Hello and similar), from the
 /// secret the device's secure hardware produces after verifying the user.
 pub(crate) fn guard_device_kek(
