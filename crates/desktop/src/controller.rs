@@ -17,8 +17,8 @@ use slint::{
     TimerMode, VecModel,
 };
 use vault_core::{
-    CustomField, Error as CoreError, FolderId, ItemData, ItemId, ItemKind, KdfParams, RecoveryCode,
-    RecoveryKey, SecretKey, Unlock, Vault,
+    CustomField, Error as CoreError, FolderId, GuardCheck, ItemData, ItemGuard, ItemId, ItemKind,
+    KdfParams, RecoveryCode, RecoveryKey, SecretKey, Unlock, Vault,
     card::{self, CardDetails, CardProblem},
     generator::{self, PassphraseOptions},
     health::HealthReport,
@@ -45,6 +45,7 @@ use crate::{
 mod browser;
 mod features;
 mod folders;
+mod generated;
 mod navigation;
 mod protection;
 
@@ -166,6 +167,8 @@ mod notice {
     pub const BROWSER_FILLED: i32 = 40;
     pub const BROWSER_PAIRED: i32 = 41;
     pub const BROWSER_UNPAIRED: i32 = 42;
+    pub const BROWSER_SAVED: i32 = 43;
+    pub const GENERATED_CLEARED: i32 = 44;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -177,6 +180,14 @@ const NOTICE_DURATION: Duration = Duration::from_millis(3500);
 const SECRETS_OPEN_FOR: Duration = Duration::from_secs(5 * 60);
 const KDF_MEMORY_KIB: u32 = 256 * 1024;
 const KDF_TARGET: Duration = Duration::from_millis(1000);
+
+/// What the notification area icon's menu asks for (see `crate::tray`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrayAction {
+    Open,
+    Lock,
+    Quit,
+}
 
 /// How slow jobs run: on a worker thread (the app) or inline (headless tests).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -352,6 +363,11 @@ struct State {
     browser_pairing: Option<vault_browser::pairing::PairingKey>,
     browser_pending: Option<vault_browser::pairing::PairingKey>,
     browser_replay: vault_browser::pairing::Replay,
+    /// Generated passwords handed to the extension, until used (see `browser.rs`).
+    browser_generated: Vec<(String, vault_browser::service::Kept)>,
+    /// The history of generated passwords, once read; the entry shown.
+    generated_history: Option<Vec<generated::GeneratedEntry>>,
+    generated_shown: Option<usize>,
     /// Wrong tries at a guarded item since the last right one.
     guard_attempts: u32,
 }
@@ -470,6 +486,9 @@ impl Controller {
                 browser_pairing: None,
                 browser_pending: None,
                 browser_replay: Default::default(),
+                browser_generated: Vec::new(),
+                generated_history: None,
+                generated_shown: None,
                 guard_attempts: 0,
             }),
             timers: Timers::default(),
@@ -571,6 +590,14 @@ impl Controller {
         on!(on_suggest_passphrase, |c| c.suggest_passphrase());
         on!(on_use_suggestion, |c| c.use_suggestion());
         on!(on_finish_onboarding, |c| c.finish_onboarding());
+        on!(on_gen_reveal_history, |c, index| c.reveal_generated(index));
+        on!(on_gen_copy_history, |c, index| c
+            .copy_generated_entry(index));
+        on!(on_gen_clear_history, |c| c.clear_generated_history());
+        on!(on_finish_onboarding_import, |c| {
+            c.finish_onboarding();
+            c.open_transfer();
+        });
         on!(on_unlock, |c| c.unlock());
         on!(on_quick_unlock, |c| c.quick_unlock());
         on!(on_quick_unlock_toggled, |c, on| c.set_quick_unlock(on));
@@ -905,7 +932,8 @@ impl Controller {
                 ));
                 app.set_recovered(false);
                 app.set_kit_saved(false);
-                app.set_onboarding_step(2);
+                self.clear_secret(field::GUARD_NEW);
+                app.set_onboarding_step(3);
                 self.state.borrow_mut().pending = Some(session);
             }
             JobResult::Recovered { session } => {
@@ -919,7 +947,7 @@ impl Controller {
                 app.set_kit_recovery_key(SharedString::new());
                 app.set_recovered(true);
                 app.set_kit_saved(false);
-                app.set_onboarding_step(2);
+                app.set_onboarding_step(3);
                 self.state.borrow_mut().pending = Some(session);
                 self.show_screen(Screen::Onboarding);
             }
@@ -1148,10 +1176,42 @@ impl Controller {
         Some(Zeroizing::new(a.as_str().to_owned()))
     }
 
+    /// Onboarding's main button. On the first step it checks the master password and moves
+    /// on to the item lock; on the second it creates the vault with that lock.
     fn create_vault(&self) {
         let Some(password) = self.new_password_from(field::MASTER, field::CONFIRM) else {
             return;
         };
+        let app = self.app();
+        if app.get_onboarding_step() == 1 {
+            // The suggested start: a PIN on every item, and Windows Hello where it exists.
+            self.set_error(error::NONE, "");
+            self.clear_secret(field::GUARD_NEW);
+            app.set_guard_all(true);
+            app.set_guard_hello(app.get_quick_unlock_available());
+            app.set_onboarding_step(2);
+            return;
+        }
+        let lock = match app.get_onboarding_guard() {
+            0 => Some(GuardCheck::Pin),
+            1 => Some(GuardCheck::Password),
+            2 => Some(GuardCheck::Master),
+            _ => None,
+        };
+        let guard_secret = Zeroizing::new(
+            self.state.borrow().secrets[field::GUARD_NEW]
+                .as_str()
+                .to_owned(),
+        );
+        if let Some(check) = lock
+            && ItemGuard::check_secret(check, &guard_secret).is_err()
+        {
+            self.set_error(error::GUARD_SECRET, "");
+            return;
+        }
+        let guard_all = app.get_guard_all();
+        let want_hello = app.get_guard_hello() && app.get_quick_unlock_available();
+        let verifier = self.state.borrow().verifier.clone();
         let path = self.state.borrow().path.clone();
         let fast = self.state.borrow().runner == Runner::Inline;
         self.run_job(move || {
@@ -1172,6 +1232,22 @@ impl Controller {
                     RecoveryKey::generate().map_err(|e| (error::OTHER, e.to_string()))?;
                 let mut vault = Vault::create(&password, &secret_key, Some(&recovery_key), kdf)
                     .map_err(|e| (error::OTHER, e.to_string()))?;
+                if let Some(check) = lock {
+                    let secret = (check != GuardCheck::Master).then(|| guard_secret.as_str());
+                    vault
+                        .set_item_guard(guard_all, check, secret, Some(&password))
+                        .map_err(|e| (error::GUARD_SECRET, e.to_string()))?;
+                    if want_hello
+                        && vault.item_guard().encrypts()
+                        && let Some(verifier) = &verifier
+                    {
+                        let key_id = quick_unlock::item_lock_key_id(&vault.id_hex());
+                        if let Ok(device) = verifier.enroll(&key_id) {
+                            let _ = quick_unlock::item_lock_enroll(&vault, &device);
+                        }
+                    }
+                    vault.lock_secrets();
+                }
                 if let Some(parent) = path.parent() {
                     std::fs::create_dir_all(parent).map_err(|e| (error::FILE, e.to_string()))?;
                 }
@@ -1595,6 +1671,52 @@ impl Controller {
         self.refresh_health();
     }
 
+    /// What the notification area icon's menu asks for.
+    pub fn tray_action(action: TrayAction) {
+        let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) else {
+            return;
+        };
+        match action {
+            TrayAction::Open => controller.show_from_tray(),
+            TrayAction::Lock => {
+                if controller.state.borrow().session.is_some() {
+                    controller.lock();
+                }
+            }
+            TrayAction::Quit => {
+                let _ = slint::quit_event_loop();
+            }
+        }
+    }
+
+    /// The window's close button. Returns whether the app keeps running in the notification
+    /// area (the window is then hidden); otherwise it quits.
+    pub fn close_to_tray(&self, tray: bool) -> bool {
+        if !(tray && self.state.borrow().settings.close_to_tray) {
+            return false;
+        }
+        // Nothing to draw while hidden: the per-second timers stop, and a password shown
+        // on screen is hidden again.
+        self.timers.totp.stop();
+        self.timers.auth.stop();
+        self.conceal();
+        true
+    }
+
+    /// Shows the window again, as it was.
+    fn show_from_tray(&self) {
+        let app = self.app();
+        let _ = app.show();
+        if self.state.borrow().session.is_some() {
+            match app.get_panel() {
+                Panel::Detail => self.show_detail(),
+                Panel::Authenticator => self.open_authenticator(),
+                _ => {}
+            }
+        }
+        self.bring_to_front();
+    }
+
     fn lock(&self) {
         for timer in [
             &self.timers.reveal,
@@ -1649,6 +1771,9 @@ impl Controller {
             state.dialog_folder = None;
             state.browser_pairing = None;
             state.browser_pending = None;
+            state.browser_generated.clear();
+            state.generated_history = None;
+            state.generated_shown = None;
             state.secrets_open = false;
             state.guard_attempts = 0;
         }
@@ -2588,6 +2713,7 @@ impl Controller {
                 self.fill_authenticator();
                 self.tick_auth();
             }
+            Panel::Generator => self.fill_generated_history(),
             _ => self.show_detail(),
         }
     }
@@ -3107,11 +3233,14 @@ impl Controller {
         if app.get_gen_result().is_empty() {
             self.regenerate();
         }
+        self.state.borrow_mut().generated_shown = None;
+        self.fill_generated_history();
     }
 
     fn copy_generated(&self) {
         let value = self.state.borrow().generated.clone();
         if let Some(value) = value {
+            self.record_generated(&value, "");
             self.copy(value, true, notice::GENERATED_COPIED);
         }
     }
@@ -3120,6 +3249,7 @@ impl Controller {
         let value = self.state.borrow().generated.clone();
         let editing = self.state.borrow().editing.is_some();
         if let (Some(value), true) = (value, editing) {
+            self.record_generated(&value, "");
             self.edit_secret(field::ITEM_PASSWORD as i32, |buffer| {
                 buffer.set(&value);
             });
@@ -3139,6 +3269,7 @@ impl Controller {
         app.set_auto_lock_minutes(settings.auto_lock_minutes as i32);
         app.set_clipboard_seconds(settings.clipboard_clear_seconds as i32);
         app.set_website_icons(settings.website_icons);
+        app.set_close_to_tray(settings.close_to_tray);
         app.set_browser_extension(settings.browser_extension);
         app.set_browser_paired(self.browser_is_paired());
         self.show_vault_settings();
@@ -3545,6 +3676,7 @@ impl Controller {
             dark_theme: app.global::<Theme>().get_dark(),
             website_icons: app.get_website_icons(),
             browser_extension: app.get_browser_extension(),
+            close_to_tray: app.get_close_to_tray(),
             generator: self.state.borrow().settings.generator.clone(),
         };
         let mut device_state = DeviceState::load().unwrap_or_default();

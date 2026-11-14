@@ -2,9 +2,9 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { DetailField, CodeRow, AuthRow, EditField, HistoryRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
+import { DetailField, CodeRow, AuthRow, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
 import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker } from "icons.slint";
-import { Button, QuietButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
+import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip } from "kit.slint";
 
 component PageTitle inherits Text {
@@ -393,8 +393,8 @@ export component DetailPage inherits Rectangle {
                     color: Theme.faint;
                     vertical-alignment: center;
                 }
-                QuietButton {
-                    text: root.revealed-password != "" ? @tr("Hide") : @tr("Show");
+                EyeButton {
+                    open: root.revealed-password != "";
                     clicked => {
                         if (root.revealed-password != "") { root.conceal(); } else { root.reveal(); }
                     }
@@ -470,8 +470,8 @@ export component DetailPage inherits Rectangle {
                 label: @tr("Password history");
                 icon: "history";
                 value: @tr("{n} earlier password" | "{n} earlier passwords" % root.history-count);
-                QuietButton {
-                    text: root.history-shown ? @tr("Hide") : @tr("Show");
+                EyeButton {
+                    open: root.history-shown;
                     clicked => {
                         if (root.history-shown) { root.hide-history(); } else { root.show-history(); }
                     }
@@ -506,8 +506,8 @@ export component DetailPage inherits Rectangle {
                             vertical-alignment: center;
                             overflow: elide;
                         }
-                        QuietButton {
-                            text: entry.password != "" ? @tr("Hide") : @tr("Show");
+                        EyeButton {
+                            open: entry.password != "";
                             tint: Theme.graphite;
                             clicked => { root.reveal-history(index); }
                         }
@@ -576,8 +576,8 @@ export component DetailPage inherits Rectangle {
                     color: Theme.faint;
                     vertical-alignment: center;
                 }
-                if field.hideable: QuietButton {
-                    text: field-row.shown ? @tr("Hide") : @tr("Show");
+                if field.hideable: EyeButton {
+                    open: field-row.shown;
                     clicked => { root.reveal-field(field.index); }
                 }
                 QuietButton {
@@ -592,8 +592,8 @@ export component DetailPage inherits Rectangle {
                 value: root.codes-left == 0
                     ? @tr("All {} used — get new ones from the site", root.codes-total)
                     : @tr("{} of {} left", root.codes-left, root.codes-total);
-                QuietButton {
-                    text: root.codes.length > 0 ? @tr("Hide") : @tr("Show");
+                EyeButton {
+                    open: root.codes.length > 0;
                     clicked => {
                         if (root.codes.length > 0) { root.hide-codes(); } else { root.show-codes(); }
                     }
@@ -977,8 +977,8 @@ export component EditorPage inherits Rectangle {
                     }
                     VerticalLayout {
                         alignment: end;
-                        QuietButton {
-                            text: root.password-shown != "" ? @tr("Hide") : @tr("Show");
+                        EyeButton {
+                            open: root.password-shown != "";
                             clicked => { root.toggle-show-password(); }
                         }
                     }
@@ -1160,6 +1160,17 @@ export component GeneratorPage inherits Rectangle {
     callback use-for-item();
     callback add-wordlist();
     callback remove-wordlist();
+    // Passwords generated and used, newest first, behind the item lock when one is in use.
+    in property <[GeneratedRow]> history;
+    in property <bool> history-locked;
+    in property <int> check;
+    in property <bool> hello;
+    in property <bool> busy;
+    callback unlock();
+    callback unlock-hello();
+    callback reveal-history(int);
+    callback copy-history(int);
+    callback clear-history();
 
     ScrollView {
         VerticalLayout {
@@ -1392,6 +1403,90 @@ export component GeneratorPage inherits Rectangle {
                     detail: root.error-detail;
                 }
             }
+
+            Rule { }
+
+            Text {
+                text: @tr("Recently generated");
+                font-size: Theme.lead;
+                font-weight: 600;
+                color: Theme.ink;
+            }
+            Prose {
+                font-size: Theme.small;
+                text: @tr("Passwords you copied or used from here or from the browser extension, newest first, in case a sign-up failed before you saved the login. Kept encrypted with this vault on this computer, at most 50.");
+            }
+            if root.history-locked && root.history.length > 0: LockBox {
+                check: root.check;
+                text: root.check == 1 ? @tr("They may be passwords of locked items. Your PIN shows them for 5 minutes.")
+                    : root.check == 2 ? @tr("They may be passwords of locked items. Your item password shows them for 5 minutes.")
+                    : @tr("They may be passwords of locked items. Your master password shows them for 5 minutes.");
+                busy: root.busy;
+                error-code: root.error-code;
+                error-detail: root.error-detail;
+                hello: root.hello;
+                unlock => { root.unlock(); }
+                unlock-hello => { root.unlock-hello(); }
+            }
+            if root.history.length == 0: Prose {
+                text: @tr("Nothing yet.");
+            }
+            if !root.history-locked && root.history.length > 0: VerticalLayout {
+                spacing: 2px;
+                for entry[index] in root.history: Rectangle {
+                    height: 36px;
+                    border-radius: Theme.radius;
+                    background: entry-touch.has-hover ? Theme.hover : transparent;
+                    entry-touch := TouchArea { }
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 4px;
+                        spacing: 10px;
+                        Text {
+                            width: 150px;
+                            text: entry.date;
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            width: 150px;
+                            text: entry.site != "" ? entry.site : @tr("In the app");
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: entry.password != "" ? entry.password : "••••••••••••";
+                            font-family: entry.password != "" ? Theme.mono-font : Theme.ui-font;
+                            font-size: Theme.body;
+                            color: Theme.ink;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        EyeButton {
+                            open: entry.password != "";
+                            tint: Theme.graphite;
+                            clicked => { root.reveal-history(index); }
+                        }
+                        QuietButton {
+                            text: @tr("Copy");
+                            clicked => { root.copy-history(index); }
+                        }
+                    }
+                }
+            }
+            if root.history.length > 0: HorizontalLayout {
+                alignment: start;
+                QuietButton {
+                    text: @tr("Clear history");
+                    tint: Theme.seal;
+                    clicked => { root.clear-history(); }
+                }
+            }
         }
     }
 }
@@ -1488,6 +1583,7 @@ export component SettingsPage inherits Rectangle {
     in-out property <int> auto-lock-minutes;
     in-out property <int> clipboard-seconds;
     in-out property <bool> website-icons;
+    in-out property <bool> close-to-tray;
     in-out property <bool> browser-extension;
     in property <bool> quick-unlock-available;
     in-out property <bool> quick-unlock-on;
@@ -1601,6 +1697,21 @@ export component SettingsPage inherits Rectangle {
                     spacing: 8px;
                     alignment: start;
                     Check {
+                        text: @tr("Keep running in the notification area when the window is closed");
+                        checked <=> root.close-to-tray;
+                        toggled => { root.settings-changed(); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Hint {
+                            text: @tr("Closing the window then hides it: nothing is drawn and the app uses very little, the browser extension keeps working, and the vault still locks itself after the idle time above. Open it again from the icon next to the clock; its menu also locks the vault or quits.");
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Check {
                         text: @tr("Show website icons");
                         checked <=> root.website-icons;
                         toggled => { root.settings-changed(); }
@@ -1695,8 +1806,8 @@ export component SettingsPage inherits Rectangle {
             SettingsCard {
                 icon: "globe";
                 title: @tr("Browser extension");
-                summary: @tr("Fills your logins in Chrome and Edge. You click the extension's button, pick the login in its own window, and it is typed into the page.");
-hint: @tr("The extension keeps no passwords. The first time, it asks to be connected and this app shows a code for you to allow; after that only that extension gets answers, only while the vault is open, only for the exact site a login was saved for (write *.example.com as the website to include every site under it), and only on pages with https. A login behind the item lock is opened for one fill by Windows Hello or by its PIN, typed in the extension's own window. Each fill shows a notice here. Limit: a malicious program already running under your Windows account could copy the browser's data and ask like the extension, which is why the accounts that matter belong behind the item lock.");
+                summary: @tr("Fills and saves your logins in Chrome and Edge, and suggests strong passwords made here. Passwords are shown, copied and filled one at a time, through the item lock.");
+hint: @tr("The extension keeps no passwords. The first time, it asks to be connected and this app asks for your master password; after that only that extension gets answers, only while the vault is open, only for the exact site a login was saved for (write *.example.com as the website to include every site under it), and only on pages with https. A login behind the item lock is opened for one fill, show or copy by Windows Hello or by its PIN, typed in the extension's own window. Copies are made by this app, out of clipboard history. Each fill shows a notice here. Limit: a malicious program already running under your Windows account could copy the browser's data and ask like the extension, which is why the accounts that matter belong behind the item lock.");
                 Check {
                     text: @tr("Let the browser extension ask this app for logins");
                     checked <=> root.browser-extension;

@@ -22,6 +22,13 @@ export struct HistoryRow {
     date: string,     // when it stopped being the password
 }
 
+// A password made by the generator and used (Generator page, newest first).
+export struct GeneratedRow {
+    password: string, // filled only while shown
+    site: string,     // the site it was made for, "" when made in the app
+    date: string,
+}
+
 // One problem found by the password health check.
 export struct HealthRow {
     title: string,
@@ -119,6 +126,12 @@ export struct DetailField {
 }
 
 export global Messages {
+    // The notification area icon and its menu.
+    out property <string> tray-tooltip: @tr("Vault");
+    out property <string> tray-open: @tr("Open");
+    out property <string> tray-lock: @tr("Lock");
+    out property <string> tray-quit: @tr("Quit");
+
     public pure function kind-name(kind: int) -> string {
         if (kind == 1) { return @tr("Card"); }
         if (kind == 2) { return @tr("Secure note"); }
@@ -246,9 +259,11 @@ export global Messages {
         if (code == 37) { return @tr("Item lock saved."); }
         if (code == 38) { return @tr("Too many wrong tries: the vault locked itself. Unlock it with your master password."); }
         if (code == 39) { return @tr("Secrets locked again."); }
-        if (code == 40) { return @tr("Filled “{}” in the browser.", arg); }
+        if (code == 40) { return @tr("“{}” was handed to the browser extension.", arg); }
         if (code == 41) { return @tr("Browser extension connected."); }
         if (code == 42) { return @tr("Browser extension disconnected. It has to ask again to connect."); }
+        if (code == 43) { return @tr("Saved “{}” from the browser.", arg); }
+        if (code == 44) { return @tr("History of generated passwords cleared."); }
         return "";
     }
 

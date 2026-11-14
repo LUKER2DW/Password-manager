@@ -22,8 +22,8 @@ use slint::{ComponentHandle, SharedString};
 use vault_browser::{
     host::NOT_RUNNING,
     pairing::{Envelope, PairingKey},
-    protocol::Check,
-    service::{self, Gate, Opened},
+    protocol::{Check, CopyWhat},
+    service::{self, Gate, Kept, Opened},
 };
 use vault_core::{GuardCheck, ItemData, ItemGuard, Vault, storage};
 use vault_platform::{
@@ -211,6 +211,8 @@ impl Controller {
                 device: device.zip(id.as_deref().and_then(quick_unlock::item_lock_load)),
                 locked_out: false,
                 save: false,
+                clipboard_seconds: state.settings.clipboard_clear_seconds.max(5),
+                generated: &mut state.browser_generated,
             };
             let vault = state.session.as_mut().map(|session| &mut session.vault);
             let answer = service::answer(request, vault, &mut gate);
@@ -222,7 +224,27 @@ impl Controller {
         } else if save {
             self.save_vault();
         }
-        if let Some(title) = &answer.filled {
+        if let Some(kept) = answer.kept {
+            self.record_generated(&kept.password, &kept.site);
+        }
+        if let Some(title) = &answer.saved {
+            if !locked_out {
+                self.state.borrow_mut().summaries_stale = true;
+                if self.save_vault() {
+                    self.refresh_list();
+                    self.notify(notice::BROWSER_SAVED, title);
+                }
+            }
+        } else if let Some(copy) = answer.copy {
+            // Copied here, by the app: kept out of clipboard history and cleared later, and
+            // never handed to the browser.
+            let (secret, code) = match copy.what {
+                CopyWhat::Username => (false, notice::USERNAME_COPIED),
+                CopyWhat::Password => (true, notice::PASSWORD_COPIED),
+                CopyWhat::Code => (true, notice::CODE_COPIED),
+            };
+            self.copy(copy.value, secret, code);
+        } else if let Some(title) = &answer.filled {
             self.notify(notice::BROWSER_FILLED, title);
         }
         answer.bytes
@@ -286,7 +308,7 @@ impl Controller {
     }
 
     /// Puts the app's window in front, so the person sees what the extension asked for.
-    fn bring_to_front(&self) {
+    pub(super) fn bring_to_front(&self) {
         if self.state.borrow().runner == Runner::Inline {
             return;
         }
@@ -428,7 +450,13 @@ struct AppGate<'a> {
     locked_out: bool,
     /// A format v5 PIN was just turned into encryption: the vault must be saved.
     save: bool,
+    clipboard_seconds: u32,
+    /// Generated passwords handed to the extension and not used yet.
+    generated: &'a mut Vec<(String, Kept)>,
 }
+
+/// How many generated passwords wait to be used at most; older ones are dropped.
+const HELD_GENERATED: usize = 8;
 
 impl Gate for AppGate<'_> {
     fn check(&self, vault: &Vault) -> Check {
@@ -483,5 +511,28 @@ impl Gate for AppGate<'_> {
         if !self.app_open {
             vault.lock_secrets();
         }
+    }
+
+    fn clipboard_seconds(&self) -> u32 {
+        self.clipboard_seconds
+    }
+
+    fn remember(&mut self, password: Zeroizing<String>, site: String) -> String {
+        let id = PairingKey::generate()
+            .map(|key| key.to_hex()[..16].to_owned())
+            .unwrap_or_default();
+        if self.generated.len() >= HELD_GENERATED {
+            self.generated.remove(0);
+        }
+        self.generated.push((id.clone(), Kept { password, site }));
+        id
+    }
+
+    fn take(&mut self, id: &str) -> Option<Kept> {
+        let at = self
+            .generated
+            .iter()
+            .position(|(held, _)| !held.is_empty() && held == id)?;
+        Some(self.generated.remove(at).1)
     }
 }

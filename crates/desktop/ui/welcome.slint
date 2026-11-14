@@ -5,7 +5,7 @@
 
 import { Theme, Sketch } from "theme.slint";
 import { Messages, RecentVault } from "model.slint";
-import { Button, QuietButton, SecretField, Check, MarkStroke, Hint, Rule } from "widgets.slint";
+import { Button, QuietButton, SecretField, Check, Choice, MarkStroke, Hint, Rule } from "widgets.slint";
 import { KitSlip } from "kit.slint";
 
 component StepMark inherits HorizontalLayout {
@@ -281,7 +281,7 @@ component VaultChooser inherits VerticalLayout {
 }
 
 export component OnboardingScreen inherits Rectangle {
-    in property <int> step: 1;
+    in-out property <int> step: 1;
     in property <bool> busy;
     in property <int> error-code;
     in property <string> error-detail;
@@ -292,6 +292,14 @@ export component OnboardingScreen inherits Rectangle {
     in property <string> kit-recovery-key;
     in property <string> kit-path;
     in-out property <bool> kit-saved;
+    // Item lock, chosen before the vault is created: 0 PIN, 1 another password, 2 master
+    // password, 3 none for now.
+    in-out property <int> guard: 0;
+    in-out property <bool> guard-all: true;
+    in-out property <bool> guard-hello: true;
+    in property <bool> quick-available;
+    callback back();
+    callback import();
     callback create();
     callback suggest();
     callback use-suggestion();
@@ -324,10 +332,22 @@ export component OnboardingScreen inherits Rectangle {
                 active: root.step == 1;
                 done: root.step > 1;
             }
-            StepMark {
-                number: root.recovered ? 1 : 2;
-                text: @tr("Emergency kit");
+            if !root.recovered: StepMark {
+                number: 2;
+                text: @tr("Item lock");
                 active: root.step == 2;
+                done: root.step > 2;
+            }
+            StepMark {
+                number: root.recovered ? 1 : 3;
+                text: @tr("Emergency kit");
+                active: root.step == 3;
+                done: root.step > 3;
+            }
+            if !root.recovered: StepMark {
+                number: 4;
+                text: @tr("Your passwords");
+                active: root.step == 4;
             }
             Spacer { }
             VerticalLayout {
@@ -336,6 +356,7 @@ export component OnboardingScreen inherits Rectangle {
                 Fact { text: @tr("Everything is encrypted on this computer before it is saved."); }
                 Fact { text: @tr("Opening it takes your master password plus a Secret Key the app creates."); }
                 Fact { text: @tr("Nothing is sent anywhere."); }
+                Fact { text: @tr("The item lock asks again before a password shows, even with the vault open."); }
                 Fact { text: @tr("Your emergency kit is the way back in if you forget the password."); }
             }
         }
@@ -421,9 +442,7 @@ export component OnboardingScreen inherits Rectangle {
                     detail: root.error-detail;
                 }
                 Button {
-                    text: @tr("Create vault");
-                    busy-text: @tr("Creating your vault…");
-                    busy: root.busy;
+                    text: @tr("Continue");
                     clicked => { root.create(); }
                 }
                 HorizontalLayout {
@@ -438,6 +457,91 @@ export component OnboardingScreen inherits Rectangle {
         }
 
         if root.step == 2: FormArea {
+            form-width: 500px;
+            VerticalLayout {
+                spacing: 18px;
+
+                Heading { text: @tr("Lock your items"); }
+                Prose {
+                    text: @tr("With the vault open, each password, code and hidden field still asks for one quick check before it shows, is copied or is filled in the browser. Names, usernames and websites stay visible. One right answer opens locked items for 5 minutes.");
+                }
+                Choice {
+                    options: [@tr("PIN"), @tr("Another password"), @tr("Master password")];
+                    selected <=> root.guard;
+                }
+                Prose {
+                    font-size: Theme.small;
+                    text: root.guard == 0 ? @tr("Recommended. Locked secrets are encrypted with a key only the PIN opens, so a program that reads the open vault from memory still can't read them. Use 6 to 8 digits.")
+                        : root.guard == 1 ? @tr("Locked secrets are encrypted with a key only this password opens. At least 6 characters, different from your master password.")
+                        : @tr("You type your master password again. A check only: nothing extra is encrypted.");
+                }
+                if root.guard < 2: SecretField {
+                    field: 12;
+                    label: root.guard == 0 ? @tr("PIN: 4 to 8 digits") : @tr("Item password: at least 6 characters");
+                    required: true;
+                    error: root.error-code == 36;
+                    accepted => { root.create(); }
+                }
+                Check {
+                    text: @tr("Lock every item (otherwise only items you mark)");
+                    checked <=> root.guard-all;
+                }
+                if root.guard < 2 && root.quick-available: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Check {
+                        text: @tr("Open locked items with Windows Hello too");
+                        checked <=> root.guard-hello;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Hint {
+                            text: @tr("Your face, fingerprint or Windows PIN opens locked items on this computer, in the app and in the browser extension. Creating the vault asks Windows Hello once.");
+                        }
+                    }
+                }
+                ErrorLine {
+                    code: root.error-code;
+                    detail: root.error-detail;
+                }
+                HorizontalLayout {
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 12px;
+                        Button {
+                            text: @tr("Create vault");
+                            busy-text: @tr("Creating your vault…");
+                            busy: root.busy;
+                            clicked => { root.create(); }
+                        }
+                        if !root.busy: QuietButton {
+                            text: @tr("Back");
+                            tint: Theme.graphite;
+                            clicked => { root.back(); }
+                        }
+                    }
+                    // No item lock for now: a plain way out, on its own at the right.
+                    HorizontalLayout {
+                        alignment: end;
+                        if !root.busy: QuietButton {
+                            text: @tr("Set up later");
+                            outlined: true;
+                            tint: Theme.graphite;
+                            clicked => {
+                                root.guard = 3;
+                                root.create();
+                            }
+                        }
+                    }
+                }
+                if !root.busy: Prose {
+                    font-size: Theme.small;
+                    text: @tr("Set up later creates the vault without an item lock. You can turn it on any time in Settings → Item lock.");
+                }
+            }
+        }
+
+        if root.step == 3: FormArea {
             form-width: 560px;
             VerticalLayout {
                 spacing: 18px;
@@ -474,10 +578,51 @@ export component OnboardingScreen inherits Rectangle {
                 HorizontalLayout {
                     alignment: start;
                     Button {
-                        text: @tr("Open my vault");
+                        text: root.recovered ? @tr("Open my vault") : @tr("Continue");
                         enabled: root.kit-saved;
+                        clicked => {
+                            if root.recovered {
+                                root.finish();
+                            } else {
+                                root.step = 4;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.step == 4: FormArea {
+            form-width: 500px;
+            VerticalLayout {
+                spacing: 18px;
+
+                Heading { text: @tr("Bring your passwords along"); }
+                Prose {
+                    text: @tr("Already keep passwords in a browser or another password manager? Import them now and they are encrypted into this vault. Nothing is sent anywhere.");
+                }
+                VerticalLayout {
+                    spacing: 10px;
+                    Fact { text: @tr("Chrome, Edge, Brave and Firefox, read directly on this computer"); }
+                    Fact { text: @tr("Bitwarden, 1Password, KeePass and others, from their export files"); }
+                    Fact { text: @tr("You review every login before anything is added"); }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 12px;
+                    Button {
+                        text: @tr("Import passwords");
+                        clicked => { root.import(); }
+                    }
+                    QuietButton {
+                        text: @tr("Skip for now");
+                        tint: Theme.graphite;
                         clicked => { root.finish(); }
                     }
+                }
+                Prose {
+                    font-size: Theme.small;
+                    text: @tr("You can import later from Import & export in the menu.");
                 }
             }
         }

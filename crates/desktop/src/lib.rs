@@ -8,6 +8,7 @@ mod favicon;
 mod sketch;
 #[cfg(test)]
 mod tests;
+pub mod tray;
 mod view;
 
 /// The Slint screens (generated code, in a crate of its own to keep rebuilds short).

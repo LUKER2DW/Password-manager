@@ -118,6 +118,78 @@ export component QuietButton inherits Rectangle {
     }
 }
 
+// Show / hide for a secret: an eye that opens while the secret is shown and closes (with a
+// short blink) when it is hidden again.
+export component EyeButton inherits Rectangle {
+    in property <bool> open;
+    in property <color> tint: Theme.ink;
+    callback clicked;
+    property <float> openness: root.open ? 1 : 0;
+    animate openness { duration: 220ms; easing: ease-in-out; }
+
+    accessible-role: button;
+    accessible-label: root.open ? @tr("Hide") : @tr("Show");
+    forward-focus: focus;
+    width: 32px;
+    height: 32px;
+    border-radius: Theme.radius;
+    background: touch.has-hover || focus.has-focus ? Theme.hover : transparent;
+    animate background { duration: Theme.quick; }
+
+    // The open eye, squeezed shut as it closes.
+    Path {
+        x: (parent.width - 20px) / 2;
+        width: 20px;
+        height: max(1px, 14px * root.openness);
+        y: (parent.height - self.height) / 2;
+        viewbox-x: 1;
+        viewbox-y: 5;
+        viewbox-width: 22;
+        viewbox-height: 14;
+        commands: "M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0";
+        stroke: root.tint;
+        stroke-width: 1.8px;
+        fill: transparent;
+        opacity: min(1, root.openness * 3);
+    }
+    Rectangle {
+        width: 6px;
+        height: 6px * root.openness;
+        border-radius: min(self.width, self.height) / 2;
+        border-width: 1.8px * min(1, root.openness * 2);
+        border-color: root.tint;
+        opacity: root.openness;
+    }
+    // The closed lid with its lashes.
+    Path {
+        x: (parent.width - 20px) / 2;
+        y: (parent.height - 20px) / 2 + 2px * root.openness;
+        width: 20px;
+        height: 20px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M3 10.5c4.8 5.6 13.2 5.6 18 0 M7 14.2l-1.6 2.6 M12 15.6v3 M17 14.2l1.6 2.6";
+        stroke: root.tint;
+        stroke-width: 1.8px;
+        fill: transparent;
+        opacity: 1 - min(1, root.openness * 1.5);
+    }
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+    focus := FocusScope {
+        focus-on-click: false;
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+}
+
 // The input surface shared by every field: a recessed well; the bottom edge lights up when
 // the field has focus (marker) or an error (seal).
 component Well inherits Rectangle {

@@ -1,5 +1,5 @@
 import { Theme, Sketch, Secrets } from "theme.slint";
-import { Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
+import { Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage } from "pages.slint";
@@ -49,13 +49,15 @@ export component AppWindow inherits Window {
     in property <string> vault-id;
 
     // ---- onboarding / recovery ----
-    in property <int> onboarding-step: 1;
+    in-out property <int> onboarding-step: 1;
+    in-out property <int> onboarding-guard: 0;
     in property <bool> recovered;
     in property <string> suggestion;
     in property <string> kit-secret-key;
     in property <string> kit-recovery-key;
     in-out property <bool> kit-saved;
     callback create-vault();
+    callback finish-onboarding-import();
     callback suggest-passphrase();
     callback use-suggestion();
     callback finish-onboarding();
@@ -322,6 +324,12 @@ export component AppWindow inherits Window {
     in-out property <int> auto-lock-minutes: 5;
     in-out property <int> clipboard-seconds: 20;
     in-out property <bool> website-icons;
+    in-out property <bool> close-to-tray: true;
+    in property <[GeneratedRow]> gen-history;
+    in property <bool> gen-history-locked;
+    callback gen-reveal-history(int);
+    callback gen-copy-history(int);
+    callback gen-clear-history();
     in-out property <bool> browser-extension;
     in property <string> vault-file-name;
     in-out property <string> vault-name-edit;
@@ -384,7 +392,7 @@ export component AppWindow inherits Window {
     callback save-kit();
 
     if root.screen == Screen.onboarding: OnboardingScreen {
-        step: root.onboarding-step;
+        step <=> root.onboarding-step;
         busy: root.busy;
         error-code: root.error-code;
         error-detail: root.error-detail;
@@ -395,10 +403,16 @@ export component AppWindow inherits Window {
         kit-recovery-key: root.kit-recovery-key;
         kit-path: root.vault-path;
         kit-saved <=> root.kit-saved;
+        guard <=> root.onboarding-guard;
+        guard-all <=> root.guard-all;
+        guard-hello <=> root.guard-hello;
+        quick-available: root.quick-unlock-available;
+        back => { root.onboarding-step = 1; }
         create => { root.create-vault(); }
         suggest => { root.suggest-passphrase(); }
         use-suggestion => { root.use-suggestion(); }
         finish => { root.finish-onboarding(); }
+        import => { root.finish-onboarding-import(); }
         vaults: root.recent-vaults;
         choosing <=> root.choosing-vault;
         pick-vault(i) => { root.pick-vault(i); }
@@ -641,6 +655,16 @@ export component AppWindow inherits Window {
                 wordlist-removable: root.gen-wordlist-removable;
                 error-code: root.error-code;
                 error-detail: root.error-detail;
+                history: root.gen-history;
+                history-locked: root.gen-history-locked;
+                check: root.detail-check;
+                hello: root.guard-hello-on;
+                busy: root.busy;
+                unlock => { root.unlock-item(); }
+                unlock-hello => { root.unlock-item-hello(); }
+                reveal-history(i) => { root.gen-reveal-history(i); }
+                copy-history(i) => { root.gen-copy-history(i); }
+                clear-history => { root.gen-clear-history(); }
                 regenerate => { root.regenerate(); }
                 copy => { root.copy-generated(); }
                 use-for-item => { root.use-generated(); }
@@ -657,6 +681,7 @@ export component AppWindow inherits Window {
                 auto-lock-minutes <=> root.auto-lock-minutes;
                 clipboard-seconds <=> root.clipboard-seconds;
                 website-icons <=> root.website-icons;
+                close-to-tray <=> root.close-to-tray;
                 browser-extension <=> root.browser-extension;
                 browser-paired <=> root.browser-paired;
                 forget-pairing => { root.forget-pairing(); }

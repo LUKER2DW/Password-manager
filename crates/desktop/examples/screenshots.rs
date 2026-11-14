@@ -258,13 +258,19 @@ fn main() {
     );
     type_into(&app, 1, PASSWORD);
     app.invoke_create_vault();
+    camera.shot("item-lock-step", "Step 2: the item lock, PIN suggested");
+    // The demo vault keeps no item lock, so the later shots show every secret.
+    app.set_onboarding_guard(3);
+    app.invoke_create_vault();
     let vault_id = app.get_vault_id().to_string();
-    camera.shot("emergency-kit", "Step 2: the emergency kit");
+    camera.shot("emergency-kit", "Step 3: the emergency kit");
     app.set_kit_saved(true);
     camera.shot(
         "emergency-kit-confirmed",
         "Kit confirmed; the vault can open",
     );
+    app.set_onboarding_step(4);
+    camera.shot("import-step", "Step 4: bring your passwords, or skip");
     app.invoke_finish_onboarding();
     camera.shot("vault-empty", "Empty vault");
     for name in ["Email", "Games"] {

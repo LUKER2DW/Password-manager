@@ -122,13 +122,26 @@ fn whole_app_flow_headless() {
     assert!(app.get_suggestion().split('-').count() >= 6);
 
     app.invoke_create_vault();
+    assert_eq!(app.get_error_code(), 0);
+    assert_eq!(app.get_onboarding_step(), 2, "on to the item lock");
+    assert!(!path.exists(), "nothing written before the lock is chosen");
+    // Suggested: a PIN on every item, with Windows Hello. A bad PIN is caught here.
+    assert_eq!(app.get_onboarding_guard(), 0);
+    assert!(app.get_guard_all() && app.get_guard_hello());
+    type_into(&app, 12, "12ab");
+    app.invoke_create_vault();
+    assert_eq!(app.get_error_code(), 36, "a PIN is digits");
+    assert!(!path.exists());
+    // This flow tests the item lock later, from Settings: none for now.
+    app.set_onboarding_guard(3);
+    app.invoke_create_vault();
     assert_eq!(
         app.get_error_code(),
         0,
         "detail: {}",
         app.get_error_detail()
     );
-    assert_eq!(app.get_onboarding_step(), 2);
+    assert_eq!(app.get_onboarding_step(), 3);
     let secret_key = app.get_kit_secret_key().to_string();
     let recovery_key = app.get_kit_recovery_key().to_string();
     let _cleanup = ForgetOnDrop(app.get_vault_id().to_string());
@@ -913,13 +926,21 @@ fn whole_app_flow_headless() {
     // A PIN for every item, set after a master password check. From here the locked
     // secrets are encrypted under a key only the PIN opens.
     app.invoke_open_settings();
+    // No lock yet: the form starts on the suggestion, a PIN on every item, with Hello.
     assert_eq!(
-        (app.get_guard_all(), app.get_guard_current_check()),
-        (false, 0)
+        (
+            app.get_guard_all(),
+            app.get_guard_check(),
+            app.get_guard_current_check()
+        ),
+        (true, 1, 0)
     );
+    assert!(app.get_guard_hello());
     assert!(!app.get_guard_encrypts());
     app.set_guard_check(1);
     app.set_guard_all(true);
+    // Windows Hello is turned on further down, on its own.
+    app.set_guard_hello(false);
     type_into(&app, 12, "12");
     type_into(&app, 13, "not the current one");
     app.invoke_save_guard();
@@ -1457,10 +1478,25 @@ fn whole_app_flow_headless() {
     type_into(&app, 0, NEW_PASSWORD);
     type_into(&app, 1, NEW_PASSWORD);
     app.invoke_create_vault();
+    // This one starts with the suggested item lock: a PIN on every item.
+    app.set_onboarding_guard(0);
+    app.set_guard_hello(false);
+    type_into(&app, 12, "482193");
+    app.invoke_create_vault();
+    assert_eq!(app.get_onboarding_step(), 3, "{}", app.get_error_detail());
     let _cleanup_second = ForgetOnDrop(app.get_vault_id().to_string());
+    assert_eq!(length(&app, 12), 0, "PIN wiped after use");
     app.set_kit_saved(true);
-    app.invoke_finish_onboarding();
+    app.invoke_finish_onboarding_import();
     assert_eq!(app.get_screen(), Screen::Vault);
+    assert_eq!(app.get_panel(), Panel::Transfer, "straight to the import");
+    app.invoke_open_settings();
+    assert_eq!(
+        app.get_guard_current_check(),
+        1,
+        "the PIN chosen while creating it"
+    );
+    assert!(app.get_guard_all());
     assert_eq!(app.get_total_items(), 0);
     assert!(second.exists());
     app.invoke_switch_vault();

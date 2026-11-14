@@ -5,7 +5,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use slint::{Model, ModelRc, SharedString, VecModel};
 use vault_core::{
-    ItemData, ItemId, ItemKind, KdfMethod, KdfStrength, PasswordKdf, Unlock, Vault, VaultSettings,
+    GuardCheck, ItemData, ItemId, ItemKind, KdfMethod, KdfStrength, PasswordKdf, Unlock, Vault,
+    VaultSettings,
     card::{self, CardDetails},
     generator::{self, PassphraseOptions, PasswordOptions, WordCase, Wordlist},
     health::{self, BreachQuery},
@@ -1161,13 +1162,15 @@ impl Controller {
         ));
         app.set_vault_has_recovery(session.vault.has_recovery_key());
         let guard = session.vault.item_guard();
-        app.set_guard_all(guard.all_items);
         let check = super::protection::check_code(guard.check);
-        app.set_guard_check(check);
         app.set_guard_current_check(check);
-        app.set_guard_hello(vault_platform::quick_unlock::item_lock_enrolled(
-            &session.vault.id_hex(),
-        ));
+        let hello_on = vault_platform::quick_unlock::item_lock_enrolled(&session.vault.id_hex());
+        // No item lock yet: the form starts on what is suggested (a PIN on every item, and
+        // Windows Hello where this computer has it). Nothing changes until it is saved.
+        let unset = !guard.encrypts() && !guard.all_items && guard.check == GuardCheck::Master;
+        app.set_guard_all(guard.all_items || unset);
+        app.set_guard_check(if unset { 1 } else { check });
+        app.set_guard_hello(hello_on || (unset && state.quick_available));
         let keyfile_on = session.vault.needs_keyfile();
         app.set_keyfile_on(keyfile_on);
         app.set_keyfile_path(SharedString::from(

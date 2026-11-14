@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
             None => vault_platform::paths::default_vault_path()?,
         }
     };
-    let _controller = Controller::install(
+    let controller = Controller::install(
         &app,
         path,
         Runner::Thread,
@@ -49,6 +49,23 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    app.run()?;
+    // The icon next to the clock. Closing the window then hides it (when the setting is on)
+    // and the app keeps answering the browser extension; Quit in the icon's menu ends it.
+    let tray = vault_desktop::tray::install(&app);
+    let in_tray = tray.is_some();
+    let weak_controller = std::rc::Rc::downgrade(&controller);
+    app.window().on_close_requested(move || {
+        let keep = weak_controller
+            .upgrade()
+            .is_some_and(|controller| controller.close_to_tray(in_tray));
+        if !keep {
+            let _ = slint::quit_event_loop();
+        }
+        slint::CloseRequestResponse::HideWindow
+    });
+
+    app.show()?;
+    slint::run_event_loop_until_quit()?;
+    drop(tray);
     Ok(())
 }
