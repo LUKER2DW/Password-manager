@@ -256,6 +256,22 @@ pub(crate) fn guard_kek(stretched: &[u8; 32], vault_id: &[u8; 16]) -> Zeroizing<
     hkdf32(stretched, vault_id, &[b"vault-v0/kek/guard"])
 }
 
+/// KEK that wraps the item guard key for this device (Windows Hello and similar), from the
+/// secret the device's secure hardware produces after verifying the user.
+pub(crate) fn guard_device_kek(
+    device_secret: &[u8],
+    vault_id: &[u8; 16],
+) -> Result<Zeroizing<aead::Key>> {
+    if device_secret.len() < 32 {
+        return Err(Error::InvalidKeyFormat);
+    }
+    Ok(hkdf32(
+        device_secret,
+        vault_id,
+        &[b"vault-v0/kek/guard-device"],
+    ))
+}
+
 /// KEK for a device unlock (Windows Hello and similar). `device_secret` is produced by the
 /// device's secure hardware after the user is verified (e.g. a deterministic TPM signature) and
 /// is never stored.

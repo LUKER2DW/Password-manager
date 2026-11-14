@@ -474,6 +474,46 @@ impl Vault {
         Ok(opened)
     }
 
+    /// Wraps the item guard key for this device, so that the device's user verification
+    /// (Windows Hello) can open guarded secrets in place of the PIN or password. The result
+    /// is kept on the device, never in the vault file. Needs open secrets.
+    ///
+    /// It is bound to the current PIN or password: setting a new one revokes it.
+    pub fn seal_guard_for_device(&self, device_secret: &[u8]) -> Result<Vec<u8>> {
+        let key = self.guard_key.as_ref().ok_or(Error::SecretsLocked)?;
+        let kek = keys::guard_device_kek(device_secret, &self.header.vault_id)?;
+        aead::seal(&kek, key.as_ref(), &self.guard_device_aad()?)
+    }
+
+    /// Opens guarded secrets with what [`Vault::seal_guard_for_device`] made on this device.
+    /// `false` when the device secret is another one or the PIN was changed since.
+    pub fn unlock_secrets_with_device(
+        &mut self,
+        device_secret: &[u8],
+        sealed: &[u8],
+    ) -> Result<bool> {
+        if !self.guard.encrypts() {
+            return Ok(false);
+        }
+        let kek = keys::guard_device_kek(device_secret, &self.header.vault_id)?;
+        let Ok(bytes) = aead::open(&kek, sealed, &self.guard_device_aad()?) else {
+            return Ok(false);
+        };
+        let key: aead::Key = bytes.as_slice().try_into().map_err(|_| Error::Malformed)?;
+        self.guard_key = Some(Zeroizing::new(key));
+        Ok(true)
+    }
+
+    fn guard_device_aad(&self) -> Result<Vec<u8>> {
+        let slots = self.guard.key.as_ref().ok_or(Error::SecretsLocked)?;
+        Ok([
+            b"vault-v0/guard-device".as_slice(),
+            &self.header.vault_id,
+            &slots.check.fingerprint(),
+        ]
+        .concat())
+    }
+
     /// Closes guarded secrets again: the guard key leaves memory.
     pub fn lock_secrets(&mut self) {
         self.guard_key = None;

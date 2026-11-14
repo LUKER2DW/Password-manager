@@ -171,6 +171,24 @@ fn guarded_secrets_are_encrypted_under_the_pin() {
     vault.update_item(&bank_id, &open).unwrap();
     assert_eq!(vault.get_item(&bank_id).unwrap().password_history.len(), 1);
 
+    // The device (Windows Hello) can stand in for the PIN, until the PIN changes.
+    let device = [7u8; 64];
+    let sealed = vault.seal_guard_for_device(&device).unwrap();
+    vault.lock_secrets();
+    assert!(matches!(
+        vault.seal_guard_for_device(&device),
+        Err(Error::SecretsLocked)
+    ));
+    assert!(
+        !vault
+            .unlock_secrets_with_device(&[8u8; 64], &sealed)
+            .unwrap()
+    );
+    assert!(!vault.secrets_open());
+    assert!(vault.unlock_secrets_with_device(&device, &sealed).unwrap());
+    assert_eq!(vault.get_item(&bank_id).unwrap().password, "n3w");
+    let old_device_copy = sealed;
+
     // A forgotten PIN: the master password opens the way to a new one, for every item now.
     vault.lock_secrets();
     assert!(matches!(
@@ -187,6 +205,12 @@ fn guarded_secrets_are_encrypted_under_the_pin() {
     vault.lock_secrets();
     assert!(vault.get_item(&forum_id).unwrap().is_locked());
     assert!(!vault.unlock_secrets("4821").unwrap());
+    assert!(
+        !vault
+            .unlock_secrets_with_device(&device, &old_device_copy)
+            .unwrap(),
+        "a new PIN revokes the device copy"
+    );
     assert!(vault.unlock_secrets("9999").unwrap());
     assert_eq!(vault.get_item(&forum_id).unwrap().password, "forum-pw");
 

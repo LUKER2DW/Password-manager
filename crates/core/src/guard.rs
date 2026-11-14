@@ -139,6 +139,13 @@ impl WrappedGuardKey {
         Ok(Some(Zeroizing::new(key)))
     }
 
+    /// Identifies this wrapped copy: what a device unlock of the guard key is bound to, so
+    /// that a new PIN or password revokes it.
+    pub(crate) fn fingerprint(&self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(&self.wrapped).into()
+    }
+
     fn kek(secret: &str, kdf: &KdfParams, vault_id: &[u8; 16]) -> Result<Zeroizing<aead::Key>> {
         let stretched = kdf::derive_password_key(secret, kdf)?;
         Ok(keys::guard_kek(&stretched, vault_id))
