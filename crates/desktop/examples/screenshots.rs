@@ -638,6 +638,7 @@ fn main() {
     app.invoke_open_settings();
     app.set_guard_check(1);
     app.set_guard_all(true);
+    app.set_guard_hello(true);
     type_into(&app, 12, "4821");
     type_into(&app, 13, PASSWORD);
     app.invoke_save_guard();
@@ -680,6 +681,12 @@ fn main() {
     app.invoke_cancel_edit();
     app.invoke_open_settings();
     camera.shot("settings-item-lock", "Settings with a PIN item lock");
+    app.set_pairing_code("482 913".into());
+    camera.shot(
+        "pairing",
+        "A browser extension asks to connect: compare the code, allow or refuse",
+    );
+    app.set_pairing_code("".into());
     app.invoke_open_settings();
     app.set_guard_check(0);
     app.set_guard_all(false);

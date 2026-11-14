@@ -419,11 +419,70 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_detail_title(), "GitHub");
 
     // ---- browser extension: logins for the exact site, a password only when picked ----
-    let ask = |message: &str| {
+    let raw = |message: &str| {
         String::from_utf8(controller.browser_request(message.as_bytes()).to_vec()).unwrap()
     };
-    assert!(ask(r#"{"type":"status"}"#).contains(r#""locked":false"#));
-    let logins = ask(r#"{"type":"logins","url":"https://github.com/login"}"#);
+    assert!(raw(r#"{"type":"status"}"#).contains(r#""locked":false"#));
+    // Unconnected, nothing is answered: not plain requests, not ones signed with any key.
+    let counter = std::cell::Cell::new(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64,
+    );
+    let signed = |key: &[u8], message: &str| {
+        use hmac::{Hmac, KeyInit, Mac};
+        counter.set(counter.get() + 1);
+        let mut mac = <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(key).unwrap();
+        mac.update(&counter.get().to_le_bytes());
+        mac.update(message.as_bytes());
+        let mac: String = mac
+            .finalize()
+            .into_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let body = message.replace('\\', "\\\\").replace('"', "\\\"");
+        raw(&format!(
+            r#"{{"type":"signed","counter":{},"body":"{body}","mac":"{mac}"}}"#,
+            counter.get()
+        ))
+    };
+    let logins_request = r#"{"type":"logins","url":"https://github.com/login"}"#;
+    assert!(raw(logins_request).contains("bad_request"));
+    assert!(signed(&[9u8; 32], logins_request).contains("not_paired"));
+    // The extension asks to connect: the app shows a code and waits for the person.
+    let pairing = raw(r#"{"type":"pair"}"#);
+    let field = |json: &str, name: &str| {
+        json.split(&format!(r#""{name}":""#))
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .unwrap()
+            .to_owned()
+    };
+    let key: Vec<u8> = (0..32)
+        .map(|i| u8::from_str_radix(&field(&pairing, "key")[2 * i..2 * i + 2], 16).unwrap())
+        .collect();
+    assert_eq!(app.get_pairing_code(), field(&pairing, "code").as_str());
+    assert!(
+        signed(&key, logins_request).contains("not_paired"),
+        "the key opens nothing until it is allowed in the app"
+    );
+    app.invoke_pairing_decided(false);
+    assert_eq!(app.get_pairing_code(), "");
+    assert!(
+        signed(&key, logins_request).contains("not_paired"),
+        "refused"
+    );
+    let pairing = raw(r#"{"type":"pair"}"#);
+    let key: Vec<u8> = (0..32)
+        .map(|i| u8::from_str_radix(&field(&pairing, "key")[2 * i..2 * i + 2], 16).unwrap())
+        .collect();
+    app.invoke_pairing_decided(true);
+    assert_eq!(app.get_notice_code(), 41);
+    assert!(app.get_browser_paired());
+    let ask = |message: &str| signed(&key, message);
+    let logins = ask(logins_request);
     assert!(
         logins.contains(r#""origin":"https://github.com""#),
         "{logins}"
@@ -447,6 +506,13 @@ fn whole_app_flow_headless() {
     assert!(filled.contains(r#""username":""#) && filled.contains(r#""password":""#));
     assert_eq!(app.get_notice_code(), 40, "a fill is announced in the app");
     assert_eq!(app.get_notice_arg(), "GitHub");
+    // The same request sent again is refused, and so is one from another time.
+    let replayed = format!(
+        r#"{{"type":"signed","counter":{},"body":"{{}}","mac":"{}"}}"#,
+        counter.get(),
+        "00".repeat(32)
+    );
+    assert!(raw(&replayed).contains("not_paired"));
 
     // ---- extra fields ----
     app.invoke_edit_item();
@@ -866,6 +932,73 @@ fn whole_app_flow_headless() {
     app.invoke_select(0);
     assert!(app.get_detail_locked(), "every item is locked now");
     assert_eq!(app.get_detail_check(), 1);
+    // The extension: the PIN typed in its window opens the one login asked for, on the same
+    // count of wrong tries, and leaves the app's lock closed.
+    let listed = ask(r#"{"type":"logins","url":"https://github.com/"}"#);
+    assert!(listed.contains(r#""check":"pin""#) && listed.contains(r#""locked":true"#));
+    let fill = |pin: &str| {
+        ask(&format!(
+            r#"{{"type":"fill","url":"https://github.com/","id":"{id}","check":"{pin}"}}"#
+        ))
+    };
+    assert!(
+        ask(&format!(
+            r#"{{"type":"fill","url":"https://github.com/","id":"{id}"}}"#
+        ))
+        .contains(r#""code":"item_locked","check":"pin""#)
+    );
+    let wrong = fill("0000");
+    assert!(
+        wrong.contains(r#""code":"wrong_check""#) && wrong.contains(r#""left":4"#),
+        "{wrong}"
+    );
+    app.set_notice_code(0);
+    let right = fill("4821");
+    assert!(right.contains(r#""password":""#), "{right}");
+    assert_eq!(app.get_notice_code(), 40);
+    assert!(!app.get_secrets_open());
+    app.invoke_select(0);
+    assert!(app.get_detail_locked(), "still locked in the app");
+    assert!(!app.get_detail_has_password());
+    // Windows Hello as the easy way in: turned on with the item lock, it opens locked items
+    // in the app and for the extension, with nothing typed.
+    assert!(!app.get_guard_hello_on());
+    app.invoke_open_settings();
+    assert!(!app.get_guard_hello());
+    app.set_guard_hello(true);
+    type_into(&app, 13, NEW_PASSWORD);
+    app.invoke_save_guard();
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    app.invoke_select_category(0);
+    app.invoke_select(0);
+    assert!(app.get_detail_locked() && app.get_guard_hello_on());
+    app.invoke_unlock_item_hello();
+    assert!(!app.get_detail_locked() && app.get_detail_has_password());
+    app.invoke_lock_secrets();
+    let listed = ask(r#"{"type":"logins","url":"https://github.com/"}"#);
+    assert!(listed.contains(r#""hello":true"#), "{listed}");
+    let by_hello = ask(&format!(
+        r#"{{"type":"fill","url":"https://github.com/","id":"{id}","hello":true}}"#
+    ));
+    assert!(by_hello.contains(r#""password":""#), "{by_hello}");
+    assert!(!app.get_secrets_open(), "closed again after the one fill");
+    // Cancelled at the prompt: the extension is told to ask for the PIN instead.
+    hello.cancel.store(true, Ordering::SeqCst);
+    let cancelled = ask(&format!(
+        r#"{{"type":"fill","url":"https://github.com/","id":"{id}","hello":true}}"#
+    ));
+    assert!(
+        cancelled.contains(r#""code":"item_locked","check":"pin""#),
+        "{cancelled}"
+    );
+    app.invoke_unlock_item_hello();
+    assert!(app.get_detail_locked() || !app.get_secrets_open());
+    hello.cancel.store(false, Ordering::SeqCst);
     assert_eq!(app.get_detail_title(), "GitHub");
     assert!(!app.get_detail_has_password());
     assert_eq!(app.get_totp_count(), 1);

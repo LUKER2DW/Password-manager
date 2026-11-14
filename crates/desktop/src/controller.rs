@@ -118,6 +118,7 @@ mod error {
     pub const GUARD_SECRET: i32 = 36;
     pub const SECRETS_LOCKED: i32 = 37;
     pub const BROWSER_HOST: i32 = 38;
+    pub const GUARD_HELLO: i32 = 39;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -161,6 +162,8 @@ mod notice {
     pub const GUARD_LOCKED_OUT: i32 = 38;
     pub const SECRETS_LOCKED: i32 = 39;
     pub const BROWSER_FILLED: i32 = 40;
+    pub const BROWSER_PAIRED: i32 = 41;
+    pub const BROWSER_UNPAIRED: i32 = 42;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -338,6 +341,11 @@ struct State {
     secrets_open: bool,
     /// Listening for the browser extension (Settings → Browser extension).
     browser_link: Option<browser::BrowserLink>,
+    /// The connected extension's key (read once per unlock), one waiting for the person's
+    /// answer, and the guard against replayed requests.
+    browser_pairing: Option<vault_browser::pairing::PairingKey>,
+    browser_pending: Option<vault_browser::pairing::PairingKey>,
+    browser_replay: vault_browser::pairing::Replay,
     /// Wrong tries at a guarded item since the last right one.
     guard_attempts: u32,
 }
@@ -453,6 +461,9 @@ impl Controller {
                 unlock_seconds: None,
                 secrets_open: false,
                 browser_link: None,
+                browser_pairing: None,
+                browser_pending: None,
+                browser_replay: Default::default(),
                 guard_attempts: 0,
             }),
             timers: Timers::default(),
@@ -605,6 +616,9 @@ impl Controller {
         on!(on_choose_keyfile, |c| c.choose_keyfile());
         on!(on_keyfile_action, |c, what| c.keyfile_action(what));
         on!(on_unlock_item, |c| c.unlock_secrets(AfterUnlock::Show));
+        on!(on_unlock_item_hello, |c| c.unlock_secrets_hello());
+        on!(on_pairing_decided, |c, allow| c.pairing_decided(allow));
+        on!(on_forget_pairing, |c| c.forget_pairing());
         on!(on_lock_secrets, |c| {
             c.lock_secrets();
             c.notify(notice::SECRETS_LOCKED, "");
@@ -1619,6 +1633,8 @@ impl Controller {
             state.import_include.clear();
             state.history = navigation::History::default();
             state.dialog_folder = None;
+            state.browser_pairing = None;
+            state.browser_pending = None;
             state.secrets_open = false;
             state.guard_attempts = 0;
         }
@@ -1632,6 +1648,7 @@ impl Controller {
             app.set_leaks_checked(false);
             app.set_vault_name(SharedString::new());
             app.set_folder_dialog(-1);
+            app.set_pairing_code(SharedString::new());
             app.set_can_go_back(false);
             app.set_can_go_forward(false);
         }
@@ -2536,6 +2553,14 @@ impl Controller {
         let guard = state.session.as_ref().map(|s| s.vault.item_guard());
         app.set_secrets_open(state.secrets_open);
         app.set_guard_encrypts(guard.is_some_and(|g| g.encrypts()));
+        app.set_guard_hello_on(
+            state.quick_available
+                && guard.is_some_and(|g| g.encrypts())
+                && state
+                    .session
+                    .as_ref()
+                    .is_some_and(|s| quick_unlock::item_lock_enrolled(&s.vault.id_hex())),
+        );
         app.set_guard_current_all(guard.is_some_and(|g| g.all_items));
         app.set_detail_check(guard.map_or(0, |g| protection::check_code(g.check)));
     }
@@ -3101,6 +3126,7 @@ impl Controller {
         app.set_clipboard_seconds(settings.clipboard_clear_seconds as i32);
         app.set_website_icons(settings.website_icons);
         app.set_browser_extension(settings.browser_extension);
+        app.set_browser_paired(self.browser_is_paired());
         self.show_vault_settings();
         app.set_kit_secret_key(SharedString::new());
         app.set_kit_recovery_key(SharedString::new());

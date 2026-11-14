@@ -7,7 +7,7 @@ use slint::SharedString;
 use vault_core::{
     Error as CoreError, GuardCheck, ItemData, ItemGuard, Keyfile, Unlock, Vault, storage,
 };
-use vault_platform::keyfile;
+use vault_platform::{keyfile, quick_unlock};
 use zeroize::Zeroizing;
 
 use super::{AfterUnlock, Controller, JobResult, Runner, error, field, notice};
@@ -218,6 +218,50 @@ impl Controller {
         });
     }
 
+    /// Opens the locked items with Windows Hello, where the item lock was set up for it:
+    /// the security chip's key unwraps the key their secrets are encrypted under.
+    pub(super) fn unlock_secrets_hello(&self) {
+        let Some(verifier) = self.state.borrow().verifier.clone() else {
+            return;
+        };
+        let Some(session) = self.state.borrow_mut().session.take() else {
+            return;
+        };
+        self.run_job(move || {
+            let mut session = session;
+            let id = session.vault.id_hex();
+            let key_id = quick_unlock::item_lock_key_id(&id);
+            let quiet = |session| JobResult::Failed {
+                code: error::NONE,
+                detail: String::new(),
+                session: Some(session),
+            };
+            let Some(sealed) = quick_unlock::item_lock_load(&id) else {
+                return quiet(session);
+            };
+            // Closed or cancelled: nothing happened, the PIN field is still there.
+            let Ok(secret) = verifier.secret(&key_id) else {
+                return quiet(session);
+            };
+            match session.vault.unlock_secrets_with_device(&secret, &sealed) {
+                Ok(true) => JobResult::ItemUnlocked {
+                    session,
+                    upgraded: false,
+                    then: AfterUnlock::Show,
+                },
+                _ => {
+                    // The PIN was changed elsewhere, or the device key is another one.
+                    quick_unlock::item_lock_forget(&id);
+                    JobResult::Failed {
+                        code: error::GUARD_HELLO,
+                        detail: String::new(),
+                        session: Some(session),
+                    }
+                }
+            }
+        });
+    }
+
     /// A wrong try: say how many are left, and lock the whole vault when none is. That limit
     /// is what makes a short PIN acceptable.
     pub(super) fn item_refused(&self) {
@@ -266,6 +310,8 @@ impl Controller {
         );
         let secret = (!secret.is_empty() && check != GuardCheck::Master).then_some(secret);
         let all = app.get_guard_all();
+        let want_hello = app.get_guard_hello();
+        let verifier = self.state.borrow().verifier.clone();
         let Some(session) = self.state.borrow_mut().session.take() else {
             return;
         };
@@ -287,6 +333,27 @@ impl Controller {
                 secret.as_ref().map(|s| s.as_str()),
                 Some(&current),
             );
+            if changed.is_ok() {
+                // Windows Hello as another way in: the guard key (open right now) is wrapped
+                // by a key in the security chip. A new PIN makes older copies useless, so it
+                // is made again on every save, or removed.
+                let id = session.vault.id_hex();
+                let key_id = quick_unlock::item_lock_key_id(&id);
+                let was_on = quick_unlock::item_lock_enrolled(&id);
+                let on = want_hello
+                    && session.vault.item_guard().encrypts()
+                    && verifier.as_ref().is_some_and(|verifier| {
+                        verifier.enroll(&key_id).is_ok_and(|secret| {
+                            quick_unlock::item_lock_enroll(&session.vault, &secret).is_ok()
+                        })
+                    });
+                if !on && was_on {
+                    quick_unlock::item_lock_forget(&id);
+                    if let Some(verifier) = &verifier {
+                        verifier.remove(&key_id);
+                    }
+                }
+            }
             session.vault.lock_secrets();
             match changed {
                 Ok(()) => JobResult::GuardVerified { session },

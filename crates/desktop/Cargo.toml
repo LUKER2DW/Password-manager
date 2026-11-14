@@ -51,5 +51,6 @@ slint = { version = "1.18", features = ["raw-window-handle-06", "unstable-winit-
 zeroize = "1.9"
 
 [dev-dependencies]
+hmac = "0.13"
 i-slint-backend-testing = "1.18"
 tempfile = "3.27"

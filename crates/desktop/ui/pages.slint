@@ -137,7 +137,10 @@ component LockBox inherits Rectangle {
     in property <bool> busy;
     in property <int> error-code;
     in property <string> error-detail;
+    // Windows Hello can open the lock too.
+    in property <bool> hello;
     callback unlock();
+    callback unlock-hello();
     border-radius: Theme.radius + 2px;
     border-width: 1px;
     border-color: Theme.rule;
@@ -182,6 +185,15 @@ component LockBox inherits Rectangle {
                 busy-text: @tr("Checking…");
                 busy: root.busy;
                 clicked => { root.unlock(); }
+            }
+            if root.hello: VerticalLayout {
+                alignment: center;
+                QuietButton {
+                    outlined: true;
+                    text: @tr("Use Windows Hello");
+                    enabled: !root.busy;
+                    clicked => { root.unlock-hello(); }
+                }
             }
         }
         if root.error-code != 0: Text {
@@ -261,10 +273,12 @@ export component DetailPage inherits Rectangle {
     in property <int> check;
     // The item is guarded and its secrets are open now: offer to lock them again.
     in property <bool> guarded-open;
+    in property <bool> hello;
     in property <bool> busy;
     in property <int> error-code;
     in property <string> error-detail;
     callback unlock-item();
+    callback unlock-item-hello();
     callback lock-secrets();
 
     if !root.has-item: VerticalLayout {
@@ -362,6 +376,8 @@ export component DetailPage inherits Rectangle {
                     busy: root.busy;
                     error-code: root.error-code;
                     error-detail: root.error-detail;
+                    hello: root.hello;
+                    unlock-hello => { root.unlock-item-hello(); }
                     unlock => { root.unlock-item(); }
                 }
             }
@@ -1496,6 +1512,10 @@ export component SettingsPage inherits Rectangle {
     in-out property <int> guard-check;
     in property <int> guard-current-check;
     in property <bool> guard-failed;
+    // Windows Hello as another way to open the item lock on this computer.
+    in-out property <bool> guard-hello;
+    in-out property <bool> browser-paired;
+    callback forget-pairing();
     callback save-guard();
     // Keyfile: whether the vault needs one, where it is, the file for the next action.
     in property <bool> keyfile-on;
@@ -1676,11 +1696,26 @@ export component SettingsPage inherits Rectangle {
                 icon: "globe";
                 title: @tr("Browser extension");
                 summary: @tr("Fills your logins in Chrome and Edge. You click the extension's button, pick the login in its own window, and it is typed into the page.");
-                hint: @tr("The extension keeps no passwords. It asks this app, on this computer only, and gets an answer only while the vault is open, only for the exact site a login was saved for, and only on pages with https. Logins behind the item lock must be opened here first. Each fill shows a notice in this app. Limit: a malicious program already running under your Windows account could ask the same way while the vault is open, which is one more reason to use the item lock for the accounts that matter.");
+hint: @tr("The extension keeps no passwords. The first time, it asks to be connected and this app shows a code for you to allow; after that only that extension gets answers, only while the vault is open, only for the exact site a login was saved for (write *.example.com as the website to include every site under it), and only on pages with https. A login behind the item lock is opened for one fill by Windows Hello or by its PIN, typed in the extension's own window. Each fill shows a notice here. Limit: a malicious program already running under your Windows account could copy the browser's data and ask like the extension, which is why the accounts that matter belong behind the item lock.");
                 Check {
                     text: @tr("Let the browser extension ask this app for logins");
                     checked <=> root.browser-extension;
                     toggled => { root.settings-changed(); }
+                }
+                if root.browser-paired: HorizontalLayout {
+                    spacing: 12px;
+                    alignment: start;
+                    Text {
+                        text: @tr("An extension is connected to this vault.");
+                        font-size: Theme.small;
+                        color: Theme.ink;
+                        vertical-alignment: center;
+                    }
+                    QuietButton {
+                        outlined: true;
+                        text: @tr("Disconnect");
+                        clicked => { root.forget-pairing(); }
+                    }
                 }
                 Text {
                     text: @tr("To install it: open chrome://extensions (or edge://extensions), turn on Developer mode, choose “Load unpacked” and pick the “extension” folder of this project.");
@@ -1710,6 +1745,20 @@ export component SettingsPage inherits Rectangle {
                 Check {
                     text: @tr("Lock every item (otherwise only items marked “Lock this item's secrets”)");
                     checked <=> root.guard-all;
+                }
+                if root.guard-check != 0 && root.quick-unlock-available: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Check {
+                        text: @tr("Open locked items with Windows Hello too");
+                        checked <=> root.guard-hello;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Hint {
+                            text: @tr("Your face, fingerprint or Windows PIN opens locked items on this computer, in the app and when the browser extension fills a login. The key that does it stays in this computer's security chip, which also slows down guessing, so this is stronger than a short PIN typed by hand. The item lock's PIN or password stays as the other way in, and is what you use on other devices. Saving asks Windows Hello once.");
+                        }
+                    }
                 }
                 if root.guard-check != 0: SecretField {
                     field: 12;
@@ -1883,9 +1932,11 @@ export component AuthenticatorPage inherits Rectangle {
     in property <bool> locked;
     in property <bool> guarded-open;
     in property <int> check;
+    in property <bool> hello;
     in property <bool> busy;
     in property <int> error-code;
     in property <string> error-detail;
+    callback unlock-hello();
     callback search(string);
     callback copy-code(int);
     callback open-item(int);
@@ -1911,6 +1962,8 @@ export component AuthenticatorPage inherits Rectangle {
                 busy: root.busy;
                 error-code: root.error-code;
                 error-detail: root.error-detail;
+                hello: root.hello;
+                unlock-hello => { root.unlock-hello(); }
                 unlock => { root.unlock(); }
             }
             if root.guarded-open: HorizontalLayout {

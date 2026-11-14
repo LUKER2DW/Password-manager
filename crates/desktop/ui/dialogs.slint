@@ -50,6 +50,52 @@ component Modal inherits Rectangle {
 
 // Create a folder, change its name and look, or confirm deleting it.
 //   mode 0 = new folder, 1 = folder settings, 2 = delete?
+// A browser extension asks to be connected: the person compares the code and decides.
+export component PairingDialog inherits Modal {
+    in property <string> code;
+    callback decided(bool);
+    dismissed => { root.decided(false); }
+    Text {
+        text: @tr("Connect the browser extension?");
+        font-size: Theme.title;
+        color: Theme.ink;
+    }
+    Text {
+        text: @tr("A browser extension on this computer asks to fill logins from this vault. Allow it only if you just clicked “Connect” in the extension and it shows this same code:");
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    Text {
+        text: root.code;
+        font-family: Theme.mono-font;
+        font-size: 28px;
+        color: Theme.ink;
+        horizontal-alignment: center;
+    }
+    Text {
+        text: @tr("If you didn't ask for this, refuse: something else is trying to reach your vault.");
+        font-size: Theme.small;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        alignment: end;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            QuietButton {
+                text: @tr("Refuse");
+                clicked => { root.decided(false); }
+            }
+        }
+        Button {
+            text: @tr("Allow");
+            clicked => { root.decided(true); }
+        }
+    }
+}
+
 export component FolderDialog inherits Modal {
     in property <int> mode;
     in-out property <string> name;

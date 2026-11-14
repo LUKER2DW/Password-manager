@@ -3,7 +3,7 @@ import { Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, Recen
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage } from "pages.slint";
-import { FolderDialog } from "dialogs.slint";
+import { FolderDialog, PairingDialog } from "dialogs.slint";
 import { MenuCard, MenuEntry, MenuRule } from "widgets.slint";
 
 export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, SourceRow, Messages }
@@ -99,6 +99,16 @@ export component AppWindow inherits Window {
     in property <bool> auth-locked;
     in property <bool> auth-guarded-open;
     callback lock-secrets();
+    // Windows Hello for the item lock: usable right now / chosen in Settings.
+    in property <bool> guard-hello-on;
+    in-out property <bool> guard-hello;
+    callback unlock-item-hello();
+    // Browser extension: the code of a connection waiting for an answer ("" = none);
+    // whether one is connected.
+    in property <string> pairing-code;
+    in-out property <bool> browser-paired;
+    callback pairing-decided(bool);
+    callback forget-pairing();
     // Windows Hello: usable on this computer / set up for this vault / prompt open now.
     in property <bool> quick-unlock-available;
     in-out property <bool> quick-unlock-on;
@@ -500,6 +510,8 @@ export component AppWindow inherits Window {
                 locked: root.detail-locked;
                 check: root.detail-check;
                 guarded-open: root.detail-guarded-open;
+                hello: root.guard-hello-on;
+                unlock-item-hello => { root.unlock-item-hello(); }
                 busy: root.busy;
                 error-code: root.error-code;
                 error-detail: root.error-detail;
@@ -645,6 +657,9 @@ export component AppWindow inherits Window {
                 clipboard-seconds <=> root.clipboard-seconds;
                 website-icons <=> root.website-icons;
                 browser-extension <=> root.browser-extension;
+                browser-paired <=> root.browser-paired;
+                forget-pairing => { root.forget-pairing(); }
+                guard-hello <=> root.guard-hello;
                 vault-file-name: root.vault-file-name;
                 vault-name <=> root.vault-name-edit;
                 history-limit <=> root.history-limit;
@@ -686,6 +701,8 @@ export component AppWindow inherits Window {
                 open-item(i) => { root.auth-open(i); }
                 locked: root.auth-locked;
                 guarded-open: root.auth-guarded-open;
+                hello: root.guard-hello-on;
+                unlock-hello => { root.unlock-item-hello(); }
                 check: root.detail-check;
                 busy: root.busy;
                 error-code: root.error-code;
@@ -765,6 +782,13 @@ export component AppWindow inherits Window {
                 text: Messages.notice(root.notice-code, root.notice-arg);
             }
         }
+    }
+
+    if root.screen == Screen.vault && root.pairing-code != "": PairingDialog {
+        width: root.width;
+        height: root.height;
+        code: root.pairing-code;
+        decided(allow) => { root.pairing-decided(allow); }
     }
 
     if root.screen == Screen.vault && root.folder-dialog >= 0: FolderDialog {

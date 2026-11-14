@@ -1165,6 +1165,9 @@ impl Controller {
         let check = super::protection::check_code(guard.check);
         app.set_guard_check(check);
         app.set_guard_current_check(check);
+        app.set_guard_hello(vault_platform::quick_unlock::item_lock_enrolled(
+            &session.vault.id_hex(),
+        ));
         let keyfile_on = session.vault.needs_keyfile();
         app.set_keyfile_on(keyfile_on);
         app.set_keyfile_path(SharedString::from(
