@@ -132,7 +132,8 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/protection.rs` | Keyfile (unlock, set, remove) and the item lock (PIN, password or master password before secrets show) |
 | `src/controller/browser.rs` | The browser extension's link: listens on the pipe, answers from the open vault |
 | `src/controller/generated.rs` | History of generated passwords (sealed per vault on this computer) |
-| `src/tray.rs` | The notification area icon (tray mode) |
+| `src/tray.rs` | The notification area icon (tray mode) and its menu window (`ui/tray.slint`) |
+| `src/i18n.rs` | The app's language: picks a compiled-in catalogue from `translations/` |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
 | `src/view.rs` | Pure presentation rules (unit-tested): filters, tints, crack times, dates |
 | `src/favicon.rs` | Opt-in website icons, fetched directly from each site |

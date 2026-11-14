@@ -69,8 +69,9 @@ Scale 12 / 14 / 16 / 21 / 28 / 44 px. Radius 6 px. Controls 38 px tall.
   yellow on hover; clicking it (or Open) opens the browser.
 - **Back and forward** — two small chevrons next to the vault name, faint when there is nowhere
   to go; the mouse's side buttons and Alt+arrows do the same.
-- **Entry screens** (lock, new vault, recovery) — a side panel (brand, padlock, steps, what is
-  set up on this computer) and the form centered in the remaining space, never a lone column.
+- **Entry screens** (lock, new vault, recovery) — a side panel (logo, steps, what is set up on
+  this computer) and the form centered in the remaining space, never a lone column. On the lock
+  and recovery screens the form sits on a card in front of the vault wall (see Backgrounds).
 - **Strength** — a 4 px meter (red < 50 bits, yellow < 70, green above) plus the estimated time to
   crack and a light historical comparison ("If they'd started while the pyramids were being
   built, they'd still be at it.").
@@ -92,6 +93,40 @@ Scale 12 / 14 / 16 / 21 / 28 / 44 px. Radius 6 px. Controls 38 px tall.
 - **Tool pages** (generator, health, kit, import & export, settings, authenticator) take the
   whole width next to the index; the item list is only there while browsing items.
 - **Notice** — confirmations ("Copied", "Saved") bottom-right, never over content.
+
+## Logo
+
+A small safe with a dial, drawn with a dark rim on a steel tile (variation 08b1 in
+`docs/brand/logo-variations/`, chosen from the gallery there). Two drawings:
+
+- **Full** (`*-refined.svg`): lit door face, hinges on the left, rivets, a knurled yellow dial,
+  the lever. From about 48 px up: the lock screen, the extension's 128 px icon.
+- **Small** (`*-small.svg`): the same safe redrawn for 16–48 px (thicker rim, bigger knob, four
+  ticks, no rivets): the side panel and vault header (`Logo { small: true; }`), the window and
+  tray icon, the extension's 16/32/48 px icons.
+
+The app's copies live in `crates/desktop/ui/brand/` (`logo*.svg`, `icon-64.png`); the
+extension's PNGs are rendered from the same files.
+
+## Backgrounds
+
+- **Lock and recovery** — the inside of a bank vault: a wall of safe-deposit boxes in mixed
+  sizes, each with a number plate and one or two lock plates (a bank box takes two keys, as the
+  vault takes a password and a Secret Key). A few doors stand open on their hinge, showing what
+  is kept inside (gold, coins, keys, notes, a ring box). The middle fades to the canvas so the
+  form card sits on calm ground (`brand/lock-scene*.svg`, cover-fit). It shows behind the form
+  and, faded toward the top, in the side panel. The card's shadow is drawn as a few translucent
+  layers, so every renderer shows it.
+- **Open vault** — the page on the right carries a light doodle texture: our own hand-drawn
+  security and bank objects scattered at random, with small fillers and a fine grain, barely off
+  the page colour (`brand/vault-texture*.png`, a seamless 720 px tile, `Backdrop` in
+  `widgets.slint`).
+
+Where each one goes is `Theme.backdrop` / `Theme.lock-backdrop`; the screenshots render the
+other placements too, for review.
+
+These are the two places where drawing goes beyond small details; both stay low in contrast
+so text on top keeps its full contrast.
 
 ## Rules
 

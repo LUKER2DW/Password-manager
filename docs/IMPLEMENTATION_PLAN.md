@@ -189,6 +189,24 @@ Rules:
 - ⬜ Attachments, tags; passkeys
 - **Done when:** daily use on Windows is possible with a test vault.
 
+### M4.x — Polish (November 2026)
+- ✅ Generator: icons on the generate buttons; crack times keep growing past the age of the
+  universe (in ages of the universe, then powers of ten) with comparisons that change with
+  them; the passphrase separator is one row (buttons and a box)
+- ✅ Editor: Generate opens the generator's options under the password (length, characters or
+  words, separator); a password just generated shows its real entropy; a new item starts as
+  the kind of the list it was asked from; "Authenticator" items (a login with only a setup key)
+  and Add a code on the Authenticator page
+- ✅ The last minute before the auto-lock is counted down in the corner, with Stay unlocked
+- ✅ Website icons: the site's own port, IP addresses and home-network names with a
+  certificate of their own, SVG icons, web app manifests, links relative to the page
+- ✅ The notification area menu is a window of the app's own (rounded, dark, minutes left);
+  the .exe carries the app's icon (Explorer, taskbar, Windows Hello prompt)
+- ✅ Extension: the generator works with the vault locked; the card under a field is more
+  see-through (a real blur would void the click protection: see `extension/inline.css`)
+- 🚧 Translations: catalogues compiled in (`crates/desktop/translations/`), language chosen in
+  Settings → Appearance or from Windows, template of every text; Brazilian Portuguese started
+
 ### M5 — Browser extension 🚧 (`extension/`, `crates/browser`)
 - ✅ Native Messaging host (`vault-browser-host`) relaying to the desktop app over a per-user
   named pipe; both ends check the other program; off until turned on in Settings, which also
