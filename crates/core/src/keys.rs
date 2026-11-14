@@ -277,6 +277,22 @@ pub(crate) fn guard_device_kek(
     ))
 }
 
+/// KEK for the blob the browser extension fills from while the vault is locked
+/// (`locked_fill`), from the device's user verification (Windows Hello).
+pub(crate) fn locked_fill_kek(
+    device_secret: &[u8],
+    vault_id: &str,
+) -> Result<Zeroizing<aead::Key>> {
+    if device_secret.len() < 32 {
+        return Err(Error::InvalidKeyFormat);
+    }
+    Ok(hkdf32(
+        device_secret,
+        vault_id.as_bytes(),
+        &[b"vault-v0/kek/locked-fill"],
+    ))
+}
+
 /// KEK for a device unlock (Windows Hello and similar). `device_secret` is produced by the
 /// device's secure hardware after the user is verified (e.g. a deterministic TPM signature) and
 /// is never stored.

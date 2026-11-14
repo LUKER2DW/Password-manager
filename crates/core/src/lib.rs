@@ -32,6 +32,7 @@ mod vault;
 
 pub mod generator;
 pub mod health;
+pub mod locked_fill;
 pub mod sealed_export;
 pub mod storage;
 pub mod totp;
