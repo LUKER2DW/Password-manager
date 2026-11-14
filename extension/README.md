@@ -54,7 +54,8 @@ Status: early development, like the rest of the project. Use a test vault.
   minutes, and goes to the app only if you choose *Save*.
 
 To use one login on several sites, save `*.example.com` as its website in the app: it then
-covers `example.com` and every site under it.
+covers `example.com` and every site under it. A name anyone can register under (`*.co.uk`,
+`*.github.io`, from the Public Suffix List built into the app) is not accepted.
 
 ## Install (development)
 
