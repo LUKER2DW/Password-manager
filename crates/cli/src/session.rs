@@ -154,6 +154,10 @@ impl Session {
         for _ in 0..3 {
             let typed = prompter.secret(label)?;
             if self.vault.unlock_secrets(&typed).map_err(explain)? {
+                // Items added while it was closed are sealed under it now.
+                if self.vault.seal_pending().map_err(explain)? > 0 {
+                    self.save()?;
+                }
                 return Ok(());
             }
             eprintln!("That isn't it.");

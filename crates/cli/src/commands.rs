@@ -275,9 +275,7 @@ pub fn add(ctx: &Context, prompter: &mut Prompter, new: NewItem) -> Result<()> {
         }
         None => false,
     };
-    if session.vault.needs_unlock_to_store(&item) {
-        session.open_secrets(prompter)?;
-    }
+    // No item lock check to add: the new item is sealed the next time the lock opens.
     let id = session.vault.add_item(&item).map_err(explain)?;
     session.save()?;
     println!("Added {} ({})", item.title, &id.to_hex()[..8]);
