@@ -370,7 +370,8 @@ function showOffer() {
   };
   yes.onclick = async () => {
     yes.disabled = true;
-    const entry = { title: originOf(pending.url).replace(/^https:\/\//, ""), username: pending.username, locked: true };
+    // A new login asks for nothing (no PIN, no Windows Hello): the item lock seals it later.
+    const entry = { title: originOf(pending.url).replace(/^https:\/\//, ""), username: pending.username, locked: false };
     const listing = here.site || { hello: true };
     const request = { type: "save", url: pending.url, username: pending.username, password: pending.password };
     const reply = await guarded(entry, { ...listing, hello: true }, request, t("saveYes"), showSite);
@@ -378,7 +379,7 @@ function showOffer() {
     if (!reply) return;
     if (reply.type !== "saved") return explain(reply.code);
     await done();
-    toast(t("savedToast"));
+    toast(t(reply.queued ? "savedQueued" : "savedToast"));
     await load();
     showSite();
   };
@@ -652,7 +653,7 @@ function showNewLogin(generated) {
     }
     if (!pass.value) return pass.focus();
     $("new-save").disabled = true;
-    const entry = { title: $("new-name").value || address, username: $("new-user").value, locked: true };
+    const entry = { title: $("new-name").value || address, username: $("new-user").value, locked: false };
     const listing = here.vault || here.site || { hello: false };
     const request = {
       type: "save",
@@ -671,7 +672,7 @@ function showNewLogin(generated) {
     }
     if (kept && kept.password === request.password) await ask({ type: "keep", id: kept.id });
     pass.value = "";
-    toast(t("savedToast"));
+    toast(t(reply.queued ? "savedQueued" : "savedToast"));
     await load();
     showVault();
   };

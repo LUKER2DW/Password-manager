@@ -108,14 +108,9 @@ async function showLogins() {
     lines.className = "lines";
     const name = document.createElement("span");
     name.className = "name";
-    name.textContent = entry.username || t("noUsername");
-    // The item's own name, when it says more than the site does.
-    const title = (entry.title || "").trim();
-    if (title && !site.toLowerCase().includes(title.toLowerCase())) {
-      const small = document.createElement("small");
-      small.textContent = title;
-      name.append(small);
-    }
+    // The username is what tells the logins of one site apart; the item's own name only
+    // shows when there is no username (and on hover, as the row's title).
+    name.textContent = entry.username || (entry.title || "").trim() || t("noUsername");
     const dots = document.createElement("span");
     dots.className = "secret";
     dots.textContent = DOTS;
@@ -176,6 +171,16 @@ async function showSave() {
     if (!genuine(event)) return;
     yes.disabled = true;
     const outcome = await say({ kind: "frame-save" });
+    if (outcome?.queued) {
+      // Locked: kept for the next unlock. Said for a moment, then the card goes.
+      $("save-note").classList.add("good");
+      $("save-note").textContent = t("savedQueued");
+      yes.hidden = true;
+      no.hidden = true;
+      fit();
+      setTimeout(() => say({ kind: "frame-dismiss", which }), 2600);
+      return;
+    }
     if (outcome?.done || outcome?.popup) return;
     yes.disabled = false;
     $("save-note").textContent = t("saveFailed");

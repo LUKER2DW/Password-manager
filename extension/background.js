@@ -100,10 +100,14 @@ async function submitted(tab, message) {
   if (!username && step && step.origin === originOf(tab.url)) username = step.username;
   known.delete(tab.id);
   const listed = await loginsFor(tab);
-  // Locked, not connected, not https: nothing is offered (and nothing is kept).
-  if (listed.type !== "logins") return;
-  if (listed.items.some((item) => item.username === username)) return;
-  await setPendingSave(tab.id, { url: tab.url, origin: listed.origin, username, password });
+  // Not connected or not https: nothing is offered (and nothing is kept). Locked is fine: the
+  // app keeps the login sealed and adds it at the next unlock.
+  const page = originOf(tab.url);
+  const origin =
+    listed.type === "logins" ? listed.origin : listed.code === "locked" && page.startsWith("https://") ? page : "";
+  if (!origin) return;
+  if (listed.type === "logins" && listed.items.some((item) => item.username === username)) return;
+  await setPendingSave(tab.id, { url: tab.url, origin, username, password });
   tell(tab.id, { kind: "offer-save" });
 }
 
@@ -115,12 +119,12 @@ async function saveFromFrame(tab) {
     url: pending.url,
     username: pending.username,
     password: pending.password,
-    hello: true,
   });
   if (reply.type === "saved") {
     await setPendingSave(tab.id, undefined);
     known.delete(tab.id);
-    return { done: true };
+    // Queued: the vault is locked; the frame says so before it closes.
+    return { done: true, queued: Boolean(reply.queued) };
   }
   const popup = reply.code === "item_locked" && (await continueInPopup());
   return { done: false, popup };
@@ -208,7 +212,7 @@ async function handle(message, sender) {
     }
     case "frame-save": {
       const outcome = await saveFromFrame(tab);
-      if (outcome.done || outcome.popup) tell(tab.id, { kind: "close", which: "save" });
+      if ((outcome.done && !outcome.queued) || outcome.popup) tell(tab.id, { kind: "close", which: "save" });
       return outcome;
     }
     case "frame-manage": {

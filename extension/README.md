@@ -20,6 +20,8 @@ Status: early development, like the rest of the project. Use a test vault.
   app's generator, fitted to what the field allows (`maxlength`, `minlength`, `pattern`,
   `passwordrules`). *Use this password* types it into the new-password fields.
 - **After you sign in or sign up** with a login that isn't saved, it asks *Save this login?*.
+  Saving asks for nothing (no PIN, no Windows Hello), even with the vault locked: the app then
+  keeps the login sealed and adds it at the next unlock.
 - **Its window** (the toolbar button or Ctrl+Shift+L) has three tabs:
   - *This site*: the logins for the page in front, to fill; *Details* opens one.
   - *All logins*: search the whole vault; show a password or copy username, password or

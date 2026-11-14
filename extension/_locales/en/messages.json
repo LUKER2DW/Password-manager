@@ -225,7 +225,10 @@
     "message": "Not now"
   },
   "saveFailed": {
-    "message": "Not saved. Check that the app is open and unlocked, then try again."
+    "message": "Not saved. Check that the app is running, then try again."
+  },
+  "savedQueued": {
+    "message": "Saved. It goes into your vault the next time you unlock it."
   },
   "savedToast": {
     "message": "Saved to your vault."
