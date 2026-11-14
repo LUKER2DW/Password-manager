@@ -10,10 +10,8 @@ mod sketch;
 mod tests;
 mod view;
 
-pub mod ui {
-    #![allow(missing_debug_implementations, clippy::all)]
-    slint::include_modules!();
-}
+/// The Slint screens (generated code, in a crate of its own to keep rebuilds short).
+pub use vault_desktop_ui as ui;
 
 use slint::ComponentHandle;
 

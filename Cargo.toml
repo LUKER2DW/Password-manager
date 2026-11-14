@@ -1,6 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/platform", "crates/import", "crates/cli", "crates/desktop"]
+members = [
+    "crates/core",
+    "crates/platform",
+    "crates/import",
+    "crates/cli",
+    "crates/desktop",
+    "crates/desktop/ui",
+]
 # Prototypes are standalone experiments with their own lockfiles.
 exclude = ["prototypes"]
 
@@ -20,6 +27,11 @@ all = { level = "warn", priority = -1 }
 # `cargo run` (debug) should still feel like the real app: every dependency (Slint's renderer,
 # the crypto crates, Argon2) is optimized; only our own crates keep fast-compiling debug code.
 [profile.dev.package."*"]
+opt-level = 2
+
+# The vault itself is small and its serialization code is generic (compiled here, not in the
+# dependencies): optimized, lists and saves stay quick in debug runs too.
+[profile.dev.package.vault-core]
 opt-level = 2
 
 [profile.dev.package.argon2]

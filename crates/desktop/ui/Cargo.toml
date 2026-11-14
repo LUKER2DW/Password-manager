@@ -1,0 +1,23 @@
+[package]
+name = "vault-desktop-ui"
+version = "0.0.0"
+description = "The desktop app's Slint screens, compiled on their own so that changing the Rust controller doesn't recompile them"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "vault_desktop_ui"
+path = "lib.rs"
+
+# `deny` instead of the workspace's `forbid`: Slint's generated code opts into `unsafe` with
+# `#[allow]`, which `forbid` would reject. Nothing here is written by hand.
+[lints.rust]
+unsafe_code = "deny"
+
+[dependencies]
+slint = { version = "1.18", features = ["raw-window-handle-06", "unstable-winit-030"] }
+
+[build-dependencies]
+slint-build = "1.18"
