@@ -1,19 +1,61 @@
 //! How the app answers the extension from its (maybe locked) vault.
 
-use vault_core::{ItemData, ItemId, ItemKind, Vault};
+use vault_core::{
+    ItemData, ItemId, ItemKind, Vault,
+    generator::{self, PasswordOptions},
+    totp::Totp,
+};
 use zeroize::Zeroizing;
 
 use crate::{
     origin::{Origin, PageProblem, item_matches},
-    protocol::{Check, Credentials, ErrorCode, LoginEntry, Request, Response},
+    protocol::{
+        Check, CopyWhat, Credentials, ErrorCode, GeneratedPassword, LoginEntry, Request, Response,
+        Revealed, Secret, Symbols, VaultEntry,
+    },
 };
 
 /// The answer to one message, as JSON bytes (wiped when dropped: it may hold a password),
-/// and the title of the login that was handed out, if one was.
+/// and what the app must do or say about it.
 #[derive(Debug)]
 pub struct Answer {
     pub bytes: Zeroizing<Vec<u8>>,
+    /// The title of the login whose password was handed out (filled or shown), if one was.
     pub filled: Option<String>,
+    /// Something the app must copy to the clipboard itself.
+    pub copy: Option<Copy>,
+    /// The title of a login that was just added to the vault: the app saves the file.
+    pub saved: Option<String>,
+    /// A generated password the person used: the app adds it to its history.
+    pub kept: Option<Kept>,
+}
+
+/// A generated password that was used, and the site it was made for ("" when none).
+pub struct Kept {
+    pub password: Zeroizing<String>,
+    pub site: String,
+}
+
+impl std::fmt::Debug for Kept {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Kept")
+            .field("site", &self.site)
+            .finish_non_exhaustive()
+    }
+}
+
+/// What the app copies for a [`Request::Copy`].
+pub struct Copy {
+    pub what: CopyWhat,
+    pub value: Zeroizing<String>,
+}
+
+impl std::fmt::Debug for Copy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Copy")
+            .field("what", &self.what)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The app's item lock, as the extension's requests meet it.
@@ -31,6 +73,14 @@ pub trait Gate {
     fn open(&mut self, vault: &mut Vault, secret: &str) -> Opened;
     /// Called after a login opened by [`Gate::open`] was read: lock again what that opened.
     fn close(&mut self, vault: &mut Vault);
+    /// How long the app keeps a copied secret on the clipboard.
+    fn clipboard_seconds(&self) -> u32 {
+        30
+    }
+    /// Holds a generated password until the person uses it or it is replaced; returns its id.
+    fn remember(&mut self, password: Zeroizing<String>, site: String) -> String;
+    /// The generated password `id`, taken out of what is held.
+    fn take(&mut self, id: &str) -> Option<Kept>;
 }
 
 /// The outcome of [`Gate::open`].
@@ -45,28 +95,87 @@ pub enum Opened {
     LockedOut,
 }
 
-/// Whether a message asks for a login to be opened with Windows Hello. The app looks before
-/// answering, because the system's prompt must not block its window.
+/// Whether a message asks for something to be opened with Windows Hello. The app looks
+/// before answering, because the system's prompt must not block its window.
 pub fn wants_hello(message: &[u8]) -> bool {
     matches!(
         serde_json::from_slice::<Request>(message),
-        Ok(Request::Fill { hello: true, .. })
+        Ok(Request::Fill { hello: true, .. }
+            | Request::Reveal { hello: true, .. }
+            | Request::Copy { hello: true, .. }
+            | Request::Save { hello: true, .. })
     )
 }
 
 /// Answers one raw message. `vault` is `None` while locked.
 pub fn answer(message: &[u8], vault: Option<&mut Vault>, gate: &mut dyn Gate) -> Answer {
-    let (response, filled) = match serde_json::from_slice::<Request>(message) {
+    let outcome = match serde_json::from_slice::<Request>(message) {
         Ok(request) => respond(request, vault, gate),
-        Err(_) => (error(ErrorCode::BadRequest), None),
+        Err(_) => error(ErrorCode::BadRequest).into(),
     };
     // Serializing cannot fail for these types; an empty answer would only confuse the caller.
-    let bytes = serde_json::to_vec(&response)
+    let bytes = serde_json::to_vec(&outcome.response)
         .unwrap_or_else(|_| br#"{"type":"error","code":"bad_request"}"#.to_vec());
     Answer {
         bytes: Zeroizing::new(bytes),
-        filled,
+        filled: outcome.filled,
+        copy: outcome.copy,
+        saved: outcome.saved,
+        kept: outcome.kept,
     }
+}
+
+struct Outcome {
+    response: Response,
+    filled: Option<String>,
+    copy: Option<Copy>,
+    saved: Option<String>,
+    kept: Option<Kept>,
+}
+
+impl From<Response> for Outcome {
+    fn from(response: Response) -> Self {
+        Self {
+            response,
+            filled: None,
+            copy: None,
+            saved: None,
+            kept: None,
+        }
+    }
+}
+
+/// The generator's options for a [`Request::Generate`]. `None` when they make no password.
+fn generator_options(
+    length: Option<u32>,
+    lower: bool,
+    upper: bool,
+    digits: bool,
+    symbols: Symbols,
+) -> Option<PasswordOptions> {
+    let (symbols, also_use) = match symbols {
+        Symbols::Any(on) => (on, String::new()),
+        // Only printable ASCII punctuation, each once: a site's list is not trusted further.
+        Symbols::Only(allowed) => {
+            let mut chosen = String::new();
+            for c in allowed.chars().filter(char::is_ascii_punctuation) {
+                if !chosen.contains(c) {
+                    chosen.push(c);
+                }
+            }
+            (false, chosen)
+        }
+    };
+    let length = usize::try_from(length.unwrap_or(20)).ok()?.clamp(4, 128);
+    Some(PasswordOptions {
+        length,
+        lowercase: lower,
+        uppercase: upper,
+        digits,
+        symbols,
+        also_use,
+        ..PasswordOptions::default()
+    })
 }
 
 fn error(code: ErrorCode) -> Response {
@@ -86,27 +195,94 @@ fn page_origin(url: &str) -> Result<Origin, Response> {
     })
 }
 
-fn respond(
-    request: Request,
-    vault: Option<&mut Vault>,
+fn item_locked(kind: Check) -> Response {
+    Response::Error {
+        code: ErrorCode::ItemLocked,
+        check: Some(kind),
+        left: None,
+    }
+}
+
+/// Opens the item lock for one request: Windows Hello when asked and verified, else the PIN
+/// or password typed in the extension. On `Ok` the caller reads (or writes) and then calls
+/// [`Gate::close`].
+fn open_gate(
+    vault: &mut Vault,
     gate: &mut dyn Gate,
-) -> (Response, Option<String>) {
-    match request {
-        Request::Status {} => (
-            Response::Status {
-                locked: vault.is_none(),
-                name: vault.map_or_else(String::new, |v| v.settings().name.clone()),
-            },
-            None,
-        ),
-        Request::Logins { url } => {
-            let origin = match page_origin(&url) {
-                Ok(origin) => origin,
-                Err(response) => return (response, None),
-            };
-            let Some(vault) = vault else {
-                return (error(ErrorCode::Locked), None);
-            };
+    check: Option<Secret>,
+    hello: bool,
+) -> Result<(), Response> {
+    let kind = gate.check(vault);
+    if hello && gate.open_hello(vault) {
+        return Ok(());
+    }
+    let Some(secret) = check.filter(|_| kind != Check::App) else {
+        return Err(item_locked(kind));
+    };
+    match gate.open(vault, secret.as_str()) {
+        Opened::Yes => Ok(()),
+        Opened::No { left } => Err(Response::Error {
+            code: ErrorCode::WrongCheck,
+            check: Some(kind),
+            left: Some(left),
+        }),
+        Opened::LockedOut => Err(error(ErrorCode::Locked)),
+    }
+}
+
+/// Reads login `id` with its secrets, opening the item lock for this one read when it is
+/// locked. `belongs` says whether the caller may have this login at all; an id that fails it
+/// looks exactly like one that does not exist, and no PIN is ever tried for it.
+fn read_login(
+    vault: &mut Vault,
+    gate: &mut dyn Gate,
+    id: &str,
+    check: Option<Secret>,
+    hello: bool,
+    belongs: impl Fn(&ItemData) -> bool,
+) -> Result<ItemData, Response> {
+    let id = ItemId::from_hex(id).ok_or_else(|| error(ErrorCode::NoMatch))?;
+    let read = |vault: &Vault| {
+        vault
+            .get_item(&id)
+            .ok()
+            .filter(|item| item.kind == ItemKind::Login && belongs(item))
+    };
+    let item = read(vault).ok_or_else(|| error(ErrorCode::NoMatch))?;
+    if !(item.is_locked() || gate.locked(vault, &item)) {
+        return Ok(item);
+    }
+    let kind = gate.check(vault);
+    open_gate(vault, gate, check, hello)?;
+    // Read once while open, then closed again: only this login was decrypted.
+    let opened = read(vault).filter(|item| !item.is_locked());
+    gate.close(vault);
+    opened.ok_or_else(|| item_locked(kind))
+}
+
+fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> Outcome {
+    if matches!(request, Request::Status {}) {
+        return Response::Status {
+            locked: vault.is_none(),
+            name: vault.map_or_else(String::new, |v| v.settings().name.clone()),
+        }
+        .into();
+    }
+    // A page's address is judged before anything else, locked or not.
+    let origin = match &request {
+        Request::Logins { url } | Request::Fill { url, .. } | Request::Save { url, .. } => {
+            match page_origin(url) {
+                Ok(origin) => Some(origin),
+                Err(response) => return response.into(),
+            }
+        }
+        _ => None,
+    };
+    let Some(vault) = vault else {
+        return error(ErrorCode::Locked).into();
+    };
+    match (request, origin) {
+        (Request::Logins { .. }, Some(origin)) => {
             let mut items: Vec<LoginEntry> = vault
                 .item_ids()
                 .filter_map(|id| {
@@ -122,92 +298,226 @@ fn respond(
                 })
                 .collect();
             items.sort_by_key(|entry| (entry.title.to_lowercase(), entry.username.to_lowercase()));
-            (
-                Response::Logins {
-                    origin: origin.as_str().to_owned(),
-                    check: gate.check(vault),
-                    hello: gate.hello(vault),
-                    items,
-                },
-                None,
-            )
+            Response::Logins {
+                origin: origin.as_str().to_owned(),
+                check: gate.check(vault),
+                hello: gate.hello(vault),
+                items,
+            }
+            .into()
         }
-        Request::Fill {
-            url,
-            id,
-            check,
-            hello,
-        } => {
-            let origin = match page_origin(&url) {
-                Ok(origin) => origin,
-                Err(response) => return (response, None),
-            };
-            let Some(vault) = vault else {
-                return (error(ErrorCode::Locked), None);
-            };
+        (
+            Request::Fill {
+                id, check, hello, ..
+            },
+            Some(origin),
+        ) => {
             // The same answer for "no such login" and "saved for another site": the caller
             // learns nothing about logins of other origins, and can't try PINs on them.
-            let Some(id) = ItemId::from_hex(&id) else {
-                return (error(ErrorCode::NoMatch), None);
-            };
-            let read = |vault: &Vault| {
-                vault.get_item(&id).ok().filter(|item| {
-                    item.kind == ItemKind::Login && item_matches(&item.urls, &origin)
-                })
-            };
-            let Some(item) = read(vault) else {
-                return (error(ErrorCode::NoMatch), None);
-            };
-            let hand_out = |item: &ItemData| {
-                (
-                    Response::Fill(Credentials {
+            match read_login(vault, gate, &id, check, hello, |item| {
+                item_matches(&item.urls, &origin)
+            }) {
+                Ok(item) => Outcome {
+                    filled: Some(item.title.clone()),
+                    ..Response::Fill(Credentials {
                         origin: origin.as_str().to_owned(),
                         username: item.username.clone(),
                         password: item.password.clone(),
-                    }),
-                    Some(item.title.clone()),
-                )
-            };
-            if !(item.is_locked() || gate.locked(vault, &item)) {
-                return hand_out(&item);
-            }
-            let kind = gate.check(vault);
-            let locked = || {
-                (
-                    Response::Error {
-                        code: ErrorCode::ItemLocked,
-                        check: Some(kind),
-                        left: None,
-                    },
-                    None,
-                )
-            };
-            if hello && gate.open_hello(vault) {
-                let opened = read(vault).filter(|item| !item.is_locked());
-                gate.close(vault);
-                return opened.as_ref().map_or_else(locked, hand_out);
-            }
-            let Some(secret) = check.filter(|_| kind != Check::App) else {
-                return locked();
-            };
-            match gate.open(vault, secret.as_str()) {
-                Opened::Yes => {
-                    // Read once while open, then closed again: only this login was decrypted.
-                    let opened = read(vault).filter(|item| !item.is_locked());
-                    gate.close(vault);
-                    opened.as_ref().map_or_else(locked, hand_out)
-                }
-                Opened::No { left } => (
-                    Response::Error {
-                        code: ErrorCode::WrongCheck,
-                        check: Some(kind),
-                        left: Some(left),
-                    },
-                    None,
-                ),
-                Opened::LockedOut => (error(ErrorCode::Locked), None),
+                    })
+                    .into()
+                },
+                Err(response) => response.into(),
             }
         }
+        (Request::Vault {}, _) => {
+            let mut items: Vec<VaultEntry> = vault
+                .item_ids()
+                .filter_map(|id| {
+                    let item = vault.get_item(&id).ok()?;
+                    if item.kind != ItemKind::Login {
+                        return None;
+                    }
+                    let sealed = item.sealed.as_ref();
+                    Some(VaultEntry {
+                        id: id.to_hex(),
+                        title: item.title.clone(),
+                        username: item.username.clone(),
+                        site: item.urls.first().cloned().unwrap_or_default(),
+                        locked: item.is_locked() || gate.locked(vault, &item),
+                        has_password: sealed
+                            .map_or(!item.password.is_empty(), |sealed| sealed.has_password),
+                        has_code: sealed.map_or(!item.totp.is_empty(), |sealed| sealed.has_totp),
+                    })
+                })
+                .collect();
+            items.sort_by_key(|entry| (entry.title.to_lowercase(), entry.username.to_lowercase()));
+            Response::Vault {
+                check: gate.check(vault),
+                hello: gate.hello(vault),
+                items,
+            }
+            .into()
+        }
+        (Request::Reveal { id, check, hello }, _) => {
+            match read_login(vault, gate, &id, check, hello, |_| true) {
+                Ok(item) => Outcome {
+                    filled: Some(item.title.clone()),
+                    ..Response::Reveal(Revealed {
+                        password: item.password.clone(),
+                    })
+                    .into()
+                },
+                Err(response) => response.into(),
+            }
+        }
+        (
+            Request::Copy {
+                id,
+                what: CopyWhat::Username,
+                ..
+            },
+            _,
+        ) => {
+            // A username is shown even while locked: nothing to open.
+            let item = ItemId::from_hex(&id)
+                .and_then(|id| vault.get_item(&id).ok())
+                .filter(|item| item.kind == ItemKind::Login);
+            match item {
+                Some(item) => Outcome {
+                    copy: Some(Copy {
+                        what: CopyWhat::Username,
+                        value: Zeroizing::new(item.username.clone()),
+                    }),
+                    ..Response::Copied { seconds: 0 }.into()
+                },
+                None => error(ErrorCode::NoMatch).into(),
+            }
+        }
+        (
+            Request::Copy {
+                id,
+                what,
+                check,
+                hello,
+            },
+            _,
+        ) => {
+            let item = match read_login(vault, gate, &id, check, hello, |_| true) {
+                Ok(item) => item,
+                Err(response) => return response.into(),
+            };
+            let value = match what {
+                CopyWhat::Code => Totp::parse(&item.totp).ok().map(|totp| totp.now().0),
+                _ => Some(Zeroizing::new(item.password.clone())),
+            };
+            match value.filter(|value| !value.is_empty()) {
+                Some(value) => Outcome {
+                    copy: Some(Copy { what, value }),
+                    ..Response::Copied {
+                        seconds: gate.clipboard_seconds(),
+                    }
+                    .into()
+                },
+                None => error(ErrorCode::NoMatch).into(),
+            }
+        }
+        (
+            Request::Save {
+                title,
+                username,
+                password,
+                check,
+                hello,
+                ..
+            },
+            Some(origin),
+        ) => {
+            if password.as_str().is_empty() {
+                return error(ErrorCode::BadRequest).into();
+            }
+            let existing = vault.item_ids().any(|id| {
+                vault.get_item(&id).is_ok_and(|item| {
+                    item.kind == ItemKind::Login
+                        && item.username == username
+                        && item_matches(&item.urls, &origin)
+                })
+            });
+            if existing {
+                return Response::Saved { existing: true }.into();
+            }
+            let host = origin.host();
+            let named = title.as_deref().map(str::trim).filter(|t| !t.is_empty());
+            let title = named.unwrap_or_else(|| host.strip_prefix("www.").unwrap_or(host));
+            let item = ItemData::login(title, &username, password.as_str(), origin.as_str());
+            let opened = vault.needs_unlock_to_store(&item);
+            if opened && let Err(response) = open_gate(vault, gate, check, hello) {
+                return response.into();
+            }
+            let added = vault.add_item(&item);
+            if opened {
+                gate.close(vault);
+            }
+            match added {
+                Ok(_) => Outcome {
+                    saved: Some(item.title.clone()),
+                    ..Response::Saved { existing: false }.into()
+                },
+                Err(_) => error(ErrorCode::BadRequest).into(),
+            }
+        }
+        (
+            Request::Generate {
+                length,
+                lower,
+                upper,
+                digits,
+                symbols,
+                url,
+            },
+            _,
+        ) => {
+            let Some(options) = generator_options(length, lower, upper, digits, symbols) else {
+                return error(ErrorCode::BadRequest).into();
+            };
+            let Ok(password) = generator::generate_password(&options) else {
+                return error(ErrorCode::BadRequest).into();
+            };
+            let site = url
+                .and_then(|url| Origin::of_page(&url).ok())
+                .map(|origin| origin.host().to_owned())
+                .unwrap_or_default();
+            let text = password.as_str().to_owned();
+            let id = gate.remember(password, site);
+            // `entropy_bits` is small and positive: the cast only drops the fraction.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let bits = options.entropy_bits().round() as u32;
+            Response::Generated(GeneratedPassword {
+                id,
+                password: text,
+                bits,
+            })
+            .into()
+        }
+        (Request::Keep { id, copy }, _) => match gate.take(&id) {
+            Some(kept) => Outcome {
+                copy: copy.then(|| Copy {
+                    what: CopyWhat::Password,
+                    value: kept.password.clone(),
+                }),
+                kept: Some(kept),
+                ..if copy {
+                    Response::Copied {
+                        seconds: gate.clipboard_seconds(),
+                    }
+                } else {
+                    Response::Kept {}
+                }
+                .into()
+            },
+            None => error(ErrorCode::NoMatch).into(),
+        },
+        // A page request always has its origin by now.
+        _ => error(ErrorCode::BadRequest).into(),
     }
 }
 
@@ -254,6 +564,7 @@ mod tests {
         tries: u32,
         closed: u32,
         hello: bool,
+        held: Vec<(String, Zeroizing<String>, String)>,
     }
 
     impl TestGate {
@@ -264,6 +575,7 @@ mod tests {
                 tries: 0,
                 closed: 0,
                 hello: false,
+                held: Vec::new(),
             }
         }
     }
@@ -300,6 +612,16 @@ mod tests {
             self.open = false;
             self.closed += 1;
         }
+        fn remember(&mut self, password: Zeroizing<String>, site: String) -> String {
+            let id = format!("g{}", self.held.len());
+            self.held.push((id.clone(), password, site));
+            id
+        }
+        fn take(&mut self, id: &str) -> Option<Kept> {
+            let at = self.held.iter().position(|(held, ..)| held == id)?;
+            let (_, password, site) = self.held.remove(at);
+            Some(Kept { password, site })
+        }
     }
 
     fn ask_with(
@@ -328,6 +650,10 @@ mod tests {
         for request in [
             json!({"type": "logins", "url": "https://github.com/"}),
             json!({"type": "fill", "url": "https://github.com/", "id": "00"}),
+            json!({"type": "vault"}),
+            json!({"type": "reveal", "id": "00"}),
+            json!({"type": "copy", "id": "00", "what": "password"}),
+            json!({"type": "save", "url": "https://github.com/", "username": "a", "password": "b"}),
         ] {
             let (reply, filled) = ask(None, request);
             assert_eq!(reply, json!({"type": "error", "code": "locked"}));
@@ -538,6 +864,12 @@ mod tests {
                 Opened::Yes
             }
             fn close(&mut self, _: &mut Vault) {}
+            fn remember(&mut self, _: Zeroizing<String>, _: String) -> String {
+                String::new()
+            }
+            fn take(&mut self, _: &str) -> Option<Kept> {
+                None
+            }
         }
         let request = json!({"type": "fill", "url": "https://github.com/", "id": github});
         let reply = answer(
@@ -559,6 +891,227 @@ mod tests {
             serde_json::from_slice::<Value>(&reply.bytes).unwrap()["password"],
             "gh-secret"
         );
+    }
+
+    #[test]
+    fn the_vault_is_listed_without_secrets_and_opened_one_login_at_a_time() {
+        let (mut vault, github, work) = vault();
+        let mut gate = TestGate::new(Check::Pin);
+        let (listed, _) = ask_with(Some(&mut vault), &mut gate, json!({"type": "vault"}));
+        assert_eq!(listed["type"], "vault");
+        // Logins only (the note is left out), sorted, and nothing secret in them.
+        let titles: Vec<&str> = listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["title"].as_str().unwrap())
+            .collect();
+        assert_eq!(titles, ["Bank", "GitHub", "GitHub (work)"]);
+        assert_eq!(
+            listed["items"][2],
+            json!({"id": work, "title": "GitHub (work)", "username": "hubot",
+                   "site": "github.com", "locked": true, "has_password": true, "has_code": false})
+        );
+        assert!(!listed.to_string().contains("secret"));
+
+        // Showing a password: asked for the PIN when locked, closed again after.
+        let (reply, shown) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "reveal", "id": work}),
+        );
+        assert_eq!(
+            reply,
+            json!({"type": "error", "code": "item_locked", "check": "pin"})
+        );
+        assert!(shown.is_none());
+        let (reply, shown) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "reveal", "id": work, "check": "4821"}),
+        );
+        assert_eq!(reply, json!({"type": "reveal", "password": "work-secret"}));
+        assert_eq!(shown.as_deref(), Some("GitHub (work)"));
+        assert!(!gate.open && gate.closed == 1);
+
+        // Copying: the app gets the value, the extension only hears that it was copied.
+        let copy = json!({"type": "copy", "id": github, "what": "password"});
+        let answer = answer(copy.to_string().as_bytes(), Some(&mut vault), &mut gate);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&answer.bytes).unwrap(),
+            json!({"type": "copied", "seconds": 30})
+        );
+        let copied = answer.copy.unwrap();
+        assert_eq!(copied.what, CopyWhat::Password);
+        assert_eq!(copied.value.as_str(), "gh-secret");
+        // A username needs no check even on a locked login.
+        let copy = json!({"type": "copy", "id": work, "what": "username"});
+        let answer = super::answer(copy.to_string().as_bytes(), Some(&mut vault), &mut gate);
+        assert_eq!(answer.copy.unwrap().value.as_str(), "hubot");
+        // No one-time code saved: nothing to copy.
+        let (reply, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "copy", "id": github, "what": "code"}),
+        );
+        assert_eq!(reply, json!({"type": "error", "code": "no_match"}));
+    }
+
+    #[test]
+    fn a_login_typed_in_a_page_is_saved_once_for_its_site() {
+        let (mut vault, ..) = vault();
+        let mut gate = TestGate::new(Check::Pin);
+        let before = vault.len();
+        let save = |url: &str, user: &str| json!({"type": "save", "url": url, "username": user, "password": "new-secret"});
+        let request = save("https://www.shop.example/account/login", "me@example.com");
+        let answer = answer(request.to_string().as_bytes(), Some(&mut vault), &mut gate);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&answer.bytes).unwrap(),
+            json!({"type": "saved", "existing": false})
+        );
+        assert_eq!(answer.saved.as_deref(), Some("shop.example"));
+        assert_eq!(vault.len(), before + 1);
+        // It is offered on that site from now on, and only there.
+        let (listed, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "logins", "url": "https://www.shop.example/"}),
+        );
+        assert_eq!(listed["items"][0]["username"], "me@example.com");
+        // The same username again adds nothing.
+        let (again, _) = ask_with(Some(&mut vault), &mut gate, request);
+        assert_eq!(again, json!({"type": "saved", "existing": true}));
+        assert_eq!(vault.len(), before + 1);
+        // Never from a page without https, and never an empty password.
+        let (http, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            save("http://shop.example/", "x"),
+        );
+        assert_eq!(http, json!({"type": "error", "code": "insecure_page"}));
+        let (empty, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "save", "url": "https://shop.example/", "username": "x", "password": ""}),
+        );
+        assert_eq!(empty, json!({"type": "error", "code": "bad_request"}));
+        // Made in the extension's window, with a name of its own.
+        let request = json!({"type": "save", "url": "https://forum.example", "title": "Forum",
+                             "username": "me", "password": "made-here"});
+        let answer = super::answer(request.to_string().as_bytes(), Some(&mut vault), &mut gate);
+        assert_eq!(answer.saved.as_deref(), Some("Forum"));
+    }
+
+    #[test]
+    fn saving_under_an_item_lock_that_covers_everything_asks_for_it() {
+        let (mut vault, ..) = vault();
+        vault
+            .set_item_guard(true, GuardCheck::Pin, Some("482193"), None)
+            .unwrap();
+        vault.lock_secrets();
+        /// The real lock, as the app would drive it.
+        struct Real;
+        impl Gate for Real {
+            fn check(&self, _: &Vault) -> Check {
+                Check::Pin
+            }
+            fn locked(&self, vault: &Vault, item: &ItemData) -> bool {
+                vault.guards(item)
+            }
+            fn hello(&self, _: &Vault) -> bool {
+                false
+            }
+            fn open_hello(&mut self, _: &mut Vault) -> bool {
+                false
+            }
+            fn open(&mut self, vault: &mut Vault, secret: &str) -> Opened {
+                if vault.unlock_secrets(secret).unwrap_or(false) {
+                    Opened::Yes
+                } else {
+                    Opened::No { left: 2 }
+                }
+            }
+            fn close(&mut self, vault: &mut Vault) {
+                vault.lock_secrets();
+            }
+            fn remember(&mut self, _: Zeroizing<String>, _: String) -> String {
+                String::new()
+            }
+            fn take(&mut self, _: &str) -> Option<Kept> {
+                None
+            }
+        }
+        let before = vault.len();
+        let mut save = json!({"type": "save", "url": "https://shop.example/",
+                              "username": "me", "password": "new-secret"});
+        let reply = answer(save.to_string().as_bytes(), Some(&mut vault), &mut Real);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&reply.bytes).unwrap(),
+            json!({"type": "error", "code": "item_locked", "check": "pin"})
+        );
+        assert_eq!(vault.len(), before);
+        save["check"] = json!("482193");
+        let reply = answer(save.to_string().as_bytes(), Some(&mut vault), &mut Real);
+        assert_eq!(reply.saved.as_deref(), Some("shop.example"));
+        assert!(!vault.secrets_open(), "locked again after the save");
+        assert_eq!(vault.len(), before + 1);
+    }
+
+    #[test]
+    fn passwords_are_generated_by_the_app_and_kept_only_when_used() {
+        let (mut vault, ..) = vault();
+        let mut gate = TestGate::new(Check::Pin);
+        // A site that allows 12 characters, letters, digits and only "-" and "_".
+        let request = json!({"type": "generate", "length": 12, "symbols": "-_ab<>",
+                             "url": "https://www.shop.example/register"});
+        let (made, _) = ask_with(Some(&mut vault), &mut gate, request.clone());
+        let password = made["password"].as_str().unwrap().to_owned();
+        assert_eq!(password.chars().count(), 12);
+        assert!(
+            password
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_<>".contains(c)),
+            "{password}"
+        );
+        assert!(made["bits"].as_u64().unwrap() > 60);
+        let id = made["id"].as_str().unwrap().to_owned();
+        // Without symbols, digits or capitals when asked.
+        let (plain, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "generate", "length": 30, "upper": false, "symbols": false}),
+        );
+        assert!(
+            plain["password"]
+                .as_str()
+                .unwrap()
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        );
+        // Nothing to draw from: refused.
+        let (none, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "generate", "lower": false, "upper": false, "digits": false,
+                   "symbols": false}),
+        );
+        assert_eq!(none, json!({"type": "error", "code": "bad_request"}));
+        // Used: the app keeps it (with its site) and copies it when asked; only once.
+        let keep = json!({"type": "keep", "id": id, "copy": true});
+        let reply = answer(keep.to_string().as_bytes(), Some(&mut vault), &mut gate);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&reply.bytes).unwrap(),
+            json!({"type": "copied", "seconds": 30})
+        );
+        let kept = reply.kept.unwrap();
+        assert_eq!(kept.password.as_str(), password);
+        assert_eq!(kept.site, "www.shop.example");
+        assert_eq!(reply.copy.unwrap().value.as_str(), password);
+        let (again, _) = ask_with(Some(&mut vault), &mut gate, keep);
+        assert_eq!(again, json!({"type": "error", "code": "no_match"}));
+        // Locked vault: no generator either.
+        let (locked, _) = ask(None, request);
+        assert_eq!(locked, json!({"type": "error", "code": "locked"}));
     }
 
     #[test]

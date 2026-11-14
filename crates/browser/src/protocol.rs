@@ -27,6 +27,96 @@ pub enum Request {
         #[serde(default)]
         hello: bool,
     },
+    /// Every login in the vault, for the extension's own window: who and where, never a
+    /// password.
+    Vault {},
+    /// The password of login `id`, to show in the extension's window (never in a page).
+    Reveal {
+        id: String,
+        #[serde(default)]
+        check: Option<Secret>,
+        #[serde(default)]
+        hello: bool,
+    },
+    /// Asks the app to copy something of login `id` to the clipboard. The app copies it
+    /// itself (kept out of clipboard history, cleared after a while): a password or code
+    /// copied this way never reaches the browser.
+    Copy {
+        id: String,
+        what: CopyWhat,
+        #[serde(default)]
+        check: Option<Secret>,
+        #[serde(default)]
+        hello: bool,
+    },
+    /// A new password made by the app's generator. `url` is the page it is for, kept with
+    /// it in the app's history once used. Nothing is kept until [`Request::Keep`].
+    Generate {
+        #[serde(default)]
+        length: Option<u32>,
+        #[serde(default = "yes")]
+        lower: bool,
+        #[serde(default = "yes")]
+        upper: bool,
+        #[serde(default = "yes")]
+        digits: bool,
+        #[serde(default)]
+        symbols: Symbols,
+        #[serde(default)]
+        url: Option<String>,
+    },
+    /// The person used generated password `id`: the app adds it to its history of generated
+    /// passwords and, with `copy`, copies it (the app does, as with any secret).
+    Keep {
+        id: String,
+        #[serde(default)]
+        copy: bool,
+    },
+    /// Saves a login typed into the page at `url` (or made in the extension's window for the
+    /// site `url`) as a new item. With an item lock that
+    /// covers new items, it is asked for first (`check` or `hello`), as for a fill.
+    Save {
+        url: String,
+        /// The item's name; the site's host when left out.
+        #[serde(default)]
+        title: Option<String>,
+        username: String,
+        password: Secret,
+        #[serde(default)]
+        check: Option<Secret>,
+        #[serde(default)]
+        hello: bool,
+    },
+}
+
+/// Which symbols a generated password may use.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum Symbols {
+    /// The usual set, or none.
+    Any(bool),
+    /// Only these (the ones a site says it accepts).
+    Only(String),
+}
+
+impl Default for Symbols {
+    fn default() -> Self {
+        Self::Any(true)
+    }
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// What [`Request::Copy`] copies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CopyWhat {
+    Username,
+    Password,
+    /// The current one-time code.
+    Code,
 }
 
 /// Something typed that must not linger: wiped when dropped, never printed.
@@ -77,6 +167,24 @@ pub enum Response {
         items: Vec<LoginEntry>,
     },
     Fill(Credentials),
+    Vault {
+        check: Check,
+        hello: bool,
+        items: Vec<VaultEntry>,
+    },
+    Reveal(Revealed),
+    /// The app copied it; the clipboard is cleared after `seconds` (0: not cleared, it was
+    /// not a secret).
+    Copied {
+        seconds: u32,
+    },
+    Generated(GeneratedPassword),
+    /// Generated password kept in the history.
+    Kept {},
+    /// The login was saved; `existing` when one with that username was already there.
+    Saved {
+        existing: bool,
+    },
     /// The app is asking the person whether to connect this extension. `key` is the shared
     /// key (hex), useless until the person allows it in the app; `code` is shown by both.
     Pairing {
@@ -102,6 +210,49 @@ pub struct LoginEntry {
     pub username: String,
     /// Behind the item lock: its PIN or password is asked before it is filled.
     pub locked: bool,
+}
+
+/// One login in the extension's view of the vault.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct VaultEntry {
+    pub id: String,
+    pub title: String,
+    pub username: String,
+    /// The first website saved in it, as written.
+    pub site: String,
+    pub locked: bool,
+    pub has_password: bool,
+    pub has_code: bool,
+}
+
+/// A generated password, with the id that keeps it (see [`Request::Keep`]). Wiped from
+/// memory when dropped.
+#[derive(Serialize, Zeroize, ZeroizeOnDrop)]
+pub struct GeneratedPassword {
+    #[zeroize(skip)]
+    pub id: String,
+    pub password: String,
+    /// Strength estimate: length × log2(alphabet).
+    #[zeroize(skip)]
+    pub bits: u32,
+}
+
+impl std::fmt::Debug for GeneratedPassword {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("GeneratedPassword(<redacted>)")
+    }
+}
+
+/// A password on its way to the extension's window. Wiped from memory when dropped.
+#[derive(Serialize, Zeroize, ZeroizeOnDrop)]
+pub struct Revealed {
+    pub password: String,
+}
+
+impl std::fmt::Debug for Revealed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Revealed(<redacted>)")
+    }
 }
 
 /// What is typed into the page. Wiped from memory when dropped.

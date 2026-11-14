@@ -43,6 +43,11 @@ impl Origin {
         Self::of_https(&url).ok_or(PageProblem::NotAWebsite)
     }
 
+    /// The host alone, as the browser writes it.
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
     fn of_https(url: &Url) -> Option<Self> {
         let host = url.host_str().filter(|host| !host.is_empty())?;
         Some(Self {
