@@ -459,14 +459,25 @@ function mark() {
 
 /** The last password the app made here, and the id that keeps it in the app's history. */
 let made;
+/** Characters or words, and the slider's value for each. */
+const genState = { words: false, length: 20, count: 6 };
 
 function generatorOptions() {
+  if (genState.words) {
+    return {
+      words: genState.count,
+      separator: $("gen-separator").value,
+      capitalize: $("gen-capitalize").checked,
+      number: $("gen-number").checked,
+    };
+  }
   return {
-    length: Number($("gen-length").value),
+    length: genState.length,
     upper: $("gen-upper").checked,
     lower: $("gen-lower").checked,
     digits: $("gen-digits").checked,
     symbols: $("gen-symbols").checked,
+    avoid_ambiguous: $("gen-ambiguous").checked,
   };
 }
 
@@ -477,26 +488,62 @@ async function generate(options = generatorOptions()) {
   return made;
 }
 
+function setMode(words) {
+  genState.words = words;
+  $("gen-mode-chars").setAttribute("aria-pressed", String(!words));
+  $("gen-mode-words").setAttribute("aria-pressed", String(words));
+  $("gen-chars").hidden = words;
+  $("gen-words").hidden = !words;
+  const slider = $("gen-count");
+  slider.min = words ? "3" : "8";
+  slider.max = words ? "12" : "64";
+  slider.value = String(words ? genState.count : genState.length);
+  $("gen-count-label").textContent = t(words ? "wordsLabel" : "lengthLabel");
+  $("gen-count-value").textContent = slider.value;
+}
+
 async function showGenerator() {
   here.place = "gen";
   mark();
   view("tabs", "gen", "foot");
-  $("gen-length-label").textContent = t("lengthLabel");
+  $("gen-mode-chars").textContent = t("modeChars");
+  $("gen-mode-words").textContent = t("modeWords");
+  $("gen-ambiguous-label").textContent = t("avoidAmbiguous");
+  $("gen-capitalize-label").textContent = t("capitalize");
+  $("gen-number-label").textContent = t("addNumber");
+  $("gen-separator-label").textContent = t("separatorLabel");
+  $("gen-again").title = t("anotherButton");
+  $("gen-again").setAttribute("aria-label", t("anotherButton"));
   $("gen-copy").textContent = t("copyButton");
-  $("gen-again").textContent = t("anotherButton");
   $("gen-use").textContent = t("useForLogin");
   $("gen-note").textContent = t("genNote");
   const draw = async () => {
-    $("gen-length-value").textContent = $("gen-length").value;
     const result = await generate();
     $("gen-password").textContent = result ? result.password : t("genImpossible");
     $("gen-bits").textContent = result ? t("strengthBits", String(result.bits)) : "";
+    const meter = $("gen-meter");
+    meter.style.width = `${Math.min(100, ((result?.bits || 0) / 128) * 100)}%`;
+    meter.classList.toggle("weak", (result?.bits || 0) < 60);
     $("gen-copy").disabled = !result;
     $("gen-use").disabled = !result;
   };
-  $("gen-length").oninput = () => ($("gen-length-value").textContent = $("gen-length").value);
-  $("gen-length").onchange = draw;
-  for (const id of ["gen-upper", "gen-lower", "gen-digits", "gen-symbols"]) $(id).onchange = draw;
+  setMode(genState.words);
+  $("gen-mode-chars").onclick = () => {
+    setMode(false);
+    draw();
+  };
+  $("gen-mode-words").onclick = () => {
+    setMode(true);
+    draw();
+  };
+  $("gen-count").oninput = () => {
+    $("gen-count-value").textContent = $("gen-count").value;
+    genState[genState.words ? "count" : "length"] = Number($("gen-count").value);
+  };
+  $("gen-count").onchange = draw;
+  for (const id of ["gen-upper", "gen-lower", "gen-digits", "gen-symbols", "gen-ambiguous", "gen-capitalize", "gen-number", "gen-separator"]) {
+    $(id).onchange = draw;
+  }
   $("gen-again").onclick = draw;
   $("gen-copy").onclick = async () => {
     if (!made) return;

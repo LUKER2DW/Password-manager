@@ -262,13 +262,13 @@
     "message": "Use for a new login"
   },
   "genNote": {
-    "message": "Made by the app. Copy is done by the app too: kept out of clipboard history, cleared after a while, and added to the app's list of generated passwords."
+    "message": "Made by the app. Copy is done by the app too: out of clipboard history and cleared after a while."
   },
   "genImpossible": {
     "message": "Choose at least one kind of character."
   },
   "strengthBits": {
-    "message": "About $BITS$ bits: far beyond guessing.",
+    "message": "About $BITS$ bits",
     "placeholders": {
       "bits": {
         "content": "$1"
@@ -315,5 +315,26 @@
         "content": "$1"
       }
     }
+  },
+  "modeChars": {
+    "message": "Characters"
+  },
+  "modeWords": {
+    "message": "Words"
+  },
+  "wordsLabel": {
+    "message": "Words"
+  },
+  "avoidAmbiguous": {
+    "message": "Leave out look-alikes (I l 1 O 0)"
+  },
+  "capitalize": {
+    "message": "Capitals"
+  },
+  "addNumber": {
+    "message": "A digit"
+  },
+  "separatorLabel": {
+    "message": "Between words"
   }
 }

@@ -79,7 +79,11 @@
             if (state === "pair_wait") return { type: "error", code: "not_paired" };
             if (state === "locked") return { type: "error", code: "locked" };
             if (message.type === "vault") return vault;
-            if (message.type === "generate") return { type: "generated", id: "g1", password: "Hn4$wq9-Tz2#vLp8Kx3m", bits: 129 };
+            if (message.type === "generate") {
+              return message.words
+                ? { type: "generated", id: "g2", password: "Orbit-Lantern-Velvet4-Thicket-Salad-Ripple", bits: 81 }
+                : { type: "generated", id: "g1", password: "Hn4$wq9-Tz2#vLp8Kx3m", bits: 129 };
+            }
             if (message.type === "reveal") return { type: "reveal", password: "correct-horse-battery" };
             if (message.type === "fill" && state === "wrong_pin") {
               return { type: "error", code: "wrong_check", check: "pin", left: 3 };
@@ -139,7 +143,11 @@
         const click = (selector) => document.querySelector(selector)?.click();
         const wait = (ms) => new Promise((done) => setTimeout(done, ms));
         await wait(150);
-        if (state === "generator") click("#tab-gen");
+        if (state === "generator" || state === "words") click("#tab-gen");
+        if (state === "words") {
+          await wait(80);
+          click("#gen-mode-words");
+        }
         if (state === "new_login") {
           click("#tab-gen");
           await wait(80);

@@ -44,23 +44,45 @@
 
     <!-- A password from the app's generator. -->
     <section id="gen" hidden>
-      <p id="gen-password" aria-live="polite"></p>
+      <div class="gen-result">
+        <p id="gen-password" aria-live="polite"></p>
+        <button id="gen-again" class="icon" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.2L3 16M3 21v-5h5" /></svg>
+        </button>
+      </div>
+      <div class="meter" aria-hidden="true"><span id="gen-meter"></span></div>
       <p id="gen-bits"></p>
+      <div class="modes" role="group">
+        <button id="gen-mode-chars" type="button" aria-pressed="true"></button>
+        <button id="gen-mode-words" type="button" aria-pressed="false"></button>
+      </div>
       <label class="slider">
-        <span id="gen-length-label"></span>
-        <input id="gen-length" type="range" min="8" max="64" value="20" />
-        <output id="gen-length-value">20</output>
+        <span id="gen-count-label"></span>
+        <input id="gen-count" type="range" min="8" max="64" value="20" />
+        <output id="gen-count-value">20</output>
       </label>
-      <div class="kinds">
+      <div class="kinds" id="gen-chars">
         <label><input id="gen-upper" type="checkbox" checked /> A–Z</label>
         <label><input id="gen-lower" type="checkbox" checked /> a–z</label>
         <label><input id="gen-digits" type="checkbox" checked /> 0–9</label>
         <label><input id="gen-symbols" type="checkbox" checked /> !#$</label>
+        <label class="wide"><input id="gen-ambiguous" type="checkbox" /> <span id="gen-ambiguous-label"></span></label>
+      </div>
+      <div class="kinds" id="gen-words" hidden>
+        <label><input id="gen-capitalize" type="checkbox" /> <span id="gen-capitalize-label"></span></label>
+        <label><input id="gen-number" type="checkbox" /> <span id="gen-number-label"></span></label>
+        <label class="separator"><span id="gen-separator-label"></span>
+          <select id="gen-separator">
+            <option value="-">-</option>
+            <option value=".">.</option>
+            <option value="_">_</option>
+            <option value=" ">space</option>
+          </select>
+        </label>
       </div>
       <div class="row">
         <button id="gen-copy" class="primary" type="button"></button>
-        <button id="gen-again" class="plain" type="button"></button>
-        <button id="gen-use" class="quiet" type="button"></button>
+        <button id="gen-use" class="plain" type="button"></button>
       </div>
       <p id="gen-note"></p>
     </section>
