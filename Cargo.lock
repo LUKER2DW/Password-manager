@@ -6292,6 +6292,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vault-browser"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "url",
+ "vault-core",
+ "vault-platform",
+ "zeroize",
+]
+
+[[package]]
 name = "vault-cli"
 version = "0.0.0"
 dependencies = [
@@ -6344,6 +6356,7 @@ dependencies = [
  "slint",
  "tempfile",
  "ureq",
+ "vault-browser",
  "vault-core",
  "vault-desktop-ui",
  "vault-import",
