@@ -1,19 +1,17 @@
 /* The small card a page shows under a field: compact, rounded, with a little arrow pointing
    at the field. The frame itself is transparent; only the card is drawn, and it is opaque. */
 :root {
-  /* Slightly see-through: the page shows faintly, blurred by the glass layer under it. */
-  --pop: rgba(24, 31, 41, 0.66);
-  --pop-hover: rgba(255, 255, 255, 0.08);
+  /* A little see-through: what is behind shows faintly; the card and its text stay clear. */
+  --pop: rgba(22, 28, 37, 0.95);
+  --pop-hover: rgba(255, 255, 255, 0.07);
   --pop-rule: rgba(255, 255, 255, 0.12);
-  --pop-sheen: rgba(255, 255, 255, 0.1);
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --pop: rgba(255, 255, 255, 0.62);
+    --pop: rgba(255, 255, 255, 0.96);
     --pop-hover: rgba(20, 30, 45, 0.06);
-    --pop-rule: rgba(255, 255, 255, 0.7);
-    --pop-sheen: rgba(255, 255, 255, 0.55);
+    --pop-rule: rgba(20, 30, 45, 0.12);
   }
 }
 
@@ -33,14 +31,10 @@ body {
   position: relative;
   margin: 9px 10px 14px;
   padding: 6px 0;
-  border-radius: 14px;
-  /* Glass: the blurred page shows through, lit a little from the top edge. */
-  background:
-    linear-gradient(180deg, var(--pop-sheen), transparent 45%),
-    var(--pop);
+  border-radius: 12px;
+  background: var(--pop);
   box-shadow:
     0 8px 24px rgba(6, 10, 16, 0.3),
-    inset 0 1px 0 var(--pop-sheen),
     0 0 0 1px var(--pop-rule);
 }
 

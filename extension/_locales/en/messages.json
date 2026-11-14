@@ -21,7 +21,7 @@
     "message": "The vault is locked"
   },
   "lockedText": {
-    "message": "Unlock it in the app, then click this button again."
+    "message": "Unlock it in the app. To fill while it is locked, turn on Settings → Browser extension → Fill with Windows Hello while the vault is locked."
   },
   "insecureTitle": {
     "message": "This page has no https"
@@ -337,5 +337,17 @@
   },
   "asksPasswordLong": {
     "message": "Opens with your item password"
+  },
+  "pairAgainTitle": {
+    "message": "The app doesn't know this extension any more"
+  },
+  "pairAgainText": {
+    "message": "It was disconnected in the app, or another vault is open there. Connect again: the app asks for your master password."
+  },
+  "pairAgainButton": {
+    "message": "Connect again"
+  },
+  "connectedLocked": {
+    "message": "Vault locked. Windows Hello fills."
   }
 }

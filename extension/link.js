@@ -86,11 +86,21 @@ export async function stopWaiting() {
 }
 
 /**
- * Wraps a request for the app: the request as text, a counter (this clock, in milliseconds,
- * so an old request can't be sent again) and HMAC-SHA-256 over counter (8 bytes,
- * little-endian) followed by the text.
+ * A counter for a request: this clock in milliseconds × 1000, plus a random part below 1000,
+ * so requests sent at the same moment (this window and the background worker ask in
+ * parallel) still differ. The app accepts each counter once, and only near its own clock.
  */
-export async function sign(key, request, counter = Date.now()) {
+export function freshCounter() {
+  const random = new Uint16Array(1);
+  crypto.getRandomValues(random);
+  return Date.now() * 1000 + (random[0] % 1000);
+}
+
+/**
+ * Wraps a request for the app: the request as text, a counter (see `freshCounter`) and
+ * HMAC-SHA-256 over counter (8 bytes, little-endian) followed by the text.
+ */
+export async function sign(key, request, counter = freshCounter()) {
   const body = JSON.stringify(request);
   const text = new TextEncoder().encode(body);
   const data = new Uint8Array(8 + text.length);

@@ -18,10 +18,17 @@ export async function send(message) {
   }
 }
 
-/** One signed question to the desktop app. */
+/**
+ * One signed question to the desktop app. A refusal as "not paired" is tried once more with a
+ * fresh counter before it is believed: the extension then really is unknown to the app (it
+ * was disconnected there, or another vault is open), and the caller offers to connect again.
+ */
 export async function ask(request) {
   const key = await loadKey();
   if (!key) return { type: "error", code: "not_paired" };
+  const reply = await send(await sign(key, request));
+  if (reply.code !== "not_paired") return reply;
+  await new Promise((done) => setTimeout(done, 120));
   return send(await sign(key, request));
 }
 

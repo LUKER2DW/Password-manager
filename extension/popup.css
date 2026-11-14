@@ -613,6 +613,12 @@ p:empty {
   background: var(--marker);
 }
 
+/* Locked vault: a hollow dot. */
+#foot.locked #foot-dot {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--marker);
+}
+
 #foot-text {
   overflow: hidden;
   text-overflow: ellipsis;

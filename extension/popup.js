@@ -74,21 +74,26 @@ async function connect() {
   return code ? waitForApp(code) : offerPairing();
 }
 
-/** First use (or the app forgot us): one button that sends the person to the app. */
+/**
+ * First use, or the app no longer knows this extension (disconnected there, or another vault
+ * is open): one button that sends the person to the app. The old connection key is dropped
+ * only when they choose to connect again, never by itself.
+ */
 async function offerPairing() {
   watching = 0;
-  await dropKey();
+  const known = Boolean(await loadKey());
   view("pair");
-  $("pair-title").textContent = t("pairTitle");
-  $("pair-text").textContent = t("pairText");
+  $("pair-title").textContent = t(known ? "pairAgainTitle" : "pairTitle");
+  $("pair-text").textContent = t(known ? "pairAgainText" : "pairText");
   $("pair-code").hidden = true;
   $("pair-restart").hidden = true;
   const button = $("pair-button");
   button.hidden = false;
-  button.textContent = t("pairButton");
+  button.textContent = t(known ? "pairAgainButton" : "pairButton");
   button.disabled = false;
   button.onclick = async () => {
     button.disabled = true;
+    await dropKey();
     const reply = await send({ type: "pair" });
     if (reply.type !== "pairing" || typeof reply.key !== "string") {
       return explain(reply.code === "not_paired" ? "failed" : reply.code);
@@ -684,7 +689,12 @@ async function load() {
   here.vault = vault.type === "vault" && Array.isArray(vault.items) ? vault : undefined;
   here.vaultProblem = vault.code;
   here.pending = tab?.id ? await pendingSave(tab.id) : undefined;
-  $("foot-text").textContent = status.name ? t("connectedTo", status.name) : t("connected");
+  $("foot-text").textContent = status.locked
+    ? t("connectedLocked")
+    : status.name
+      ? t("connectedTo", status.name)
+      : t("connected");
+  $("foot").classList.toggle("locked", Boolean(status.locked));
   return vault;
 }
 

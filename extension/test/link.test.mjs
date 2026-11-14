@@ -4,7 +4,19 @@ import assert from "node:assert/strict";
 import { createHmac, webcrypto } from "node:crypto";
 import { test } from "node:test";
 
-import { sign } from "../link.js";
+import { freshCounter, sign } from "../link.js";
+
+if (!globalThis.crypto) globalThis.crypto = webcrypto;
+
+test("counters follow the clock and differ when made at once", () => {
+  const before = Date.now() * 1000;
+  const counters = Array.from({ length: 200 }, freshCounter);
+  for (const counter of counters) {
+    assert.ok(Number.isSafeInteger(counter));
+    assert.ok(counter >= before && counter < (Date.now() + 1) * 1000);
+  }
+  assert.ok(new Set(counters).size > 150, "random part");
+});
 
 test("a request is signed over its counter and its exact text", async () => {
   const raw = Buffer.alloc(32, 7);

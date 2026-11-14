@@ -27,6 +27,10 @@ Status: early development, like the rest of the project. Use a test vault.
   - *Generator*: a password from the app's generator; *Copy* or *Use for a new login*.
 - Copying is done **by the app**: the value never reaches the browser, it stays out of
   Windows clipboard history, and it is cleared after the time set in the app.
+- **Works with the vault locked** (the app must be running, the window may be closed to the
+  notification area): logins are listed and each fill asks for Windows Hello. Turn it on or
+  off in the app: Settings → Browser extension → Fill with Windows Hello while the vault is
+  locked. It needs Windows Hello on in Settings → Item lock.
 - Generated passwords you used are listed in the app's Generator page (encrypted with the
   vault on this computer, behind the item lock), with *Clear history*.
 
