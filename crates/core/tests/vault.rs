@@ -128,6 +128,14 @@ fn guarded_secrets_are_encrypted_under_the_pin() {
     let shop = vault.add_item(&bank).unwrap();
     assert_eq!(vault.pending_seal().unwrap(), 1);
     assert_eq!(vault.seal_pending().unwrap(), 0, "the guard is closed");
+    // Until then it can be starred or edited, and keeps waiting.
+    let mut starred = vault.get_item(&shop).unwrap();
+    assert!(!starred.is_locked());
+    starred.favorite = true;
+    starred.password = "shop-pw-2".into();
+    vault.update_item(&shop, &starred).unwrap();
+    assert_eq!(vault.pending_seal().unwrap(), 1);
+    assert_eq!(vault.get_item(&shop).unwrap().password, "shop-pw-2");
     assert!(vault.unlock_secrets("4821").unwrap());
     assert_eq!(vault.seal_pending().unwrap(), 1);
     assert_eq!(vault.pending_seal().unwrap(), 0);

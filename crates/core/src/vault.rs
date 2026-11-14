@@ -813,7 +813,8 @@ impl Vault {
     ///
     /// A locked item can be written back as it was read (to change its title, folder or
     /// favourite mark): its sealed secrets are kept. Changing the secrets of a locked item
-    /// fails with [`Error::SecretsLocked`].
+    /// fails with [`Error::SecretsLocked`]. An item not sealed yet ([`Vault::pending_seal`])
+    /// can be changed while the guard is closed and keeps waiting for its seal.
     pub fn update_item(&mut self, id: &ItemId, data: &ItemData) -> Result<()> {
         let index = self.position(id).ok_or(Error::ItemNotFound)?;
         let revision = self.items[index]
@@ -851,7 +852,14 @@ impl Vault {
             data.password_history = history;
             data.password_changed_at = crate::item::unix_now();
         }
-        self.items[index] = self.store_item(*id, revision, &data)?;
+        // An item still waiting for its seal (added while the guard was closed) stays that
+        // way: it can be starred, moved or edited without the guard's check, like when it was
+        // added. `old` was read in full with the guard key out of memory, so it was not sealed.
+        self.items[index] = if self.needs_unlock_to_store(&data) && self.guards(&old) {
+            self.seal_item(*id, revision, &data)?
+        } else {
+            self.store_item(*id, revision, &data)?
+        };
         Ok(())
     }
 
