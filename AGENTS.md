@@ -30,7 +30,9 @@ crates/
   platform/             vault-platform: OS integration (Windows first)
   import/               vault-import: import from / export to other managers and browsers
   cli/                  vault-cli: the `vault` command-line client
+  browser/              vault-browser: what the extension may ask and get, and its native host
   desktop/              vault-desktop: the Slint desktop app
+extension/              the Chrome/Edge extension (Manifest V3, plain JavaScript)
 docs/
   THREAT_MODEL.md       who we defend against and the principles that follow
   ARCHITECTURE.md       overall design and decisions
@@ -72,7 +74,8 @@ Everything that touches the operating system: Secret Key in the credential store
 (`secret_store.rs`), per-device state and rollback detection (`device.rs`), clipboard that stays
 out of history (`clipboard.rs`), screen-capture blocking (`screen.rs`), locked memory for typed
 secrets (`secure_buffer.rs`), Windows Hello quick unlock (`quick_unlock.rs`), DPAPI
-(`dpapi.rs`), installed browsers (`browsers.rs`), the emergency kit PDF (`kit_pdf.rs`), file
+(`dpapi.rs`), installed browsers (`browsers.rs`), the extension's local pipe and host
+registration (`browser_link.rs`), the emergency kit PDF (`kit_pdf.rs`), file
 helpers and secure wiping (`files.rs`), app paths (`paths.rs`).
 
 ### 2.3 `crates/import` (vault-import)
@@ -96,6 +99,20 @@ Importers only produce `ItemData`; they never touch keys.
 `vault init | info | list | add | show | edit | rm | generate | totp | passwd | recover | kit |
 forget | keyfile | import`. Same vault and device state as the desktop app.
 
+### 2.4.1 `crates/browser` (vault-browser) and `extension/`
+
+The extension holds no secrets. `origin.rs` decides which saved website belongs to which page
+(exact scheme, host and port; https only), `protocol.rs` is the JSON it exchanges with the
+app, `service.rs` answers from an open vault, `host.rs` + `main.rs` are the native host
+(`vault-browser-host`) that relays between the browser and the app's pipe. In `extension/`,
+`popup.js` is the whole extension and `fill.js` the one function that runs in a page. See
+[extension/README.md](extension/README.md). Tests: `cargo test -p vault-browser` and
+`node --test extension/test/fill.test.mjs`.
+
+Rules for this part: no UI is ever injected into a page; no new permission, content script or
+background worker without a threat-model note; the app, not the extension, decides what a
+page may get; the extension stays free of packages and build steps.
+
 ### 2.5 `crates/desktop` (vault-desktop)
 
 Slint UI (`ui/*.slint`) driven by a Rust controller.
@@ -106,6 +123,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/features.rs` | Generator, password history, health, leak check, import review, vault settings, unlock protection (hash method and level) |
 | `src/controller/folders.rs` | Folder dialog (create, settings, picture preview, delete) and reordering |
 | `src/controller/protection.rs` | Keyfile (unlock, set, remove) and the item lock (PIN, password or master password before secrets show) |
+| `src/controller/browser.rs` | The browser extension's link: listens on the pipe, answers from the open vault |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
 | `src/view.rs` | Pure presentation rules (unit-tested): filters, tints, crack times, dates |
 | `src/favicon.rs` | Opt-in website icons, fetched directly from each site |
@@ -181,7 +199,8 @@ to review layout; do not drive the real desktop to check UI.
    (setting, off by default), the leak check (button; k-anonymous, 5 hex chars of SHA-1,
    padded), an icon site or picture link chosen for an item or folder. Nothing is sent to a
    third-party service for icons. Links handed to the OS to open are `http(s)` only
-   (`vault_platform::browsers::web_link`).
+   (`vault_platform::browsers::web_link`). The browser extension's link is local only (a
+   named pipe), off by default.
 6. **Browser stores are read only on an explicit click**, in memory, for the signed-in user.
    Plain-text exports the app reads are offered for secure wiping afterwards.
 7. **Never overwrite a vault changed by someone else.** Saves compare the file's hash with the
@@ -212,7 +231,7 @@ to review layout; do not drive the real desktop to check UI.
 ### 4.3 Commits
 
 - Small, focused, **one commit per area**: `Core: …`, `Platform: …`, `Import: …`, `CLI: …`,
-  `Desktop: …`, `Docs: …`, `Build: …`. A short subject in the imperative-free style used in
+  `Browser: …`, `Extension: …`, `Desktop: …`, `Docs: …`, `Build: …`. A short subject in the imperative-free style used in
   the log ("Core: format v3 (folder icon and colour, item icon website)"), then a body that says
   what changed and why.
 - Run fmt, clippy and the tests first. Never commit a failing build.

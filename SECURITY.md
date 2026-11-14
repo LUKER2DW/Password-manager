@@ -59,6 +59,11 @@ libraries mitigate.
   from memory still cannot read locked items. Limits: a 4-digit PIN can be tried exhaustively
   offline by whoever holds the vault key (use 6–8 digits or a password), and secrets are
   readable while open. With the master password as the check it is a rule, not encryption.
+- **Browser extension:** off until turned on. The extension keeps no passwords and can't see
+  any page until its button is clicked; logins are offered only for the exact https origin
+  saved in them and chosen in the extension's own window, so a page has nothing to click on
+  your behalf. Not a defence against malware already running as your Windows user while the
+  vault is open (see the threat model).
 - **Password hashing:** Argon2id by default. scrypt and PBKDF2-SHA-256 can be chosen and are
   weaker; the app says so where they are offered.
 - **Windows Hello** quick unlock wraps the vault key with a TPM-backed key that only works on

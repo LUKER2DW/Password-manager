@@ -92,12 +92,22 @@ Candidate libraries: the **RustCrypto** ecosystem (`argon2`, `chacha20poly1305`,
 
 ## 5. Browser and autofill
 
-- WebExtension (TypeScript) with **no secrets and no crypto**. It talks to the desktop app over
-  **Native Messaging** (local process, no network).
-- **Confirmation happens in the native app or the extension popup**, never in UI injected into
-  the page (defense against DOM-based extension clickjacking, DEF CON 2025).
-- Exact origin matching (scheme + host + port) by default; no filling into cross-origin iframes;
-  no filling over plain HTTP.
+- WebExtension (`extension/`, Manifest V3) with **no secrets and no crypto**, in plain
+  JavaScript with no build step and no packages: what is reviewed is what the browser runs. It
+  talks to the desktop app over **Native Messaging** (local process, no network).
+- Path of a request: extension window → native host (`vault-browser-host`, started by the
+  browser, accepts only our extension id) → named pipe of the signed-in user → desktop app.
+  The app and the host each check the other end is the program installed next to them. The
+  link is off until turned on in Settings.
+- The extension has no access to any site until its button is clicked (`activeTab`), runs no
+  background worker and no content script.
+- **The login is chosen in the extension's own window**, never in UI injected into the page
+  (defense against DOM-based extension clickjacking, DEF CON 2025). The app announces each fill.
+- Exact origin matching (scheme + host + port), decided by the app with the WHATWG URL rules
+  (`crates/browser/src/origin.rs`); the top frame only; no filling over plain HTTP. A password
+  leaves the app only for the one login picked, and only for a page of its origin.
+- Nothing is answered while the vault is locked, and logins behind the item lock are listed
+  but not handed out until opened in the app.
 - On Android: Autofill Service + Credential Manager (`CredentialProviderService`, Android 14+),
   validating the app package and signature (defense against AutoSpill).
 

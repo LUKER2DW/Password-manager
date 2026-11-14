@@ -71,8 +71,14 @@ On top of that:
   password also encrypts the locked secrets under its own key (format v6), which keeps them
   from malware that reads an unlocked vault until the user opens them; Windows
   Hello or a hardware-key touch as the check comes later.
-- The browser extension stores no secrets; it asks the native app for each credential, and the
-  app confirms.
+- The browser extension stores no secrets; it asks the native app for each credential. The
+  person picks the login in the extension's own window (never in the page), the app decides
+  whether the page's origin is the login's, and announces every fill.
+  Known limit: a program already running as the same Windows user can start the native host
+  itself and ask like the extension does. It gets nothing while the vault is locked and
+  nothing behind the item lock, and it must name the exact site of a login to get it; the
+  notice in the app makes it visible. The same program could already read an unlocked
+  vault's memory, so the link adds no new reach, but it is one more reason for the item lock.
 
 **Files with secrets outside the vault** (each a deliberate, visible choice):
 - Printed emergency kit: the temporary PDF lives in `<app dir>/print` and is overwritten and

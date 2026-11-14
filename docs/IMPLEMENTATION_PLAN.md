@@ -185,9 +185,21 @@ Rules:
 - ⬜ Attachments, tags; passkeys
 - **Done when:** daily use on Windows is possible with a test vault.
 
-### M5 — Browser extension ⬜
-- Native Messaging host in the desktop app; extension in TypeScript with no secrets
-- Fill with confirmation outside the page DOM; strict origin matching
+### M5 — Browser extension 🚧 (`extension/`, `crates/browser`)
+- ✅ Native Messaging host (`vault-browser-host`) relaying to the desktop app over a per-user
+  named pipe; both ends check the other program; off until turned on in Settings, which also
+  registers the host for Chrome and Edge
+- ✅ Extension (Manifest V3, plain JavaScript, no packages) with no secrets: `activeTab` only,
+  no background worker, no content scripts
+- ✅ Fill with the login chosen in the extension's own window; strict origin matching in the
+  app (scheme + host + port, https only, top frame only); the item lock is respected; each fill
+  is announced in the app
+- ✅ Tests: origin matching and address tricks, the protocol against a vault, the pipe, the
+  relay, the page-side fill function (`node --test`), a manual clickjacking page
+- ⬜ Checked by hand in Chrome and Edge with a test vault
+- ⬜ Offer to save a new login; fill one-time codes; pick among subdomains by choice
+  ("this login also belongs to…"); Firefox
+- ⬜ Installer that puts the app and the host side by side; store listing
 - **Done when:** fills logins on Chromium with confirmation; clickjacking test page fails to leak.
 
 ### M6 — Sync server ⬜

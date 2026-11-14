@@ -33,6 +33,8 @@ cargo test --workspace
 | [`crates/import`](crates/import) | Import and export: JSON, CSV and KDBX files, and browsers' own stores on request |
 | [`crates/cli`](crates/cli) | `vault` command-line client |
 | [`crates/desktop`](crates/desktop) | Desktop app (Slint); design notes in [docs/DESIGN.md](docs/DESIGN.md) |
+| [`crates/browser`](crates/browser) | What the browser extension may ask the app, and its native host |
+| [`extension`](extension) | Chrome/Edge extension that fills logins (no secrets of its own); see its [README](extension/README.md) |
 
 ### Trying the desktop app (test vaults only)
 
