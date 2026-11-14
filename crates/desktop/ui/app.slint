@@ -106,6 +106,7 @@ export component AppWindow inherits Window {
     // Browser extension: the code of a connection waiting for an answer ("" = none);
     // whether one is connected.
     in property <string> pairing-code;
+    in property <bool> pairing-needs-password: true;
     in-out property <bool> browser-paired;
     callback pairing-decided(bool);
     callback forget-pairing();
@@ -788,6 +789,10 @@ export component AppWindow inherits Window {
         width: root.width;
         height: root.height;
         code: root.pairing-code;
+        needs-password: root.pairing-needs-password;
+        busy: root.busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
         decided(allow) => { root.pairing-decided(allow); }
     }
 

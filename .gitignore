@@ -45,3 +45,6 @@ Desktop.ini
 # Local Claude Code settings and preview config
 .claude/settings.local.json
 .claude/launch.json
+
+# Exports protected by a password (still: keep them out of the repository)
+*.vaultx

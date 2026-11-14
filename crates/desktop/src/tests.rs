@@ -478,7 +478,20 @@ fn whole_app_flow_headless() {
     let key: Vec<u8> = (0..32)
         .map(|i| u8::from_str_radix(&field(&pairing, "key")[2 * i..2 * i + 2], 16).unwrap())
         .collect();
+    // Connecting takes the master password, typed in the app's dialog.
+    assert!(app.get_pairing_needs_password());
     app.invoke_pairing_decided(true);
+    assert_eq!(app.get_error_code(), 11, "no password typed");
+    type_into(&app, 14, "not the master password");
+    app.invoke_pairing_decided(true);
+    assert_eq!(app.get_error_code(), 11);
+    assert_ne!(app.get_pairing_code(), "", "the dialog stays open");
+    assert!(signed(&key, logins_request).contains("not_paired"));
+    type_into(&app, 14, PASSWORD);
+    app.invoke_pairing_decided(true);
+    assert_eq!(app.get_error_code(), 0);
+    assert_eq!(app.get_pairing_code(), "");
+    assert_eq!(length(&app, 14), 0);
     assert_eq!(app.get_notice_code(), 41);
     assert!(app.get_browser_paired());
     let ask = |message: &str| signed(&key, message);
@@ -1384,6 +1397,56 @@ fn whole_app_flow_headless() {
     assert!(text.contains("\"Shop\"") && text.contains("Shopping"));
     assert_eq!(app.get_notice_code(), 21);
     std::fs::remove_file(exported).unwrap();
+
+    // An export protected by a password of its own: unreadable as a file, and Import reads
+    // it back with that password.
+    app.set_export_format(3);
+    type_into(&app, 5, PASSWORD);
+    type_into(&app, 6, "short");
+    type_into(&app, 7, "short");
+    app.invoke_export_plain();
+    assert_eq!(
+        app.get_error_code(),
+        5,
+        "too short for a file with one password"
+    );
+    type_into(&app, 5, PASSWORD);
+    type_into(&app, 6, "a long password for the file");
+    type_into(&app, 7, "another one entirely");
+    app.invoke_export_plain();
+    assert_eq!(app.get_error_code(), 4);
+    type_into(&app, 5, PASSWORD);
+    type_into(&app, 6, "a long password for the file");
+    type_into(&app, 7, "a long password for the file");
+    app.invoke_export_plain();
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert_eq!((length(&app, 6), length(&app, 7)), (0, 0));
+    let protected = path.with_extension("export.vaultx");
+    let bytes = std::fs::read(&protected).unwrap();
+    assert!(!bytes.windows(4).any(|w| w == b"Shop"), "nothing readable");
+    controller.start_import(protected.clone());
+    assert_eq!(app.get_import_stage(), 1, "asks for the file's password");
+    type_into(&app, 8, "not the password");
+    app.invoke_import_open();
+    assert_eq!(app.get_error_code(), 19);
+    type_into(&app, 8, "a long password for the file");
+    app.invoke_import_open();
+    assert_eq!(
+        app.get_import_stage(),
+        2,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert!(app.get_import_rows().row_count() >= 2);
+    assert_eq!(app.get_import_selected(), 0, "everything is already here");
+    app.invoke_import_cancel();
+    app.set_export_format(1);
+    std::fs::remove_file(protected).unwrap();
 
     // ---- a second vault, and back to the first ----
     let second = dir.path().join("second.vault");

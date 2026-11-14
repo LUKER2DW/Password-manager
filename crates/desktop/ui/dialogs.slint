@@ -2,7 +2,7 @@
 
 import { Theme } from "theme.slint";
 import { Messages } from "model.slint";
-import { Button, QuietButton, LineField, Hint } from "widgets.slint";
+import { Button, QuietButton, LineField, Hint, SecretField } from "widgets.slint";
 import { Glyph, FolderLook, FieldColors } from "icons.slint";
 
 // The dimmed backdrop and a centered card. Clicks outside the card do nothing (the dialog closes
@@ -50,10 +50,16 @@ component Modal inherits Rectangle {
 
 // Create a folder, change its name and look, or confirm deleting it.
 //   mode 0 = new folder, 1 = folder settings, 2 = delete?
-// A browser extension asks to be connected: the person compares the code and decides.
+// A browser extension asks to be connected: the person types the master password and
+// connects, or refuses.
 export component PairingDialog inherits Modal {
     in property <string> code;
+    in property <bool> needs-password;
+    in property <bool> busy;
+    in property <int> error-code;
+    in property <string> error-detail;
     callback decided(bool);
+    focus-on-open: !root.needs-password;
     dismissed => { root.decided(false); }
     Text {
         text: @tr("Connect the browser extension?");
@@ -61,7 +67,7 @@ export component PairingDialog inherits Modal {
         color: Theme.ink;
     }
     Text {
-        text: @tr("A browser extension on this computer asks to fill logins from this vault. Allow it only if you just clicked “Connect” in the extension and it shows this same code:");
+        text: @tr("The browser extension on this computer asks to fill logins from this vault. Connect it only if you just clicked “Connect” in the extension. It shows this same code:");
         font-size: Theme.body;
         color: Theme.graphite;
         wrap: word-wrap;
@@ -72,6 +78,21 @@ export component PairingDialog inherits Modal {
         font-size: 28px;
         color: Theme.ink;
         horizontal-alignment: center;
+    }
+    if root.needs-password: SecretField {
+        field: 14;
+        label: @tr("Master password");
+        icon: "key";
+        required: true;
+        error: root.error-code == 11 || root.error-code == 34;
+        accepted => { root.decided(true); }
+        init => { self.focus(); }
+    }
+    if root.error-code != 0: Text {
+        text: Messages.error(root.error-code, root.error-detail);
+        font-size: Theme.small;
+        color: Theme.seal;
+        wrap: word-wrap;
     }
     Text {
         text: @tr("If you didn't ask for this, refuse: something else is trying to reach your vault.");
@@ -90,7 +111,9 @@ export component PairingDialog inherits Modal {
             }
         }
         Button {
-            text: @tr("Allow");
+            text: @tr("Connect");
+            busy-text: @tr("Checking…");
+            busy: root.busy;
             clicked => { root.decided(true); }
         }
     }

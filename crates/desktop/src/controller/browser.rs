@@ -18,7 +18,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use slint::SharedString;
+use slint::{ComponentHandle, SharedString};
 use vault_browser::{
     host::NOT_RUNNING,
     pairing::{Envelope, PairingKey},
@@ -32,7 +32,7 @@ use vault_platform::{
 };
 use zeroize::Zeroizing;
 
-use super::{CURRENT, Controller, Runner, error, notice};
+use super::{CURRENT, Controller, JobResult, Runner, error, field, notice};
 
 const PAIRING_PURPOSE: &str = "browser-pairing";
 const LOCKED: &[u8] = br#"{"type":"error","code":"locked"}"#;
@@ -247,31 +247,109 @@ impl Controller {
         Some(key)
     }
 
-    /// An extension asks to be connected: make a key, show its code, and wait for the person
-    /// to decide in this window. Until they allow it, the key opens nothing.
+    /// An extension asks to be connected: make a key, bring this window forward and ask the
+    /// person (their master password, and Connect). Until then the key opens nothing. With
+    /// the vault locked, the question comes right after it is unlocked.
     fn start_pairing(&self) -> Zeroizing<Vec<u8>> {
-        if self.state.borrow().session.is_none() {
-            return Zeroizing::new(LOCKED.to_vec());
-        }
         let Some(key) = PairingKey::generate() else {
             return Zeroizing::new(BAD_REQUEST.to_vec());
         };
-        let code = key.code();
-        let reply = serde_json_pairing(&key, &code);
-        self.state.borrow_mut().browser_pending = Some(key);
-        self.app().set_pairing_code(SharedString::from(code));
+        let reply = pairing_reply(&key, &key.code());
+        let open = {
+            let mut state = self.state.borrow_mut();
+            state.browser_pending = Some(key);
+            state.session.is_some()
+        };
+        if open {
+            self.offer_pending_pairing(true);
+        }
+        self.bring_to_front();
         reply
     }
 
-    /// The person's answer to the pairing dialog.
+    /// Shows the dialog for a connection that is waiting. `needs_password` is off when the
+    /// master password was typed a moment ago to unlock the vault for this.
+    pub(super) fn offer_pending_pairing(&self, needs_password: bool) {
+        let Some(code) = self
+            .state
+            .borrow()
+            .browser_pending
+            .as_ref()
+            .map(PairingKey::code)
+        else {
+            return;
+        };
+        self.clear_secret(field::PAIRING);
+        let app = self.app();
+        app.set_pairing_needs_password(needs_password);
+        app.set_pairing_code(SharedString::from(code));
+    }
+
+    /// Puts the app's window in front, so the person sees what the extension asked for.
+    fn bring_to_front(&self) {
+        if self.state.borrow().runner == Runner::Inline {
+            return;
+        }
+        use slint::winit_030::WinitWindowAccessor;
+        self.app().window().with_winit_window(|window| {
+            window.set_minimized(false);
+            window.focus_window();
+            window.request_user_attention(Some(
+                slint::winit_030::winit::window::UserAttentionType::Informational,
+            ));
+        });
+    }
+
+    /// The person's answer to the pairing dialog. Connecting needs the master password,
+    /// checked against the vault file, unless it was just typed to unlock.
     pub(super) fn pairing_decided(&self, allow: bool) {
+        let app = self.app();
+        if !allow {
+            self.state.borrow_mut().browser_pending = None;
+            self.clear_secret(field::PAIRING);
+            app.set_pairing_code(SharedString::new());
+            self.set_error(error::NONE, "");
+            return;
+        }
+        if self.state.borrow().browser_pending.is_none() {
+            app.set_pairing_code(SharedString::new());
+            return;
+        }
+        if !app.get_pairing_needs_password() {
+            return self.finish_pairing();
+        }
+        let typed = Zeroizing::new(
+            self.state.borrow().secrets[field::PAIRING]
+                .as_str()
+                .to_owned(),
+        );
+        if typed.is_empty() {
+            self.set_error(error::WRONG_CURRENT, "");
+            return;
+        }
+        let Some(session) = self.state.borrow_mut().session.take() else {
+            return;
+        };
+        let path = self.state.borrow().path.clone();
+        self.run_job(
+            move || match super::verify_current(&path, &typed, &session) {
+                Ok(()) => JobResult::PairingVerified { session },
+                Err((code, detail)) => JobResult::Failed {
+                    code,
+                    detail,
+                    session: Some(session),
+                },
+            },
+        );
+    }
+
+    /// Stores the connection: from now on requests signed with its key are answered.
+    pub(super) fn finish_pairing(&self) {
+        self.clear_secret(field::PAIRING);
         self.app().set_pairing_code(SharedString::new());
         let Some(key) = self.state.borrow_mut().browser_pending.take() else {
             return;
         };
-        if !allow {
-            return;
-        }
         let stored = {
             let state = self.state.borrow();
             state.session.as_ref().and_then(|session| {
@@ -287,6 +365,7 @@ impl Controller {
         if stored.is_some() {
             self.state.borrow_mut().browser_pairing = Some(key);
             self.app().set_browser_paired(true);
+            self.set_error(error::NONE, "");
             self.notify(notice::BROWSER_PAIRED, "");
         } else {
             self.set_error(error::OTHER, "the connection could not be saved");
@@ -326,7 +405,7 @@ impl Controller {
 }
 
 /// `{"type":"pairing","key":…,"code":…}`, in a buffer wiped on drop.
-fn serde_json_pairing(key: &PairingKey, code: &str) -> Zeroizing<Vec<u8>> {
+fn pairing_reply(key: &PairingKey, code: &str) -> Zeroizing<Vec<u8>> {
     Zeroizing::new(
         format!(
             r#"{{"type":"pairing","key":"{}","code":"{code}"}}"#,

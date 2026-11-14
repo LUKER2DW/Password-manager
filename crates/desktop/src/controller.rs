@@ -76,7 +76,9 @@ mod field {
     /// New PIN or password for the item lock, and the master password that allows the change.
     pub const GUARD_NEW: usize = 12;
     pub const GUARD_CURRENT: usize = 13;
-    pub const COUNT: usize = 14;
+    /// The master password typed to connect a browser extension.
+    pub const PAIRING: usize = 14;
+    pub const COUNT: usize = 15;
 }
 
 /// Error codes (texts live in model.slint → Messages.error).
@@ -260,6 +262,10 @@ enum JobResult {
         session: Session,
     },
     KitVerified {
+        session: Session,
+    },
+    /// The master password was right: the browser extension may be connected.
+    PairingVerified {
         session: Session,
     },
     RecoveryIssued {
@@ -944,9 +950,13 @@ impl Controller {
                     }
                     app.set_needs_secret_key(false);
                 }
+                // An extension asked to connect while the vault was locked: the master
+                // password just typed (not Windows Hello) already answers its dialog.
+                let pairing_by_password = seconds.is_some();
                 self.clear_secret(field::MASTER);
                 self.clear_secret(field::SECRET_KEY);
                 self.enter_vault(session);
+                self.offer_pending_pairing(!pairing_by_password);
             }
             JobResult::KdfFailed {
                 code,
@@ -1073,6 +1083,10 @@ impl Controller {
                 if let Some(reason) = reason {
                     self.notify(notice::HELLO_NOT_ON, &reason);
                 }
+            }
+            JobResult::PairingVerified { session } => {
+                self.state.borrow_mut().session = Some(session);
+                self.finish_pairing();
             }
             JobResult::KitVerified { session } => {
                 self.clear_secret(field::CURRENT);
@@ -3180,7 +3194,7 @@ impl Controller {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         app.set_import_file(SharedString::from(name));
-        app.set_import_plaintext(format != vault_import::Format::Kdbx);
+        app.set_import_plaintext(!format.needs_password());
         self.set_error(error::NONE, "");
         self.state.borrow_mut().pending_import = Some(PendingImport {
             path,
@@ -3188,7 +3202,7 @@ impl Controller {
             format,
             report: None,
         });
-        if format == vault_import::Format::Kdbx {
+        if format.needs_password() {
             self.clear_secret(field::IMPORT);
             app.set_import_stage(1);
         } else {
@@ -3348,18 +3362,46 @@ impl Controller {
     fn export_verified(&self, mut session: Session) {
         self.clear_secret(field::CURRENT);
         let app = self.app();
-        let csv = app.get_export_format() == 2;
+        let format = app.get_export_format();
+        let csv = format == 2;
+        // 3: the export protected by a password chosen for the file.
+        let protected = format == 3;
+        let file_password =
+            Zeroizing::new(self.state.borrow().secrets[field::NEW].as_str().to_owned());
+        if protected {
+            let again = Zeroizing::new(
+                self.state.borrow().secrets[field::NEW_AGAIN]
+                    .as_str()
+                    .to_owned(),
+            );
+            let problem = if file_password.chars().count() < 12 {
+                Some(error::TOO_SHORT)
+            } else if *file_password != *again {
+                Some(error::MISMATCH)
+            } else {
+                None
+            };
+            if let Some(code) = problem {
+                self.state.borrow_mut().session = Some(session);
+                self.set_error(code, "");
+                return;
+            }
+        }
         let sealed = session
             .vault
             .summaries()
             .is_ok_and(|all| all.iter().any(|s| s.locked));
-        let text = if sealed {
+        let text: Result<Zeroizing<Vec<u8>>, CoreError> = if sealed {
             Err(CoreError::SecretsLocked)
+        } else if protected {
+            vault_import::export_sealed(&session.vault, &file_password).map(Zeroizing::new)
         } else if csv {
-            vault_import::export_csv(&session.vault)
+            vault_import::export_csv(&session.vault).map(|t| Zeroizing::new(t.as_bytes().to_vec()))
         } else {
-            vault_import::export_json(&session.vault)
+            vault_import::export_json(&session.vault).map(|t| Zeroizing::new(t.as_bytes().to_vec()))
         };
+        self.clear_secret(field::NEW);
+        self.clear_secret(field::NEW_AGAIN);
         if !self.state.borrow().secrets_open {
             session.vault.lock_secrets();
         }
@@ -3376,18 +3418,37 @@ impl Controller {
                 return;
             }
         };
-        let extension = if csv { "csv" } else { "json" };
+        let extension = if protected {
+            "vaultx"
+        } else if csv {
+            "csv"
+        } else {
+            "json"
+        };
         let target = match runner {
             // Headless tests: next to the test vault.
             Runner::Inline => Some(vault_path.with_extension(format!("export.{extension}"))),
             Runner::Thread => rfd::FileDialog::new()
-                .set_title("Export without encryption")
+                .set_title(if protected {
+                    "Export protected by a password"
+                } else {
+                    "Export without encryption"
+                })
                 .set_file_name(format!("vault-export.{extension}"))
-                .add_filter(if csv { "CSV" } else { "JSON" }, &[extension])
+                .add_filter(
+                    if protected {
+                        "Protected export"
+                    } else if csv {
+                        "CSV"
+                    } else {
+                        "JSON"
+                    },
+                    &[extension],
+                )
                 .save_file(),
         };
         let Some(target) = target else { return };
-        match std::fs::write(&target, text.as_bytes()) {
+        match std::fs::write(&target, text.as_slice()) {
             Ok(()) => self.notify(notice::EXPORTED, &target.display().to_string()),
             Err(err) => self.set_error(error::FILE, &err.to_string()),
         }
