@@ -33,6 +33,7 @@ all = { level = "warn", priority = -1 }
 vault-core = { path = "../core" }
 vault-platform = { path = "../platform" }
 vault-import = { path = "../import" }
+vault-browser = { path = "../browser" }
 # The Slint screens, compiled apart (see its lib.rs).
 vault-desktop-ui = { path = "ui" }
 anyhow = "1"

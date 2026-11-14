@@ -42,6 +42,7 @@ use crate::{
     view,
 };
 
+mod browser;
 mod features;
 mod folders;
 mod navigation;
@@ -116,6 +117,7 @@ mod error {
     pub const GUARD_WRONG: i32 = 35;
     pub const GUARD_SECRET: i32 = 36;
     pub const SECRETS_LOCKED: i32 = 37;
+    pub const BROWSER_HOST: i32 = 38;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -158,6 +160,7 @@ mod notice {
     pub const GUARD_SAVED: i32 = 37;
     pub const GUARD_LOCKED_OUT: i32 = 38;
     pub const SECRETS_LOCKED: i32 = 39;
+    pub const BROWSER_FILLED: i32 = 40;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -333,6 +336,8 @@ struct State {
     unlock_seconds: Option<f64>,
     /// The item lock's check was passed: every locked item is open, until locked again.
     secrets_open: bool,
+    /// Listening for the browser extension (Settings → Browser extension).
+    browser_link: Option<browser::BrowserLink>,
     /// Wrong tries at a guarded item since the last right one.
     guard_attempts: u32,
 }
@@ -447,6 +452,7 @@ impl Controller {
                 dialog_folder: None,
                 unlock_seconds: None,
                 secrets_open: false,
+                browser_link: None,
                 guard_attempts: 0,
             }),
             timers: Timers::default(),
@@ -456,6 +462,9 @@ impl Controller {
         });
         *controller.this.borrow_mut() = Rc::downgrade(&controller);
         CURRENT.with(|current| *current.borrow_mut() = Rc::downgrade(&controller));
+        if controller.state.borrow().settings.browser_extension {
+            controller.apply_browser_link(true);
+        }
 
         app.global::<Secrets>()
             .set_lengths(ModelRc::from(controller.lengths.clone()));
@@ -3091,6 +3100,7 @@ impl Controller {
         app.set_auto_lock_minutes(settings.auto_lock_minutes as i32);
         app.set_clipboard_seconds(settings.clipboard_clear_seconds as i32);
         app.set_website_icons(settings.website_icons);
+        app.set_browser_extension(settings.browser_extension);
         self.show_vault_settings();
         app.set_kit_secret_key(SharedString::new());
         app.set_kit_recovery_key(SharedString::new());
@@ -3447,6 +3457,7 @@ impl Controller {
                 .unwrap_or(20),
             dark_theme: app.global::<Theme>().get_dark(),
             website_icons: app.get_website_icons(),
+            browser_extension: app.get_browser_extension(),
             generator: self.state.borrow().settings.generator.clone(),
         };
         let mut device_state = DeviceState::load().unwrap_or_default();
@@ -3455,7 +3466,11 @@ impl Controller {
             self.set_error(error::FILE, &err.to_string());
         }
         let icons_were_on = self.state.borrow().settings.website_icons;
+        let browser_was_on = self.state.borrow().settings.browser_extension;
         self.state.borrow_mut().settings = settings.clone();
+        if browser_was_on != settings.browser_extension {
+            self.apply_browser_link(settings.browser_extension);
+        }
         self.restart_auto_lock();
         match (icons_were_on, settings.website_icons) {
             (false, true) => {

@@ -1472,6 +1472,7 @@ export component SettingsPage inherits Rectangle {
     in-out property <int> auto-lock-minutes;
     in-out property <int> clipboard-seconds;
     in-out property <bool> website-icons;
+    in-out property <bool> browser-extension;
     in property <bool> quick-unlock-available;
     in-out property <bool> quick-unlock-on;
     callback quick-unlock-toggled(bool);
@@ -1668,6 +1669,24 @@ export component SettingsPage inherits Rectangle {
                         busy: root.busy;
                         clicked => { root.change-password(); }
                     }
+                }
+            }
+
+            SettingsCard {
+                icon: "globe";
+                title: @tr("Browser extension");
+                summary: @tr("Fills your logins in Chrome and Edge. You click the extension's button, pick the login in its own window, and it is typed into the page.");
+                hint: @tr("The extension keeps no passwords. It asks this app, on this computer only, and gets an answer only while the vault is open, only for the exact site a login was saved for, and only on pages with https. Logins behind the item lock must be opened here first. Each fill shows a notice in this app. Limit: a malicious program already running under your Windows account could ask the same way while the vault is open, which is one more reason to use the item lock for the accounts that matter.");
+                Check {
+                    text: @tr("Let the browser extension ask this app for logins");
+                    checked <=> root.browser-extension;
+                    toggled => { root.settings-changed(); }
+                }
+                Text {
+                    text: @tr("To install it: open chrome://extensions (or edge://extensions), turn on Developer mode, choose “Load unpacked” and pick the “extension” folder of this project.");
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
                 }
             }
 

@@ -155,6 +155,7 @@ export global Messages {
         if (code == 34) { return @tr("That master password and keyfile don't open this vault. Check Caps Lock, and that it is the right file."); }
         if (code == 35) { return detail == "1" ? @tr("That isn't it. One more wrong try locks the vault.") : @tr("That isn't it. {} tries left before the vault locks.", detail); }
         if (code == 36) { return @tr("A PIN has 4 to 8 digits; an item password at least 6 characters."); }
+        if (code == 38) { return @tr("The helper program for browsers ({}) is missing next to the app, so the extension can't be connected.", detail); }
         if (code == 37) { return @tr("Locked secrets are in the way. Open the item lock first: type its PIN or password on a locked item or on the Authenticator page, then try again."); }
 
         if (code == 24) { return @tr("The vault file was changed outside this window (another window or program). Your last change was not saved: lock and unlock to load the newest version, then make it again."); }
@@ -244,6 +245,7 @@ export global Messages {
         if (code == 37) { return @tr("Item lock saved."); }
         if (code == 38) { return @tr("Too many wrong tries: the vault locked itself. Unlock it with your master password."); }
         if (code == 39) { return @tr("Secrets locked again."); }
+        if (code == 40) { return @tr("Filled “{}” in the browser.", arg); }
         return "";
     }
 

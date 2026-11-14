@@ -311,6 +311,7 @@ export component AppWindow inherits Window {
     in-out property <int> auto-lock-minutes: 5;
     in-out property <int> clipboard-seconds: 20;
     in-out property <bool> website-icons;
+    in-out property <bool> browser-extension;
     in property <string> vault-file-name;
     in-out property <string> vault-name-edit;
     in-out property <int> history-limit: 10;
@@ -643,6 +644,7 @@ export component AppWindow inherits Window {
                 auto-lock-minutes <=> root.auto-lock-minutes;
                 clipboard-seconds <=> root.clipboard-seconds;
                 website-icons <=> root.website-icons;
+                browser-extension <=> root.browser-extension;
                 vault-file-name: root.vault-file-name;
                 vault-name <=> root.vault-name-edit;
                 history-limit <=> root.history-limit;

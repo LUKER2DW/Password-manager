@@ -418,6 +418,36 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_panel(), Panel::Detail);
     assert_eq!(app.get_detail_title(), "GitHub");
 
+    // ---- browser extension: logins for the exact site, a password only when picked ----
+    let ask = |message: &str| {
+        String::from_utf8(controller.browser_request(message.as_bytes()).to_vec()).unwrap()
+    };
+    assert!(ask(r#"{"type":"status"}"#).contains(r#""locked":false"#));
+    let logins = ask(r#"{"type":"logins","url":"https://github.com/login"}"#);
+    assert!(
+        logins.contains(r#""origin":"https://github.com""#),
+        "{logins}"
+    );
+    assert!(logins.contains(r#""title":"GitHub""#) && !logins.contains("password"));
+    let id = logins
+        .split(r#""id":""#)
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap()
+        .to_owned();
+    app.set_notice_code(0);
+    let phishing = ask(&format!(
+        r#"{{"type":"fill","url":"https://github.com.evil.example/login","id":"{id}"}}"#
+    ));
+    assert!(phishing.contains("no_match"), "{phishing}");
+    assert_eq!(app.get_notice_code(), 0);
+    let filled = ask(&format!(
+        r#"{{"type":"fill","url":"https://github.com/session","id":"{id}"}}"#
+    ));
+    assert!(filled.contains(r#""username":""#) && filled.contains(r#""password":""#));
+    assert_eq!(app.get_notice_code(), 40, "a fill is announced in the app");
+    assert_eq!(app.get_notice_arg(), "GitHub");
+
     // ---- extra fields ----
     app.invoke_edit_item();
     app.invoke_field_add();
@@ -729,6 +759,10 @@ fn whole_app_flow_headless() {
     app.set_ed_reprompt(true);
     app.invoke_save_item();
     assert!(app.get_detail_locked(), "marked: locked from now on");
+    assert!(
+        ask(r#"{"type":"logins","url":"https://github.com/"}"#).contains(r#""locked":true"#),
+        "the extension sees the item lock too"
+    );
     assert_eq!(app.get_detail_check(), 0, "the master password by default");
     assert_eq!(app.get_detail_title(), "GitHub");
     assert_ne!(
