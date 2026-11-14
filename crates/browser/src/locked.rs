@@ -7,7 +7,9 @@
 //! - a password leaves only after Windows Hello, which the app asks for before answering,
 //!   for one login of the page's own origin (fill) or one picked in the extension's window
 //!   (show, copy). Nothing typed in the browser opens anything here: no PIN.
-//! - anything that needs the vault itself (saving, one-time codes) is refused as locked. The
+//! - a login saved meanwhile is handed to the app to keep sealed until the next unlock
+//!   ([`answer_locked_save`], `vault_core::drop_box`): nothing is asked for that;
+//! - anything else that needs the vault itself (one-time codes) is refused as locked. The
 //!   generator needs no vault: the app answers it first with
 //!   [`crate::service::answer_generator`], locked or not.
 
@@ -31,6 +33,89 @@ pub struct LockedLogin {
     pub urls: Vec<String>,
     /// Its password was kept for filling while locked.
     pub fillable: bool,
+}
+
+/// A login saved from the browser while the vault is locked, for the app to keep sealed.
+pub struct QueuedLogin {
+    /// The page's origin (`https://host[:port]`).
+    pub url: String,
+    pub title: String,
+    pub username: String,
+    pub password: Zeroizing<String>,
+}
+
+impl std::fmt::Debug for QueuedLogin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QueuedLogin")
+            .field("url", &self.url)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Answers a [`Request::Save`] while the vault is locked: the login goes to `queue`, which
+/// keeps it sealed for the next unlock (and says whether it could). A login already known for
+/// that site and username (from `logins`) is reported as existing. `None` for any other
+/// request.
+pub fn answer_locked_save(
+    message: &[u8],
+    logins: &[LockedLogin],
+    queue: &mut dyn FnMut(QueuedLogin) -> bool,
+) -> Option<Answer> {
+    let Ok(Request::Save {
+        url,
+        title,
+        username,
+        password,
+        ..
+    }) = serde_json::from_slice::<Request>(message)
+    else {
+        return None;
+    };
+    let origin = match page_origin(&url) {
+        Ok(origin) => origin,
+        Err(response) => return Some(finish(response, None, None)),
+    };
+    if password.as_str().is_empty() || username.len() > 1024 || password.as_str().len() > 1024 {
+        return Some(finish(error(ErrorCode::BadRequest), None, None));
+    }
+    let existing = logins
+        .iter()
+        .any(|login| login.username == username && item_matches(&login.urls, &origin));
+    if existing {
+        return Some(finish(
+            Response::Saved {
+                existing: true,
+                queued: false,
+            },
+            None,
+            None,
+        ));
+    }
+    let host = origin.host();
+    let title = title
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| host.strip_prefix("www.").unwrap_or(host))
+        .to_owned();
+    let kept = queue(QueuedLogin {
+        url: origin.as_str().to_owned(),
+        title,
+        username,
+        password: Zeroizing::new(password.as_str().to_owned()),
+    });
+    Some(finish(
+        if kept {
+            Response::Saved {
+                existing: false,
+                queued: true,
+            }
+        } else {
+            error(ErrorCode::Locked)
+        },
+        None,
+        None,
+    ))
 }
 
 /// What opens a kept password: the app, with what Windows Hello produced for this request.
@@ -246,6 +331,65 @@ mod tests {
     fn ask(gate: &mut Hello, request: Value) -> Value {
         let answer = answer_locked(request.to_string().as_bytes(), &logins(), gate);
         serde_json::from_slice(&answer.bytes).unwrap()
+    }
+
+    #[test]
+    fn a_login_saved_while_locked_is_queued_without_asking() {
+        let mut queued = Vec::new();
+        let save = |request: Value, queued: &mut Vec<QueuedLogin>| {
+            let answer =
+                answer_locked_save(request.to_string().as_bytes(), &logins(), &mut |login| {
+                    queued.push(login);
+                    true
+                })
+                .expect("a save");
+            serde_json::from_slice::<Value>(&answer.bytes).unwrap()
+        };
+        let reply = save(
+            json!({"type": "save", "url": "https://shop.example/join", "username": "me",
+                   "password": "new-secret"}),
+            &mut queued,
+        );
+        assert_eq!(
+            reply,
+            json!({"type": "saved", "existing": false, "queued": true})
+        );
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].url, "https://shop.example");
+        assert_eq!(queued[0].title, "shop.example");
+        assert_eq!(queued[0].password.as_str(), "new-secret");
+        assert!(!format!("{:?}", queued[0]).contains("new-secret"));
+        // Known already: nothing is queued.
+        let known = save(
+            json!({"type": "save", "url": "https://github.com/login", "username": "octocat",
+                   "password": "x"}),
+            &mut queued,
+        );
+        assert_eq!(known, json!({"type": "saved", "existing": true}));
+        // Not https: refused before anything is kept.
+        let insecure = save(
+            json!({"type": "save", "url": "http://shop.example/", "username": "me",
+                   "password": "x"}),
+            &mut queued,
+        );
+        assert_eq!(insecure["code"], "insecure_page");
+        assert_eq!(queued.len(), 1);
+        // Other requests are not answered here.
+        assert!(answer_locked_save(br#"{"type":"status"}"#, &logins(), &mut |_| true).is_none());
+        // The app couldn't keep it: locked.
+        let refused = answer_locked_save(
+            json!({"type": "save", "url": "https://shop.example/", "username": "you",
+                   "password": "x"})
+            .to_string()
+            .as_bytes(),
+            &logins(),
+            &mut |_| false,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&refused.bytes).unwrap(),
+            json!({"type": "error", "code": "locked"})
+        );
     }
 
     #[test]

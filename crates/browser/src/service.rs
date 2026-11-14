@@ -102,8 +102,7 @@ pub fn wants_hello(message: &[u8]) -> bool {
         serde_json::from_slice::<Request>(message),
         Ok(Request::Fill { hello: true, .. }
             | Request::Reveal { hello: true, .. }
-            | Request::Copy { hello: true, .. }
-            | Request::Save { hello: true, .. })
+            | Request::Copy { hello: true, .. })
     )
 }
 
@@ -569,24 +568,27 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 })
             });
             if existing {
-                return Response::Saved { existing: true }.into();
+                return Response::Saved {
+                    existing: true,
+                    queued: false,
+                }
+                .into();
             }
             let host = origin.host();
             let named = title.as_deref().map(str::trim).filter(|t| !t.is_empty());
             let title = named.unwrap_or_else(|| host.strip_prefix("www.").unwrap_or(host));
             let item = ItemData::login(title, &username, password.as_str(), origin.as_str());
-            let opened = vault.needs_unlock_to_store(&item);
-            if opened && let Err(response) = open_gate(vault, gate, check, hello) {
-                return response.into();
-            }
-            let added = vault.add_item(&item);
-            if opened {
-                gate.close(vault);
-            }
-            match added {
+            // A new login needs no PIN or Windows Hello: the item lock seals it the next time
+            // it opens (`Vault::add_item`). `check` and `hello` are accepted and ignored.
+            let _ = (check, hello);
+            match vault.add_item(&item) {
                 Ok(_) => Outcome {
                     saved: Some(item.title.clone()),
-                    ..Response::Saved { existing: false }.into()
+                    ..Response::Saved {
+                        existing: false,
+                        queued: false,
+                    }
+                    .into()
                 },
                 Err(_) => error(ErrorCode::BadRequest).into(),
             }
@@ -894,6 +896,10 @@ mod tests {
         assert!(!wants_hello(
             b"{\"type\":\"logins\",\"url\":\"x\",\"hello\":true}"
         ));
+        // Saving a new login never asks for Windows Hello.
+        assert!(!wants_hello(
+            br#"{"type":"save","url":"https://x.example/","username":"u","password":"p","hello":true}"#
+        ));
         let (reply, _) = ask_with(Some(&mut vault), &mut gate, with_hello.clone());
         assert_eq!(
             reply,
@@ -1081,7 +1087,7 @@ mod tests {
     }
 
     #[test]
-    fn saving_under_an_item_lock_that_covers_everything_asks_for_it() {
+    fn saving_under_an_item_lock_that_covers_everything_asks_nothing() {
         let (mut vault, ..) = vault();
         vault
             .set_item_guard(true, GuardCheck::Pin, Some("482193"), None)
@@ -1120,19 +1126,27 @@ mod tests {
             }
         }
         let before = vault.len();
-        let mut save = json!({"type": "save", "url": "https://shop.example/",
-                              "username": "me", "password": "new-secret"});
+        let save = json!({"type": "save", "url": "https://shop.example/",
+                          "username": "me", "password": "new-secret"});
         let reply = answer(save.to_string().as_bytes(), Some(&mut vault), &mut Real);
         assert_eq!(
             serde_json::from_slice::<Value>(&reply.bytes).unwrap(),
-            json!({"type": "error", "code": "item_locked", "check": "pin"})
+            json!({"type": "saved", "existing": false})
         );
-        assert_eq!(vault.len(), before);
-        save["check"] = json!("482193");
-        let reply = answer(save.to_string().as_bytes(), Some(&mut vault), &mut Real);
         assert_eq!(reply.saved.as_deref(), Some("shop.example"));
-        assert!(!vault.secrets_open(), "locked again after the save");
+        assert!(!vault.secrets_open());
         assert_eq!(vault.len(), before + 1);
+        // Sealed under the item lock the next time it opens.
+        assert_eq!(vault.pending_seal().unwrap(), 1);
+        assert!(vault.unlock_secrets("482193").unwrap());
+        assert_eq!(vault.seal_pending().unwrap(), 1);
+        vault.lock_secrets();
+        let saved = vault
+            .item_ids()
+            .map(|id| vault.get_item(&id).unwrap())
+            .find(|item| item.title == "shop.example")
+            .unwrap();
+        assert!(saved.is_locked());
     }
 
     #[test]

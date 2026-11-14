@@ -197,8 +197,12 @@ pub enum Response {
     /// Generated password kept in the history.
     Kept {},
     /// The login was saved; `existing` when one with that username was already there.
+    /// `queued`: the vault is locked, so the login waits (sealed) and joins the vault at the
+    /// next unlock.
     Saved {
         existing: bool,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        queued: bool,
     },
     /// The app is asking the person whether to connect this extension. `key` is the shared
     /// key (hex), useless until the person allows it in the app; `code` is shown by both.
