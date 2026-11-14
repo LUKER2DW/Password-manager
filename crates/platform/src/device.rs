@@ -53,6 +53,8 @@ pub struct Settings {
     pub browser_locked_fill: bool,
     /// The generator's last options.
     pub generator: GeneratorPrefs,
+    /// The app's language (`pt_BR`); empty follows the system.
+    pub language: String,
 }
 
 impl Default for Settings {
@@ -66,6 +68,7 @@ impl Default for Settings {
             close_to_tray: true,
             browser_locked_fill: true,
             generator: GeneratorPrefs::default(),
+            language: String::new(),
         }
     }
 }
