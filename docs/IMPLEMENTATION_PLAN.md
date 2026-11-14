@@ -112,7 +112,7 @@ Rules:
   password change, master password every 14 days (tested with a fake verifier; the real prompt
   needs a manual check)
 - ⬜ YubiKey (FIDO2 `hmac-secret`) slot; optional "master password after every restart"
-- ⬜ `pt-BR` translation file
+- 🚧 `pt-BR` translation (started: tray menu, auto-lock countdown, language setting; see M4.x)
 - ✅ Password history (format v2): the old password is kept when it changes, shown with its
   date, revealed and copied on request, cleared on request; how many are kept is a vault setting
 - ✅ Password health page: strength (zxcvbn) with the reason a password is weak, reused
