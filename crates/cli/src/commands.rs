@@ -4,7 +4,8 @@ use std::{path::PathBuf, time::Duration};
 
 use anyhow::{Context as _, Result, bail};
 use vault_core::{
-    ItemData, ItemId, ItemKind, KdfParams, RecoveryKey, SecretKey, Unlock, Vault,
+    ItemData, ItemId, ItemKind, KdfMethod, KdfParams, KdfStrength, PasswordKdf, RecoveryKey,
+    SecretKey, Unlock, Vault,
     generator::{self, PassphraseOptions, PasswordOptions},
     storage,
     totp::Totp,
@@ -112,6 +113,7 @@ pub fn init(
     no_recovery_key: bool,
     kdf_target_ms: u64,
     kdf_memory_mib: u32,
+    other_hash: Option<(KdfMethod, KdfStrength)>,
 ) -> Result<()> {
     if ctx.path.exists() {
         bail!(
@@ -121,13 +123,25 @@ pub fn init(
     }
     let password = new_master_password(prompter)?;
 
-    eprintln!("Calibrating Argon2id for this computer…");
-    let kdf = KdfParams::calibrate(
-        kdf_memory_mib.saturating_mul(1024),
-        KdfParams::default_parallelism(),
-        Duration::from_millis(kdf_target_ms),
-    )
-    .map_err(explain)?;
+    let kdf: PasswordKdf = match other_hash {
+        Some((method, level)) => {
+            eprintln!(
+                "Note: Argon2id (the default) resists password guessing on graphics cards \
+                 better than scrypt, and far better than PBKDF2."
+            );
+            PasswordKdf::preset(method, level).map_err(explain)?
+        }
+        None => {
+            eprintln!("Calibrating Argon2id for this computer…");
+            KdfParams::calibrate(
+                kdf_memory_mib.saturating_mul(1024),
+                KdfParams::default_parallelism(),
+                Duration::from_millis(kdf_target_ms),
+            )
+            .map_err(explain)?
+            .into()
+        }
+    };
 
     let secret_key = SecretKey::generate().map_err(explain)?;
     let recovery_key = if no_recovery_key {
@@ -147,13 +161,10 @@ pub fn init(
     session::store_secret_key(&vault.id_hex(), &secret_key)?;
     session::record_new_vault(&vault)?;
 
-    let params = vault.kdf_params();
     eprintln!(
-        "Vault created: {} (Argon2id {} MiB, {} iterations, {} lanes)",
+        "Vault created: {} ({})",
         ctx.path.display(),
-        params.memory_kib() / 1024,
-        params.iterations(),
-        params.parallelism()
+        describe_kdf(vault.kdf_params())
     );
     print_kit(
         &vault.id_hex(),
@@ -164,6 +175,22 @@ pub fn init(
     Ok(())
 }
 
+/// "Argon2id, 256 MiB, 3 iterations, 4 lanes" and the like.
+fn describe_kdf(kdf: &PasswordKdf) -> String {
+    match kdf {
+        PasswordKdf::Argon2id(params) => format!(
+            "Argon2id, {} MiB, {} iterations, {} lanes",
+            params.memory_kib() / 1024,
+            params.iterations(),
+            params.parallelism()
+        ),
+        PasswordKdf::Scrypt { .. } => format!("scrypt, {} MiB", kdf.memory_mib()),
+        PasswordKdf::Pbkdf2Sha256 { iterations, .. } => {
+            format!("PBKDF2-SHA-256, {iterations} iterations")
+        }
+    }
+}
+
 pub fn info(ctx: &Context) -> Result<()> {
     let bytes = session::read_vault_file(&ctx.path)?;
     let info = Vault::inspect(&bytes).map_err(explain)?;
@@ -171,12 +198,7 @@ pub fn info(ctx: &Context) -> Result<()> {
     println!("File:           {}", ctx.path.display());
     println!("Size:           {} bytes", bytes.len());
     println!("Vault ID:       {}", info.id_hex);
-    println!(
-        "Argon2id:       {} MiB, {} iterations, {} lanes",
-        info.kdf.memory_kib() / 1024,
-        info.kdf.iterations(),
-        info.kdf.parallelism()
-    );
+    println!("Password hash:  {}", describe_kdf(&info.kdf));
     println!(
         "Recovery Key:   {}",
         if info.has_recovery_key { "yes" } else { "no" }
@@ -253,6 +275,9 @@ pub fn add(ctx: &Context, prompter: &mut Prompter, new: NewItem) -> Result<()> {
         }
         None => false,
     };
+    if session.vault.needs_unlock_to_store(&item) {
+        session.open_secrets(prompter)?;
+    }
     let id = session.vault.add_item(&item).map_err(explain)?;
     session.save()?;
     println!("Added {} ({})", item.title, &id.to_hex()[..8]);
@@ -273,9 +298,9 @@ pub fn show(
     reveal: bool,
     copy: bool,
 ) -> Result<()> {
-    let session = ctx.unlock(prompter)?;
+    let mut session = ctx.unlock(prompter)?;
     let id = resolve(&session.vault, query)?;
-    let item = session.vault.get_item(&id).map_err(explain)?;
+    let item = session.open_item(&id, prompter)?;
 
     println!("{}{}", item.title, if item.favorite { "  ★" } else { "" });
     println!("  id:        {}", id.to_hex());
@@ -326,7 +351,7 @@ pub fn show(
 pub fn edit(ctx: &Context, prompter: &mut Prompter, changes: ItemChanges) -> Result<()> {
     let mut session = ctx.unlock(prompter)?;
     let id = resolve(&session.vault, &changes.item)?;
-    let mut item = session.vault.get_item(&id).map_err(explain)?;
+    let mut item = session.open_item(&id, prompter)?;
 
     if let Some(title) = changes.title {
         item.title = title;
@@ -395,9 +420,9 @@ pub fn generate(recipe: &Recipe, copy: bool) -> Result<()> {
 }
 
 pub fn totp(ctx: &Context, prompter: &mut Prompter, query: &str, copy: bool) -> Result<()> {
-    let session = ctx.unlock(prompter)?;
+    let mut session = ctx.unlock(prompter)?;
     let id = resolve(&session.vault, query)?;
-    let item = session.vault.get_item(&id).map_err(explain)?;
+    let item = session.open_item(&id, prompter)?;
     if item.totp.is_empty() {
         bail!("{} has no TOTP secret", item.title);
     }
@@ -414,6 +439,11 @@ pub fn passwd(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
     let mut session = ctx.unlock(prompter)?;
     let password = new_master_password(prompter)?;
     let kdf = session.vault.kdf_params().clone();
+    // So the item lock's reset copy of its key follows the new master password.
+    session
+        .vault
+        .unlock_secrets_with_master(&session.password)
+        .map_err(explain)?;
     session
         .vault
         .change_password(
@@ -540,6 +570,10 @@ pub fn import(ctx: &Context, prompter: &mut Prompter, request: ImportRequest) ->
 
     for warning in &report.warnings {
         eprintln!("warning: {warning}");
+    }
+    // Duplicates are found by comparing passwords, and locked items must be stored sealed.
+    if !request.dry_run {
+        session.open_secrets(prompter)?;
     }
     // Entries that already exist (same title, username, password and first URL) are skipped.
     if request.dry_run {

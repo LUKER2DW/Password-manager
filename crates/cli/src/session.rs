@@ -139,6 +139,42 @@ impl Session {
     }
 
     /// Encrypts and writes the vault (atomic write + `.bak`).
+    /// Opens the secrets the item lock encrypts: asks for its PIN or password, three tries.
+    /// Does nothing when the vault has no such lock or the secrets are open already.
+    pub fn open_secrets(&mut self, prompter: &mut Prompter) -> Result<()> {
+        let guard = self.vault.item_guard();
+        if !guard.encrypts() || self.vault.secrets_open() {
+            return Ok(());
+        }
+        let label = if guard.check == vault_core::GuardCheck::Pin {
+            "Item PIN"
+        } else {
+            "Item password"
+        };
+        for _ in 0..3 {
+            let typed = prompter.secret(label)?;
+            if self.vault.unlock_secrets(&typed).map_err(explain)? {
+                return Ok(());
+            }
+            eprintln!("That isn't it.");
+        }
+        anyhow::bail!("wrong three times: the item's secrets stay locked")
+    }
+
+    /// One item, asking for the item PIN or password first when its secrets are locked.
+    pub fn open_item(
+        &mut self,
+        id: &vault_core::ItemId,
+        prompter: &mut Prompter,
+    ) -> Result<vault_core::ItemData> {
+        let item = self.vault.get_item(id).map_err(explain)?;
+        if !item.is_locked() {
+            return Ok(item);
+        }
+        self.open_secrets(prompter)?;
+        self.vault.get_item(id).map_err(explain)
+    }
+
     pub fn save(&mut self) -> Result<()> {
         let bytes = self.vault.to_bytes().map_err(explain)?;
         storage::write_atomic(&self.path, &bytes).map_err(explain)?;

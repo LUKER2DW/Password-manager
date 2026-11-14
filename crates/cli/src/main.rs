@@ -142,6 +142,29 @@ struct InitArgs {
     /// Argon2id memory cost.
     #[arg(long, default_value_t = 256, value_name = "MIB")]
     kdf_memory_mib: u32,
+    /// How the master password is hashed. Argon2id is the recommendation; scrypt and
+    /// PBKDF2-SHA-256 are weaker against guessing on graphics cards.
+    #[arg(long, value_enum, default_value_t = HashArg::Argon2id)]
+    hash: HashArg,
+    /// Cost level for scrypt and PBKDF2-SHA-256 (Argon2id is calibrated instead).
+    #[arg(long, value_enum, default_value_t = LevelArg::Standard)]
+    hash_level: LevelArg,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum HashArg {
+    Argon2id,
+    Scrypt,
+    #[value(name = "pbkdf2-sha256")]
+    Pbkdf2Sha256,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum LevelArg {
+    Light,
+    Standard,
+    Strong,
+    Maximum,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -282,6 +305,20 @@ fn run() -> Result<()> {
             args.no_recovery_key,
             args.kdf_target_ms,
             args.kdf_memory_mib,
+            {
+                use vault_core::{KdfMethod, KdfStrength};
+                let level = match args.hash_level {
+                    LevelArg::Light => KdfStrength::Light,
+                    LevelArg::Standard => KdfStrength::Standard,
+                    LevelArg::Strong => KdfStrength::Strong,
+                    LevelArg::Maximum => KdfStrength::Maximum,
+                };
+                match args.hash {
+                    HashArg::Argon2id => None,
+                    HashArg::Scrypt => Some((KdfMethod::Scrypt, level)),
+                    HashArg::Pbkdf2Sha256 => Some((KdfMethod::Pbkdf2Sha256, level)),
+                }
+            },
         ),
         Command::Info => commands::info(&ctx),
         Command::List { search } => commands::list(&ctx, &mut prompter, search.as_deref()),
