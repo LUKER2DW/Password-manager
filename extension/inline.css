@@ -48,8 +48,11 @@ body {
   padding: 6px 0;
   border-radius: 12px;
   background: linear-gradient(var(--pop-sheen), transparent 48px), var(--pop);
+  /* The shadow stays inside the frame's margins (blur 8px, 3px down: 5px above, 8px at the
+     sides, 11px below). A wider one is cut off at the frame's edge, which shows as a
+     rectangle around the card on light pages. */
   box-shadow:
-    0 8px 24px rgba(6, 10, 16, 0.3),
+    0 3px 8px rgba(6, 10, 16, 0.28),
     0 0 0 1px var(--pop-rule),
     inset 0 1px 0 var(--pop-sheen);
 }
@@ -91,7 +94,7 @@ body.up .card::before {
 }
 
 body.corner .card {
-  margin: 10px;
+  margin: 10px 10px 12px;
 }
 
 body.corner .card::before {
