@@ -29,6 +29,12 @@ all = { level = "warn", priority = -1 }
 # the crypto crates, Argon2) is optimized; only our own crates keep fast-compiling debug code.
 [profile.dev.package."*"]
 opt-level = 2
+# No debug info for dependencies, and only line numbers for our own crates (below): the
+# build folder stays several times smaller, and backtraces still name file and line.
+debug = false
+
+[profile.dev]
+debug = "line-tables-only"
 
 # The vault itself is small and its serialization code is generic (compiled here, not in the
 # dependencies): optimized, lists and saves stay quick in debug runs too.
