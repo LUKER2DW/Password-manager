@@ -23,6 +23,11 @@ pub(crate) fn import_kdbx(
             .with_keyfile(&mut keyfile)
             .map_err(|e| ImportError::Kdbx(e.to_string()))?;
     }
+    if !kdf_within_limits(bytes) {
+        return Err(ImportError::Kdbx(
+            "this database asks for more memory or work to open than this app accepts".into(),
+        ));
+    }
     let db = Database::parse(bytes, key).map_err(|e| ImportError::Kdbx(e.to_string()))?;
 
     // Everything that sits (directly or in a subgroup) in the recycle bin is skipped.
@@ -99,6 +104,103 @@ pub(crate) fn import_kdbx(
         report.push(item, folder);
     }
     Ok(report)
+}
+
+/// Most memory (Argon2) a database may ask for: 2 GiB.
+const MAX_KDF_MEMORY: u64 = 2 * 1024 * 1024 * 1024;
+/// Most Argon2 passes and lanes.
+const MAX_KDF_PASSES: u64 = 1000;
+const MAX_KDF_LANES: u64 = 64;
+/// Most AES-KDF rounds: well above what a one-second setting gives on a fast computer.
+const MAX_KDF_ROUNDS: u64 = 500_000_000;
+
+/// Whether the key derivation the file's (unauthenticated) header asks for is something a
+/// real database would use. The header is read before the password is tried, so a crafted
+/// file could otherwise ask for all the computer's memory or hours of work. A header this
+/// can't read is left to the parser, which refuses it.
+fn kdf_within_limits(bytes: &[u8]) -> bool {
+    let u16_at = |at: usize| {
+        bytes
+            .get(at..at + 2)
+            .and_then(|b| b.try_into().ok())
+            .map(u16::from_le_bytes)
+    };
+    let u32_at = |at: usize| {
+        bytes
+            .get(at..at + 4)
+            .and_then(|b| b.try_into().ok())
+            .map(u32::from_le_bytes)
+    };
+    let number = |value: &[u8]| match value.len() {
+        4 => value
+            .try_into()
+            .ok()
+            .map(|b| u64::from(u32::from_le_bytes(b))),
+        8 => value.try_into().ok().map(u64::from_le_bytes),
+        _ => None,
+    };
+    let Some(major) = u16_at(10) else {
+        return true;
+    };
+    let mut at = 12;
+    loop {
+        // One header field: its id, its length (16 bits before version 4, 32 after), its value.
+        let Some(&id) = bytes.get(at) else {
+            return true;
+        };
+        let (length, start) = if major >= 4 {
+            (u32_at(at + 1).map(|n| n as usize), at + 5)
+        } else {
+            (u16_at(at + 1).map(usize::from), at + 3)
+        };
+        let Some(value) = length.and_then(|n| bytes.get(start..start.checked_add(n)?)) else {
+            return true;
+        };
+        at = start + value.len();
+        match (major >= 4, id) {
+            (_, 0) => return true,
+            // Version 3: the number of AES-KDF rounds.
+            (false, 6) => {
+                if number(value).is_some_and(|rounds| rounds > MAX_KDF_ROUNDS) {
+                    return false;
+                }
+            }
+            // Version 4: a dictionary of named values (after its 2-byte version).
+            (true, 11) => {
+                let mut pos = 2;
+                while let Some(&kind) = value.get(pos) {
+                    if kind == 0 {
+                        break;
+                    }
+                    let read = |pos: usize| {
+                        let n = value
+                            .get(pos..pos + 4)
+                            .and_then(|b| b.try_into().ok())
+                            .map(u32::from_le_bytes)? as usize;
+                        Some((value.get(pos + 4..(pos + 4).checked_add(n)?)?, pos + 4 + n))
+                    };
+                    let Some((name, after_name)) = read(pos + 1) else {
+                        return true;
+                    };
+                    let Some((entry, after)) = read(after_name) else {
+                        return true;
+                    };
+                    pos = after;
+                    let limit = match name {
+                        b"M" => MAX_KDF_MEMORY,
+                        b"I" => MAX_KDF_PASSES,
+                        b"P" => MAX_KDF_LANES,
+                        b"R" => MAX_KDF_ROUNDS,
+                        _ => continue,
+                    };
+                    if number(entry).is_some_and(|n| n > limit) {
+                        return false;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 fn collect_group_paths(
@@ -196,6 +298,52 @@ mod tests {
         };
         assert_eq!(folder_of("Mail"), None);
         assert_eq!(folder_of("Nested note").as_deref(), Some("Sub"));
+    }
+
+    #[test]
+    fn a_header_asking_for_too_much_is_refused_before_any_work() {
+        assert!(kdf_within_limits(&sample_database("pw")));
+        let start = |major: u16| {
+            let mut bytes = vec![0x03, 0xd9, 0xa2, 0x9a, 0x67, 0xfb, 0x4b, 0xb5, 0, 0];
+            bytes.extend(major.to_le_bytes());
+            bytes
+        };
+        // Version 4: a dictionary with one 64-bit value under `name`.
+        let v4 = |name: &[u8], number: u64| {
+            let mut dictionary = vec![0x00, 0x01, 0x05];
+            dictionary.extend((name.len() as u32).to_le_bytes());
+            dictionary.extend(name);
+            dictionary.extend(8u32.to_le_bytes());
+            dictionary.extend(number.to_le_bytes());
+            dictionary.push(0);
+            let mut bytes = start(4);
+            bytes.push(11);
+            bytes.extend((dictionary.len() as u32).to_le_bytes());
+            bytes.extend(dictionary);
+            bytes.extend([0, 0, 0, 0, 0]);
+            bytes
+        };
+        assert!(kdf_within_limits(&v4(b"M", 64 * 1024 * 1024)));
+        assert!(!kdf_within_limits(&v4(b"M", 64 * 1024 * 1024 * 1024)));
+        assert!(!kdf_within_limits(&v4(b"I", 1_000_000)));
+        assert!(!kdf_within_limits(&v4(b"R", u64::MAX)));
+        assert!(kdf_within_limits(&v4(b"S", u64::MAX)), "not a cost");
+        // Version 3: field 6 is the number of rounds.
+        let v3 = |rounds: u64| {
+            let mut bytes = start(3);
+            bytes.push(6);
+            bytes.extend(8u16.to_le_bytes());
+            bytes.extend(rounds.to_le_bytes());
+            bytes.extend([0, 0, 0]);
+            bytes
+        };
+        assert!(kdf_within_limits(&v3(60_000)));
+        assert!(!kdf_within_limits(&v3(u64::MAX)));
+        let refused = import_kdbx(&v3(u64::MAX), "pw", None);
+        assert!(matches!(refused, Err(ImportError::Kdbx(text)) if text.contains("accepts")));
+        // Cut short or empty: left to the parser.
+        assert!(kdf_within_limits(&[]));
+        assert!(kdf_within_limits(&v4(b"M", 1)[..20]));
     }
 
     #[test]
