@@ -92,7 +92,10 @@ On top of that:
   pointer (extension clickjacking). What limits it: the frame is the extension's page in a
   cross-origin iframe, so the page can't read or script it; a click counts only once the
   browser has reported the frame fully visible, with nothing over it, for 400 ms
-  (IntersectionObserver v2); it shows usernames, never passwords; a fill goes only into the
+  (IntersectionObserver v2), and a mouse click only once the pointer has rested on the card
+  for 150 ms (a frame slid under the pointer takes no click meant for the page); the card
+  shows nothing inside a frame of the page (an advert, a widget), only directly in the page
+  whose logins it lists; it shows usernames, never passwords; a fill goes only into the
   site the login is saved for, top frame only; and a locked login still needs Windows Hello
   (the system's own prompt, which a page can't click) or the PIN, typed in the extension's
   window. New vaults lock every item by default for that reason. The site's icon in the frame
