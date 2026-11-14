@@ -325,9 +325,89 @@ pub struct ItemData {
     /// malware that already reads the unlocked vault. (Format v5.)
     #[zeroize(skip)]
     pub reprompt: bool,
+    /// Present while the item's secrets are locked: they are encrypted under the item guard
+    /// key and the fields that hold them are empty. (Format v6.)
+    #[zeroize(skip)]
+    pub sealed: Option<SealedSecrets>,
+}
+
+/// A guarded item's secrets, encrypted under the item guard key, with the few facts a locked
+/// item still tells. (Format v6.)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SealedSecrets {
+    pub(crate) ciphertext: Vec<u8>,
+    pub has_password: bool,
+    pub has_totp: bool,
+    /// Cards: "Visa •••• 4242" when the number is stored, else empty.
+    pub card_hint: String,
+    pub card_brand: crate::card::Brand,
+}
+
+/// The part of an item that the item guard encrypts: password, one-time code secret, the
+/// values of hidden fields (in order), recovery codes, earlier passwords, and the text of a
+/// secure note.
+#[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub(crate) struct ItemSecrets {
+    password: String,
+    totp: String,
+    notes: String,
+    fields: Vec<String>,
+    recovery_codes: Vec<RecoveryCode>,
+    password_history: Vec<PasswordChange>,
 }
 
 impl ItemData {
+    /// The item's secrets are still encrypted: password, one-time code, recovery codes, hidden
+    /// fields and history are empty here until the item guard is passed.
+    pub fn is_locked(&self) -> bool {
+        self.sealed.is_some()
+    }
+
+    /// Moves the secrets out, leaving what a locked item still shows.
+    pub(crate) fn take_secrets(&mut self) -> ItemSecrets {
+        ItemSecrets {
+            password: std::mem::take(&mut self.password),
+            totp: std::mem::take(&mut self.totp),
+            notes: if self.kind == ItemKind::SecureNote {
+                std::mem::take(&mut self.notes)
+            } else {
+                String::new()
+            },
+            fields: self
+                .custom_fields
+                .iter_mut()
+                .filter(|field| field.sensitive)
+                .map(|field| std::mem::take(&mut field.value))
+                .collect(),
+            recovery_codes: std::mem::take(&mut self.recovery_codes),
+            password_history: std::mem::take(&mut self.password_history),
+        }
+    }
+
+    /// Puts secrets taken by [`ItemData::take_secrets`] back.
+    pub(crate) fn put_secrets(&mut self, mut secrets: ItemSecrets) -> Result<()> {
+        let hidden = self.custom_fields.iter().filter(|f| f.sensitive).count();
+        if hidden != secrets.fields.len() {
+            return Err(crate::Error::Malformed);
+        }
+        self.password = std::mem::take(&mut secrets.password);
+        self.totp = std::mem::take(&mut secrets.totp);
+        if self.kind == ItemKind::SecureNote {
+            self.notes = std::mem::take(&mut secrets.notes);
+        }
+        for (field, value) in self
+            .custom_fields
+            .iter_mut()
+            .filter(|field| field.sensitive)
+            .zip(secrets.fields.iter_mut())
+        {
+            field.value = std::mem::take(value);
+        }
+        self.recovery_codes = std::mem::take(&mut secrets.recovery_codes);
+        self.password_history = std::mem::take(&mut secrets.password_history);
+        Ok(())
+    }
+
     /// Empty item of the given kind, timestamped now.
     pub fn new(kind: ItemKind, title: &str) -> Self {
         // `ZeroizeOnDrop` implements `Drop`, which forbids struct-update syntax
@@ -351,6 +431,7 @@ impl ItemData {
             password_changed_at: 0,
             icon_url: String::new(),
             reprompt: false,
+            sealed: None,
         }
     }
 
@@ -411,6 +492,7 @@ impl fmt::Debug for ItemData {
             .field("password_history", &self.password_history.len())
             .field("password_changed_at", &self.password_changed_at)
             .field("icon_url", &self.icon_url)
+            .field("locked", &self.sealed.is_some())
             .finish()
     }
 }
@@ -441,6 +523,7 @@ impl ItemDataV0 {
             password_changed_at: 0,
             icon_url: String::new(),
             reprompt: false,
+            sealed: None,
             kind: self.kind,
             title: std::mem::take(&mut self.title),
             username: std::mem::take(&mut self.username),
@@ -500,6 +583,7 @@ impl ItemDataV1 {
             password_changed_at: 0,
             icon_url: String::new(),
             reprompt: false,
+            sealed: None,
         }
     }
 }
@@ -548,6 +632,7 @@ impl ItemDataV2 {
             password_changed_at: self.password_changed_at,
             icon_url: String::new(),
             reprompt: false,
+            sealed: None,
         }
     }
 }
@@ -597,6 +682,59 @@ impl ItemDataV3 {
             password_changed_at: self.password_changed_at,
             icon_url: std::mem::take(&mut self.icon_url),
             reprompt: false,
+            sealed: None,
+        }
+    }
+}
+
+/// Item data as stored by format v5 (before sealed secrets). Read-only: v5 vaults are upgraded
+/// when opened.
+#[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub(crate) struct ItemDataV5 {
+    #[zeroize(skip)]
+    pub(crate) kind: ItemKind,
+    pub(crate) title: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) urls: Vec<String>,
+    pub(crate) notes: String,
+    pub(crate) totp: String,
+    pub(crate) favorite: bool,
+    pub(crate) custom_fields: Vec<CustomField>,
+    pub(crate) created_at: i64,
+    pub(crate) updated_at: i64,
+    #[zeroize(skip)]
+    pub(crate) folder: Option<FolderId>,
+    pub(crate) recovery_codes: Vec<RecoveryCode>,
+    pub(crate) password_history: Vec<PasswordChange>,
+    pub(crate) password_changed_at: i64,
+    pub(crate) icon_url: String,
+    #[zeroize(skip)]
+    pub(crate) reprompt: bool,
+}
+
+impl ItemDataV5 {
+    /// Moves the fields into the current item layout (`take` leaves wiped-on-drop empties).
+    pub(crate) fn upgrade(mut self) -> ItemData {
+        ItemData {
+            kind: self.kind,
+            title: std::mem::take(&mut self.title),
+            username: std::mem::take(&mut self.username),
+            password: std::mem::take(&mut self.password),
+            urls: std::mem::take(&mut self.urls),
+            notes: std::mem::take(&mut self.notes),
+            totp: std::mem::take(&mut self.totp),
+            favorite: self.favorite,
+            custom_fields: std::mem::take(&mut self.custom_fields),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            folder: self.folder,
+            recovery_codes: std::mem::take(&mut self.recovery_codes),
+            password_history: std::mem::take(&mut self.password_history),
+            password_changed_at: self.password_changed_at,
+            icon_url: std::mem::take(&mut self.icon_url),
+            reprompt: self.reprompt,
+            sealed: None,
         }
     }
 }
@@ -623,13 +761,46 @@ pub struct ItemSummary {
     pub card_brand: crate::card::Brand,
     /// Website chosen for the item's icon ("" = `url`).
     pub icon_url: String,
-    /// The item asks for the master password again before showing its secrets.
+    /// The item is marked to have its secrets guarded.
     #[zeroize(skip)]
     pub reprompt: bool,
+    /// The item's secrets are still encrypted under the item guard key.
+    #[zeroize(skip)]
+    pub locked: bool,
+    /// The item has a password.
+    #[zeroize(skip)]
+    pub has_password: bool,
 }
 
 impl ItemSummary {
     pub(crate) fn from_data(id: ItemId, data: &ItemData) -> Self {
+        let (has_password, has_totp, card_hint, card_brand) = match &data.sealed {
+            Some(sealed) => (
+                sealed.has_password,
+                sealed.has_totp,
+                sealed.card_hint.clone(),
+                sealed.card_brand,
+            ),
+            None if data.kind == ItemKind::Card => {
+                let number = crate::card::CardDetails::from_item(data).number;
+                (
+                    !data.password.is_empty(),
+                    !data.totp.trim().is_empty(),
+                    if number.len() >= 4 {
+                        crate::card::masked(&number)
+                    } else {
+                        String::new()
+                    },
+                    crate::card::detect_brand(&number),
+                )
+            }
+            None => (
+                !data.password.is_empty(),
+                !data.totp.trim().is_empty(),
+                String::new(),
+                crate::card::Brand::Unknown,
+            ),
+        };
         Self {
             id,
             kind: data.kind,
@@ -638,24 +809,13 @@ impl ItemSummary {
             url: data.urls.first().cloned().unwrap_or_default(),
             favorite: data.favorite,
             folder: data.folder,
-            has_totp: !data.totp.trim().is_empty(),
-            card_hint: if data.kind == ItemKind::Card {
-                let number = crate::card::CardDetails::from_item(data).number;
-                if number.len() >= 4 {
-                    crate::card::masked(&number)
-                } else {
-                    String::new()
-                }
-            } else {
-                String::new()
-            },
+            has_totp,
+            card_hint,
             icon_url: data.icon_url.clone(),
             reprompt: data.reprompt,
-            card_brand: if data.kind == ItemKind::Card {
-                crate::card::detect_brand(&crate::card::CardDetails::from_item(data).number)
-            } else {
-                crate::card::Brand::Unknown
-            },
+            locked: data.is_locked(),
+            has_password,
+            card_brand,
         }
     }
 }

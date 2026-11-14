@@ -93,7 +93,7 @@ fn a_v0_vault_is_upgraded_on_save() {
     let upgraded = vault.to_bytes().unwrap();
     assert_eq!(
         &upgraded[8..10],
-        &5u16.to_le_bytes(),
+        &6u16.to_le_bytes(),
         "written in the current format"
     );
 

@@ -40,9 +40,9 @@ pub use error::Error;
 pub use guard::{GuardCheck, ItemGuard};
 pub use item::{
     CustomField, Folder, FolderId, ItemData, ItemId, ItemKind, ItemSummary, PasswordChange,
-    RecoveryCode, VaultSettings,
+    RecoveryCode, SealedSecrets, VaultSettings,
 };
-pub use kdf::{KdfParams, KdfStrength};
+pub use kdf::{KdfMethod, KdfParams, KdfStrength, PasswordKdf};
 pub use keys::{Keyfile, RecoveryKey, SecretKey};
 pub use vault::{Unlock, Vault, VaultInfo};
 

@@ -102,14 +102,14 @@ fn reads_the_committed_v5_fixture() {
         },
         Unlock::Recovery(&recovery_key),
     ] {
-        let vault = Vault::open(&bytes, unlock).unwrap();
+        let mut vault = Vault::open(&bytes, unlock).unwrap();
         assert_eq!(vault.revision(), 1);
         assert_eq!(vault.settings().name, VAULT_NAME);
         assert_eq!(vault.settings().history_limit, 7);
         let guard = vault.item_guard();
         assert_eq!((guard.all_items, guard.check), (true, GuardCheck::Pin));
-        assert!(guard.verify(GUARD_PIN).unwrap());
-        assert!(!guard.verify("0000").unwrap());
+        // A v5 guard only hashes its PIN: nothing is encrypted under it yet.
+        assert!(guard.is_legacy() && !guard.encrypts());
         assert_eq!(vault.folders().len(), 2);
         // Created second, moved first.
         assert_eq!(vault.folders()[0].name, SECOND_FOLDER);
@@ -126,7 +126,58 @@ fn reads_the_committed_v5_fixture() {
             .collect();
         items.sort_by(|a, b| a.title.cmp(&b.title));
         assert_eq!(items, expected_items(Some(folder)));
+        assert!(!vault.unlock_secrets("0000").unwrap());
+        assert!(vault.item_guard().is_legacy());
     }
+}
+
+#[test]
+fn a_v5_vault_is_upgraded_on_save() {
+    let bytes = std::fs::read(fixture_dir().join("vault-v5.bin")).unwrap();
+    let (secret_key, _) = credentials();
+    let keyfile =
+        Keyfile::from_bytes(&std::fs::read(fixture_dir().join("vault-v5.keyfile")).unwrap())
+            .unwrap();
+    let unlock = || Unlock::PasswordAndKeyfile {
+        password: PASSWORD,
+        secret_key: &secret_key,
+        keyfile: &keyfile,
+    };
+    let mut vault = Vault::open(&bytes, unlock()).unwrap();
+    assert_eq!(vault.kdf_params().method(), vault_core::KdfMethod::Argon2id);
+    let upgraded = vault.to_bytes().unwrap();
+    assert_eq!(
+        &upgraded[8..10],
+        &6u16.to_le_bytes(),
+        "written as format v6"
+    );
+    let mut reopened = Vault::open(&upgraded, unlock()).unwrap();
+    assert!(reopened.needs_keyfile());
+    assert_eq!(reopened.item_ids().count(), 2);
+    // Typing the PIN for the first time turns the v5 hash into encryption.
+    assert!(reopened.item_guard().is_legacy());
+    assert!(reopened.unlock_secrets(GUARD_PIN).unwrap());
+    assert!(reopened.item_guard().encrypts() && !reopened.item_guard().is_legacy());
+    let sealed = reopened.to_bytes().unwrap();
+    let mut again = Vault::open(&sealed, unlock()).unwrap();
+    let locked: Vec<ItemData> = again
+        .item_ids()
+        .map(|id| again.get_item(&id).unwrap())
+        .collect();
+    assert!(
+        locked
+            .iter()
+            .all(|item| item.is_locked() && item.password.is_empty())
+    );
+    assert!(!again.unlock_secrets("0000").unwrap());
+    assert!(again.unlock_secrets(GUARD_PIN).unwrap());
+    let mut items: Vec<ItemData> = again
+        .item_ids()
+        .map(|id| again.get_item(&id).unwrap())
+        .collect();
+    items.sort_by(|a, b| a.title.cmp(&b.title));
+    let folder = again.folders()[1].id;
+    assert_eq!(items, expected_items(Some(folder)));
 }
 
 /// Regenerates the fixture. Run only when intentionally creating a new format version:
@@ -158,7 +209,7 @@ fn generate_fixture() {
         vault.add_item(&item).unwrap();
     }
     vault
-        .set_item_guard(true, GuardCheck::Pin, Some(GUARD_PIN))
+        .set_item_guard(true, GuardCheck::Pin, Some(GUARD_PIN), None)
         .unwrap();
     let (keyfile, keyfile_bytes) = Keyfile::generate().unwrap();
     let kdf = vault.kdf_params().clone();

@@ -27,6 +27,8 @@ pub enum Error {
     EmptyPassword,
     #[error("a PIN has 4 to 8 digits; a password at least 6 characters")]
     InvalidGuardSecret,
+    #[error("the item's secrets are locked: its PIN or password is needed first")]
+    SecretsLocked,
     #[error("item not found")]
     ItemNotFound,
     #[error("folder not found")]

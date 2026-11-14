@@ -5,13 +5,17 @@ use std::fmt;
 use zeroize::Zeroizing;
 
 use crate::{
-    Error, Folder, FolderId, GuardCheck, ItemData, ItemGuard, ItemId, ItemSummary, KdfParams,
+    Error, Folder, FolderId, GuardCheck, ItemData, ItemGuard, ItemId, ItemSummary, PasswordKdf,
     RecoveryKey, Result, SecretKey, VaultSettings, aead,
     format::{
         self, ItemRecord, KeySlot, SlotKind, VaultBody, VaultBodyV0, VaultBodyV1, VaultBodyV2,
-        VaultBodyV3, VaultBodyV4, VaultHeader,
+        VaultBodyV3, VaultBodyV4, VaultBodyV5, VaultHeader,
     },
-    item::{FolderV1, FolderV3, ItemDataV0, ItemDataV1, ItemDataV2, ItemDataV3, PasswordChange},
+    guard::{GuardKeySlots, GuardSlot, WrappedGuardKey},
+    item::{
+        FolderV1, FolderV3, ItemDataV0, ItemDataV1, ItemDataV2, ItemDataV3, ItemDataV5,
+        ItemSecrets, PasswordChange, SealedSecrets,
+    },
     keys::{self, Keyfile, VaultKey},
     padding,
 };
@@ -52,7 +56,7 @@ impl fmt::Debug for Unlock<'_> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VaultInfo {
     pub id_hex: String,
-    pub kdf: KdfParams,
+    pub kdf: PasswordKdf,
     pub has_recovery_key: bool,
     /// The master password alone doesn't open it: a keyfile is needed too.
     pub needs_keyfile: bool,
@@ -67,6 +71,8 @@ pub struct Vault {
     folders: Vec<Folder>,
     settings: VaultSettings,
     guard: ItemGuard,
+    /// The item guard key, while guarded secrets are open (see [`Vault::unlock_secrets`]).
+    guard_key: Option<Zeroizing<aead::Key>>,
 }
 
 impl fmt::Debug for Vault {
@@ -86,8 +92,9 @@ impl Vault {
         password: &str,
         secret_key: &SecretKey,
         recovery_key: Option<&RecoveryKey>,
-        kdf: KdfParams,
+        kdf: impl Into<PasswordKdf>,
     ) -> Result<Self> {
+        let kdf = kdf.into();
         kdf.validate()?;
         let vault_id: [u8; 16] = crate::random::array()?;
         let vault_key = VaultKey::generate()?;
@@ -103,6 +110,7 @@ impl Vault {
             folders: Vec::new(),
             settings: VaultSettings::default(),
             guard: ItemGuard::default(),
+            guard_key: None,
         };
         let slot = vault.password_slot(password, secret_key, None, &vault.header.kdf)?;
         vault.header.slots.push(slot);
@@ -244,6 +252,16 @@ impl Vault {
                     guard: ItemGuard::default(),
                 }
             }
+            5 => {
+                let old: VaultBodyV5 = format::decode_exact(plain)?;
+                VaultBody {
+                    revision: old.revision,
+                    items: old.items,
+                    folders: old.folders,
+                    settings: old.settings,
+                    guard: old.guard.upgrade(),
+                }
+            }
             _ => format::decode_exact(plain)?,
         };
         body.guard.validate()?;
@@ -266,6 +284,7 @@ impl Vault {
             folders: body.folders,
             settings: body.settings,
             guard: body.guard,
+            guard_key: None,
         };
         if parsed.version < format::ITEM_LAYOUT_VERSION {
             vault.upgrade_items(parsed.version)?;
@@ -285,6 +304,7 @@ impl Vault {
                 1 => format::decode_exact::<ItemDataV1>(plain)?.upgrade(),
                 2 => format::decode_exact::<ItemDataV2>(plain)?.upgrade(),
                 3 | 4 => format::decode_exact::<ItemDataV3>(plain)?.upgrade(),
+                5 => format::decode_exact::<ItemDataV5>(plain)?.upgrade(),
                 _ => return Err(Error::Malformed),
             };
             let (id, revision) = (self.items[index].id, self.items[index].revision);
@@ -324,16 +344,150 @@ impl Vault {
         &self.guard
     }
 
-    /// Changes the item guard: which items it covers and what is typed to pass it. `secret`
-    /// is the new PIN or password (`None` keeps the current one when the kind is unchanged).
+    /// Changes the item guard: which items it covers and what is typed to pass it.
+    ///
+    /// `secret` is the new PIN or password (`None` keeps the current one when the kind is
+    /// unchanged). With a PIN or password, the secrets of guarded items are encrypted under a
+    /// guard key that only that PIN or password unwraps; `master_password`, when given, wraps
+    /// a second copy so a forgotten PIN can be replaced (the caller has checked that it is the
+    /// vault's master password). With the master password as the check nothing extra is
+    /// encrypted.
+    ///
+    /// When secrets are sealed and not open, `master_password` is used to open them; without
+    /// it the call fails with [`Error::SecretsLocked`]. Afterwards the secrets are open.
     pub fn set_item_guard(
         &mut self,
         all_items: bool,
         check: GuardCheck,
         secret: Option<&str>,
+        master_password: Option<&str>,
     ) -> Result<()> {
-        self.guard = ItemGuard::new(&self.guard, all_items, check, secret)?;
-        Ok(())
+        if let Some(secret) = secret {
+            ItemGuard::check_secret(check, secret)?;
+        }
+        if self.guard.encrypts()
+            && self.guard_key.is_none()
+            && !master_password
+                .map(|master| self.unlock_secrets_with_master(master))
+                .transpose()?
+                .unwrap_or(false)
+        {
+            return Err(Error::SecretsLocked);
+        }
+        let vault_id = self.header.vault_id;
+        let (slots, guard_key) = if check == GuardCheck::Master {
+            (None, None)
+        } else {
+            let guard_key = match &self.guard_key {
+                Some(key) => key.clone(),
+                None => crate::random::secret_array::<{ aead::KEY_LEN }>()?,
+            };
+            let check_slot = match (secret, &self.guard.key) {
+                (Some(secret), _) => {
+                    WrappedGuardKey::wrap(secret, &guard_key, &vault_id, GuardSlot::Check)?
+                }
+                (None, Some(slots)) if self.guard.check == check => slots.check.clone(),
+                _ => return Err(Error::InvalidGuardSecret),
+            };
+            let master = match master_password {
+                Some(master) => Some(WrappedGuardKey::wrap(
+                    master,
+                    &guard_key,
+                    &vault_id,
+                    GuardSlot::Master,
+                )?),
+                None => self.guard.key.as_ref().and_then(|k| k.master.clone()),
+            };
+            (
+                Some(GuardKeySlots {
+                    check: check_slot,
+                    master,
+                }),
+                Some(guard_key),
+            )
+        };
+
+        // Every item in full, then stored again under the new rules.
+        let items = self
+            .items
+            .iter()
+            .map(|record| self.open_item(record))
+            .collect::<Result<Vec<_>>>()?;
+        let previous = (
+            std::mem::replace(
+                &mut self.guard,
+                ItemGuard::with_key(all_items, check, slots),
+            ),
+            std::mem::replace(&mut self.guard_key, guard_key),
+        );
+        let records = self
+            .items
+            .iter()
+            .zip(&items)
+            .map(|(record, item)| self.store_item(record.id, record.revision, item))
+            .collect::<Result<Vec<_>>>();
+        match records {
+            Ok(records) => {
+                self.items = records;
+                Ok(())
+            }
+            Err(err) => {
+                (self.guard, self.guard_key) = previous;
+                Err(err)
+            }
+        }
+    }
+
+    /// Opens guarded secrets with the guard's PIN or password. `false` when it is wrong (and
+    /// always for a guard that checks the master password, which the client verifies against
+    /// the file).
+    ///
+    /// The first time after an upgrade from format v5 this also encrypts the guarded secrets
+    /// ([`ItemGuard::encrypts`] turns true): save the vault afterwards.
+    pub fn unlock_secrets(&mut self, secret: &str) -> Result<bool> {
+        if let Some(slots) = &self.guard.key {
+            let key = slots
+                .check
+                .unwrap(secret, &self.header.vault_id, GuardSlot::Check)?;
+            self.guard_key = key;
+            return Ok(self.guard_key.is_some());
+        }
+        if !self.guard.verify_legacy(secret)? {
+            return Ok(false);
+        }
+        let (all_items, check) = (self.guard.all_items, self.guard.check);
+        self.set_item_guard(all_items, check, Some(secret), None)?;
+        Ok(true)
+    }
+
+    /// Opens guarded secrets with the master password, when the guard kept a copy of its key
+    /// for it ([`ItemGuard::master_can_reset`]). `false` when there is none or it is wrong.
+    pub fn unlock_secrets_with_master(&mut self, master_password: &str) -> Result<bool> {
+        let Some(slot) = self.guard.key.as_ref().and_then(|k| k.master.as_ref()) else {
+            return Ok(false);
+        };
+        let key = slot.unwrap(master_password, &self.header.vault_id, GuardSlot::Master)?;
+        let opened = key.is_some();
+        if opened {
+            self.guard_key = key;
+        }
+        Ok(opened)
+    }
+
+    /// Closes guarded secrets again: the guard key leaves memory.
+    pub fn lock_secrets(&mut self) {
+        self.guard_key = None;
+    }
+
+    /// Whether encrypted secrets are open right now.
+    pub fn secrets_open(&self) -> bool {
+        self.guard_key.is_some()
+    }
+
+    /// Whether storing this item needs open secrets first: the guard encrypts, covers the
+    /// item, and its key is not in memory.
+    pub fn needs_unlock_to_store(&self, item: &ItemData) -> bool {
+        self.guard.encrypts() && self.guards(item) && self.guard_key.is_none()
     }
 
     /// Whether this item's secrets wait for the guard's check.
@@ -511,7 +665,7 @@ impl Vault {
         self.revision
     }
 
-    pub fn kdf_params(&self) -> &KdfParams {
+    pub fn kdf_params(&self) -> &PasswordKdf {
         &self.header.kdf
     }
 
@@ -543,12 +697,13 @@ impl Vault {
         if data.password_changed_at == 0 && !data.password.is_empty() {
             data.password_changed_at = data.created_at;
         }
-        let record = self.seal_item(id, 1, &data)?;
+        let record = self.store_item(id, 1, &data)?;
         self.items.push(record);
         Ok(id)
     }
 
-    /// Decrypts one item.
+    /// Decrypts one item. While its secrets are locked ([`ItemData::is_locked`]) the fields
+    /// that hold them come back empty.
     pub fn get_item(&self, id: &ItemId) -> Result<ItemData> {
         let record = &self.items[self.position(id).ok_or(Error::ItemNotFound)?];
         self.open_item(record)
@@ -559,14 +714,33 @@ impl Vault {
     /// When the password changes, the old one is added to the item's password history (up to
     /// the vault's history limit, oldest dropped first) and `password_changed_at` is set to
     /// now; the history passed in `data` is replaced by the stored one in that case.
+    ///
+    /// A locked item can be written back as it was read (to change its title, folder or
+    /// favourite mark): its sealed secrets are kept. Changing the secrets of a locked item
+    /// fails with [`Error::SecretsLocked`].
     pub fn update_item(&mut self, id: &ItemId, data: &ItemData) -> Result<()> {
         let index = self.position(id).ok_or(Error::ItemNotFound)?;
         let revision = self.items[index]
             .revision
             .checked_add(1)
             .ok_or(Error::Malformed)?;
-        let old = self.open_item(&self.items[index])?;
+        let mut old = self.open_item(&self.items[index])?;
         let mut data = data.clone();
+        if data.is_locked() {
+            if old.is_locked() {
+                data.sealed.clone_from(&old.sealed);
+                self.items[index] = self.seal_item(*id, revision, &data)?;
+                return Ok(());
+            }
+            // Read while locked, written after the secrets were opened: they are unchanged.
+            data.sealed = None;
+            data.put_secrets(old.take_secrets())?;
+            self.items[index] = self.store_item(*id, revision, &data)?;
+            return Ok(());
+        }
+        if old.is_locked() {
+            return Err(Error::SecretsLocked);
+        }
         if old.password != data.password {
             let mut history = old.password_history.clone();
             if !old.password.is_empty() {
@@ -581,7 +755,7 @@ impl Vault {
             data.password_history = history;
             data.password_changed_at = crate::item::unix_now();
         }
-        self.items[index] = self.seal_item(*id, revision, &data)?;
+        self.items[index] = self.store_item(*id, revision, &data)?;
         Ok(())
     }
 
@@ -589,6 +763,9 @@ impl Vault {
     pub fn clear_password_history(&mut self, id: &ItemId) -> Result<()> {
         let index = self.position(id).ok_or(Error::ItemNotFound)?;
         let mut item = self.open_item(&self.items[index])?;
+        if item.is_locked() {
+            return Err(Error::SecretsLocked);
+        }
         if item.password_history.is_empty() {
             return Ok(());
         }
@@ -597,7 +774,7 @@ impl Vault {
             .revision
             .checked_add(1)
             .ok_or(Error::Malformed)?;
-        self.items[index] = self.seal_item(*id, revision, &item)?;
+        self.items[index] = self.store_item(*id, revision, &item)?;
         Ok(())
     }
 
@@ -607,7 +784,8 @@ impl Vault {
         Ok(())
     }
 
-    /// Decrypts every item into a non-secret summary (title, username, first URL).
+    /// Decrypts every item into a non-secret summary (title, username, first URL). Works
+    /// with locked secrets too.
     pub fn summaries(&self) -> Result<Vec<ItemSummary>> {
         self.items
             .iter()
@@ -624,15 +802,26 @@ impl Vault {
     /// `keyfile` is what the vault needs from now on: `Some` makes (or keeps) it a third
     /// factor, `None` removes it. Callers that only change the password pass the keyfile the
     /// vault was opened with.
+    ///
+    /// The item guard's copy of its key for the master password follows the new password
+    /// only while guarded secrets are open (after [`Vault::unlock_secrets_with_master`] with
+    /// the current password, for instance).
     pub fn change_password(
         &mut self,
         new_password: &str,
         secret_key: &SecretKey,
         keyfile: Option<&Keyfile>,
-        kdf: &KdfParams,
+        kdf: impl Into<PasswordKdf>,
     ) -> Result<()> {
-        let kdf = kdf.with_fresh_salt()?;
+        let kdf = kdf.into().with_fresh_salt()?;
         let slot = self.password_slot(new_password, secret_key, keyfile, &kdf)?;
+        if let (Some(key), true) = (&self.guard_key, self.guard.encrypts()) {
+            let master =
+                WrappedGuardKey::wrap(new_password, key, &self.header.vault_id, GuardSlot::Master)?;
+            if let Some(slots) = &mut self.guard.key {
+                slots.master = Some(master);
+            }
+        }
         self.header.kdf = kdf;
         self.header
             .slots
@@ -667,7 +856,7 @@ impl Vault {
         password: &str,
         secret_key: &SecretKey,
         keyfile: Option<&Keyfile>,
-        kdf: &KdfParams,
+        kdf: &PasswordKdf,
     ) -> Result<KeySlot> {
         let vault_id = &self.header.vault_id;
         let kek = keys::password_kek(password, secret_key, keyfile, kdf, vault_id)?;
@@ -696,6 +885,29 @@ impl Vault {
         })
     }
 
+    /// Encrypts an item for the vault. When the guard encrypts and covers the item, its
+    /// secrets are sealed under the guard key first, which must be in memory.
+    fn store_item(&self, id: ItemId, revision: u64, data: &ItemData) -> Result<ItemRecord> {
+        if data.is_locked() || !(self.guard.encrypts() && self.guards(data)) {
+            return self.seal_item(id, revision, data);
+        }
+        let key = self.guard_key.as_ref().ok_or(Error::SecretsLocked)?;
+        let summary = ItemSummary::from_data(id, data);
+        let mut outer = data.clone();
+        let secrets = outer.take_secrets();
+        let encoded = format::encode_secret(&secrets)?;
+        let padded = padding::pad(&encoded, padding::item_bucket)?;
+        let ciphertext = aead::seal(key, &padded, &secrets_aad(&self.header.vault_id, &id))?;
+        outer.sealed = Some(SealedSecrets {
+            ciphertext,
+            has_password: summary.has_password,
+            has_totp: summary.has_totp,
+            card_hint: summary.card_hint.clone(),
+            card_brand: summary.card_brand,
+        });
+        self.seal_item(id, revision, &outer)
+    }
+
     fn seal_item(&self, id: ItemId, revision: u64, data: &ItemData) -> Result<ItemRecord> {
         let vault_id = &self.header.vault_id;
         let item_key = crate::random::secret_array::<{ aead::KEY_LEN }>()?;
@@ -713,9 +925,22 @@ impl Vault {
         })
     }
 
+    /// The item as far as it can be read now: in full, or without its secrets while they are
+    /// sealed and the guard key is not in memory.
     fn open_item(&self, record: &ItemRecord) -> Result<ItemData> {
         let padded = self.decrypt_item(record)?;
-        format::decode_exact(padding::unpad(&padded)?)
+        let mut item: ItemData = format::decode_exact(padding::unpad(&padded)?)?;
+        if let (Some(key), Some(sealed)) = (&self.guard_key, &item.sealed) {
+            let padded = aead::open(
+                key,
+                &sealed.ciphertext,
+                &secrets_aad(&self.header.vault_id, &record.id),
+            )?;
+            let secrets: ItemSecrets = format::decode_exact(padding::unpad(&padded)?)?;
+            item.sealed = None;
+            item.put_secrets(secrets)?;
+        }
+        Ok(item)
     }
 
     /// The item's padded plaintext (still to be unpadded and decoded).
@@ -753,6 +978,10 @@ fn item_key_aad(vault_id: &[u8; 16], id: &ItemId) -> Vec<u8> {
     [b"vault-v0/item-key".as_slice(), vault_id, id.as_bytes()].concat()
 }
 
+fn secrets_aad(vault_id: &[u8; 16], id: &ItemId) -> Vec<u8> {
+    [b"vault-v0/item-secrets".as_slice(), vault_id, id.as_bytes()].concat()
+}
+
 fn item_aad(vault_id: &[u8; 16], id: &ItemId, revision: u64) -> Vec<u8> {
     [
         b"vault-v0/item".as_slice(),
@@ -787,6 +1016,7 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::KdfParams;
 
     fn recovery_vault() -> (Vault, RecoveryKey) {
         let secret_key = SecretKey::generate().unwrap();
@@ -814,7 +1044,11 @@ mod tests {
     fn kdf_downgrade_is_rejected_before_any_work() {
         let (mut vault, recovery_key) = recovery_vault();
         let bytes = vault.to_bytes().unwrap();
-        let downgraded = with_header(&bytes, |h| h.kdf.memory_kib = 1024);
+        let downgraded = with_header(&bytes, |h| {
+            if let PasswordKdf::Argon2id(params) = &mut h.kdf {
+                params.memory_kib = 1024;
+            }
+        });
         assert!(matches!(
             Vault::open(&downgraded, Unlock::Recovery(&recovery_key)),
             Err(Error::KdfParamsOutOfRange)
@@ -827,7 +1061,11 @@ mod tests {
         let bytes = vault.to_bytes().unwrap();
         // A still-valid header (higher cost, new salt) must not open the old body: the body is
         // bound to the exact header bytes.
-        let edited = with_header(&bytes, |h| h.kdf.iterations += 1);
+        let edited = with_header(&bytes, |h| {
+            if let PasswordKdf::Argon2id(params) = &mut h.kdf {
+                params.iterations += 1;
+            }
+        });
         assert!(matches!(
             Vault::open(&edited, Unlock::Recovery(&recovery_key)),
             Err(Error::DecryptionFailed)
@@ -868,6 +1106,41 @@ mod tests {
             Vault::open(&duplicated, Unlock::Recovery(&recovery_key)),
             Err(Error::Malformed)
         ));
+    }
+
+    #[test]
+    fn sealed_secrets_are_not_in_what_the_vault_key_decrypts() {
+        let (mut vault, _) = recovery_vault();
+        let mut item = ItemData::login("Bank", "me", "Unique-S3cret-Value", "");
+        item.reprompt = true;
+        let id = vault.add_item(&item).unwrap();
+        let contains = |vault: &Vault, needle: &[u8]| {
+            let record = &vault.items[vault.position(&id).unwrap()];
+            let plain = vault.decrypt_item(record).unwrap();
+            plain.windows(needle.len()).any(|w| w == needle)
+        };
+        assert!(contains(&vault, b"Unique-S3cret-Value"));
+        vault
+            .set_item_guard(false, GuardCheck::Password, Some("guard password"), None)
+            .unwrap();
+        assert!(!contains(&vault, b"Unique-S3cret-Value"));
+        assert!(contains(&vault, b"Bank"));
+        // Sealed secrets are bound to their item: moved to another one, they don't open.
+        let other = vault.add_item(&item).unwrap();
+        let (ia, ib) = (
+            vault.position(&id).unwrap(),
+            vault.position(&other).unwrap(),
+        );
+        let mut a = vault.open_item(&vault.items[ia]).unwrap();
+        vault.lock_secrets();
+        let b = vault.open_item(&vault.items[ib]).unwrap();
+        a.sealed = None;
+        a.password.clear();
+        a.sealed.clone_from(&b.sealed);
+        vault.items[ia] = vault.seal_item(id, 9, &a).unwrap();
+        assert!(vault.unlock_secrets("guard password").unwrap());
+        assert!(vault.get_item(&id).is_err());
+        assert!(vault.get_item(&other).is_ok());
     }
 
     #[test]

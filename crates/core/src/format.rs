@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use zeroize::Zeroizing;
 
 use crate::{
-    Error, Folder, ItemGuard, ItemId, KdfParams, Result, VaultSettings,
+    Error, Folder, ItemGuard, ItemId, KdfParams, PasswordKdf, Result, VaultSettings,
+    guard::ItemGuardV5,
     item::{FolderV1, FolderV3},
 };
 
@@ -15,10 +16,15 @@ pub(crate) const MAGIC: &[u8; 8] = b"PMVAULT\0";
 /// v3 = folder icons and colours, an icon website per item;
 /// v4 = a picture link per folder;
 /// v5 = a re-prompt flag per item, the item guard in the body, and a password slot that also
-/// needs a keyfile.
-pub(crate) const FORMAT_VERSION: u16 = 5;
+/// needs a keyfile;
+/// v6 = the header names the password hashing method (Argon2id, scrypt or PBKDF2-SHA-256); the
+/// item guard wraps a key under its PIN or password, and guarded items keep their secrets
+/// sealed under that key.
+pub(crate) const FORMAT_VERSION: u16 = 6;
+/// Last version whose header has Argon2id parameters only.
+const LAST_ARGON2_ONLY_VERSION: u16 = 5;
 /// Last version that changed the item layout: items of older files are re-encrypted on open.
-pub(crate) const ITEM_LAYOUT_VERSION: u16 = 5;
+pub(crate) const ITEM_LAYOUT_VERSION: u16 = 6;
 /// Oldest version this build still reads (and upgrades on the next save).
 pub(crate) const OLDEST_READABLE_VERSION: u16 = 0;
 const ENVELOPE_PREFIX: usize = 8 + 2 + 4;
@@ -53,8 +59,26 @@ pub(crate) struct KeySlot {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct VaultHeader {
     pub(crate) vault_id: [u8; 16],
+    pub(crate) kdf: PasswordKdf,
+    pub(crate) slots: Vec<KeySlot>,
+}
+
+/// Header layout of formats v0–v5 (always Argon2id).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct VaultHeaderV5 {
+    pub(crate) vault_id: [u8; 16],
     pub(crate) kdf: KdfParams,
     pub(crate) slots: Vec<KeySlot>,
+}
+
+impl VaultHeaderV5 {
+    fn upgrade(self) -> VaultHeader {
+        VaultHeader {
+            vault_id: self.vault_id,
+            kdf: PasswordKdf::Argon2id(self.kdf),
+            slots: self.slots,
+        }
+    }
 }
 
 impl VaultHeader {
@@ -97,6 +121,16 @@ pub(crate) struct VaultBody {
     pub(crate) folders: Vec<Folder>,
     pub(crate) settings: VaultSettings,
     pub(crate) guard: ItemGuard,
+}
+
+/// Body layout of format v5 (an item guard without a key).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct VaultBodyV5 {
+    pub(crate) revision: u64,
+    pub(crate) items: Vec<ItemRecord>,
+    pub(crate) folders: Vec<Folder>,
+    pub(crate) settings: VaultSettings,
+    pub(crate) guard: ItemGuardV5,
 }
 
 /// Body layout of format v4 (no item guard).
@@ -165,11 +199,14 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<ParsedFile<'_>> {
         return Err(Error::Malformed);
     }
     let header_end = ENVELOPE_PREFIX + header_len;
-    let header: VaultHeader = decode_exact(
-        bytes
-            .get(ENVELOPE_PREFIX..header_end)
-            .ok_or(Error::Malformed)?,
-    )?;
+    let encoded = bytes
+        .get(ENVELOPE_PREFIX..header_end)
+        .ok_or(Error::Malformed)?;
+    let header: VaultHeader = if version <= LAST_ARGON2_ONLY_VERSION {
+        decode_exact::<VaultHeaderV5>(encoded)?.upgrade()
+    } else {
+        decode_exact(encoded)?
+    };
     header.validate()?;
 
     let body_len = read_u32(bytes, header_end)? as usize;

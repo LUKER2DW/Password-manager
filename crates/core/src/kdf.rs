@@ -112,10 +112,10 @@ impl KdfParams {
     }
 }
 
-/// How much work unlocking costs, as offered to the user. Only Argon2id is used: it is the
-/// recommendation of RFC 9106 and OWASP, and its memory cost is what makes guessing on graphics
-/// cards and custom chips expensive (PBKDF2 and bcrypt have none, scrypt is older and easier to
-/// misconfigure). The levels differ only in memory and passes.
+/// How much work unlocking costs, as offered to the user. The costs below are the Argon2id
+/// ones (the default method: the recommendation of RFC 9106 and OWASP, whose memory cost is
+/// what makes guessing on graphics cards and custom chips expensive); [`PasswordKdf::preset`]
+/// maps the same four levels onto the other methods.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KdfStrength {
     /// 64 MiB, 3 passes: for older computers or little memory.
@@ -156,6 +156,205 @@ impl KdfStrength {
         Self::ALL.into_iter().find(|level| {
             level.costs() == (params.memory_kib, params.iterations, params.parallelism)
         })
+    }
+}
+
+/// The method that stretches the master password.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KdfMethod {
+    /// Memory-hard, the default and the recommendation (RFC 9106, OWASP).
+    Argon2id,
+    /// Memory-hard, older than Argon2 (RFC 7914).
+    Scrypt,
+    /// HMAC-SHA-256 repeated many times (RFC 8018). Needs almost no memory, so graphics cards
+    /// guess far faster against it: offered for compatibility of habit, not strength.
+    Pbkdf2Sha256,
+}
+
+impl KdfMethod {
+    pub const ALL: [KdfMethod; 3] = [Self::Argon2id, Self::Scrypt, Self::Pbkdf2Sha256];
+}
+
+const PBKDF2_MIN_ITERATIONS: u32 = 600_000;
+const PBKDF2_MAX_ITERATIONS: u32 = 100_000_000;
+const SCRYPT_MIN_LOG_N: u8 = 17;
+const SCRYPT_MAX_LOG_N: u8 = 22;
+const SCRYPT_R: u32 = 8;
+const SCRYPT_MAX_P: u32 = 16;
+
+/// How the master password is stretched, with its cost and salt. Stored in the
+/// (authenticated) header. (Format v6; older files are always Argon2id.)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PasswordKdf {
+    Argon2id(KdfParams),
+    /// N = 2^`log_n`, block size r = 8.
+    Scrypt {
+        log_n: u8,
+        p: u32,
+        salt: [u8; 32],
+    },
+    Pbkdf2Sha256 {
+        iterations: u32,
+        salt: [u8; 32],
+    },
+}
+
+impl From<KdfParams> for PasswordKdf {
+    fn from(params: KdfParams) -> Self {
+        Self::Argon2id(params)
+    }
+}
+
+impl From<&KdfParams> for PasswordKdf {
+    fn from(params: &KdfParams) -> Self {
+        Self::Argon2id(params.clone())
+    }
+}
+
+impl From<&PasswordKdf> for PasswordKdf {
+    fn from(kdf: &PasswordKdf) -> Self {
+        kdf.clone()
+    }
+}
+
+impl PasswordKdf {
+    /// Fresh parameters (new salt) for a method at one of the four levels.
+    ///
+    /// | level | Argon2id | scrypt (r = 8) | PBKDF2-SHA-256 |
+    /// |---|---|---|---|
+    /// | Light | 64 MiB × 3 | N = 2^17 (128 MiB) | 600 000 |
+    /// | Standard | 256 MiB × 3 | N = 2^18 (256 MiB) | 1 200 000 |
+    /// | Strong | 512 MiB × 4 | N = 2^19 (512 MiB) | 2 400 000 |
+    /// | Maximum | 1 GiB × 5 | N = 2^20 (1 GiB) | 5 000 000 |
+    pub fn preset(method: KdfMethod, strength: KdfStrength) -> Result<Self> {
+        let level = KdfStrength::ALL
+            .iter()
+            .position(|l| *l == strength)
+            .unwrap_or(1);
+        let kdf = match method {
+            KdfMethod::Argon2id => Self::Argon2id(strength.params()?),
+            KdfMethod::Scrypt => Self::Scrypt {
+                log_n: [17, 18, 19, 20][level],
+                p: 1,
+                salt: random::array()?,
+            },
+            KdfMethod::Pbkdf2Sha256 => Self::Pbkdf2Sha256 {
+                iterations: [600_000, 1_200_000, 2_400_000, 5_000_000][level],
+                salt: random::array()?,
+            },
+        };
+        kdf.validate()?;
+        Ok(kdf)
+    }
+
+    pub fn method(&self) -> KdfMethod {
+        match self {
+            Self::Argon2id(_) => KdfMethod::Argon2id,
+            Self::Scrypt { .. } => KdfMethod::Scrypt,
+            Self::Pbkdf2Sha256 { .. } => KdfMethod::Pbkdf2Sha256,
+        }
+    }
+
+    /// The level these parameters match, or `None` for other values.
+    pub fn strength(&self) -> Option<KdfStrength> {
+        let index = match self {
+            Self::Argon2id(params) => return KdfStrength::of(params),
+            Self::Scrypt { log_n, p: 1, .. } => [17, 18, 19, 20].iter().position(|n| n == log_n),
+            Self::Scrypt { .. } => None,
+            Self::Pbkdf2Sha256 { iterations, .. } => [600_000, 1_200_000, 2_400_000, 5_000_000]
+                .iter()
+                .position(|i| i == iterations),
+        };
+        index.map(|i| KdfStrength::ALL[i])
+    }
+
+    /// Memory each guess needs, in MiB (0 for PBKDF2, which needs next to none).
+    pub fn memory_mib(&self) -> u32 {
+        match self {
+            Self::Argon2id(params) => params.memory_kib / 1024,
+            // 128 · r · N bytes.
+            Self::Scrypt { log_n, .. } => 1u32 << (log_n.saturating_sub(10)),
+            Self::Pbkdf2Sha256 { .. } => 0,
+        }
+    }
+
+    /// Passes over memory (Argon2id), or iterations (PBKDF2); 1 for scrypt.
+    pub fn rounds(&self) -> u32 {
+        match self {
+            Self::Argon2id(params) => params.iterations,
+            Self::Scrypt { .. } => 1,
+            Self::Pbkdf2Sha256 { iterations, .. } => *iterations,
+        }
+    }
+
+    /// Same method and cost, new random salt (used whenever the password slot is rewritten).
+    pub(crate) fn with_fresh_salt(&self) -> Result<Self> {
+        let fresh = match self {
+            Self::Argon2id(params) => Self::Argon2id(params.with_fresh_salt()?),
+            Self::Scrypt { log_n, p, .. } => Self::Scrypt {
+                log_n: *log_n,
+                p: *p,
+                salt: random::array()?,
+            },
+            Self::Pbkdf2Sha256 { iterations, .. } => Self::Pbkdf2Sha256 {
+                iterations: *iterations,
+                salt: random::array()?,
+            },
+        };
+        fresh.validate()?;
+        Ok(fresh)
+    }
+
+    /// Floors stop a tampered header from making guesses cheap; ceilings stop a crafted file
+    /// from exhausting memory or time.
+    pub(crate) fn validate(&self) -> Result<()> {
+        let ok = match self {
+            Self::Argon2id(params) => return params.validate(),
+            Self::Scrypt { log_n, p, .. } => {
+                (SCRYPT_MIN_LOG_N..=SCRYPT_MAX_LOG_N).contains(log_n)
+                    && (1..=SCRYPT_MAX_P).contains(p)
+            }
+            Self::Pbkdf2Sha256 { iterations, .. } => {
+                (PBKDF2_MIN_ITERATIONS..=PBKDF2_MAX_ITERATIONS).contains(iterations)
+            }
+        };
+        if ok {
+            Ok(())
+        } else {
+            Err(Error::KdfParamsOutOfRange)
+        }
+    }
+
+    /// Stretches the (NFKC-normalized) password into 32 bytes.
+    pub(crate) fn derive(&self, password: &str) -> Result<Zeroizing<[u8; 32]>> {
+        let params = match self {
+            Self::Argon2id(params) => return derive_password_key(password, params),
+            other => other,
+        };
+        if password.is_empty() {
+            return Err(Error::EmptyPassword);
+        }
+        params.validate()?;
+        let normalized = normalize_password(password);
+        let mut out = Zeroizing::new([0u8; 32]);
+        match params {
+            Self::Scrypt { log_n, p, salt } => {
+                let scrypt_params = scrypt::Params::new(*log_n, SCRYPT_R, *p)
+                    .map_err(|_| Error::KdfParamsOutOfRange)?;
+                scrypt::scrypt(normalized.as_bytes(), salt, &scrypt_params, out.as_mut())
+                    .map_err(|_| Error::Kdf)?;
+            }
+            Self::Pbkdf2Sha256 { iterations, salt } => {
+                pbkdf2::pbkdf2_hmac::<sha2::Sha256>(
+                    normalized.as_bytes(),
+                    salt,
+                    *iterations,
+                    out.as_mut(),
+                );
+            }
+            Self::Argon2id(_) => unreachable!("handled above"),
+        }
+        Ok(out)
     }
 }
 
@@ -252,6 +451,76 @@ mod tests {
             Some(KdfStrength::Standard)
         );
         assert_eq!(KdfStrength::of(&KdfParams::minimum().unwrap()), None);
+    }
+
+    #[test]
+    fn other_methods_have_presets_limits_and_known_answers() {
+        for method in KdfMethod::ALL {
+            for level in KdfStrength::ALL {
+                let kdf = PasswordKdf::preset(method, level).unwrap();
+                assert_eq!((kdf.method(), kdf.strength()), (method, Some(level)));
+                let fresh = kdf.with_fresh_salt().unwrap();
+                assert_ne!(kdf, fresh, "a new salt");
+                assert_eq!(fresh.strength(), Some(level));
+            }
+        }
+        // Below the floors and above the ceilings.
+        for bad in [
+            PasswordKdf::Pbkdf2Sha256 {
+                iterations: 599_999,
+                salt: [0; 32],
+            },
+            PasswordKdf::Pbkdf2Sha256 {
+                iterations: 100_000_001,
+                salt: [0; 32],
+            },
+            PasswordKdf::Scrypt {
+                log_n: 16,
+                p: 1,
+                salt: [0; 32],
+            },
+            PasswordKdf::Scrypt {
+                log_n: 23,
+                p: 1,
+                salt: [0; 32],
+            },
+            PasswordKdf::Scrypt {
+                log_n: 17,
+                p: 0,
+                salt: [0; 32],
+            },
+        ] {
+            assert!(matches!(bad.validate(), Err(Error::KdfParamsOutOfRange)));
+            assert!(bad.derive("pw").is_err());
+        }
+        // Deterministic, salt-dependent, and different per method.
+        let pbkdf2 = PasswordKdf::Pbkdf2Sha256 {
+            iterations: 600_000,
+            salt: [7; 32],
+        };
+        let scrypt = PasswordKdf::Scrypt {
+            log_n: 17,
+            p: 1,
+            salt: [7; 32],
+        };
+        let a = pbkdf2.derive("correct horse").unwrap();
+        assert_eq!(*a, *pbkdf2.derive("correct horse").unwrap());
+        assert_ne!(*a, *pbkdf2.derive("correct horsf").unwrap());
+        assert_ne!(*a, *scrypt.derive("correct horse").unwrap());
+        assert!(pbkdf2.derive("").is_err());
+        assert_eq!((scrypt.memory_mib(), pbkdf2.memory_mib()), (128, 0));
+    }
+
+    /// RFC 7914 §11 (PBKDF2-HMAC-SHA-256) and §12 (scrypt) vectors, through the same crates
+    /// and calls `derive` uses: proof the primitives are wired the standard way.
+    #[test]
+    fn primitives_match_rfc_7914_vectors() {
+        let mut out = [0u8; 64];
+        pbkdf2::pbkdf2_hmac::<sha2::Sha256>(b"passwd", b"salt", 1, &mut out);
+        assert_eq!(out[..8], [0x55, 0xac, 0x04, 0x6e, 0x56, 0xe3, 0x08, 0x9f],);
+        let params = scrypt::Params::new(10, 8, 16).unwrap();
+        scrypt::scrypt(b"password", b"NaCl", &params, &mut out).unwrap();
+        assert_eq!(out[..8], [0xfd, 0xba, 0xbe, 0x1c, 0x9d, 0x34, 0x72, 0x00],);
     }
 
     #[test]

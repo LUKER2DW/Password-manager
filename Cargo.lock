@@ -5130,6 +5130,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "scrypt"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d87af57419b594aa23fa95f09f0e06d80d84ba01c26148c43844cad6ff4485f0"
+dependencies = [
+ "cfg-if",
+ "pbkdf2",
+ "salsa20",
+ "sha2 0.11.0",
+]
+
+[[package]]
 name = "sctk-adwaita"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6302,8 +6314,10 @@ dependencies = [
  "getrandom 0.4.3",
  "hkdf 0.13.0",
  "hmac 0.13.0",
+ "pbkdf2",
  "postcard",
  "proptest",
+ "scrypt",
  "serde",
  "sha1",
  "sha2 0.11.0",
@@ -6328,13 +6342,21 @@ dependencies = [
  "serde",
  "sha2 0.11.0",
  "slint",
- "slint-build",
  "tempfile",
  "ureq",
  "vault-core",
+ "vault-desktop-ui",
  "vault-import",
  "vault-platform",
  "zeroize",
+]
+
+[[package]]
+name = "vault-desktop-ui"
+version = "0.0.0"
+dependencies = [
+ "slint",
+ "slint-build",
 ]
 
 [[package]]

@@ -146,20 +146,54 @@ fn context_words(item: &ItemData) -> Vec<&str> {
 
 /// Checks every item. `now` and `(month, year)` are passed in so results are reproducible.
 pub fn audit(vault: &Vault, now: i64, month_year: (u32, u32)) -> Result<HealthReport> {
-    let mut report = HealthReport::default();
-    let mut fingerprints: Vec<[u8; 32]> = Vec::new();
+    Ok(collect(vault, now, month_year)?.analyze())
+}
+
+/// What an audit needs from the vault, read in one quick pass. The slow part (estimating
+/// every password's strength) is [`AuditInput::analyze`], which needs no vault and can run on
+/// another thread. Passwords are wiped when this is dropped.
+pub struct AuditInput {
+    logins: Vec<AuditLogin>,
+    expired_cards: Vec<ItemId>,
+    now: i64,
+}
+
+struct AuditLogin {
+    id: ItemId,
+    password: Zeroizing<String>,
+    context: Vec<String>,
+    set_at: i64,
+}
+
+impl std::fmt::Debug for AuditInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuditInput")
+            .field("logins", &self.logins.len())
+            .field("expired_cards", &self.expired_cards.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Reads what [`audit`] looks at: every login's password and the words around it, and which
+/// cards have expired. Items whose secrets are locked are left out.
+pub fn collect(vault: &Vault, now: i64, month_year: (u32, u32)) -> Result<AuditInput> {
+    let mut input = AuditInput {
+        logins: Vec::new(),
+        expired_cards: Vec::new(),
+        now,
+    };
     for id in vault.item_ids() {
         let item = vault.get_item(&id)?;
         match item.kind {
             ItemKind::Login if !item.password.is_empty() => {
-                fingerprints.push(Sha256::digest(item.password.as_bytes()).into());
-                let set_at = item.password_set_at();
-                report.logins.push(ItemHealth {
+                input.logins.push(AuditLogin {
                     id,
-                    strength: strength(&item.password, &context_words(&item)),
-                    reused_by: 0,
-                    old: set_at > 0 && now - set_at > OLD_AFTER_SECONDS,
-                    set_at,
+                    password: Zeroizing::new(item.password.clone()),
+                    context: context_words(&item)
+                        .into_iter()
+                        .map(str::to_owned)
+                        .collect(),
+                    set_at: item.password_set_at(),
                 });
             }
             ItemKind::Card => {
@@ -167,20 +201,43 @@ pub fn audit(vault: &Vault, now: i64, month_year: (u32, u32)) -> Result<HealthRe
                 if let Some(expiry) = card::parse_expiry(&details.expiry)
                     && card::is_expired(expiry, month_year)
                 {
-                    report.expired_cards.push(id);
+                    input.expired_cards.push(id);
                 }
             }
             _ => {}
         }
     }
-    let mut counts: HashMap<[u8; 32], usize> = HashMap::new();
-    for fingerprint in &fingerprints {
-        *counts.entry(*fingerprint).or_default() += 1;
+    Ok(input)
+}
+
+impl AuditInput {
+    /// Estimates every password's strength and counts reuse.
+    pub fn analyze(self) -> HealthReport {
+        let mut report = HealthReport {
+            logins: Vec::with_capacity(self.logins.len()),
+            expired_cards: self.expired_cards.clone(),
+        };
+        let mut fingerprints: Vec<[u8; 32]> = Vec::with_capacity(self.logins.len());
+        for login in &self.logins {
+            fingerprints.push(Sha256::digest(login.password.as_bytes()).into());
+            let context: Vec<&str> = login.context.iter().map(String::as_str).collect();
+            report.logins.push(ItemHealth {
+                id: login.id,
+                strength: strength(&login.password, &context),
+                reused_by: 0,
+                old: login.set_at > 0 && self.now - login.set_at > OLD_AFTER_SECONDS,
+                set_at: login.set_at,
+            });
+        }
+        let mut counts: HashMap<[u8; 32], usize> = HashMap::new();
+        for fingerprint in &fingerprints {
+            *counts.entry(*fingerprint).or_default() += 1;
+        }
+        for (health, fingerprint) in report.logins.iter_mut().zip(&fingerprints) {
+            health.reused_by = counts[fingerprint] - 1;
+        }
+        report
     }
-    for (health, fingerprint) in report.logins.iter_mut().zip(&fingerprints) {
-        health.reused_by = counts[fingerprint] - 1;
-    }
-    Ok(report)
 }
 
 /// A k-anonymous breach lookup for one password: only the first 5 hex characters of its

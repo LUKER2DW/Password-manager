@@ -15,7 +15,9 @@ pub const BRAND: &str = "Brand";
 /// Field names managed by the card editor (not shown among the item's other fields).
 pub const RESERVED: [&str; 4] = [NUMBER, EXPIRY, SECURITY_CODE, BRAND];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Stored (by position) in the hints of a locked card: new networks go before `Unknown`'s
+/// place only with a format change, otherwise at the end.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Brand {
     Visa,
     Mastercard,
@@ -26,6 +28,7 @@ pub enum Brand {
     Diners,
     Jcb,
     Maestro,
+    #[default]
     Unknown,
 }
 

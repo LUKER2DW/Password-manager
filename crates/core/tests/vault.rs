@@ -1,6 +1,224 @@
 //! End-to-end tests of the public `vault-core` API.
 
 #[test]
+fn every_hash_method_opens_its_vault_and_can_be_switched() {
+    use vault_core::{KdfMethod, KdfStrength, PasswordKdf};
+    let secret_key = SecretKey::generate().unwrap();
+    let unlock = || Unlock::Password {
+        password: "pw",
+        secret_key: &secret_key,
+    };
+    let mut vault = Vault::create(
+        "pw",
+        &secret_key,
+        None,
+        PasswordKdf::preset(KdfMethod::Pbkdf2Sha256, KdfStrength::Light).unwrap(),
+    )
+    .unwrap();
+    let id = vault
+        .add_item(&ItemData::login(
+            "Site",
+            "me",
+            "s3cret",
+            "https://site.example",
+        ))
+        .unwrap();
+    for method in [
+        KdfMethod::Pbkdf2Sha256,
+        KdfMethod::Scrypt,
+        KdfMethod::Argon2id,
+    ] {
+        let kdf = PasswordKdf::preset(method, KdfStrength::Light).unwrap();
+        vault
+            .change_password("pw", &secret_key, None, &kdf)
+            .unwrap();
+        let bytes = vault.to_bytes().unwrap();
+        let info = Vault::inspect(&bytes).unwrap();
+        assert_eq!(info.kdf.method(), method);
+        assert_eq!(info.kdf.strength(), Some(KdfStrength::Light));
+        let opened = Vault::open(&bytes, unlock()).unwrap();
+        assert_eq!(opened.get_item(&id).unwrap().password, "s3cret");
+        assert!(matches!(
+            Vault::open(
+                &bytes,
+                Unlock::Password {
+                    password: "pw2",
+                    secret_key: &secret_key
+                }
+            ),
+            Err(Error::DecryptionFailed)
+        ));
+    }
+}
+
+#[test]
+fn guarded_secrets_are_encrypted_under_the_pin() {
+    use vault_core::{CustomField, GuardCheck, RecoveryCode};
+    let secret_key = SecretKey::generate().unwrap();
+    let recovery_key = RecoveryKey::generate().unwrap();
+    let kdf = KdfParams::minimum().unwrap();
+    let mut vault = Vault::create("pw", &secret_key, Some(&recovery_key), kdf.clone()).unwrap();
+    let mut bank = ItemData::login("Bank", "me@bank", "s3cret", "https://bank.example");
+    bank.totp = "JBSWY3DPEHPK3PXP".into();
+    bank.notes = "branch 12".into();
+    bank.recovery_codes = RecoveryCode::parse_list("aaaa-1111");
+    bank.custom_fields = vec![
+        CustomField {
+            name: "Agency".into(),
+            value: "0001".into(),
+            sensitive: false,
+        },
+        CustomField {
+            name: "Card PIN".into(),
+            value: "7788".into(),
+            sensitive: true,
+        },
+    ];
+    bank.reprompt = true;
+    let bank_id = vault.add_item(&bank).unwrap();
+    let forum = ItemData::login("Forum", "me", "forum-pw", "");
+    let forum_id = vault.add_item(&forum).unwrap();
+
+    // Only marked items, opened by a PIN; the master password can replace a forgotten PIN.
+    assert!(matches!(
+        vault.set_item_guard(false, GuardCheck::Pin, Some("12"), Some("pw")),
+        Err(Error::InvalidGuardSecret)
+    ));
+    assert!(matches!(
+        vault.set_item_guard(false, GuardCheck::Pin, None, Some("pw")),
+        Err(Error::InvalidGuardSecret)
+    ));
+    vault
+        .set_item_guard(false, GuardCheck::Pin, Some("4821"), Some("pw"))
+        .unwrap();
+    assert!(vault.item_guard().encrypts() && vault.secrets_open());
+    assert_eq!(vault.get_item(&bank_id).unwrap().password, "s3cret");
+    vault.lock_secrets();
+
+    let locked = vault.get_item(&bank_id).unwrap();
+    assert!(locked.is_locked());
+    assert_eq!(
+        (locked.title.as_str(), locked.username.as_str()),
+        ("Bank", "me@bank")
+    );
+    assert_eq!(locked.notes, "branch 12", "a login's notes stay readable");
+    assert_eq!(locked.custom_fields[0].value, "0001");
+    assert_eq!(
+        locked.custom_fields[1].value, "",
+        "hidden fields are secrets"
+    );
+    assert!(locked.password.is_empty() && locked.totp.is_empty());
+    assert!(locked.recovery_codes.is_empty());
+    assert!(!format!("{locked:?}").contains("s3cret"));
+    assert_eq!(vault.get_item(&forum_id).unwrap().password, "forum-pw");
+
+    // Locked secrets can't be changed; what is visible can.
+    let mut changed = bank.clone();
+    changed.password = "other".into();
+    assert!(matches!(
+        vault.update_item(&bank_id, &changed),
+        Err(Error::SecretsLocked)
+    ));
+    assert!(matches!(
+        vault.clear_password_history(&bank_id),
+        Err(Error::SecretsLocked)
+    ));
+    assert!(vault.needs_unlock_to_store(&bank));
+    assert!(matches!(vault.add_item(&bank), Err(Error::SecretsLocked)));
+    let mut view = locked.clone();
+    view.favorite = true;
+    view.title = "Bank ✓".into();
+    vault.update_item(&bank_id, &view).unwrap();
+
+    // The saved file keeps them sealed, for the Recovery Key too.
+    let bytes = vault.to_bytes().unwrap();
+    for unlock in [
+        Unlock::Password {
+            password: "pw",
+            secret_key: &secret_key,
+        },
+        Unlock::Recovery(&recovery_key),
+    ] {
+        let mut opened = Vault::open(&bytes, unlock).unwrap();
+        assert!(opened.get_item(&bank_id).unwrap().is_locked());
+        let summaries = opened.summaries().unwrap();
+        let summary = summaries.iter().find(|s| s.id == bank_id).unwrap();
+        assert!(summary.locked && summary.has_totp && summary.has_password);
+        assert!(!opened.unlock_secrets("0000").unwrap());
+        assert!(opened.unlock_secrets("4821").unwrap());
+        let open = opened.get_item(&bank_id).unwrap();
+        assert!(!open.is_locked() && open.favorite);
+        assert_eq!(
+            (
+                open.title.as_str(),
+                open.password.as_str(),
+                open.totp.as_str()
+            ),
+            ("Bank ✓", "s3cret", "JBSWY3DPEHPK3PXP")
+        );
+        assert_eq!(open.custom_fields[1].value, "7788");
+        assert_eq!(open.recovery_codes.len(), 1);
+    }
+
+    // A view read while locked and written after the unlock keeps the secrets.
+    let view = vault.get_item(&bank_id).unwrap();
+    assert!(vault.unlock_secrets("4821").unwrap());
+    vault.update_item(&bank_id, &view).unwrap();
+    assert_eq!(vault.get_item(&bank_id).unwrap().password, "s3cret");
+    // Open, a password change is recorded as usual.
+    let mut open = vault.get_item(&bank_id).unwrap();
+    open.password = "n3w".into();
+    vault.update_item(&bank_id, &open).unwrap();
+    assert_eq!(vault.get_item(&bank_id).unwrap().password_history.len(), 1);
+
+    // A forgotten PIN: the master password opens the way to a new one, for every item now.
+    vault.lock_secrets();
+    assert!(matches!(
+        vault.set_item_guard(true, GuardCheck::Pin, Some("9999"), None),
+        Err(Error::SecretsLocked)
+    ));
+    assert!(matches!(
+        vault.set_item_guard(true, GuardCheck::Pin, Some("9999"), Some("not it")),
+        Err(Error::SecretsLocked)
+    ));
+    vault
+        .set_item_guard(true, GuardCheck::Pin, Some("9999"), Some("pw"))
+        .unwrap();
+    vault.lock_secrets();
+    assert!(vault.get_item(&forum_id).unwrap().is_locked());
+    assert!(!vault.unlock_secrets("4821").unwrap());
+    assert!(vault.unlock_secrets("9999").unwrap());
+    assert_eq!(vault.get_item(&forum_id).unwrap().password, "forum-pw");
+
+    // A new master password takes over the reset copy while secrets are open.
+    vault
+        .change_password("pw2", &secret_key, None, &kdf)
+        .unwrap();
+    vault.lock_secrets();
+    assert!(!vault.unlock_secrets_with_master("pw").unwrap());
+    assert!(vault.unlock_secrets_with_master("pw2").unwrap());
+
+    // Back to the master password as the check: nothing stays sealed.
+    vault.lock_secrets();
+    vault
+        .set_item_guard(false, GuardCheck::Master, None, Some("pw2"))
+        .unwrap();
+    assert!(!vault.item_guard().encrypts() && !vault.secrets_open());
+    let bytes = vault.to_bytes().unwrap();
+    let opened = Vault::open(
+        &bytes,
+        Unlock::Password {
+            password: "pw2",
+            secret_key: &secret_key,
+        },
+    )
+    .unwrap();
+    let plain = opened.get_item(&bank_id).unwrap();
+    assert!(!plain.is_locked() && plain.reprompt);
+    assert_eq!(plain.password, "n3w");
+}
+
+#[test]
 fn a_keyfile_is_a_third_factor() {
     use vault_core::Keyfile;
     let secret_key = SecretKey::generate().unwrap();
@@ -417,18 +635,22 @@ fn foreign_files_and_future_versions_are_rejected() {
         Err(Error::NotAVault)
     ));
     let mut bytes = f.vault.to_bytes().unwrap();
-    bytes[8] = 6; // format_version = 6: from the future
+    bytes[8] = 7; // format_version = 7: from the future
     assert!(matches!(
         Vault::open(&bytes, Unlock::Recovery(&f.recovery_key)),
-        Err(Error::UnsupportedVersion(6))
+        Err(Error::UnsupportedVersion(7))
     ));
-    // Relabelling a current file as an older version changes the authenticated header: the body won't open.
-    let mut relabelled = f.vault.to_bytes().unwrap();
-    relabelled[8] = 0;
-    assert!(matches!(
-        Vault::open(&relabelled, Unlock::Recovery(&f.recovery_key)),
-        Err(Error::DecryptionFailed)
-    ));
+    // Relabelling a current file as an older version never opens it: the header no longer
+    // parses in the old layout, and where it does (v5, same body layout aside) the version is
+    // part of the authenticated header, so the body won't decrypt.
+    for older in 0..6u8 {
+        let mut relabelled = f.vault.to_bytes().unwrap();
+        relabelled[8] = older;
+        assert!(matches!(
+            Vault::open(&relabelled, Unlock::Recovery(&f.recovery_key)),
+            Err(Error::DecryptionFailed | Error::Malformed)
+        ));
+    }
 }
 
 #[test]
@@ -528,7 +750,7 @@ fn change_password_and_secret_key() {
             "a brand new passphrase",
             &new_secret,
             None,
-            &KdfParams::minimum().unwrap(),
+            KdfParams::minimum().unwrap(),
         )
         .unwrap();
     let bytes = f.vault.to_bytes().unwrap();

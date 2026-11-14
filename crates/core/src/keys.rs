@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
-use crate::{Error, KdfParams, Result, aead, encoding, kdf, random};
+use crate::{Error, PasswordKdf, Result, aead, encoding, random};
 
 const SECRET_KEY_LEN: usize = 16;
 const RECOVERY_KEY_LEN: usize = 32;
@@ -214,10 +214,10 @@ pub(crate) fn password_kek(
     password: &str,
     secret_key: &SecretKey,
     keyfile: Option<&Keyfile>,
-    kdf_params: &KdfParams,
+    kdf: &PasswordKdf,
     vault_id: &[u8; 16],
 ) -> Result<Zeroizing<aead::Key>> {
-    let password_key = kdf::derive_password_key(password, kdf_params)?;
+    let password_key = kdf.derive(password)?;
     let mut ikm = Zeroizing::new([0u8; 32 + SECRET_KEY_LEN + 32]);
     ikm[..32].copy_from_slice(password_key.as_ref());
     ikm[32..32 + SECRET_KEY_LEN].copy_from_slice(secret_key.as_bytes());
@@ -248,6 +248,12 @@ pub(crate) fn recovery_kek(
         vault_id,
         &[b"vault-v0/kek/recovery"],
     )
+}
+
+/// KEK that wraps the item guard key. `stretched` is Argon2id of the PIN, guard password or
+/// master password, with the wrapped key's own salt.
+pub(crate) fn guard_kek(stretched: &[u8; 32], vault_id: &[u8; 16]) -> Zeroizing<aead::Key> {
+    hkdf32(stretched, vault_id, &[b"vault-v0/kek/guard"])
 }
 
 /// KEK for a device unlock (Windows Hello and similar). `device_secret` is produced by the
