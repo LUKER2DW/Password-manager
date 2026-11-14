@@ -157,6 +157,8 @@ Rules:
   value (hidden fields, card number, security code, notes) has Show and Hide
 - ✅ Unlock protection: the Argon2id level (Light, Standard, Strong, Maximum) chosen in
   Settings, applied after a master password check, with the unlock time on this computer
+- ✅ Other hash methods (format v6): scrypt and PBKDF2-SHA-256 can be chosen instead of
+  Argon2id, each at the four levels, with a warning that they are weaker; `vault init --hash`
 - ✅ Buttons, checkboxes and dropdowns react to the first click (a focus scope on top used to
   take it)
 - ✅ Keyfile (format v5): an optional third factor next to the master password and Secret Key.
@@ -168,8 +170,18 @@ Rules:
   fields and history open only after a second check. Settings choose the check (master
   password, a 4–8 digit PIN, or another password) and whether it covers every item or only
   the ones marked in the editor; 5 wrong tries lock the whole vault. Edit, delete and the
-  right-click menu follow the lock, and locked items' codes leave the Authenticator page.
+  right-click menu follow the lock.
   The mark is imported from and exported to the `reprompt` field of other managers
+- ✅ Item lock as encryption (format v6): with a PIN or another password, the secrets of locked
+  items are sealed under a key only that PIN or password unwraps, so the vault key alone (an
+  unlocked vault read from memory, or the Recovery Key) no longer shows them. One right check
+  opens every locked item for 5 minutes or until "Lock"; the master password replaces a
+  forgotten PIN. The CLI asks for the PIN when a command needs a locked item
+- ✅ Authenticator with locked items: their codes are listed masked with Copy off, and one
+  check on that page opens them all
+- ✅ Faster builds and app: the Slint screens are a crate of their own (`vault-desktop-ui`), so
+  a change to the controller rebuilds in about a third of the time; `vault-core` is optimized
+  in debug builds; the password health audit runs off the UI thread
 - ⬜ Attachments, tags; passkeys
 - **Done when:** daily use on Windows is possible with a test vault.
 

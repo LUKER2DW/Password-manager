@@ -7,7 +7,7 @@
 
 | Purpose | Primitive | Crate |
 |---|---|---|
-| Password hashing | Argon2id v1.3 (RFC 9106) | `argon2` |
+| Password hashing | Argon2id v1.3 (RFC 9106); by choice scrypt (RFC 7914) or PBKDF2-HMAC-SHA-256 (RFC 8018), §4.1 | `argon2`, `scrypt`, `pbkdf2` |
 | Key derivation | HKDF-SHA-256 (RFC 5869) | `hkdf`, `sha2` |
 | Authenticated encryption | XChaCha20-Poly1305 | `chacha20poly1305` |
 | Checksums | SHA-256 | `sha2` |
@@ -74,6 +74,28 @@ storage. The Recovery Key still opens the vault on its own, and recovering reset
 master password + (new) Secret Key. Setting or removing the keyfile rewrites the password slot,
 which revokes device unlocks (§3.1).
 
+### 3.2 Item guard key (format v6)
+
+When the item guard checks a PIN or a separate password (VAULT_FORMAT.md §5), the secrets of
+guarded items are sealed under a random 256-bit `guard_key` that is never stored unwrapped:
+
+```
+stretched = Argon2id(NFKC(secret), salt, 256 MiB, 3 passes, 4 lanes, out = 32)
+KEK_guard = HKDF-SHA-256(ikm = stretched, salt = vault_id, info = "vault-v0/kek/guard")
+wrapped   = seal(KEK_guard, guard_key, aad = "vault-v0/guard-key" ‖ vault_id ‖ slot)
+sealed    = seal(guard_key, pad(ItemSecrets), aad = "vault-v0/item-secrets" ‖ vault_id ‖ item_id)
+```
+
+`slot` is 0x01 for the PIN or password and 0x02 for the copy wrapped by the master password
+(so a forgotten PIN can be replaced; rewritten when the master password changes while the
+guard key is in memory). `sealed` sits inside the item, which is then sealed as usual (§5), so
+tampering, swapping and rollback protection are unchanged; the AAD ties the secrets to their
+item. The guard key leaves memory when the secrets are locked again.
+
+This puts a second key between an unlocked vault and its most sensitive data. It does not
+make a short PIN strong: with the vault key in hand, 10 000 four-digit PINs cost 10 000
+Argon2id runs.
+
 ### 3.1 Device unlock (Windows Hello)
 
 A per-device wrapping of the vault key, kept **outside** the vault file
@@ -118,10 +140,30 @@ AAD_device    = "vault-v0/device" ‖ vault_id ‖ SHA-256(password slot's wrapp
   | Strong | 512 MiB | 4 |
   | Maximum | 1 GiB | 5 |
 
-  Only Argon2id is offered. PBKDF2 and bcrypt need almost no memory per guess, so graphics
-  cards and ASICs attack them far more cheaply; scrypt is memory-hard but older and easier to
-  misconfigure. A second algorithm would also double the code that must be right.
 - `salt` is 32 random bytes, regenerated whenever the password slot is rewritten.
+
+### 4.1 Other password hashing methods (format v6)
+
+Argon2id is the default and the recommendation. The header may instead name one of two older
+methods, for people who must follow a rule that names them; clients warn that both are weaker.
+`password_key` in §3 is then that method's 32-byte output over the same NFKC password and
+32-byte salt; everything after it is unchanged.
+
+| Method | Parameters | Floor | Ceiling |
+|---|---|---|---|
+| scrypt | N = 2^`log_n`, r = 8, `p` | `log_n` 17 (128 MiB), p 1 | `log_n` 22 (4 GiB), p 16 |
+| PBKDF2-HMAC-SHA-256 | `iterations` | 600 000 | 100 000 000 |
+
+| Level | scrypt | PBKDF2 |
+|---|---|---|
+| Light | 2^17 | 600 000 |
+| Standard | 2^18 | 1 200 000 |
+| Strong | 2^19 | 2 400 000 |
+| Maximum | 2^20 | 5 000 000 |
+
+scrypt is memory-hard but older, and custom hardware does better against it than against
+Argon2id. PBKDF2 needs almost no memory per guess, so graphics cards and ASICs attack it far
+more cheaply; its floor is the current OWASP minimum. bcrypt is not offered.
 
 ## 5. Sealing (AEAD with key commitment)
 
@@ -153,6 +195,8 @@ Deriving a fresh `K_enc` per message also removes any risk from random-nonce col
 | Vault body | `subkey("body")` | `"vault-v0/body" ‖ header_bytes` |
 | Item key | `subkey("item-wrap")` | `"vault-v0/item-key" ‖ vault_id ‖ item_id` |
 | Item data | `item_key` | `"vault-v0/item" ‖ vault_id ‖ item_id ‖ revision (u64 LE)` |
+| Guard key (§3.2) | `KEK_guard` | `"vault-v0/guard-key" ‖ vault_id ‖ slot (0x01 check, 0x02 master)` |
+| Item secrets (§3.2) | `guard_key` | `"vault-v0/item-secrets" ‖ vault_id ‖ item_id` |
 | Device unlock (§3.1) | `KEK_device` | `"vault-v0/device" ‖ vault_id ‖ SHA-256(password slot)` |
 | Device-local data (e.g. icon cache) | `subkey("local/" ‖ purpose)` | `"vault-v0/local" ‖ vault_id ‖ purpose` |
 

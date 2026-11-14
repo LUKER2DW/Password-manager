@@ -1,6 +1,6 @@
-# Vault File Format — v5
+# Vault File Format — v6
 
-> Status: **draft v5**, not stable. v0–v4 files are still read and upgraded to v5 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
+> Status: **draft v6**, not stable. v0–v5 files are still read and upgraded to v6 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
 > Structures are serialized with [postcard](https://postcard.jamesmunns.com/wire-format) 1.x
 > (stable wire format). Integers in the file envelope are little-endian.
 
@@ -27,8 +27,14 @@
 ```rust
 struct VaultHeader {
     vault_id: [u8; 16],      // random, never changes
-    kdf: KdfParams,
+    kdf: PasswordKdf,        // v6; a bare KdfParams (always Argon2id) in v0–v5
     slots: Vec<KeySlot>,     // exactly one Password or PasswordKeyfile slot, at most one Recovery slot
+}
+
+enum PasswordKdf {           // postcard enum; limits in CRYPTO.md §4
+    Argon2id(KdfParams),                              // 0
+    Scrypt { log_n: u8, p: u32, salt: [u8; 32] },     // 1: N = 2^log_n, r = 8
+    Pbkdf2Sha256 { iterations: u32, salt: [u8; 32] }, // 2
 }
 
 struct KdfParams {
@@ -68,12 +74,23 @@ struct VaultBody {
 struct ItemGuard {           // a second check before guarded items show their secrets
     all_items: bool,         // every item, or only items with `reprompt`
     check: GuardCheck,       // postcard enum: Master (0), Pin (1), Password (2)
-    verifier: Option<Verifier>, // present exactly for Pin and Password
+    verifier: Option<Verifier>, // v5 guards only: a hash, nothing encrypted (see §5)
+    key: Option<GuardKeySlots>, // v6: the wrapped guard key, for Pin and Password
 }
 
 struct Verifier {
     kdf: KdfParams,          // Argon2id at the format's floor, own salt
     hash: [u8; 32],          // Argon2id(PIN or password)
+}
+
+struct GuardKeySlots {
+    check: WrappedGuardKey,          // opened by the PIN or password
+    master: Option<WrappedGuardKey>, // opened by the master password, to replace a forgotten PIN
+}
+
+struct WrappedGuardKey {
+    kdf: KdfParams,          // Argon2id at the Standard level, own salt
+    wrapped: Vec<u8>,        // seal(guard KEK, guard_key), CRYPTO.md §3.2
 }
 
 struct VaultSettings {
@@ -130,6 +147,24 @@ struct ItemData {
     password_changed_at: i64,              // v2: when the password was set; 0 = unknown
     icon_url: String,                      // v3: website (or picture link) whose image stands for the item; "" = urls[0]
     reprompt: bool,                        // v5: the item is guarded even when `guard.all_items` is off
+    sealed: Option<SealedSecrets>,         // v6: present while the item's secrets are encrypted
+}
+
+struct SealedSecrets {       // a guarded item under a PIN or password guard
+    ciphertext: Vec<u8>,     // seal(guard_key, pad(ItemSecrets)), CRYPTO.md §3.2
+    has_password: bool,      // what a locked item still tells
+    has_totp: bool,
+    card_hint: String,       // cards: "Visa •••• 4242", else ""
+    card_brand: Brand,       // postcard enum, in the order of `card::Brand`
+}
+
+struct ItemSecrets {         // moved out of the item; those fields are stored empty
+    password: String,
+    totp: String,
+    notes: String,           // only for secure notes (a login's notes stay readable)
+    fields: Vec<String>,     // values of the `sensitive` custom fields, in order
+    recovery_codes: Vec<RecoveryCode>,
+    password_history: Vec<PasswordChange>,
 }
 
 struct PasswordChange {
@@ -156,19 +191,32 @@ A v0 file has no `folders` in the body and its items end after `updated_at`; a v
 items after `password_changed_at`; a v3 file's folders end after `color`; v3 and v4 items end
 after `icon_url`. When an older file is opened, every item is decrypted with its old layout and
 re-encrypted with the current layout in memory (same ids and revisions, new item keys); the next
-save writes a v5 file.
+save writes a v6 file. v5 items end after `reprompt`; a v0–v5 header holds a bare `KdfParams`.
 
-v0–v4 bodies have no `guard` (it defaults to: only marked items, master password).
+v0–v4 bodies have no `guard` (it defaults to: only marked items, master password). A v5 guard
+ends after `verifier`.
 
-The item guard is a rule for clients, not extra encryption: guarded items are sealed like any
-other, and whoever holds the vault key can read them. With the vault open, a client shows a
-guarded item's title, username, websites, plain fields and notes (not a secure note's text),
-and keeps its password, one-time code, recovery codes, hidden fields, card number and history
-closed until the check passes: the master password re-derived against the file, or the PIN
-(4–8 digits) or password (6+ characters) matching `verifier`. Editing and deleting need the
-check too. After 5 wrong tries the client locks the whole vault; that limit is what makes a
-short PIN acceptable, since the hash itself (inside the encrypted body) would fall to anyone
-who already has the vault key. Fixtures for every version are committed
+**The item guard.** With the vault open, a client shows a guarded item's title, username,
+websites, plain fields and notes (not a secure note's text), and keeps its password, one-time
+code, recovery codes, hidden fields, card number and history closed until the check passes.
+Editing and deleting need the check too. After 5 wrong tries the client locks the whole vault.
+
+- `check = Master`: a rule for clients, not encryption. The master password is re-derived
+  against the file; guarded items are stored like any other.
+- `check = Pin` (4–8 digits) or `Password` (6+ characters): encryption. A random 256-bit
+  guard key seals the `ItemSecrets` of every guarded item; the key is stored only wrapped
+  (`GuardKeySlots`). The vault key alone, and so the Recovery Key alone, reads who the
+  accounts are but not their secrets. A locked item may be written back with its visible
+  fields changed (`sealed` is carried over); changing its secrets needs the guard key.
+  Changing the guard re-seals every item, and needs the guard key (through the PIN, or the
+  master password via `master`).
+- A v5 guard (`verifier` set, `key` absent) encrypts nothing. The first time its PIN or
+  password is typed correctly, the client creates the guard key, seals the guarded items and
+  drops `verifier`. `verifier` and `key` are never both present.
+
+Limits, stated plainly: anyone who already holds the vault key can try PINs offline against
+`check`, at one Argon2id (256 MiB, 3 passes) per try. Four digits fall in hours; eight digits
+or a real password do not. Secrets are readable in memory while they are open. Fixtures for every version are committed
 (`crates/core/tests/fixtures`) and must keep opening.
 
 When an item's password changes, `Vault::update_item` moves the old one into

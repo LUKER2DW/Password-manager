@@ -51,9 +51,9 @@ filesystem policy** beyond atomic writes.
 | Module | What it does |
 |---|---|
 | `aead.rs` | Key-committing XChaCha20-Poly1305 (`seal` / `open`) |
-| `kdf.rs` | Argon2id with a hard floor and ceiling on parameters |
+| `kdf.rs` | Password hashing (Argon2id; scrypt and PBKDF2-SHA-256 by choice) with a hard floor and ceiling on parameters |
 | `keys.rs` | Secret Key, Recovery Key, keyfile, vault key, subkeys, device KEK |
-| `guard.rs` | Item guard: which items ask for a second check, and the hashed PIN or password |
+| `guard.rs` | Item guard: which items ask for a second check, and the guard key wrapped by the PIN or password |
 | `encoding.rs` | Crockford Base32 for the printed keys |
 | `padding.rs` | Length-hiding padding for items and body |
 | `format.rs` | File envelope, header, body, and the layouts of older versions |
@@ -103,7 +103,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | File | Role |
 |---|---|
 | `src/controller.rs` | Wires every callback, background jobs, timers, state |
-| `src/controller/features.rs` | Generator, password history, health, leak check, import review, vault settings, unlock protection (Argon2id level) |
+| `src/controller/features.rs` | Generator, password history, health, leak check, import review, vault settings, unlock protection (hash method and level) |
 | `src/controller/folders.rs` | Folder dialog (create, settings, picture preview, delete) and reordering |
 | `src/controller/protection.rs` | Keyfile (unlock, set, remove) and the item lock (PIN, password or master password before secrets show) |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
@@ -112,6 +112,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/sketch.rs` | Hand-drawn strokes generated in Rust |
 | `src/tests.rs` | Headless end-to-end test of the whole app |
 | `examples/screenshots.rs` | Renders every screen to PNG for visual review |
+| `ui/Cargo.toml`, `ui/lib.rs`, `ui/build.rs` | `vault-desktop-ui`: the generated Slint code as a crate of its own, so controller changes don't recompile it (re-exported as `vault_desktop::ui`) |
 | `ui/theme.slint` | Design tokens, `Secrets` bridge for secure fields |
 | `ui/model.slint` | Structs shared with Rust and **every user-facing message** |
 | `ui/widgets.slint` | Buttons, fields, secure field, dropdown, slider… |
@@ -188,7 +189,9 @@ to review layout; do not drive the real desktop to check UI.
 8. **A locked item's secrets are reached only through `selected_item()`**, which returns
    nothing while the item waits for its check. New code that shows or copies a secret, or
    changes the item, must go through it; `selected_item_raw` is only for what a locked item
-   still shows (title, username, website, plain fields).
+   still shows (title, username, website, plain fields). With a PIN or password guard the
+   core enforces it too: `Vault::get_item` returns a locked item without its secrets
+   (`ItemData::is_locked`) until `Vault::unlock_secrets`.
 9. **Fail closed.** Unknown format versions, KDF parameters outside the floor/ceiling, duplicate
    ids, and any AEAD failure are errors, never fallbacks.
 

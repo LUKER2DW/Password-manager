@@ -54,9 +54,13 @@ libraries mitigate.
   Secret Key still open nothing.
 - **Item lock:** with the vault open, passwords, codes and hidden fields can stay closed
   until a second check (master password, PIN or another password), for every item or chosen
-  ones; five wrong tries lock the vault. This guards an unlocked, unattended computer and
-  shoulder surfing; it is not extra encryption and not a defence against malware already
-  running as the user.
+  ones; five wrong tries lock the vault. With a PIN or another password the locked secrets
+  are also encrypted under a key only it opens, so a program that takes an unlocked vault
+  from memory still cannot read locked items. Limits: a 4-digit PIN can be tried exhaustively
+  offline by whoever holds the vault key (use 6–8 digits or a password), and secrets are
+  readable while open. With the master password as the check it is a rule, not encryption.
+- **Password hashing:** Argon2id by default. scrypt and PBKDF2-SHA-256 can be chosen and are
+  weaker; the app says so where they are offered.
 - **Windows Hello** quick unlock wraps the vault key with a TPM-backed key that only works on
   that computer after Windows verifies the user; changing the master password revokes it, and
   the master password is required again every 14 days.

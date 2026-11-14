@@ -67,7 +67,9 @@ On top of that:
 - Clipboard: automatic clearing and exclusion from Windows clipboard history and cloud sync.
 - Optional re-prompt: critical items (bank, primary email, crypto) require a fresh check
   on every use. Implemented as the item lock: the master password (re-derived against the
-  file), a PIN or another password, with the vault locking after five wrong tries; Windows
+  file), a PIN or another password, with the vault locking after five wrong tries. A PIN or
+  password also encrypts the locked secrets under its own key (format v6), which keeps them
+  from malware that reads an unlocked vault until the user opens them; Windows
   Hello or a hardware-key touch as the check comes later.
 - The browser extension stores no secrets; it asks the native app for each credential, and the
   app confirms.
