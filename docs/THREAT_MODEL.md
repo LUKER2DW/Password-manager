@@ -70,7 +70,10 @@ On top of that:
   file), a PIN or another password, with the vault locking after five wrong tries. A PIN or
   password also encrypts the locked secrets under its own key (format v6), which keeps them
   from malware that reads an unlocked vault until the user opens them; Windows
-  Hello or a hardware-key touch as the check comes later.
+  Hello or a hardware-key touch as the check comes later. Adding a new item asks for nothing,
+  so saving a login stays one click: the new item is sealed under the item lock's key the
+  next time the lock is opened, and until then a program reading the unlocked vault's memory
+  could read that one item.
 - The browser extension stores no secrets; it asks the native app for each credential. The
   app decides whether the page's origin is the login's, and announces every fill. Logins are
   picked in the extension's own window or in a small frame under a sign-in field.
@@ -92,9 +95,9 @@ On top of that:
   (the system's own prompt, which a page can't click) or the PIN, typed in the extension's
   window. New vaults lock every item by default for that reason. The site's icon in the frame
   comes from the browser's own cache (`favicon` permission): nothing is fetched for it.
-  The frosted look comes from a separate, click-through layer under the frame: a blur,
-  clip or opacity on the frame itself would make the browser stop vouching for its
-  visibility (checked: `isVisible` turns false), and the click check would refuse every click. Residual risk: a site with
+  The card is drawn half see-through inside the frame, with no blur: a blur, clip or opacity
+  on the frame itself would make the browser stop vouching for its visibility (checked:
+  `isVisible` turns false), and the click check would refuse every click. Residual risk: a site with
   an XSS flaw can read what is filled into its own page, as it can read what the person types.
 - **What a page sends when a form is submitted**: the content script reads the typed username
   and password (in the extension's isolated world) and passes them to the background worker,
@@ -107,6 +110,12 @@ On top of that:
   done by the app, so the clipboard copy stays out of Windows clipboard history.
 - **Tray mode** keeps an unlocked vault in memory while the window is hidden; the idle lock
   still applies, and the tray menu locks at once.
+- **Saving while the vault is locked**: a login the person saves from the browser is sealed to
+  a public key (libsodium sealed box) whose private key only the open vault reads, and added
+  at the next unlock. Nothing is asked for (no PIN, no Windows Hello) and the locked app can't
+  read back what it wrote, so the file reveals nothing to someone who copies it. A program
+  running as the same user could replace the public key and read later saves; it would
+  already see those passwords in the browser as they are typed.
 - **Filling while the vault is locked** (setting, on by default; needs the item lock's
   Windows Hello): the passwords of logins sit in a file of their own, under a key that only
   Windows Hello opens (TPM signature after the person is verified), so a locked vault can fill

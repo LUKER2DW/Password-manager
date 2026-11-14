@@ -65,6 +65,7 @@ filesystem policy** beyond atomic writes.
 | `generator.rs` | Passwords and passphrases (uniform sampling, word lists) |
 | `health.rs` | Strength (zxcvbn), reuse, age, and the k-anonymous breach query |
 | `sealed_export.rs` | An export sealed under a password of its own (`.vaultx`) |
+| `drop_box.rs` | Logins saved from the browser while locked, sealed to a public key only the open vault reads |
 | `totp.rs` | RFC 6238 one-time codes |
 | `storage.rs` | Atomic file writes with a `.bak` copy |
 | `random.rs` | OS randomness |
@@ -132,6 +133,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/protection.rs` | Keyfile (unlock, set, remove) and the item lock (PIN, password or master password before secrets show) |
 | `src/controller/browser.rs` | The browser extension's link: listens on the pipe, answers from the open vault |
 | `src/controller/generated.rs` | History of generated passwords (sealed per vault on this computer) |
+| `src/controller/drop_box.rs` | Logins the browser saved while the vault was locked, added at the next unlock |
 | `src/tray.rs` | The notification area icon (tray mode) and its menu window (`ui/tray.slint`) |
 | `src/i18n.rs` | The app's language: picks a compiled-in catalogue from `translations/` |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |

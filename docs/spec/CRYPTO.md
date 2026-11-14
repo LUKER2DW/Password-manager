@@ -13,6 +13,7 @@
 | Checksums | SHA-256 | `sha2` |
 | Randomness | OS CSPRNG | `getrandom` |
 | Constant-time comparison | — | `subtle` |
+| Sealing to a public key (browser drop box only, §3.5) | libsodium sealed box: X25519 + XSalsa20-Poly1305, nonce = BLAKE2b(eph_pk ‖ pk) | `crypto_box` |
 
 All labels below are ASCII byte strings and are used verbatim (no terminator).
 
@@ -91,6 +92,13 @@ sealed    = seal(guard_key, pad(ItemSecrets), aad = "vault-v0/item-secrets" ‖ 
 guard key is in memory). `sealed` sits inside the item, which is then sealed as usual (§5), so
 tampering, swapping and rollback protection are unchanged; the AAD ties the secrets to their
 item. The guard key leaves memory when the secrets are locked again.
+
+**A new item needs no check.** When an item the guard covers is added while the guard key is
+not in memory, it is stored like an unguarded item (sealed under the vault key, §5) and sealed
+under the guard key the next time it is in memory (`Vault::seal_pending`, which the apps call
+right after the guard opens; the item's revision goes up by one). Until then the apps still
+ask for the guard's check before showing its secrets, but the core doesn't enforce it for
+that item. Changing an existing guarded item still needs the guard key.
 
 **On one device, Windows Hello can stand in for the PIN.** The security chip signs a fixed
 challenge after verifying the user (as in §3.1, with a key of its own), and
@@ -184,6 +192,27 @@ logins          = DPAPI(postcard([(id, title, username, urls, fillable)…]))  (
   file.
 - The extension's connection key is kept a second time, DPAPI-protected
   (`browser-pairing-<vault id>.dpapi`), so the locked app can check requests.
+
+### 3.5 Saving from the browser while the vault is locked (drop box)
+
+Kept **outside** the vault file, per vault, in `<app dir>/browser-drop-<vault id>.bin`, made at
+an unlock while the browser extension setting is on (`vault_core::drop_box`):
+
+```
+sk, pk      = X25519 key pair (sk = 32 random bytes)
+sealed_key  = seal_local("browser-drop-box", sk)                 (vault-key subkey, §6)
+entry       = crypto_box_seal(pk, vault_id_hex ‖ pad(postcard(url, title, username, password)))
+file        = postcard(pk, sealed_key, [entry…])
+```
+
+- The locked app appends an entry for each login saved from the browser, with `pk` alone: it
+  asks for nothing and cannot read back what it wrote. At most 200 entries wait.
+- At the next unlock the app opens `sealed_key`, then each entry (checking the vault id
+  prefix), adds the logins that aren't there yet as items (§3.2 for the item lock) and empties
+  the list. A key that doesn't open (another vault, damage) replaces the file.
+- `pk` is not authenticated while locked: nothing secret is available then. A program running
+  as the user could swap it and read later entries; it would already see those passwords
+  where they are typed (THREAT_MODEL.md).
 
 ## 4. Argon2id parameters
 

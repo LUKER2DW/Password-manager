@@ -205,6 +205,11 @@ Rules:
   the .exe carries the app's icon (Explorer, taskbar, Windows Hello prompt)
 - ✅ Extension: the generator works with the vault locked; the card under a field is nearly
   opaque (a real blur would void the click protection: see `extension/inline.css`)
+- ✅ Saving asks for nothing: a new item is stored without the item lock's PIN and sealed under
+  it the next time it opens (`Vault::seal_pending`); from the browser, a login saved while the
+  vault is locked is sealed to the drop box (CRYPTO.md §3.5) and added at the next unlock
+- ✅ Tray menu: thin and text-only; the card under a field: arrow with a visible rim, no item
+  name next to the username, no dark box behind it on pages with another colour scheme
 - 🚧 Translations: catalogues compiled in (`crates/desktop/translations/`), language chosen in
   Settings → Appearance or from Windows, template of every text; Brazilian Portuguese started
 
