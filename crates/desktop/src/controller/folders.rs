@@ -149,11 +149,11 @@ impl Controller {
         }
     }
 
-    fn folder_preview_fetched(&self, key: String, icon: Option<Vec<u8>>) {
+    fn folder_preview_fetched(&self, key: String, icon: crate::favicon::Fetched) {
         if self.state.borrow().session.is_none() {
             return; // locked meanwhile
         }
-        let found = icon.is_some();
+        let found = icon.shows();
         self.state.borrow_mut().icons.insert(key.clone(), icon);
         if found {
             self.save_icon_cache();

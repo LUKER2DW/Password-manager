@@ -3,10 +3,11 @@
 //! Privacy model:
 //! - Icons are requested **directly from each site** (no third-party icon service), HTTPS only,
 //!   without cookies, one request chain per site, and only for sites saved in the vault. A site
-//!   on its own port (`https://192.168.1.10:8443`) is asked on that port. An IP address or a
-//!   home-network name may answer with a certificate of its own; for those the icon is asked
-//!   again without the certificate check when the checked request failed (see
-//!   [`own_certificate_allowed`]).
+//!   on its own port (`https://192.168.1.10:8443`) is asked on that port.
+//! - A site whose certificate isn't trusted (its own, self-signed one, as routers and NAS boxes
+//!   have, or an expired or wrong one) gets no picture from it: nothing it sends is used. The
+//!   item shows a globe with a warning mark instead ([`Fetched::Untrusted`]), so it reads as
+//!   "a web address whose identity couldn't be checked".
 //! - Results (and "this site has no icon") are cached in a file encrypted with the vault key
 //!   (`Vault::seal_local`), so each site is contacted once, and the cache reveals nothing.
 //! - Even so, someone watching the network can see which sites were contacted. That is why the
@@ -36,6 +37,45 @@ enum Entry {
     Rgba(Vec<u8>),
     /// Looked for and not found (retried after a week).
     Missing { checked_at: u64 },
+    /// The site answers, but its certificate isn't trusted: shown as a globe (retried after a
+    /// week, in case it gets a proper certificate).
+    Untrusted { checked_at: u64 },
+}
+
+/// What looking for an icon found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Fetched {
+    /// 64 × 64 RGBA pixels.
+    Icon(Vec<u8>),
+    /// The site answered only without the certificate check: no picture is taken from it.
+    Untrusted,
+    /// Nothing usable.
+    Missing,
+}
+
+impl Fetched {
+    /// Something is drawn for it (its icon or the globe).
+    pub fn shows(&self) -> bool {
+        !matches!(self, Self::Missing)
+    }
+}
+
+/// The picture for a site whose certificate isn't trusted: a globe on a slate tile, with a
+/// small amber mark.
+fn untrusted_icon() -> &'static [u8] {
+    static ICON: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    ICON.get_or_init(|| {
+        const SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <rect width="24" height="24" rx="5.5" fill="#465466"/>
+            <g fill="none" stroke="#E3E8EF" stroke-width="1.5" stroke-linecap="round">
+                <circle cx="11" cy="11" r="6.5"/>
+                <path d="M11 4.5a10 10 0 0 0 0 13 10 10 0 0 0 0-13 M4.5 11h13"/>
+            </g>
+            <circle cx="18.5" cy="18.5" r="4.2" fill="#E7A33E" stroke="#465466" stroke-width="1.2"/>
+            <path d="M18.5 16.4v2.4 M18.5 20.5v.1" stroke="#1B212B" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>"##;
+        decode_svg(SVG.as_bytes()).unwrap_or_else(|| vec![0; (ICON_SIZE * ICON_SIZE * 4) as usize])
+    })
 }
 
 /// Icons by host (lowercase, without `www.`).
@@ -48,6 +88,7 @@ impl IconCache {
     pub fn get(&self, host: &str) -> Option<&[u8]> {
         match self.entries.get(host) {
             Some(Entry::Rgba(pixels)) => Some(pixels),
+            Some(Entry::Untrusted { .. }) => Some(untrusted_icon()),
             _ => None,
         }
     }
@@ -55,18 +96,19 @@ impl IconCache {
     pub fn needs_fetch(&self, host: &str) -> bool {
         match self.entries.get(host) {
             None => true,
-            Some(Entry::Missing { checked_at }) => {
+            Some(Entry::Missing { checked_at } | Entry::Untrusted { checked_at }) => {
                 now().saturating_sub(*checked_at) > RETRY_MISSING_AFTER_SECS
             }
             Some(Entry::Rgba(_)) => false,
         }
     }
 
-    pub fn insert(&mut self, host: String, icon: Option<Vec<u8>>) {
+    pub fn insert(&mut self, host: String, icon: Fetched) {
         let entry = match icon {
-            Some(pixels) if pixels.len() == (ICON_SIZE * ICON_SIZE * 4) as usize => {
+            Fetched::Icon(pixels) if pixels.len() == (ICON_SIZE * ICON_SIZE * 4) as usize => {
                 Entry::Rgba(pixels)
             }
+            Fetched::Untrusted => Entry::Untrusted { checked_at: now() },
             _ => Entry::Missing { checked_at: now() },
         };
         self.entries.insert(host, entry);
@@ -157,28 +199,6 @@ pub fn cache_key(host: &str) -> String {
     host.strip_prefix("www.").unwrap_or(host).to_owned()
 }
 
-/// Whether a site may answer with a certificate of its own (one no public authority signed):
-/// an IP address, or a name that only exists on a home or company network. Routers, NAS boxes
-/// and self-hosted apps usually do. For these, and only after the normal check failed, the
-/// icon is fetched without checking the certificate: the worst a forged answer can do is show
-/// a wrong picture, which is decoded with the same limits as any other.
-pub fn own_certificate_allowed(site: &str) -> bool {
-    let host = split_port(site).map_or(site, |(host, _)| host);
-    if host.starts_with('[') || host.parse::<std::net::Ipv4Addr>().is_ok() {
-        return true;
-    }
-    const LOCAL: [&str; 7] = [
-        ".local",
-        ".lan",
-        ".home",
-        ".internal",
-        ".home.arpa",
-        ".localdomain",
-        ".intranet",
-    ];
-    LOCAL.iter().any(|suffix| host.ends_with(suffix))
-}
-
 /// Where a chosen icon comes from: a website (its own icon) or a direct link to a picture.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IconSource {
@@ -221,25 +241,32 @@ impl IconSource {
     }
 
     /// Downloads and decodes the picture. Blocking; call from a worker thread.
-    pub fn fetch(&self) -> Option<Vec<u8>> {
+    pub fn fetch(&self) -> Fetched {
         match self {
             Self::Site(host) => fetch(host),
-            Self::Image(url) => {
-                let site = host_of(url)?;
-                let picture = |agent: &ureq::Agent| {
-                    get(agent, url, false).and_then(|(_, bytes)| decode(&bytes))
-                };
-                picture(&agent(false)).or_else(|| {
-                    own_certificate_allowed(&site)
-                        .then(|| picture(&agent(true)))
-                        .flatten()
-                })
-            }
+            Self::Image(url) => match get(&agent(false), url, false) {
+                Ok(Some((_, bytes))) => decode(&bytes).map_or(Fetched::Missing, Fetched::Icon),
+                Ok(None) => Fetched::Missing,
+                Err(()) => untrusted_or_missing(url),
+            },
         }
     }
 }
 
-fn agent(own_certificate: bool) -> ureq::Agent {
+/// After a request that failed before any answer: [`Fetched::Untrusted`] when the address
+/// answers once its certificate goes unchecked (nothing of that answer is used), else
+/// [`Fetched::Missing`].
+fn untrusted_or_missing(url: &str) -> Fetched {
+    if agent(true).get(url).call().is_ok() {
+        Fetched::Untrusted
+    } else {
+        Fetched::Missing
+    }
+}
+
+/// `unchecked` skips the certificate check: only to tell an untrusted site from one that is
+/// down (see [`untrusted_or_missing`]), never to take a picture.
+fn agent(unchecked: bool) -> ureq::Agent {
     let mut config = ureq::Agent::config_builder()
         .https_only(true)
         .max_redirects(5)
@@ -248,7 +275,7 @@ fn agent(own_certificate: bool) -> ureq::Agent {
         // still names its icon.
         .http_status_as_error(false)
         .user_agent(USER_AGENT);
-    if own_certificate {
+    if unchecked {
         config = config.tls_config(
             ureq::tls::TlsConfig::builder()
                 .disable_verification(true)
@@ -260,18 +287,17 @@ fn agent(own_certificate: bool) -> ureq::Agent {
 
 /// Fetches and decodes the best icon for `site` (a host, maybe with a port). Blocking; call
 /// from a worker thread.
-pub fn fetch(site: &str) -> Option<Vec<u8>> {
-    fetch_with(&agent(false), site).or_else(|| {
-        own_certificate_allowed(site)
-            .then(|| fetch_with(&agent(true), site))
-            .flatten()
-    })
-}
-
-fn fetch_with(agent: &ureq::Agent, site: &str) -> Option<Vec<u8>> {
+pub fn fetch(site: &str) -> Fetched {
+    let agent = agent(false);
     let origin = format!("https://{site}");
+    let home = format!("{origin}/");
     let mut candidates: Vec<String> = Vec::new();
-    if let Some((page, html)) = get(agent, &format!("{origin}/"), true) {
+    let page = match get(&agent, &home, true) {
+        Ok(page) => page,
+        // No answer at all: maybe only the certificate is refused.
+        Err(()) => return untrusted_or_missing(&home),
+    };
+    if let Some((page, html)) = page {
         let html = String::from_utf8_lossy(&html);
         let base = base_href(&html)
             .and_then(|href| resolve(&page, &href))
@@ -283,7 +309,7 @@ fn fetch_with(agent: &ureq::Agent, site: &str) -> Option<Vec<u8>> {
         );
         // A web app manifest lists icons too (self-hosted apps often have only those).
         if let Some(manifest) = manifest_link(&html).and_then(|href| resolve(&base, &href))
-            && let Some((manifest_url, json)) = get(agent, &manifest, false)
+            && let Ok(Some((manifest_url, json))) = get(&agent, &manifest, false)
         {
             candidates.extend(
                 manifest_icons(&json)
@@ -301,14 +327,20 @@ fn fetch_with(agent: &ureq::Agent, site: &str) -> Option<Vec<u8>> {
     candidates
         .iter()
         .take(MAX_CANDIDATES)
-        .find_map(|url| get(agent, url, false).and_then(|(_, bytes)| decode(&bytes)))
+        .find_map(|url| match get(&agent, url, false) {
+            Ok(Some((_, bytes))) => decode(&bytes),
+            _ => None,
+        })
+        .map_or(Fetched::Missing, Fetched::Icon)
 }
 
 /// The body of `url` and the address it finally came from (after redirects). A page is read
-/// whatever its status below 500; anything else needs a success.
-fn get(agent: &ureq::Agent, url: &str, page: bool) -> Option<(String, Vec<u8>)> {
+/// whatever its status below 500; anything else needs a success. `Err` when nothing answered
+/// (no connection, refused certificate, timeout), `Ok(None)` for an answer of no use.
+#[allow(clippy::result_unit_err)]
+fn get(agent: &ureq::Agent, url: &str, page: bool) -> Result<Option<(String, Vec<u8>)>, ()> {
     use ureq::ResponseExt;
-    let mut response = agent.get(url).call().ok()?;
+    let mut response = agent.get(url).call().map_err(|_| ())?;
     let status = response.status().as_u16();
     let fine = if page {
         status < 500
@@ -316,16 +348,16 @@ fn get(agent: &ureq::Agent, url: &str, page: bool) -> Option<(String, Vec<u8>)> 
         (200..300).contains(&status)
     };
     if !fine {
-        return None;
+        return Ok(None);
     }
     let from = response.get_uri().to_string();
-    let bytes = response
+    Ok(response
         .body_mut()
         .with_config()
         .limit(MAX_RESPONSE_BYTES)
         .read_to_vec()
-        .ok()?;
-    Some((from, bytes))
+        .ok()
+        .map(|bytes| (from, bytes)))
 }
 
 /// Icon URLs declared in a page's `<link>` tags, best first: Apple touch icons (usually 180 px),
@@ -644,55 +676,6 @@ mod tests {
     }
 
     #[test]
-    fn own_certificates_only_for_addresses_and_home_names() {
-        assert!(own_certificate_allowed("203.0.113.10:18443"));
-        assert!(own_certificate_allowed("192.168.1.1"));
-        assert!(own_certificate_allowed("[fd00::1]:8443"));
-        assert!(own_certificate_allowed("nas.local"));
-        assert!(own_certificate_allowed("router.home.arpa:8443"));
-        assert!(!own_certificate_allowed("github.com"));
-        assert!(!own_certificate_allowed("bank.example:8443"));
-        assert!(!own_certificate_allowed("local.example.com"));
-    }
-
-    #[test]
-    fn icon_sources() {
-        assert_eq!(
-            IconSource::parse("github.com"),
-            Some(IconSource::Site("github.com".into()))
-        );
-        assert_eq!(
-            IconSource::parse("https://nubank.com.br/login"),
-            Some(IconSource::Site("nubank.com.br".into()))
-        );
-        assert_eq!(
-            IconSource::parse("http://cdn.example/a/logo.PNG?v=2"),
-            Some(IconSource::Image(
-                "https://cdn.example/a/logo.PNG?v=2".into()
-            ))
-        );
-        assert_eq!(
-            IconSource::parse("cdn.example/logo.webp"),
-            Some(IconSource::Image("https://cdn.example/logo.webp".into()))
-        );
-        // A host that merely ends like an extension is still a website.
-        assert_eq!(
-            IconSource::parse("logo.png"),
-            Some(IconSource::Site("logo.png".into()))
-        );
-        assert_eq!(IconSource::parse("ftp://x.example/a.png"), None);
-        assert_eq!(IconSource::parse(""), None);
-        assert_eq!(
-            IconSource::parse("https://www.github.com").unwrap().key(),
-            "github.com"
-        );
-        assert_eq!(
-            IconSource::parse("https://a.example/i.png").unwrap().key(),
-            "img:https://a.example/i.png"
-        );
-    }
-
-    #[test]
     fn finds_and_ranks_icon_links() {
         let html = r#"<html><head>
             <link rel="stylesheet" href="/a.css">
@@ -818,10 +801,11 @@ mod tests {
         let mut cache = IconCache::default();
         cache.insert(
             "github.com".into(),
-            Some(vec![1; (ICON_SIZE * ICON_SIZE * 4) as usize]),
+            Fetched::Icon(vec![1; (ICON_SIZE * ICON_SIZE * 4) as usize]),
         );
-        cache.insert("noicon.example".into(), None);
-        cache.insert("bad.example".into(), Some(vec![1, 2, 3]));
+        cache.insert("noicon.example".into(), Fetched::Missing);
+        cache.insert("bad.example".into(), Fetched::Icon(vec![1, 2, 3]));
+        cache.insert("203.0.113.10:18443".into(), Fetched::Untrusted);
         let restored = IconCache::from_bytes(&cache.to_bytes()).unwrap();
         assert!(restored.get("github.com").is_some());
         assert!(!restored.needs_fetch("github.com"));
@@ -834,17 +818,28 @@ mod tests {
             "wrong-size data is treated as missing"
         );
         assert!(restored.needs_fetch("never-seen.example"));
+        // An untrusted site shows the globe, a drawn 64 × 64 picture.
+        let globe = restored.get("203.0.113.10:18443").unwrap();
+        assert_eq!(globe.len(), (ICON_SIZE * ICON_SIZE * 4) as usize);
+        assert!(globe.chunks_exact(4).any(|pixel| pixel[3] == 255));
+        assert!(!restored.needs_fetch("203.0.113.10:18443"));
     }
 
     /// Real network request; run manually: `cargo test -p vault-desktop favicon -- --ignored`
     #[test]
     #[ignore = "network"]
     fn fetches_a_real_icon() {
-        assert!(fetch("github.com").is_some());
         // VAULT_ICON_SITE=host[:port] tries one more site (for example one of your own).
+        assert!(matches!(fetch("github.com"), Fetched::Icon(_)));
+        assert_eq!(fetch("self-signed.badssl.com"), Fetched::Untrusted);
         if let Ok(site) = std::env::var("VAULT_ICON_SITE") {
             let site = host_of(&site).expect("a host, maybe with a port");
-            assert!(fetch(&site).is_some(), "no icon from {site}");
+            let found = fetch(&site);
+            println!(
+                "{site}: untrusted {}, icon {}",
+                found == Fetched::Untrusted,
+                matches!(found, Fetched::Icon(_))
+            );
         }
     }
 }

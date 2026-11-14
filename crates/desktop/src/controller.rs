@@ -4040,11 +4040,11 @@ impl Controller {
         }
     }
 
-    fn icon_fetched(&self, key: String, icon: Option<Vec<u8>>) {
+    fn icon_fetched(&self, key: String, icon: favicon::Fetched) {
         if self.state.borrow().session.is_none() {
             return; // locked meanwhile: drop the result
         }
-        let found = icon.is_some();
+        let found = icon.shows();
         self.state.borrow_mut().icons.insert(key, icon);
         if found {
             self.refresh_list();
