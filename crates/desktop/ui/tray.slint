@@ -1,9 +1,50 @@
-// The menu of the icon in the notification area: a small window of its own, drawn like the
-// app's right-click menus (a rounded card with a soft shadow), instead of the system's plain
-// menu. It opens next to the pointer and closes when it loses focus (see src/tray.rs).
+// The menu of the icon in the notification area: a small window of its own instead of the
+// system's plain menu. Thin and quiet, like the menus of other apps there: words only, two
+// grey status lines between hairlines. It opens next to the pointer and closes when it loses
+// focus (see src/tray.rs).
 
 import { Theme } from "theme.slint";
-import { MenuEntry, MenuRule, Logo } from "widgets.slint";
+
+component TrayItem inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 30px;
+    border-radius: 5px;
+    background: root.enabled && touch.has-hover ? (Theme.dark ? #FFFFFF14 : #0000000F) : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    Text {
+        x: 12px;
+        width: parent.width - 24px;
+        text: root.text;
+        font-size: 13px;
+        color: root.enabled ? Theme.ink : Theme.faint;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+component TrayNote inherits Text {
+    height: 22px;
+    font-size: 13px;
+    color: Theme.graphite;
+    vertical-alignment: center;
+    overflow: elide;
+}
+
+component TrayRule inherits Rectangle {
+    height: 9px;
+    Rectangle {
+        height: 1px;
+        background: Theme.dark ? #FFFFFF1F : #0000001A;
+    }
+}
 
 export component TrayMenu inherits Window {
     // The vault is locked (Lock now is greyed out), its name, and the minutes left before
@@ -22,12 +63,12 @@ export component TrayMenu inherits Window {
     // Only the card is drawn; the corners around it stay see-through.
     background: transparent;
     default-font-family: Theme.ui-font;
-    width: 240px;
+    width: 196px;
     height: root.content-height;
     // The window's height, for the off-screen screenshots.
     out property <length> content-height: card.preferred-height + 2 * root.margin;
     // Room for the shadow.
-    property <length> margin: 8px;
+    property <length> margin: 6px;
 
     FocusScope {
         key-pressed(event) => {
@@ -44,65 +85,40 @@ export component TrayMenu inherits Window {
         y: root.margin;
         width: root.width - 2 * root.margin;
         height: self.preferred-height;
-        background: Theme.dark ? #1B212B : #FAFBFC;
-        border-radius: 10px;
+        background: Theme.dark ? #22262D : #F9FAFB;
+        border-radius: 8px;
         border-width: 1px;
-        border-color: Theme.dark ? #FFFFFF1A : #0000001A;
-        drop-shadow-blur: 8px;
+        border-color: Theme.dark ? #FFFFFF14 : #00000014;
+        drop-shadow-blur: 6px;
         drop-shadow-offset-y: 2px;
-        drop-shadow-color: #00000070;
+        drop-shadow-color: #00000060;
         VerticalLayout {
-            padding: 6px;
+            padding: 5px;
             spacing: 0px;
-            MenuEntry {
-                height: 36px;
+            TrayItem {
                 text: @tr("Open Vault");
-                icon: "vault";
                 clicked => { root.open(); }
             }
-            MenuRule { }
-            // Where things stand, in grey, like a status line.
-            HorizontalLayout {
-                padding-left: 10px;
-                padding-right: 10px;
-                padding-top: 6px;
-                padding-bottom: 6px;
-                spacing: 10px;
-                VerticalLayout {
-                    alignment: center;
-                    Logo {
-                        small: true;
-                        width: 22px;
-                        height: 22px;
-                    }
-                }
-                VerticalLayout {
-                    alignment: center;
-                    spacing: 2px;
-                    Text {
-                        text: root.vault-name != "" ? root.vault-name : @tr("Vault");
-                        font-size: Theme.body;
-                        color: Theme.graphite;
-                        overflow: elide;
-                    }
-                    Text {
-                        text: root.locked ? @tr("Locked") : @tr("Unlocked · {n} min left" | "Unlocked · {n} min left" % root.minutes-left);
-                        font-size: Theme.small;
-                        color: root.locked ? Theme.faint : Theme.graphite;
-                        overflow: elide;
-                    }
+            TrayRule { }
+            // Where things stand, in grey.
+            VerticalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                padding-top: 2px;
+                padding-bottom: 2px;
+                if root.vault-name != "": TrayNote { text: root.vault-name; }
+                TrayNote {
+                    text: root.locked ? @tr("Locked") : @tr("Unlocked · {n} min left" | "Unlocked · {n} min left" % root.minutes-left);
                 }
             }
-            MenuRule { }
-            MenuEntry {
+            TrayRule { }
+            TrayItem {
                 text: @tr("Lock now");
-                icon: "lock";
                 enabled: !root.locked;
                 clicked => { root.lock(); }
             }
-            MenuEntry {
+            TrayItem {
                 text: @tr("Quit");
-                icon: "exit";
                 clicked => { root.quit(); }
             }
         }

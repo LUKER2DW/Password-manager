@@ -1037,19 +1037,12 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_detail_title(), "GitHub");
     assert!(!app.get_detail_has_password());
     assert_eq!(app.get_totp_count(), 1);
-    // A new item would be sealed too: saving it asks for the PIN in the editor.
+    // A new item is saved without the PIN, shows as locked, and is sealed under the item
+    // lock when it next opens.
     let before = app.get_total_items();
     app.invoke_new_item();
     app.set_ed_title("Sealed at birth".into());
     type_into(&app, 4, "born-locked");
-    app.invoke_save_item();
-    assert_eq!(app.get_error_code(), 37);
-    assert_eq!(app.get_panel(), Panel::Editor);
-    type_into(&app, 11, "0000");
-    app.invoke_save_item();
-    assert_eq!(app.get_error_code(), 35);
-    assert_eq!(app.get_panel(), Panel::Editor);
-    type_into(&app, 11, "4821");
     app.invoke_save_item();
     assert_eq!(
         app.get_error_code(),
@@ -1059,7 +1052,19 @@ fn whole_app_flow_headless() {
     );
     assert_eq!(app.get_panel(), Panel::Detail);
     assert_eq!(app.get_total_items(), before + 1);
+    assert!(
+        app.get_detail_locked(),
+        "still asks before showing its secrets"
+    );
+    assert_eq!(controller.pending_seal(), Some(1));
+    type_into(&app, 11, "4821");
+    app.invoke_unlock_item();
     assert!(app.get_secrets_open() && !app.get_detail_locked());
+    assert_eq!(
+        controller.pending_seal(),
+        Some(0),
+        "sealed once the lock opened"
+    );
     app.invoke_reveal();
     assert_eq!(app.get_revealed_password(), "born-locked");
     app.invoke_conceal();

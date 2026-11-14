@@ -43,6 +43,7 @@ use crate::{
 };
 
 mod browser;
+mod drop_box;
 mod features;
 mod folders;
 mod generated;
@@ -173,6 +174,7 @@ mod notice {
     pub const BROWSER_SAVED: i32 = 43;
     pub const GENERATED_CLEARED: i32 = 44;
     pub const LOCKED_FILL_ON: i32 = 45;
+    pub const BROWSER_DROPPED: i32 = 46;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -1073,7 +1075,15 @@ impl Controller {
                             controller.relock_secrets();
                         }
                     });
-                if upgraded && !self.save_vault() {
+                // New items added while the item lock was closed are sealed now.
+                let sealed = self
+                    .state
+                    .borrow_mut()
+                    .session
+                    .as_mut()
+                    .and_then(|s| s.vault.seal_pending().ok())
+                    .unwrap_or(0);
+                if (upgraded || sealed > 0) && !self.save_vault() {
                     return;
                 }
                 match then {
@@ -1708,6 +1718,17 @@ impl Controller {
         self.refresh_health();
         self.refresh_locked_fill();
         self.record_pending_generated();
+        self.open_drop_box();
+    }
+
+    /// How many items wait to be sealed under the item lock (for the headless test).
+    #[cfg(test)]
+    pub(crate) fn pending_seal(&self) -> Option<usize> {
+        self.state
+            .borrow()
+            .session
+            .as_ref()
+            .and_then(|s| s.vault.pending_seal().ok())
     }
 
     /// What the notification area icon's menu shows: whether the vault is locked, its name,
@@ -3264,17 +3285,19 @@ impl Controller {
         }
         item.touch();
 
-        // The item will be sealed by the item lock (or was read while locked): its PIN or
-        // password is needed first, typed in the editor.
+        // A changed item the item lock covers (or one read while locked) needs its PIN or
+        // password first, typed in the editor. A new item doesn't: it is sealed the next time
+        // the item lock opens (`Vault::add_item`).
         let was_locked = item.is_locked();
         item.sealed = None;
-        let needs_unlock = was_locked
-            || self
-                .state
-                .borrow()
-                .session
-                .as_ref()
-                .is_some_and(|s| s.vault.needs_unlock_to_store(&item));
+        let needs_unlock = editing.is_some()
+            && (was_locked
+                || self
+                    .state
+                    .borrow()
+                    .session
+                    .as_ref()
+                    .is_some_and(|s| s.vault.needs_unlock_to_store(&item)));
         if needs_unlock {
             if self.state.borrow().secrets[field::REPROMPT].is_empty() {
                 self.set_error(error::SECRETS_LOCKED, "");
@@ -3822,6 +3845,10 @@ impl Controller {
         self.state.borrow_mut().settings = settings.clone();
         if browser_was_on != settings.browser_extension {
             self.apply_browser_link(settings.browser_extension);
+            // Turned on: the drop box for saving while locked is made now.
+            if settings.browser_extension {
+                self.open_drop_box();
+            }
         }
         if locked_fill_was_on != settings.browser_locked_fill
             || browser_was_on != settings.browser_extension

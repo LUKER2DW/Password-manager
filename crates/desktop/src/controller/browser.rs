@@ -313,10 +313,21 @@ impl Controller {
             let settings = &self.state.borrow().settings;
             settings.browser_locked_fill && quick_unlock::item_lock_enrolled(&id)
         };
-        let Some(file) = super::locked_fill::read_index(&id).filter(|_| wanted) else {
+        let index = super::locked_fill::read_index(&id).filter(|_| wanted);
+        let logins = index
+            .as_ref()
+            .map(super::locked_fill::logins)
+            .unwrap_or_default();
+        // A login saved meanwhile is kept sealed for the next unlock: nothing to ask.
+        let saved = vault_browser::locked::answer_locked_save(request, &logins, &mut |login| {
+            super::drop_box::keep(&id, login)
+        });
+        if let Some(answer) = saved {
+            return answer.bytes;
+        }
+        let Some(file) = index else {
             return locked();
         };
-        let logins = super::locked_fill::logins(&file);
         let mut gate = super::locked_fill::HelloGate {
             file: &file,
             vault_id: id,
@@ -611,6 +622,8 @@ impl Gate for AppGate<'_> {
             .unwrap_or(false);
         if opened {
             *self.attempts = 0;
+            // New items added while it was closed are sealed while it is open.
+            self.save |= vault.seal_pending().unwrap_or(0) > 0;
         }
         opened
     }
@@ -619,7 +632,7 @@ impl Gate for AppGate<'_> {
         let legacy = vault.item_guard().is_legacy();
         if vault.unlock_secrets(secret).unwrap_or(false) {
             *self.attempts = 0;
-            self.save = legacy;
+            self.save = legacy || vault.seal_pending().unwrap_or(0) > 0;
             return Opened::Yes;
         }
         *self.attempts += 1;

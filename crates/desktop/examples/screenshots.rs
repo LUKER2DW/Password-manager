@@ -820,7 +820,7 @@ fn main() {
     menu.set_minutes_left(4);
     menu.show().expect("show menu");
     window.set_size(PhysicalSize::new(
-        (240.0 * scale) as u32,
+        (196.0 * scale) as u32,
         (menu.get_content_height() * scale) as u32,
     ));
     camera.shot("tray-menu", "The notification area icon's menu");

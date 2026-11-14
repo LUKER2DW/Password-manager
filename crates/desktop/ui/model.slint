@@ -274,6 +274,7 @@ export global Messages {
         if (code == 42) { return @tr("Browser extension disconnected. It has to ask again to connect."); }
         if (code == 43) { return @tr("Saved “{}” from the browser.", arg); }
         if (code == 44) { return @tr("History of generated passwords cleared."); }
+        if (code == 46) { return arg == "1" ? @tr("A login saved from the browser while the vault was locked is in your vault now.") : @tr("{} logins saved from the browser while the vault was locked are in your vault now.", arg); }
         if (code == 45) { return @tr("The browser extension can now fill with Windows Hello while the vault is locked."); }
         return "";
     }

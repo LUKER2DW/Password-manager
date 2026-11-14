@@ -665,7 +665,8 @@ export component AppWindow inherits Window {
             }
             if root.panel == Panel.editor: EditorPage {
                 is-new: root.editor-is-new;
-                needs-check: root.guard-encrypts && !root.secrets-open && (root.guard-current-all || root.ed-reprompt);
+                // Only to change an item: a new one is sealed when the item lock next opens.
+                needs-check: !root.editor-is-new && root.guard-encrypts && !root.secrets-open && (root.guard-current-all || root.ed-reprompt);
                 check: root.detail-check;
                 error-code: root.error-code;
                 error-detail: root.error-detail;
