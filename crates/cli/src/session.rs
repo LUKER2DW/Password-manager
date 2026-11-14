@@ -172,7 +172,12 @@ impl Session {
         prompter: &mut Prompter,
     ) -> Result<vault_core::ItemData> {
         let item = self.vault.get_item(id).map_err(explain)?;
-        if !item.is_locked() {
+        // An item added while the item lock was closed is not sealed under it yet, so it reads
+        // in full: the check is asked for all the same (and seals it).
+        let waits = self.vault.item_guard().encrypts()
+            && self.vault.guards(&item)
+            && !self.vault.secrets_open();
+        if !item.is_locked() && !waits {
             return Ok(item);
         }
         self.open_secrets(prompter)?;
