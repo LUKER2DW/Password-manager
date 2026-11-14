@@ -19,8 +19,12 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
-/// How far a request's counter (the sender's clock, in milliseconds) may be from ours.
+/// How far a request's counter (the sender's clock) may be from ours, in milliseconds.
 const MAX_CLOCK_DRIFT_MS: u64 = 2 * 60 * 1000;
+/// Counters are the sender's clock in milliseconds × this, plus a random part below it.
+pub const COUNTER_SCALE: u64 = 1000;
+/// Most counters remembered at once; more within the drift window are refused.
+const MAX_SEEN: usize = 4096;
 
 /// The key shared by the app and one connected extension.
 #[derive(Clone)]
@@ -87,18 +91,29 @@ fn from_hex(text: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-/// Refuses a request seen before: counters must grow, and stay near the clock.
+/// Refuses a request seen before.
+///
+/// A counter is the sender's clock in milliseconds × [`COUNTER_SCALE`] plus a random part,
+/// so requests sent at the same moment differ: the extension's window and its background
+/// worker ask in parallel, and their requests may arrive in any order. A counter is accepted
+/// once, and only near our clock; older ones are refused by the clock alone, so only the
+/// counters of the last few minutes are remembered.
 #[derive(Debug, Default)]
 pub struct Replay {
-    last: u64,
+    seen: std::collections::VecDeque<u64>,
 }
 
 impl Replay {
     pub fn accept(&mut self, counter: u64, now_ms: u64) -> bool {
-        if counter <= self.last || counter.abs_diff(now_ms) > MAX_CLOCK_DRIFT_MS {
+        let near = |counter: u64| (counter / COUNTER_SCALE).abs_diff(now_ms) <= MAX_CLOCK_DRIFT_MS;
+        if !near(counter) {
             return false;
         }
-        self.last = counter;
+        self.seen.retain(|&seen| near(seen));
+        if self.seen.contains(&counter) || self.seen.len() >= MAX_SEEN {
+            return false;
+        }
+        self.seen.push_back(counter);
         true
     }
 }
@@ -194,15 +209,26 @@ mod tests {
     fn requests_can_not_be_replayed_or_come_from_another_time() {
         let mut replay = Replay::default();
         let now = 1_800_000_000_000;
-        assert!(replay.accept(now, now));
-        assert!(!replay.accept(now, now), "the same request again");
-        assert!(!replay.accept(now - 1, now), "an older one");
-        assert!(replay.accept(now + 5, now + 9));
-        assert!(!replay.accept(now + 10 * 60 * 1000, now), "from the future");
+        let at = |ms: u64, random: u64| ms * COUNTER_SCALE + random;
+        assert!(replay.accept(at(now, 17), now));
+        assert!(!replay.accept(at(now, 17), now), "the same request again");
+        // Sent at the same moment, or arriving out of order: each one counts once.
+        assert!(replay.accept(at(now, 912), now));
+        assert!(replay.accept(at(now - 3, 4), now));
+        assert!(!replay.accept(at(now - 3, 4), now + 50));
         assert!(
-            !Replay::default().accept(now - 10 * 60 * 1000, now),
+            !replay.accept(at(now + 10 * 60 * 1000, 0), now),
+            "from the future"
+        );
+        assert!(
+            !Replay::default().accept(at(now - 10 * 60 * 1000, 0), now),
             "stale"
         );
+        // A plain millisecond clock (an older extension) is far from ours: refused.
+        assert!(!Replay::default().accept(now, now));
+        // What was seen is forgotten once the clock alone refuses it.
+        replay.accept(at(now + 5 * 60 * 1000, 1), now + 5 * 60 * 1000);
+        assert_eq!(replay.seen.len(), 1);
     }
 
     #[test]

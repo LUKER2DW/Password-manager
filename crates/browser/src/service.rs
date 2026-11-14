@@ -186,7 +186,7 @@ fn error(code: ErrorCode) -> Response {
     }
 }
 
-fn page_origin(url: &str) -> Result<Origin, Response> {
+pub(crate) fn page_origin(url: &str) -> Result<Origin, Response> {
     Origin::of_page(url).map_err(|problem| {
         error(match problem {
             PageProblem::Insecure => ErrorCode::InsecurePage,

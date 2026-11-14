@@ -9,9 +9,11 @@
 //! - [`origin`]: which saved website belongs to which page (exact scheme, host and port).
 //! - [`protocol`]: the JSON messages.
 //! - [`service`]: how the app answers them from an unlocked vault.
+//! - [`locked`]: how it answers while the vault is locked (Windows Hello only).
 //! - [`host`]: the relay the native host runs.
 
 pub mod host;
+pub mod locked;
 pub mod origin;
 pub mod pairing;
 pub mod protocol;
