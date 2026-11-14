@@ -22,17 +22,18 @@
 
   function makeFrame(which) {
     const frame = document.createElement("iframe");
-    frame.src = chrome.runtime.getURL(which === "logins" ? "inline.html" : `inline.html#${which}`);
+    frame.src = chrome.runtime.getURL(`inline.html#${which}`);
+    frame.dataset.which = which;
     frame.title = "Vault";
     frame.setAttribute("scrolling", "no");
     const set = (name, value) => frame.style.setProperty(name, value, "important");
     set("all", "initial");
     set("position", "fixed");
     set("z-index", "2147483647");
-    set("width", "320px");
-    set("height", "64px");
+    // The card inside is 280 px wide; the rest is room for its arrow and shadow.
+    set("width", "300px");
+    set("height", "80px");
     set("border", "0");
-    set("box-shadow", "0 10px 32px rgba(8, 12, 18, 0.38), 0 0 0 1px rgba(8, 12, 18, 0.25)");
     set("color-scheme", "normal");
     set("background", "transparent");
     return frame;
@@ -43,13 +44,18 @@
     if (!frame || !anchor) return;
     if (!anchor.isConnected) return close("logins");
     const box = anchor.getBoundingClientRect();
-    const height = parseFloat(frame.style.height) || 64;
-    const below = box.bottom + 6;
+    const height = parseFloat(frame.style.height) || 80;
+    // The card's arrow points at the field from just below it (or above, when there is no
+    // room below); the card lines up with the field's start.
+    const below = box.bottom - 2;
     const fits = below + height <= window.innerHeight;
-    const top = fits ? below : Math.max(8, box.top - height - 6);
-    const left = Math.max(8, Math.min(box.left, window.innerWidth - 328));
+    const top = fits ? below : Math.max(0, box.top - height + 2);
+    const left = Math.max(0, Math.min(box.left - 10, window.innerWidth - 300));
     frame.style.setProperty("top", `${top}px`, "important");
     frame.style.setProperty("left", `${left}px`, "important");
+    // Only the part after "#" changes: the frame learns where to draw its arrow, unreloaded.
+    const hash = `#${frame.dataset.which}${fits ? "" : ":up"}`;
+    if (!frame.src.endsWith(hash)) frame.src = chrome.runtime.getURL(`inline.html${hash}`);
   }
 
   function close(which) {
@@ -77,9 +83,9 @@
   function offerSave() {
     if (frames.save) return;
     const frame = makeFrame("save");
-    frame.style.setProperty("top", "16px", "important");
-    frame.style.setProperty("right", "16px", "important");
-    frame.style.setProperty("height", "150px", "important");
+    frame.style.setProperty("top", "8px", "important");
+    frame.style.setProperty("right", "8px", "important");
+    frame.style.setProperty("height", "140px", "important");
     frames.save = frame;
     document.documentElement.append(frame);
   }

@@ -210,6 +210,12 @@ async function handle(message, sender) {
       if (outcome.done || outcome.popup) tell(tab.id, { kind: "close", which: "save" });
       return outcome;
     }
+    case "frame-manage": {
+      // The extension's own window, on the logins of this site.
+      tell(tab.id, { kind: "close", which: "logins" });
+      await continueInPopup();
+      return undefined;
+    }
     case "frame-dismiss":
       if (message.which === "save") await setPendingSave(tab.id, undefined);
       tell(tab.id, { kind: "close", which: message.which === "save" ? "save" : "logins" });
@@ -218,7 +224,7 @@ async function handle(message, sender) {
       tell(tab.id, {
         kind: "size",
         which: message.which === "save" ? "save" : "logins",
-        height: Math.max(40, Math.min(Number(message.height) || 0, 420)),
+        height: Math.max(40, Math.min(Number(message.height) || 0, 360)),
       });
       return undefined;
     default:

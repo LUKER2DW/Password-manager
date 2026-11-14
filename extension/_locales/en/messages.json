@@ -207,17 +207,6 @@
   "fillHere": {
     "message": "Fill on this page"
   },
-  "inlineTitle": {
-    "message": "Saved for $SITE$",
-    "placeholders": {
-      "site": {
-        "content": "$1"
-      }
-    }
-  },
-  "inlineClose": {
-    "message": "Close"
-  },
   "saveTitle": {
     "message": "Save this login to your vault?"
   },
@@ -300,13 +289,13 @@
     "message": "New"
   },
   "suggestTitle": {
-    "message": "Strong password from your vault"
+    "message": "Use a strong password"
   },
   "suggestUse": {
     "message": "Use this password"
   },
   "suggestAnother": {
-    "message": "Another"
+    "message": "Suggest another"
   },
   "suggestNote": {
     "message": "$LENGTH$ characters, fitting this site's rules. You'll be asked to save the login after you sign up.",
@@ -336,5 +325,17 @@
   },
   "separatorLabel": {
     "message": "Between words"
+  },
+  "managePasswords": {
+    "message": "Manage passwords…"
+  },
+  "asksHelloLong": {
+    "message": "Opens with Windows Hello"
+  },
+  "asksPinLong": {
+    "message": "Opens with your PIN"
+  },
+  "asksPasswordLong": {
+    "message": "Opens with your item password"
   }
 }

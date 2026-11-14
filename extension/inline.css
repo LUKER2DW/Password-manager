@@ -1,96 +1,274 @@
-/* The small frame shown inside a page. Opaque on purpose: nothing of the page shows through. */
+/* The small card a page shows under a field: compact, rounded, with a little arrow pointing
+   at the field. The frame itself is transparent; only the card is drawn, and it is opaque. */
+:root {
+  --pop: #1d242e;
+  --pop-hover: #29323e;
+  --pop-rule: #2e3846;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --pop: #ffffff;
+    --pop-hover: #eef1f5;
+    --pop-rule: #e2e7ee;
+  }
+}
+
 html,
 body {
   margin: 0;
-  background: var(--canvas);
+  background: transparent;
 }
 
 body {
   color: var(--ink);
-  font: 14px/1.4 var(--text);
+  font: 13px/1.35 var(--text);
   overflow: hidden;
 }
 
-section {
-  padding: 8px;
+.card {
+  position: relative;
+  margin: 9px 10px 14px;
+  padding: 6px 0;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow:
+    0 6px 20px rgba(6, 10, 16, 0.32),
+    0 0 0 1px var(--pop-rule);
 }
 
-#logins header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 0 4px 8px;
-  font-size: 12px;
-  color: var(--graphite);
+/* The arrow: a small rotated square under the card's top edge, near the field's start. */
+.card::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 20px;
+  width: 12px;
+  height: 12px;
+  background: var(--pop);
+  box-shadow: -1px -1px 0 0 var(--pop-rule);
+  transform: rotate(45deg);
+  border-top-left-radius: 2px;
 }
 
-#new {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px 12px;
+body.up .card {
+  margin: 14px 10px 9px;
 }
 
-#new header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 12px;
-  color: var(--graphite);
+body.up .card::before {
+  top: auto;
+  bottom: -6px;
+  box-shadow: 1px 1px 0 0 var(--pop-rule);
+  border-top-left-radius: 0;
+  border-bottom-right-radius: 2px;
 }
 
-#new-password {
-  padding: 8px 10px;
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  background: var(--field);
-  font: 15px/1.4 var(--mono);
-  color: var(--ink);
-  overflow-wrap: anywhere;
+body.corner .card {
+  margin: 10px;
 }
 
-#new-note {
-  font-size: 12px;
-  color: var(--graphite);
-}
-
-#list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 232px;
-  overflow-y: auto;
-}
-
-#save {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px 14px 12px;
-}
-
-#save h1 {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-#save p {
-  font-size: 12px;
-  color: var(--graphite);
-  overflow-wrap: anywhere;
-}
-
-#save p:empty {
+body.corner .card::before {
   display: none;
 }
 
-#save-who strong {
-  color: var(--ink);
+section {
+  position: relative;
+}
+
+/* ---- rows ---- */
+
+#list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover,
+.row:focus-visible {
+  background: var(--pop-hover);
+  outline: none;
+}
+
+.row:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.favicon,
+.key,
+.letter {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+}
+
+.letter {
+  display: grid;
+  place-items: center;
+  background: var(--marker);
+  color: var(--on-marker);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.key {
+  display: grid;
+  place-items: center;
+  color: var(--marker);
+}
+
+.key svg,
+.lock,
+.mark {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.key svg {
+  width: 18px;
+  height: 18px;
+}
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.name {
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.name small {
+  margin-left: 8px;
+  font-weight: 400;
+  color: var(--graphite);
+}
+
+/* The password as dots: always the same number, so its length is not shown. */
+.secret {
+  color: var(--graphite);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 15px;
+  letter-spacing: 0.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mono {
+  font: 12.5px/1.4 var(--mono);
+  letter-spacing: 0;
+  color: var(--ink);
+}
+
+.sub {
+  color: var(--graphite);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.lock {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--graphite);
+}
+
+/* ---- the footer: open the extension's window, or another suggestion ---- */
+
+hr {
+  margin: 6px 0;
+  border: 0;
+  border-top: 1px solid var(--pop-rule);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 14px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.foot:hover,
+.foot:focus-visible {
+  background: var(--pop-hover);
+  outline: none;
+}
+
+.mark {
+  width: 16px;
+  height: 16px;
+  color: var(--stroke);
+}
+
+/* ---- save? ---- */
+
+#save {
+  padding: 8px 14px 6px;
+}
+
+.save-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.save-head .favicon,
+.save-head .letter {
+  width: 22px;
+  height: 22px;
+}
+
+#save-note {
+  margin: 6px 0 0;
+  color: var(--seal);
+  font-size: 12px;
+}
+
+#save-note:empty {
+  display: none;
 }
 
 .actions {
   display: flex;
+  justify-content: flex-end;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 10px;
+}
+
+.actions button {
+  height: 30px;
+  border-radius: 15px;
+  padding: 0 14px;
 }

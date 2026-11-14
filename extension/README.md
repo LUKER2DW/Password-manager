@@ -12,8 +12,10 @@ Status: early development, like the rest of the project. Use a test vault.
 - **Connect once.** The first time you open it, it offers *Connect*. The app comes forward,
   shows a code and asks for your master password (typed in the app, never in the browser).
   The extension then holds a connection key (never a password) and signs every request.
-- **Under a sign-in field**, a small frame lists the usernames saved for that exact site
-  (same scheme, host and port; https only). Pick one and it is filled.
+- **Under a sign-in field**, a small card with an arrow pointing at the field lists the
+  usernames saved for that exact site (same scheme, host and port; https only), with the
+  site's icon and the password as dots. Pick one and it is filled; *Manage passwords…* opens
+  the extension's window. Esc or a click elsewhere closes it.
 - **On a sign-up or change-password field**, the frame offers a strong password made by the
   app's generator, fitted to what the field allows (`maxlength`, `minlength`, `pattern`,
   `passwordrules`). *Use this password* types it into the new-password fields.
@@ -70,7 +72,7 @@ The `key` in `manifest.json` fixes the extension's id, which is the only id the 
 
 | File | Role |
 |---|---|
-| `manifest.json` | Manifest V3: `activeTab`, `scripting`, `nativeMessaging`, `storage`; https pages for the content script |
+| `manifest.json` | Manifest V3: `activeTab`, `scripting`, `nativeMessaging`, `storage`, `favicon`; https pages for the content script |
 | `popup.html`, `popup.css`, `popup.js` | The extension's window: this site, all logins, generator, new login |
 | `content.js`, `fields.js` | Content script: sign-in and new-password fields, submitted forms, placing the frame |
 | `inline.html`, `inline.css`, `inline.js` | The frame under a field (logins or a new password) and the save offer |

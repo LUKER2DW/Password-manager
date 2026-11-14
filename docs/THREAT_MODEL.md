@@ -90,7 +90,8 @@ On top of that:
   (IntersectionObserver v2); it shows usernames, never passwords; a fill goes only into the
   site the login is saved for, top frame only; and a locked login still needs Windows Hello
   (the system's own prompt, which a page can't click) or the PIN, typed in the extension's
-  window. New vaults lock every item by default for that reason. Residual risk: a site with
+  window. New vaults lock every item by default for that reason. The site's icon in the frame
+  comes from the browser's own cache (`favicon` permission): nothing is fetched for it. Residual risk: a site with
   an XSS flaw can read what is filled into its own page, as it can read what the person types.
 - **What a page sends when a form is submitted**: the content script reads the typed username
   and password (in the extension's isolated world) and passes them to the background worker,

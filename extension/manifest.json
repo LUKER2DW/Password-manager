@@ -36,7 +36,7 @@
     }
   ],
   "web_accessible_resources": [{ "resources": ["inline.html"], "matches": ["https://*/*"] }],
-  "permissions": ["activeTab", "scripting", "nativeMessaging", "storage"],
+  "permissions": ["activeTab", "scripting", "nativeMessaging", "storage", "favicon"],
   "host_permissions": ["https://*/*"],
   "content_security_policy": {
     "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'"

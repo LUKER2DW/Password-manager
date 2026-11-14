@@ -128,10 +128,10 @@
       }
       document.body.replaceChildren(...[...doc.body.children].filter((el) => el.tagName !== "SCRIPT"));
       if (frame) {
-        // The frame's size in a page.
-        document.body.style.width = "320px";
-        if (state === "save") location.hash = "#save";
-        if (state === "suggest") location.hash = "#new";
+        // The frame's size in a page, over a page-like background.
+        document.body.style.width = "300px";
+        document.documentElement.style.background = matchMedia("(prefers-color-scheme: dark)").matches ? "#0b0f14" : "#e9edf3";
+        location.hash = state === "save" ? "#save" : state === "suggest" ? "#new" : "#logins";
         window.IntersectionObserver = class { observe() {} };
         await import("../inline.js");
       } else {
