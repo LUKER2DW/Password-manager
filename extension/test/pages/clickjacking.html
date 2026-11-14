@@ -1,0 +1,64 @@
+<!doctype html>
+<!--
+  Manual test: a hostile page tries the "extension clickjacking" tricks (DEF CON 33, 2025).
+
+  How to run it: serve this folder over https under a name you own (or use any https test
+  site of yours), save a TEST login for that site in a TEST vault, open the page and click
+  around. Expected: nothing is ever filled by clicking in the page, whatever it draws,
+  because the extension puts no element into pages: the login is chosen in the extension's
+  own window, which a page cannot cover, move, make transparent or click.
+
+  What this page does on purpose:
+  - a real-looking sign-in form, plus invisible copies (opacity 0, off-screen, 1 px, covered);
+  - it watches every input for values appearing without typing and reports them;
+  - a cross-origin style frame with another form (never filled: top frame only).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Clickjacking test page</title>
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; max-width: 640px; margin: 40px auto; }
+      form { display: grid; gap: 8px; margin: 16px 0; }
+      .ghost { opacity: 0; position: absolute; left: 0; top: 0; }
+      .far { position: absolute; left: -9999px; }
+      .tiny input { width: 1px; height: 1px; border: 0; padding: 0; }
+      #cover { position: fixed; inset: 0; background: transparent; }
+      #log { white-space: pre-wrap; background: #f3f3f3; padding: 12px; min-height: 3em; }
+    </style>
+  </head>
+  <body>
+    <h1>Clickjacking test page</h1>
+    <p>Click anywhere. If a value shows up below without you choosing a login in the
+      extension's own window, the test failed.</p>
+
+    <form id="visible">
+      <input name="username" autocomplete="username" placeholder="Username" />
+      <input name="password" type="password" autocomplete="current-password" placeholder="Password" />
+    </form>
+    <form class="ghost"><input name="username" /><input name="password" type="password" /></form>
+    <form class="far"><input name="username" /><input name="password" type="password" /></form>
+    <form class="tiny"><input name="username" /><input name="password" type="password" /></form>
+    <iframe title="framed form" srcdoc="<form><input name='username'><input type='password' name='password'></form>"></iframe>
+
+    <!-- A transparent layer over everything, the classic way to steal a click. -->
+    <div id="cover"></div>
+
+    <h2>What the page saw</h2>
+    <div id="log">Nothing yet.</div>
+
+    <script>
+      const log = document.getElementById("log");
+      let typed = false;
+      addEventListener("keydown", () => { typed = true; }, true);
+      addEventListener("input", (event) => {
+        if (typed) return;
+        const where = event.target.closest("form")?.className || "visible";
+        log.textContent += `\nA value appeared in "${event.target.name}" of the ${where} form without typing.`;
+      }, true);
+      document.getElementById("cover").addEventListener("click", () => {
+        log.textContent += "\nThe page got your click (expected: it is the page's own layer).";
+      });
+    </script>
+  </body>
+</html>

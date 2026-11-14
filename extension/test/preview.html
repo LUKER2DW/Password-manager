@@ -1,0 +1,72 @@
+<!doctype html>
+<!--
+  Visual review of the popup without installing the extension.
+
+  Serve the `extension` folder (for example `python -m http.server 8765` inside it) and open
+  http://localhost:8765/test/preview.html?state=logins
+  States: logins, empty, locked, not_running, insecure, item_locked, username.
+  A stand-in for the browser's `chrome` object answers with fixed test data; nothing here
+  talks to the app.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Popup preview</title>
+  </head>
+  <body>
+    <script type="module">
+      const state = new URLSearchParams(location.search).get("state") || "logins";
+      const messages = await (await fetch("../_locales/en/messages.json")).json();
+      const page = "https://github.com/login";
+      const logins = {
+        type: "logins",
+        origin: "https://github.com",
+        items: [
+          { id: "01", title: "GitHub", username: "octocat", locked: false },
+          { id: "02", title: "GitHub (work)", username: "hubot@work.example", locked: false },
+          { id: "03", title: "GitHub admin", username: "root", locked: true },
+        ],
+      };
+      const answers = {
+        logins,
+        username: logins,
+        item_locked: logins,
+        empty: { type: "logins", origin: "https://github.com", items: [] },
+        locked: { type: "error", code: "locked" },
+        insecure: { type: "error", code: "insecure_page" },
+      };
+      window.chrome = {
+        i18n: {
+          getMessage: (key, parts = []) =>
+            (messages[key]?.message || "").replace(/\$[A-Z]+\$/, parts[0] ?? ""),
+        },
+        runtime: {
+          sendNativeMessage: async (_host, message) => {
+            if (state === "not_running") throw new Error("no host");
+            if (message.type === "fill") {
+              return state === "item_locked"
+                ? { type: "error", code: "item_locked" }
+                : { type: "fill", origin: "https://github.com", username: "octocat", password: "test" };
+            }
+            return answers[state] ?? logins;
+          },
+        },
+        tabs: {
+          query: async () => [{ id: 1, url: page }],
+          get: async () => ({ id: 1, url: page }),
+        },
+        scripting: {
+          executeScript: async () => [{ result: state === "username" ? "username" : "none" }],
+        },
+      };
+      const html = await (await fetch("../popup.html")).text();
+      const popup = new DOMParser().parseFromString(html, "text/html");
+      const style = document.createElement("link");
+      style.rel = "stylesheet";
+      style.href = "../popup.css";
+      document.head.append(style);
+      document.body.replaceChildren(...popup.body.querySelectorAll("header, main, section"));
+      await import("../popup.js");
+    </script>
+  </body>
+</html>

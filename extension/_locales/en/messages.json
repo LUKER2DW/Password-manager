@@ -1,0 +1,35 @@
+{
+  "extensionName": { "message": "Vault: fill logins" },
+  "extensionDescription": {
+    "message": "Fills logins from the desktop password manager. Keeps no passwords itself; you pick the login in this window, never in the page."
+  },
+  "actionTitle": { "message": "Fill a login from your vault" },
+  "checking": { "message": "Asking the app…" },
+  "notRunningTitle": { "message": "The app isn't answering" },
+  "notRunningText": {
+    "message": "Open the password manager on this computer and turn on Settings → Browser extension. Then click this button again."
+  },
+  "lockedTitle": { "message": "The vault is locked" },
+  "lockedText": { "message": "Unlock it in the app, then click this button again." },
+  "insecureTitle": { "message": "This page has no https" },
+  "insecureText": {
+    "message": "Anything typed here can be read on the way, so logins are not filled on it."
+  },
+  "notAWebsiteTitle": { "message": "Nothing to fill here" },
+  "notAWebsiteText": { "message": "Logins are filled on websites only." },
+  "noLoginsTitle": { "message": "No login saved for this site" },
+  "noLoginsText": {
+    "message": "A login is offered only on the exact site saved in it ($ORIGIN$). Check the website of the item in the app if you expected one.",
+    "placeholders": { "origin": { "content": "$1" } }
+  },
+  "pick": { "message": "Fill in this page" },
+  "noUsername": { "message": "No username" },
+  "lockedItem": { "message": "Locked: open it in the app first" },
+  "itemLockedText": {
+    "message": "This login is behind the item lock. Open it in the app (type its PIN or password there), then try again."
+  },
+  "pageChanged": { "message": "The page changed before it was filled. Nothing was typed." },
+  "noFields": { "message": "No sign-in fields were found on this page. Nothing was typed." },
+  "filledUsername": { "message": "Username filled. Continue to the password step, then click the button again." },
+  "failed": { "message": "That didn't work. Nothing was typed." }
+}

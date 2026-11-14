@@ -1,0 +1,143 @@
+/* Same tokens as the desktop app (docs/DESIGN.md): dark slate, one highlighter yellow. */
+:root {
+  color-scheme: dark light;
+  --canvas: #121821;
+  --panel: #161d27;
+  --hover: #212a36;
+  --ink: #e3e8ef;
+  --graphite: #8e9aac;
+  --faint: #5e6a7b;
+  --rule: #283240;
+  --marker: #e7c54b;
+  --seal: #f06a60;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --canvas: #eef1f4;
+    --panel: #e6eaef;
+    --hover: #dfe4ea;
+    --ink: #1f2a3d;
+    --graphite: #5f6b7d;
+    --faint: #9aa5b3;
+    --rule: #d3dae2;
+    --marker: #b88a00;
+    --seal: #b3261e;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 340px;
+  margin: 0;
+  padding: 14px;
+  background: var(--canvas);
+  color: var(--ink);
+  font: 14px/1.4 Bahnschrift, "Segoe UI", system-ui, sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px 10px;
+}
+
+#heading-text {
+  font-size: 12px;
+  color: var(--graphite);
+  white-space: nowrap;
+}
+
+/* The site the logins belong to, as the app matched it: the thing to glance at. */
+#origin {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+
+#list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.login {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.login:hover:enabled {
+  background: var(--hover);
+}
+
+.login:focus-visible {
+  outline: none;
+  border-color: var(--marker);
+}
+
+.login:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail {
+  font-size: 12px;
+  color: var(--graphite);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#message {
+  padding: 6px 4px;
+}
+
+#message h1 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+#message p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--graphite);
+}
+
+#message p:empty {
+  display: none;
+}
+
+#message.error h1 {
+  color: var(--seal);
+  font-size: 14px;
+  font-weight: 400;
+}
