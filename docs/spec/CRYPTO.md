@@ -116,6 +116,23 @@ This puts a second key between an unlocked vault and its most sensitive data. It
 make a short PIN strong: with the vault key in hand, 10 000 four-digit PINs cost 10 000
 Argon2id runs.
 
+### 3.3 Export protected by a password
+
+An export of every item (the JSON layout) sealed for carrying elsewhere. It has one factor
+only, the password chosen for the file, so clients ask for at least 12 characters.
+
+```
+file      = "PMVEXP" ‖ 0x00 ‖ 0x01 ‖ header_len (u16 LE) ‖ header ‖ sealed
+header    = postcard(KdfParams)            // Argon2id, standard level, fresh salt
+stretched = Argon2id(NFKC(password), header)
+key       = HKDF-SHA-256(ikm = stretched, salt = "vault-v0/export", info = "vault-v0/key/export")
+sealed    = seal(key, pad(contents), aad = everything before `sealed`)
+```
+
+The header is checked against the Argon2id floor and ceiling (§4) before any hashing, and
+is part of the associated data, so its cost can't be lowered. Contents are padded like the
+vault body (§7).
+
 ### 3.1 Device unlock (Windows Hello)
 
 A per-device wrapping of the vault key, kept **outside** the vault file

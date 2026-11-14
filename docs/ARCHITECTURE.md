@@ -106,8 +106,8 @@ Candidate libraries: the **RustCrypto** ecosystem (`argon2`, `chacha20poly1305`,
 - Exact origin matching (scheme + host + port), decided by the app with the WHATWG URL rules
   (`crates/browser/src/origin.rs`); the top frame only; no filling over plain HTTP. A password
   leaves the app only for the one login picked, and only for a page of its origin.
-- **Pairing:** the first time, the extension asks to be connected; the app shows a code and
-  the person allows it there. From then on every request is signed with the shared key
+- **Pairing:** the first time, the extension asks to be connected; the app comes forward,
+  shows a code and asks for the master password (typed in the app, never in the browser). From then on every request is signed with the shared key
   (HMAC-SHA-256 over a counter and the request), so a program that merely starts the native
   host gets nothing. The extension never holds the master password.
 - Nothing is answered while the vault is locked. A login behind the item lock is opened for

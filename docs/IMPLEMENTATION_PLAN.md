@@ -203,7 +203,11 @@ Rules:
   in the extension's window; Ctrl+Shift+L opens the extension
 - ✅ `*.example.com` as a login's website covers the site and its subdomains
 - ⬜ Checked by hand in Chrome and Edge with a test vault
-- ⬜ Encrypted export (a backup protected by a password)
+- ✅ Connecting is confirmed in the app: Connect in the extension brings the app forward,
+  the master password is typed there (never in the browser), and the extension carries on
+  by itself once connected
+- ✅ Export protected by a password (`.vaultx`): every item in one file encrypted with a
+  password chosen for it; Import (app and CLI) reads it back
 - ⬜ Offer to save a new login; fill one-time codes; pick among subdomains by choice
   ("this login also belongs to…"); Firefox
 - ⬜ Installer that puts the app and the host side by side; store listing

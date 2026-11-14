@@ -64,6 +64,7 @@ filesystem policy** beyond atomic writes.
 | `card.rs` | Payment cards: Luhn, brand detection, expiry, masking |
 | `generator.rs` | Passwords and passphrases (uniform sampling, word lists) |
 | `health.rs` | Strength (zxcvbn), reuse, age, and the k-anonymous breach query |
+| `sealed_export.rs` | An export sealed under a password of its own (`.vaultx`) |
 | `totp.rs` | RFC 6238 one-time codes |
 | `storage.rs` | Atomic file writes with a `.bak` copy |
 | `random.rs` | OS randomness |
@@ -89,7 +90,7 @@ supported file. Readers are named by format, never by product:
 - `browser.rs` — reads a browser's own store directly on Windows (Chromium via DPAPI +
   AES-GCM, Firefox via NSS `key4.db`), only on an explicit user action. DPAPI is passed in by
   the caller so this crate stays free of `unsafe`.
-- `export.rs` — JSON and CSV exports.
+- `export.rs` — JSON and CSV exports, and the JSON export sealed under a password.
 - `lib.rs` — `ImportReport`, review rows, duplicate detection, `FolderTarget`, `Source` list.
 
 Importers only produce `ItemData`; they never touch keys.
