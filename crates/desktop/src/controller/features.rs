@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use slint::{Model, ModelRc, SharedString, VecModel};
 use vault_core::{
-    ItemData, ItemId, ItemKind, KdfStrength, Unlock, Vault, VaultSettings,
+    ItemData, ItemId, ItemKind, KdfMethod, KdfStrength, PasswordKdf, Unlock, Vault, VaultSettings,
     card::{self, CardDetails},
     generator::{self, PassphraseOptions, PasswordOptions, WordCase, Wordlist},
     health::{self, BreachQuery},
@@ -530,24 +530,52 @@ impl Controller {
     }
 
     /// Recomputes the report (strength of every login, reuse, age, expired cards).
+    /// Audits every password again. Reading the vault is quick and happens here; estimating
+    /// the strength of every password is not, so it runs off the UI thread and the page (and
+    /// the count in the index) updates when it is done.
     pub(super) fn refresh_health(&self) {
-        let report = {
-            let state = self.state.borrow();
+        let (input, runner, generation) = {
+            let mut state = self.state.borrow_mut();
             let Some(session) = state.session.as_ref() else {
                 return;
             };
-            health::audit(&session.vault, view::now_unix(), view::now_month_year())
+            let input = health::collect(&session.vault, view::now_unix(), view::now_month_year());
+            state.health_generation += 1;
+            (input, state.runner, state.health_generation)
         };
-        match report {
-            Ok(report) => {
-                self.state.borrow_mut().health = Some(report);
-                self.show_health();
-            }
+        let input = match input {
+            Ok(input) => input,
             Err(err) => {
                 let (code, detail) = self.core_error(&err);
                 self.set_error(code, &detail);
+                return;
+            }
+        };
+        match runner {
+            Runner::Inline => self.health_ready(generation, input.analyze()),
+            Runner::Thread => {
+                std::thread::spawn(move || {
+                    let report = input.analyze();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(controller) = super::CURRENT.with(|c| c.borrow().upgrade()) {
+                            controller.health_ready(generation, report);
+                        }
+                    });
+                });
             }
         }
+    }
+
+    /// An audit finished. Dropped when the vault was locked or changed again meanwhile.
+    fn health_ready(&self, generation: u64, report: health::HealthReport) {
+        {
+            let mut state = self.state.borrow_mut();
+            if state.session.is_none() || state.health_generation != generation {
+                return;
+            }
+            state.health = Some(report);
+        }
+        self.show_health();
     }
 
     pub(super) fn show_health(&self) {
@@ -1010,7 +1038,7 @@ impl Controller {
     // Unlock protection (Argon2id cost)
     // -----------------------------------------------------------------------------------------
 
-    /// Rewrites the password slot at the chosen Argon2id level, after checking the current
+    /// Rewrites the password slot with the chosen method and level, after checking the current
     /// master password against the file. The new file is opened once before it is written, so
     /// a slot that wouldn't open never reaches the disk; that open is also the timing shown.
     pub(super) fn change_kdf(&self) {
@@ -1021,6 +1049,10 @@ impl Controller {
         else {
             return;
         };
+        let method = usize::try_from(app.get_kdf_method())
+            .ok()
+            .and_then(|i| KdfMethod::ALL.get(i).copied())
+            .unwrap_or(KdfMethod::Argon2id);
         let current = Zeroizing::new(
             self.state.borrow().secrets[field::KDF_CURRENT]
                 .as_str()
@@ -1046,7 +1078,7 @@ impl Controller {
                 };
             }
             let outcome = (|| -> vault_core::Result<f64> {
-                let params = level.params()?;
+                let params = PasswordKdf::preset(method, level)?;
                 session.vault.change_password(
                     &current,
                     &session.secret_key,
@@ -1107,13 +1139,20 @@ impl Controller {
         app.set_history_limit(i32::from(settings.history_limit));
         app.set_vault_folders(i32::try_from(session.vault.folders().len()).unwrap_or(0));
         let kdf = session.vault.kdf_params();
-        app.set_kdf_memory(i32::try_from(kdf.memory_kib() / 1024).unwrap_or(i32::MAX));
-        app.set_kdf_passes(i32::try_from(kdf.iterations()).unwrap_or(i32::MAX));
-        let level = KdfStrength::of(kdf)
+        app.set_kdf_memory(i32::try_from(kdf.memory_mib()).unwrap_or(i32::MAX));
+        app.set_kdf_passes(i32::try_from(kdf.rounds()).unwrap_or(i32::MAX));
+        let level = kdf
+            .strength()
             .and_then(|level| KdfStrength::ALL.iter().position(|l| *l == level))
             .map_or(-1, |i| i32::try_from(i).unwrap_or(-1));
         app.set_kdf_current(level);
         app.set_kdf_level(if level < 0 { 1 } else { level });
+        let method = KdfMethod::ALL
+            .iter()
+            .position(|m| *m == kdf.method())
+            .map_or(0, |i| i32::try_from(i).unwrap_or(0));
+        app.set_kdf_current_method(method);
+        app.set_kdf_method(method);
         app.set_unlock_time(SharedString::from(
             state
                 .unlock_seconds

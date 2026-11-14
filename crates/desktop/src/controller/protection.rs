@@ -1,14 +1,16 @@
-//! The keyfile (a third factor next to the master password and Secret Key) and items that ask
-//! for the master password again before they show anything.
+//! The keyfile (a third factor next to the master password and Secret Key) and the item lock
+//! (a PIN, another password or the master password before locked items show their secrets).
 
 use std::path::PathBuf;
 
 use slint::SharedString;
-use vault_core::{GuardCheck, ItemData, ItemGuard, ItemId, Keyfile, Unlock, Vault, storage};
+use vault_core::{
+    Error as CoreError, GuardCheck, ItemData, ItemGuard, Keyfile, Unlock, Vault, storage,
+};
 use vault_platform::keyfile;
 use zeroize::Zeroizing;
 
-use super::{Controller, JobResult, Runner, error, field, notice};
+use super::{AfterUnlock, Controller, JobResult, Runner, error, field, notice};
 
 /// `keyfile-action` values in pages.slint.
 const CREATE: i32 = 0;
@@ -153,27 +155,17 @@ impl Controller {
     // Item lock: a PIN, another password or the master password before secrets show
     // -----------------------------------------------------------------------------------------
 
-    /// Whether the item's secrets still wait for the check.
-    pub(super) fn item_locked(&self, id: &ItemId, item: &ItemData) -> bool {
+    /// Whether the item's secrets still wait for the check. One passed check opens every
+    /// locked item until they are locked again.
+    pub(super) fn item_locked(&self, item: &ItemData) -> bool {
         let state = self.state.borrow();
-        state.unlocked_item != Some(*id)
-            && state.session.as_ref().is_some_and(|s| s.vault.guards(item))
+        !state.secrets_open && state.session.as_ref().is_some_and(|s| s.vault.guards(item))
     }
 
-    pub(super) fn guards_every_item(&self) -> bool {
-        self.state
-            .borrow()
-            .session
-            .as_ref()
-            .is_some_and(|s| s.vault.item_guard().all_items)
-    }
-
-    /// Checks what was typed (PIN, the other password, or the master password against the
-    /// file) and opens the selected item.
-    pub(super) fn unlock_item(&self) {
-        let Some(id) = self.state.borrow().selected else {
-            return;
-        };
+    /// Checks what was typed and opens the locked items: a PIN or the other password unwraps
+    /// the key their secrets are encrypted under; the master password is checked against the
+    /// file.
+    pub(super) fn unlock_secrets(&self, then: AfterUnlock) {
         let typed = Zeroizing::new(
             self.state.borrow().secrets[field::REPROMPT]
                 .as_str()
@@ -187,6 +179,8 @@ impl Controller {
         };
         let path = self.state.borrow().path.clone();
         self.run_job(move || {
+            let mut session = session;
+            let encrypted_before = session.vault.item_guard().encrypts();
             let passed = match session.vault.item_guard().check {
                 GuardCheck::Master => match super::verify_current(&path, &typed, &session) {
                     Ok(()) => true,
@@ -200,11 +194,24 @@ impl Controller {
                     }
                 },
                 GuardCheck::Pin | GuardCheck::Password => {
-                    session.vault.item_guard().verify(&typed).unwrap_or(false)
+                    match session.vault.unlock_secrets(&typed) {
+                        Ok(passed) => passed,
+                        Err(err) => {
+                            return JobResult::Failed {
+                                code: error::OTHER,
+                                detail: err.to_string(),
+                                session: Some(session),
+                            };
+                        }
+                    }
                 }
             };
             if passed {
-                JobResult::ItemUnlocked { session, id }
+                JobResult::ItemUnlocked {
+                    upgraded: !encrypted_before && session.vault.item_guard().encrypts(),
+                    session,
+                    then,
+                }
             } else {
                 JobResult::ItemRefused { session }
             }
@@ -232,8 +239,11 @@ impl Controller {
     }
 
     /// Settings: change which items are locked and what opens them, after a master password
-    /// check.
+    /// check. With a PIN or password the secrets of locked items are sealed under a new or
+    /// existing key (slow hashing, so it runs with the check); the master password keeps a
+    /// copy of that key to replace a forgotten PIN.
     pub(super) fn save_guard(&self) {
+        let app = self.app();
         let current = Zeroizing::new(
             self.state.borrow().secrets[field::GUARD_CURRENT]
                 .as_str()
@@ -241,28 +251,9 @@ impl Controller {
         );
         if current.is_empty() {
             self.set_error(error::WRONG_CURRENT, "");
-            self.app().set_guard_failed(true);
+            app.set_guard_failed(true);
             return;
         }
-        let Some(session) = self.state.borrow_mut().session.take() else {
-            return;
-        };
-        let path = self.state.borrow().path.clone();
-        self.run_job(
-            move || match super::verify_current(&path, &current, &session) {
-                Ok(()) => JobResult::GuardVerified { session },
-                Err((code, detail)) => JobResult::KdfFailed {
-                    code,
-                    detail,
-                    session,
-                    card: 3,
-                },
-            },
-        );
-    }
-
-    pub(super) fn apply_guard(&self) {
-        let app = self.app();
         let check = match app.get_guard_check() {
             1 => GuardCheck::Pin,
             2 => GuardCheck::Password,
@@ -275,31 +266,59 @@ impl Controller {
         );
         let secret = (!secret.is_empty() && check != GuardCheck::Master).then_some(secret);
         let all = app.get_guard_all();
-        let changed = self.state.borrow_mut().session.as_mut().map(|s| {
-            s.vault
-                .set_item_guard(all, check, secret.as_ref().map(|s| s.as_str()))
-        });
-        match changed {
-            Some(Ok(())) => {
-                if self.save_vault() {
-                    self.clear_secret(field::GUARD_NEW);
-                    self.clear_secret(field::GUARD_CURRENT);
-                    {
-                        let mut state = self.state.borrow_mut();
-                        state.unlocked_item = None;
-                        state.guard_attempts = 0;
-                    }
-                    self.show_vault_settings();
-                    self.refresh_list();
-                    self.notify(notice::GUARD_SAVED, "");
+        let Some(session) = self.state.borrow_mut().session.take() else {
+            return;
+        };
+        let path = self.state.borrow().path.clone();
+        self.run_job(move || {
+            let mut session = session;
+            let failed = |code: i32, detail: String, session| JobResult::KdfFailed {
+                code,
+                detail,
+                session,
+                card: 3,
+            };
+            if let Err((code, detail)) = super::verify_current(&path, &current, &session) {
+                return failed(code, detail, session);
+            }
+            let changed = session.vault.set_item_guard(
+                all,
+                check,
+                secret.as_ref().map(|s| s.as_str()),
+                Some(&current),
+            );
+            session.vault.lock_secrets();
+            match changed {
+                Ok(()) => JobResult::GuardVerified { session },
+                Err(CoreError::InvalidGuardSecret) => {
+                    failed(error::GUARD_SECRET, String::new(), session)
                 }
+                Err(CoreError::SecretsLocked) => {
+                    failed(error::SECRETS_LOCKED, String::new(), session)
+                }
+                Err(err) => failed(error::OTHER, err.to_string(), session),
             }
-            Some(Err(_)) => {
-                self.set_error(error::GUARD_SECRET, "");
-                app.set_guard_failed(true);
-            }
-            None => {}
+        });
+    }
+
+    /// The item lock was changed in memory: write it, and close the locked items.
+    pub(super) fn apply_guard(&self) {
+        if !self.save_vault() {
+            return;
         }
+        self.clear_secret(field::GUARD_NEW);
+        self.clear_secret(field::GUARD_CURRENT);
+        self.timers.relock.stop();
+        {
+            let mut state = self.state.borrow_mut();
+            state.secrets_open = false;
+            state.guard_attempts = 0;
+            state.summaries_stale = true;
+        }
+        self.show_vault_settings();
+        self.sync_guard_state();
+        self.refresh_list();
+        self.notify(notice::GUARD_SAVED, "");
     }
 }
 

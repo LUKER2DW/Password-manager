@@ -89,6 +89,16 @@ export component AppWindow inherits Window {
     in property <bool> guard-failed;
     callback save-guard();
     callback unlock-item();
+    // Item lock right now: its check passed (every locked item is open); it encrypts the
+    // secrets (PIN or password); it covers every item.
+    in property <bool> secrets-open;
+    in property <bool> guard-encrypts;
+    in property <bool> guard-current-all;
+    // The selected item is guarded and open; the Authenticator has hidden / opened codes.
+    in property <bool> detail-guarded-open;
+    in property <bool> auth-locked;
+    in property <bool> auth-guarded-open;
+    callback lock-secrets();
     // Windows Hello: usable on this computer / set up for this vault / prompt open now.
     in property <bool> quick-unlock-available;
     in-out property <bool> quick-unlock-on;
@@ -315,6 +325,8 @@ export component AppWindow inherits Window {
     callback change-password();
     in-out property <int> kdf-level: 1;
     in property <int> kdf-current: 1;
+    in-out property <int> kdf-method;
+    in property <int> kdf-current-method;
     in property <bool> kdf-failed;
     in property <string> unlock-time;
     callback change-kdf();
@@ -486,10 +498,12 @@ export component AppWindow inherits Window {
                 has-item: root.has-selection;
                 locked: root.detail-locked;
                 check: root.detail-check;
+                guarded-open: root.detail-guarded-open;
                 busy: root.busy;
                 error-code: root.error-code;
                 error-detail: root.error-detail;
                 unlock-item => { root.unlock-item(); }
+                lock-secrets => { root.lock-secrets(); }
                 title: root.detail-title;
                 kind: root.detail-kind;
                 favorite: root.detail-favorite;
@@ -549,6 +563,8 @@ export component AppWindow inherits Window {
             }
             if root.panel == Panel.editor: EditorPage {
                 is-new: root.editor-is-new;
+                needs-check: root.guard-encrypts && !root.secrets-open && (root.guard-current-all || root.ed-reprompt);
+                check: root.detail-check;
                 error-code: root.error-code;
                 error-detail: root.error-detail;
                 password-shown: root.editor-password-shown;
@@ -644,6 +660,8 @@ export component AppWindow inherits Window {
                 change-password => { root.change-password(); }
                 kdf-level <=> root.kdf-level;
                 kdf-current: root.kdf-current;
+                kdf-method <=> root.kdf-method;
+                kdf-current-method: root.kdf-current-method;
                 kdf-failed: root.kdf-failed;
                 unlock-time: root.unlock-time;
                 change-kdf => { root.change-kdf(); }
@@ -664,6 +682,14 @@ export component AppWindow inherits Window {
                 search(text) => { root.auth-search-changed(text); }
                 copy-code(i) => { root.auth-copy(i); }
                 open-item(i) => { root.auth-open(i); }
+                locked: root.auth-locked;
+                guarded-open: root.auth-guarded-open;
+                check: root.detail-check;
+                busy: root.busy;
+                error-code: root.error-code;
+                error-detail: root.error-detail;
+                unlock => { root.unlock-item(); }
+                lock-secrets => { root.lock-secrets(); }
             }
             if root.panel == Panel.transfer: TransferPage {
                 error-code: root.error-code;

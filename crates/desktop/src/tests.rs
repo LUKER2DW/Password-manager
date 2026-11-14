@@ -642,6 +642,28 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_kdf_current(), 0);
     assert_eq!(length(&app, 9), 0, "the password field is cleared");
     assert_ne!(app.get_unlock_time(), "");
+    // Other hash methods (scrypt, PBKDF2-SHA-256) and back to Argon2id.
+    assert_eq!(app.get_kdf_current_method(), 0);
+    for method in [1, 2, 0] {
+        app.invoke_open_settings();
+        app.set_kdf_method(method);
+        type_into(&app, 9, NEW_PASSWORD);
+        app.invoke_change_kdf();
+        assert_eq!(
+            app.get_error_code(),
+            0,
+            "detail: {}",
+            app.get_error_detail()
+        );
+        assert_eq!(
+            (app.get_kdf_current_method(), app.get_kdf_current()),
+            (method, 0)
+        );
+        app.invoke_lock();
+        type_into(&app, 0, NEW_PASSWORD);
+        app.invoke_unlock();
+        assert_eq!(app.get_screen(), Screen::Vault, "method {method} unlocks");
+    }
 
     type_into(&app, 5, NEW_PASSWORD);
     app.invoke_show_kit();
@@ -700,15 +722,13 @@ fn whole_app_flow_headless() {
         app.invoke_unlock();
         assert_eq!(app.get_screen(), Screen::Vault);
     };
+    app.invoke_select_category(0);
     app.invoke_select(0);
     assert_eq!(app.get_totp_count(), 1);
     app.invoke_edit_item();
     app.set_ed_reprompt(true);
     app.invoke_save_item();
-    assert!(!app.get_detail_locked(), "just saved: still open");
-    relock(&app);
-    app.invoke_select(0);
-    assert!(app.get_detail_locked());
+    assert!(app.get_detail_locked(), "marked: locked from now on");
     assert_eq!(app.get_detail_check(), 0, "the master password by default");
     assert_eq!(app.get_detail_title(), "GitHub");
     assert_ne!(
@@ -720,11 +740,6 @@ fn whole_app_flow_headless() {
     assert!(!app.get_detail_has_password());
     assert_eq!(app.get_totp_code(), "");
     assert_eq!(app.get_detail_codes_total(), 0);
-    assert_eq!(
-        app.get_totp_count(),
-        0,
-        "its code is off the Authenticator page"
-    );
     app.invoke_copy_username();
     assert_eq!(app.get_notice_code(), 2, "what is visible can be copied");
     // No route reaches the secrets: reveal, copy, edit and delete do nothing.
@@ -738,29 +753,58 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_panel(), Panel::Detail);
     app.invoke_delete_item();
     assert_eq!(app.get_total_items(), 1);
+    // The Authenticator still lists its code, masked and not copyable.
+    assert_eq!(app.get_totp_count(), 1);
+    app.invoke_open_authenticator();
+    assert!(app.get_auth_locked() && !app.get_auth_guarded_open());
+    let row = app.get_auth_rows().row_data(0).unwrap();
+    assert_eq!(row.title, "GitHub");
+    assert!(row.locked && row.code.is_empty());
+    app.invoke_auth_copy(0);
+    assert_ne!(app.get_notice_code(), 3);
+    // The check, typed there, opens every locked item at once.
     type_into(&app, 11, "not the master password");
     app.invoke_unlock_item();
     assert_eq!(app.get_error_code(), 35);
     assert_eq!(app.get_error_detail(), "4", "tries left");
-    assert!(app.get_detail_locked());
+    assert!(app.get_auth_locked());
     type_into(&app, 11, NEW_PASSWORD);
     app.invoke_unlock_item();
     assert_eq!(app.get_error_code(), 0);
-    assert!(!app.get_detail_locked());
-    assert!(app.get_detail_has_password());
     assert_eq!(length(&app, 11), 0, "what was typed is cleared");
+    assert!(!app.get_auth_locked() && app.get_auth_guarded_open());
+    let row = app.get_auth_rows().row_data(0).unwrap();
+    assert!(!row.locked);
+    assert_eq!(row.code.len(), 7);
+    app.invoke_auth_copy(0);
+    assert_eq!(app.get_notice_code(), 3);
+    app.invoke_auth_open(0);
+    assert_eq!(app.get_panel(), Panel::Detail);
+    assert!(!app.get_detail_locked() && app.get_detail_guarded_open());
+    assert!(app.get_detail_has_password());
+    // Locked again by hand; opened from the item page this time.
+    app.invoke_lock_secrets();
+    assert_eq!(app.get_notice_code(), 39);
+    assert!(app.get_detail_locked() && !app.get_detail_has_password());
+    type_into(&app, 11, NEW_PASSWORD);
+    app.invoke_unlock_item();
+    assert!(!app.get_detail_locked());
     app.invoke_edit_item();
     assert_eq!(app.get_panel(), Panel::Editor);
     app.set_ed_reprompt(false);
     app.invoke_save_item();
-    assert_eq!(app.get_totp_count(), 1);
+    assert!(!app.get_detail_guarded_open());
+    app.invoke_lock_secrets();
+    assert!(!app.get_detail_locked(), "no longer marked");
 
-    // A PIN for every item, set after a master password check.
+    // A PIN for every item, set after a master password check. From here the locked
+    // secrets are encrypted under a key only the PIN opens.
     app.invoke_open_settings();
     assert_eq!(
         (app.get_guard_all(), app.get_guard_current_check()),
         (false, 0)
     );
+    assert!(!app.get_guard_encrypts());
     app.set_guard_check(1);
     app.set_guard_all(true);
     type_into(&app, 12, "12");
@@ -782,41 +826,106 @@ fn whole_app_flow_headless() {
     );
     assert_eq!(app.get_notice_code(), 37);
     assert_eq!(app.get_guard_current_check(), 1);
+    assert!(app.get_guard_encrypts() && !app.get_secrets_open());
     assert_eq!((length(&app, 12), length(&app, 13)), (0, 0));
     app.invoke_select_category(0);
     app.invoke_select(0);
     assert!(app.get_detail_locked(), "every item is locked now");
     assert_eq!(app.get_detail_check(), 1);
+    assert_eq!(app.get_detail_title(), "GitHub");
+    assert!(!app.get_detail_has_password());
+    assert_eq!(app.get_totp_count(), 1);
+    // A new item would be sealed too: saving it asks for the PIN in the editor.
+    let before = app.get_total_items();
+    app.invoke_new_item();
+    app.set_ed_title("Sealed at birth".into());
+    type_into(&app, 4, "born-locked");
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 37);
+    assert_eq!(app.get_panel(), Panel::Editor);
+    type_into(&app, 11, "0000");
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 35);
+    assert_eq!(app.get_panel(), Panel::Editor);
+    type_into(&app, 11, "4821");
+    app.invoke_save_item();
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_panel(), Panel::Detail);
+    assert_eq!(app.get_total_items(), before + 1);
+    assert!(app.get_secrets_open() && !app.get_detail_locked());
+    app.invoke_reveal();
+    assert_eq!(app.get_revealed_password(), "born-locked");
+    app.invoke_conceal();
+    app.invoke_delete_item();
+    assert_eq!(app.get_total_items(), before);
+    app.invoke_lock_secrets();
+    app.invoke_select_category(0);
+    app.invoke_select(0);
+    assert!(app.get_detail_locked());
     type_into(&app, 11, "4821");
     app.invoke_unlock_item();
     assert!(!app.get_detail_locked());
     assert!(app.get_detail_has_password());
+    assert_eq!(app.get_totp_code().len(), 7);
+    // A forgotten PIN is replaced with the master password alone.
+    relock(&app);
+    app.invoke_open_settings();
+    type_into(&app, 12, "777777");
+    type_into(&app, 13, NEW_PASSWORD);
+    app.invoke_save_guard();
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_notice_code(), 37);
     // The PIN survives a save and a reopen; five wrong tries lock the whole vault.
     relock(&app);
     app.invoke_select(0);
+    assert!(app.get_detail_locked());
     for left in ["4", "3", "2", "1"] {
-        type_into(&app, 11, "0000");
+        type_into(&app, 11, "4821");
         app.invoke_unlock_item();
         assert_eq!(app.get_error_code(), 35);
         assert_eq!(app.get_error_detail(), left);
         assert_eq!(app.get_screen(), Screen::Vault);
     }
-    type_into(&app, 11, "0000");
+    type_into(&app, 11, "4821");
     app.invoke_unlock_item();
     assert_eq!(app.get_screen(), Screen::Unlock, "locked out");
     assert_eq!(app.get_notice_code(), 38);
     type_into(&app, 0, NEW_PASSWORD);
     app.invoke_unlock();
     assert_eq!(app.get_screen(), Screen::Vault);
+    app.invoke_select(0);
+    type_into(&app, 11, "777777");
+    app.invoke_unlock_item();
+    assert!(!app.get_detail_locked());
+    app.invoke_lock_secrets();
+    // Back to no lock: the master password opens the sealed secrets for good.
     app.invoke_open_settings();
     app.set_guard_check(0);
     app.set_guard_all(false);
     type_into(&app, 13, NEW_PASSWORD);
     app.invoke_save_guard();
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
     assert_eq!(app.get_notice_code(), 37);
+    assert!(!app.get_guard_encrypts());
     app.invoke_select_category(0);
     app.invoke_select(0);
     assert!(!app.get_detail_locked(), "back to no lock");
+    assert!(app.get_detail_has_password());
     assert_eq!(app.get_totp_count(), 1);
 
     // ---- keyfile: a file needed together with the master password ----

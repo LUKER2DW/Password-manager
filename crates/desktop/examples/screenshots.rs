@@ -493,12 +493,18 @@ fn main() {
     let normal = camera.window.size();
     camera
         .window
-        .set_size(PhysicalSize::new(normal.width, normal.height * 2 + 300));
+        .set_size(PhysicalSize::new(normal.width, normal.height * 3 + 100));
     app.set_kdf_level(2);
     camera.shot(
         "settings-full",
         "Settings, whole page: unlock protection level",
     );
+    app.set_kdf_method(2);
+    camera.shot(
+        "settings-hash-method",
+        "Settings, whole page: another hash method, with its warning",
+    );
+    app.set_kdf_method(app.get_kdf_current_method());
     app.set_kdf_level(app.get_kdf_current().max(0));
     camera.window.set_size(normal);
     app.invoke_open_authenticator();
@@ -647,6 +653,33 @@ fn main() {
         "vault-protected-wrong",
         "Item lock: a wrong PIN, tries left",
     );
+    app.invoke_open_authenticator();
+    camera.shot(
+        "authenticator-locked",
+        "Authenticator: codes of locked items masked until the PIN",
+    );
+    type_into(&app, 11, "4821");
+    app.invoke_unlock_item();
+    camera.shot(
+        "authenticator-open",
+        "Authenticator: one PIN opened every code; lock again",
+    );
+    app.invoke_select_category(0);
+    select_title(&app, "Netflix");
+    camera.shot(
+        "vault-protected-open",
+        "Item lock: open, with a Lock button",
+    );
+    app.invoke_lock_secrets();
+    app.invoke_new_item();
+    app.set_ed_title("New while locked".into());
+    camera.shot(
+        "editor-needs-pin",
+        "Editor: a new item will be sealed, so saving asks for the PIN",
+    );
+    app.invoke_cancel_edit();
+    app.invoke_open_settings();
+    camera.shot("settings-item-lock", "Settings with a PIN item lock");
     app.invoke_open_settings();
     app.set_guard_check(0);
     app.set_guard_all(false);

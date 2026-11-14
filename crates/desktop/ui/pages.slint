@@ -129,6 +129,70 @@ component FieldRow inherits VerticalLayout {
     Rule { }
 }
 
+// Where the item lock's PIN, password or master password is typed. One right answer opens
+// every locked item until they are locked again.
+component LockBox inherits Rectangle {
+    in property <int> check;
+    in property <string> text;
+    in property <bool> busy;
+    in property <int> error-code;
+    in property <string> error-detail;
+    callback unlock();
+    border-radius: Theme.radius + 2px;
+    border-width: 1px;
+    border-color: Theme.rule;
+    background: Theme.panel;
+    VerticalLayout {
+        padding: 18px;
+        spacing: 12px;
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+            VerticalLayout {
+                alignment: center;
+                FieldIcon { name: "lock"; size: 26px; }
+            }
+            Text {
+                text: @tr("Secrets locked");
+                font-size: Theme.lead;
+                font-weight: 600;
+                color: Theme.ink;
+                vertical-alignment: center;
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: Theme.small;
+            color: Theme.graphite;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+            SecretField {
+                width: root.check == 1 ? 180px : 320px;
+                field: 11;
+                placeholder: root.check == 1 ? @tr("PIN") : root.check == 2 ? @tr("Item password") : @tr("Master password");
+                error: root.error-code == 35;
+                accepted => { root.unlock(); }
+                init => { self.focus(); }
+            }
+            Button {
+                text: @tr("Unlock");
+                busy-text: @tr("Checking…");
+                busy: root.busy;
+                clicked => { root.unlock(); }
+            }
+        }
+        if root.error-code != 0: Text {
+            text: Messages.error(root.error-code, root.error-detail);
+            font-size: Theme.small;
+            color: Theme.seal;
+            wrap: word-wrap;
+        }
+    }
+}
+
 export component DetailPage inherits Rectangle {
     in property <bool> has-item;
     in property <string> title;
@@ -195,10 +259,13 @@ export component DetailPage inherits Rectangle {
     // 0 the master password, 1 a PIN, 2 another password.
     in property <bool> locked;
     in property <int> check;
+    // The item is guarded and its secrets are open now: offer to lock them again.
+    in property <bool> guarded-open;
     in property <bool> busy;
     in property <int> error-code;
     in property <string> error-detail;
     callback unlock-item();
+    callback lock-secrets();
 
     if !root.has-item: VerticalLayout {
         padding: 48px;
@@ -284,68 +351,18 @@ export component DetailPage inherits Rectangle {
                 }
             }
 
-            if root.locked: Rectangle {
-                height: lock-box.preferred-height + 28px;
-                VerticalLayout {
-                    padding-top: 14px;
-                    padding-bottom: 14px;
-                    Rectangle {
-                        border-radius: Theme.radius + 2px;
-                        border-width: 1px;
-                        border-color: Theme.rule;
-                        background: Theme.panel;
-                        lock-box := VerticalLayout {
-                            padding: 18px;
-                            spacing: 12px;
-                            HorizontalLayout {
-                                spacing: 10px;
-                                alignment: start;
-                                VerticalLayout {
-                                    alignment: center;
-                                    FieldIcon { name: "lock"; size: 26px; }
-                                }
-                                Text {
-                                    text: @tr("Secrets locked");
-                                    font-size: Theme.lead;
-                                    font-weight: 600;
-                                    color: Theme.ink;
-                                    vertical-alignment: center;
-                                }
-                            }
-                            Text {
-                                text: root.check == 1 ? @tr("The password, codes and hidden fields of this item open with your PIN.")
-                                    : root.check == 2 ? @tr("The password, codes and hidden fields of this item open with your item password.")
-                                    : @tr("The password, codes and hidden fields of this item open with your master password.");
-                                font-size: Theme.small;
-                                color: Theme.graphite;
-                                wrap: word-wrap;
-                            }
-                            HorizontalLayout {
-                                spacing: 10px;
-                                alignment: start;
-                                SecretField {
-                                    width: root.check == 1 ? 180px : 320px;
-                                    field: 11;
-                                    placeholder: root.check == 1 ? @tr("PIN") : root.check == 2 ? @tr("Item password") : @tr("Master password");
-                                    error: root.error-code == 35;
-                                    accepted => { root.unlock-item(); }
-                                    init => { self.focus(); }
-                                }
-                                Button {
-                                    text: @tr("Unlock");
-                                    busy-text: @tr("Checking…");
-                                    busy: root.busy;
-                                    clicked => { root.unlock-item(); }
-                                }
-                            }
-                            if root.error-code != 0: Text {
-                                text: Messages.error(root.error-code, root.error-detail);
-                                font-size: Theme.small;
-                                color: Theme.seal;
-                                wrap: word-wrap;
-                            }
-                        }
-                    }
+            if root.locked: VerticalLayout {
+                padding-top: 14px;
+                padding-bottom: 14px;
+                LockBox {
+                    check: root.check;
+                    text: root.check == 1 ? @tr("The password, codes and hidden fields of this item open with your PIN. One right PIN opens every locked item for 5 minutes.")
+                        : root.check == 2 ? @tr("The password, codes and hidden fields of this item open with your item password. It opens every locked item for 5 minutes.")
+                        : @tr("The password, codes and hidden fields of this item open with your master password. It opens every locked item for 5 minutes.");
+                    busy: root.busy;
+                    error-code: root.error-code;
+                    error-detail: root.error-detail;
+                    unlock => { root.unlock-item(); }
                 }
             }
 
@@ -661,6 +678,11 @@ export component DetailPage inherits Rectangle {
             if !root.confirming-delete: HorizontalLayout {
                 alignment: start;
                 spacing: 6px;
+                if root.guarded-open: QuietButton {
+                    outlined: true;
+                    text: @tr("Lock");
+                    clicked => { root.lock-secrets(); }
+                }
                 QuietButton {
                     outlined: true;
                     text: @tr("Edit");
@@ -767,6 +789,10 @@ export component StrengthMeter inherits VerticalLayout {
 
 export component EditorPage inherits Rectangle {
     in property <bool> is-new;
+    // Saving seals this item's secrets and the item lock is closed: its PIN or password is
+    // asked here (1 PIN, 2 password).
+    in property <bool> needs-check;
+    in property <int> check;
     in property <int> error-code;
     in property <string> error-detail;
     in property <string> password-shown;
@@ -1052,6 +1078,12 @@ export component EditorPage inherits Rectangle {
                         text: @tr("For the accounts that matter most (bank, main email). The item still shows its name, username and website, but its password, codes and hidden fields open only after a second check: your master password, or the PIN or password chosen in Settings → Item lock. Editing and deleting need it too. Settings can also lock every item at once.");
                     }
                 }
+            }
+            if root.needs-check: SecretField {
+                field: 11;
+                label: root.check == 1 ? @tr("Item lock PIN, to save this locked item") : @tr("Item lock password, to save this locked item");
+                required: true;
+                error: root.error-code == 35 || root.error-code == 37;
             }
             ErrorText {
                 code: root.error-code;
@@ -1433,7 +1465,9 @@ export component SettingsPage inherits Rectangle {
     in property <int> vault-folders;
     in property <int> kdf-memory;
     in property <int> kdf-passes;
-    property <string> vault-kdf: @tr("Argon2id · {} MiB · {} passes", root.kdf-memory, root.kdf-passes);
+    property <string> vault-kdf: root.kdf-current-method == 1 ? @tr("scrypt · {} MiB", root.kdf-memory)
+        : root.kdf-current-method == 2 ? @tr("PBKDF2-SHA-256 · {} rounds", root.kdf-passes)
+        : @tr("Argon2id · {} MiB · {} passes", root.kdf-memory, root.kdf-passes);
     in property <bool> vault-has-recovery;
     in-out property <int> auto-lock-minutes;
     in-out property <int> clipboard-seconds;
@@ -1449,6 +1483,9 @@ export component SettingsPage inherits Rectangle {
     // (-1 = custom values), whether the last error came from changing it.
     in-out property <int> kdf-level: 1;
     in property <int> kdf-current: 1;
+    // The hashing method: 0 Argon2id, 1 scrypt, 2 PBKDF2-SHA-256 (chosen on screen / current).
+    in-out property <int> kdf-method;
+    in property <int> kdf-current-method;
     in property <bool> kdf-failed;
     in property <string> unlock-time;
     callback change-kdf();
@@ -1638,10 +1675,18 @@ export component SettingsPage inherits Rectangle {
                 icon: "pin";
                 title: @tr("Item lock");
                 summary: @tr("A second check before an open vault shows passwords, codes and hidden fields. Names, usernames and websites stay visible so you can find the account.");
-                hint: @tr("This protects an unlocked computer you stepped away from, or someone looking over your shoulder. After 5 wrong tries the whole vault locks and asks for the master password, which is why a short PIN is acceptable here. It is not extra encryption: malware already running on your computer can read an open vault either way. The PIN or password is stored only as a hash inside the encrypted vault.");
+                hint: @tr("With a PIN or another password, the locked secrets are also encrypted with a key that only that PIN or password opens: a program that reads the open vault from your computer's memory still can't read items that are locked. A 4-digit PIN has only 10,000 combinations, and such a program could try them all in a few hours, so use 6 to 8 digits or a password for real strength. With the master password as the check nothing extra is encrypted; it only stops someone at your unlocked computer. One right answer opens every locked item for 5 minutes, or until you click Lock. After 5 wrong tries the whole vault locks. A forgotten PIN is replaced here, with your master password.");
                 Choice {
                     options: [@tr("Master password"), @tr("PIN"), @tr("Another password")];
                     selected <=> root.guard-check;
+                }
+                Text {
+                    text: root.guard-check == 0 ? @tr("A check only: nothing extra is encrypted.")
+                        : root.guard-check == 1 ? @tr("Locked secrets are encrypted, and only the PIN opens them. If you forget both the PIN and your master password, they can't be recovered, not even with the Recovery Key.")
+                        : @tr("Locked secrets are encrypted, and only this password opens them. If you forget both it and your master password, they can't be recovered, not even with the Recovery Key.");
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
                 }
                 Check {
                     text: @tr("Lock every item (otherwise only items marked “Lock this item's secrets”)");
@@ -1732,13 +1777,32 @@ export component SettingsPage inherits Rectangle {
                 icon: "lock";
                 title: @tr("Unlock protection");
                 summary: @tr("How much work each guess at your master password costs, for you once per unlock and for anyone with a copy of the vault file every time they guess.");
-                hint: @tr("Your master password is stretched with Argon2id, the method recommended today (RFC 9106, OWASP). It needs a lot of memory for every guess, which is what makes graphics cards and special chips slow at guessing. Older methods such as PBKDF2 or bcrypt need almost none, so they are not offered. Higher levels use more memory and passes. Changing the level rewrites only the password lock of the vault, never your items.");
+                hint: @tr("Your master password is stretched before it opens the vault. Argon2id is the method recommended today (RFC 9106, OWASP): it needs a lot of memory for every guess, which is what makes graphics cards and special chips slow at guessing. scrypt also needs memory but is older. PBKDF2-SHA-256 needs almost none, so it is the weakest of the three; it is here for people who must follow a rule that names it. Higher levels cost more per guess. Changing the method or level rewrites only the password lock of the vault, never your items.");
+                Choice {
+                    options: ["Argon2id", "scrypt", "PBKDF2-SHA-256"];
+                    selected <=> root.kdf-method;
+                }
+                if root.kdf-method != 0: Text {
+                    text: root.kdf-method == 1 ? @tr("Weaker than Argon2id: scrypt also needs memory for every guess, but it is older and special hardware does better against it. Keep Argon2id unless you have a reason.")
+                        : @tr("Much weaker than Argon2id: PBKDF2 needs almost no memory, so graphics cards guess thousands of times faster against it. Choose it only if you must, and then a long master password matters even more.");
+                    font-size: Theme.small;
+                    color: Theme.seal;
+                    wrap: word-wrap;
+                }
                 Choice {
                     options: [@tr("Light"), @tr("Standard"), @tr("Strong"), @tr("Maximum")];
                     selected <=> root.kdf-level;
                 }
                 Text {
-                    text: root.kdf-level == 0 ? @tr("64 MiB of memory, 3 passes. For older computers or ones with little memory.")
+                    text: root.kdf-method == 1 ? (root.kdf-level == 0 ? @tr("128 MiB of memory for every guess. For older computers or ones with little memory.")
+                            : root.kdf-level == 1 ? @tr("256 MiB of memory for every guess. A good balance on most computers.")
+                            : root.kdf-level == 2 ? @tr("512 MiB of memory for every guess. Slower to guess, and to unlock.")
+                            : @tr("1 GiB of memory for every guess. Unlocking can take a few seconds and needs 1 GiB of free memory on every device that opens the vault."))
+                        : root.kdf-method == 2 ? (root.kdf-level == 0 ? @tr("600,000 rounds, the least recommended today.")
+                            : root.kdf-level == 1 ? @tr("1,200,000 rounds.")
+                            : root.kdf-level == 2 ? @tr("2,400,000 rounds.")
+                            : @tr("5,000,000 rounds. Unlocking can take a few seconds."))
+                        : root.kdf-level == 0 ? @tr("64 MiB of memory, 3 passes. For older computers or ones with little memory.")
                         : root.kdf-level == 1 ? @tr("256 MiB of memory, 3 passes. The default, a good balance on most computers.")
                         : root.kdf-level == 2 ? @tr("512 MiB of memory, 4 passes. Guessing gets about three times as slow; so does unlocking.")
                         : @tr("1 GiB of memory, 5 passes. The slowest to guess. Unlocking can take a few seconds and needs 1 GiB of free memory on every device that opens the vault.");
@@ -1752,7 +1816,7 @@ export component SettingsPage inherits Rectangle {
                         : root.unlock-time != "" ? @tr("{} · about {} s per unlock on this computer", root.vault-kdf, root.unlock-time)
                         : root.vault-kdf;
                 }
-                if root.kdf-level != root.kdf-current: VerticalLayout {
+                if root.kdf-level != root.kdf-current || root.kdf-method != root.kdf-current-method: VerticalLayout {
                     spacing: 12px;
                     SecretField {
                         field: 9;
@@ -1777,7 +1841,10 @@ export component SettingsPage inherits Rectangle {
                             alignment: center;
                             QuietButton {
                                 text: @tr("Cancel");
-                                clicked => { root.kdf-level = root.kdf-current; }
+                                clicked => {
+                                    root.kdf-level = Math.max(0, root.kdf-current);
+                                    root.kdf-method = root.kdf-current-method;
+                                }
                             }
                         }
                     }
@@ -1792,9 +1859,19 @@ export component AuthenticatorPage inherits Rectangle {
     in property <[AuthRow]> rows;
     in property <int> total;
     in-out property <string> search-text;
+    // Some codes belong to locked items (hidden until the item lock's check: 0 master
+    // password, 1 PIN, 2 password); or they are open now and can be locked again.
+    in property <bool> locked;
+    in property <bool> guarded-open;
+    in property <int> check;
+    in property <bool> busy;
+    in property <int> error-code;
+    in property <string> error-detail;
     callback search(string);
     callback copy-code(int);
     callback open-item(int);
+    callback unlock();
+    callback lock-secrets();
 
     ScrollView {
         VerticalLayout {
@@ -1806,6 +1883,24 @@ export component AuthenticatorPage inherits Rectangle {
             PageTitle { text: @tr("Authenticator"); }
             Prose {
                 text: @tr("Every two-step sign-in code in your vault, always current. Click Copy, then paste the code where the site asks for it.");
+            }
+            if root.locked: LockBox {
+                check: root.check;
+                text: root.check == 1 ? @tr("The codes of locked items are hidden and can't be copied. Your PIN opens all of them for 5 minutes.")
+                    : root.check == 2 ? @tr("The codes of locked items are hidden and can't be copied. Your item password opens all of them for 5 minutes.")
+                    : @tr("The codes of locked items are hidden and can't be copied. Your master password opens all of them for 5 minutes.");
+                busy: root.busy;
+                error-code: root.error-code;
+                error-detail: root.error-detail;
+                unlock => { root.unlock(); }
+            }
+            if root.guarded-open: HorizontalLayout {
+                alignment: start;
+                QuietButton {
+                    outlined: true;
+                    text: @tr("Lock the codes again");
+                    clicked => { root.lock-secrets(); }
+                }
             }
             if root.total > 0: LineField {
                 placeholder: @tr("Search codes");
@@ -1874,16 +1969,20 @@ export component AuthenticatorPage inherits Rectangle {
                             overflow: elide;
                         }
                     }
+                    if row.locked: VerticalLayout {
+                        alignment: center;
+                        FieldIcon { name: "lock"; size: 18px; }
+                    }
                     Text {
-                        text: row.code;
+                        text: row.locked ? "••• •••" : row.code;
                         font-family: Theme.mono-font;
                         font-size: Theme.title;
-                        color: row.left <= 5 ? Theme.seal : Theme.ink;
+                        color: row.locked ? Theme.faint : row.left <= 5 ? Theme.seal : Theme.ink;
                         vertical-alignment: center;
                     }
                     Text {
                         width: 34px;
-                        text: @tr("{} s", row.left);
+                        text: row.locked ? "" : @tr("{} s", row.left);
                         font-size: Theme.small;
                         color: row.left <= 5 ? Theme.seal : Theme.faint;
                         vertical-alignment: center;
@@ -1893,6 +1992,7 @@ export component AuthenticatorPage inherits Rectangle {
                         alignment: center;
                         QuietButton {
                             text: @tr("Copy");
+                            enabled: !row.locked;
                             clicked => { root.copy-code(index); }
                         }
                     }
@@ -1902,7 +2002,7 @@ export component AuthenticatorPage inherits Rectangle {
                     x: 0;
                     y: parent.height - 3px;
                     height: 3px;
-                    width: parent.width * row.left / Math.max(1, row.period);
+                    width: row.locked ? 0px : parent.width * row.left / Math.max(1, row.period);
                     background: row.left <= 5 ? Theme.seal : Theme.marker;
                     opacity: 0.8;
                 }

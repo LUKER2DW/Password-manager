@@ -115,6 +115,7 @@ mod error {
     pub const WRONG_WITH_KEYFILE: i32 = 34;
     pub const GUARD_WRONG: i32 = 35;
     pub const GUARD_SECRET: i32 = 36;
+    pub const SECRETS_LOCKED: i32 = 37;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -156,6 +157,7 @@ mod notice {
     pub const KEYFILE_REMOVED: i32 = 36;
     pub const GUARD_SAVED: i32 = 37;
     pub const GUARD_LOCKED_OUT: i32 = 38;
+    pub const SECRETS_LOCKED: i32 = 39;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -163,6 +165,8 @@ const MIN_MASTER_PASSWORD_CHARS: usize = 12;
 const FOLDER_CATEGORY: i32 = 100;
 const REVEAL_SECONDS: i32 = 15;
 const NOTICE_DURATION: Duration = Duration::from_millis(3500);
+/// How long one pass of the item lock keeps every locked item open.
+const SECRETS_OPEN_FOR: Duration = Duration::from_secs(5 * 60);
 const KDF_MEMORY_KIB: u32 = 256 * 1024;
 const KDF_TARGET: Duration = Duration::from_millis(1000);
 
@@ -234,16 +238,18 @@ enum JobResult {
         session: Session,
         path: Option<PathBuf>,
     },
-    /// The check was right: the guarded item opens.
+    /// The check was right: locked items open. `upgraded` when this first pass turned a
+    /// format v5 PIN into encryption (the vault must be saved).
     ItemUnlocked {
         session: Session,
-        id: ItemId,
+        upgraded: bool,
+        then: AfterUnlock,
     },
     /// A wrong PIN or password for a guarded item (counted; too many lock the vault).
     ItemRefused {
         session: Session,
     },
-    /// The master password was right: the item lock settings may change.
+    /// The master password was right and the item lock was changed: save it.
     GuardVerified {
         session: Session,
     },
@@ -310,6 +316,8 @@ struct State {
     /// check (kept only while unlocked).
     health: Option<HealthReport>,
     health_stale: bool,
+    /// Counts audits started, so a result that arrives late is recognized and dropped.
+    health_generation: u64,
     health_ids: Vec<ItemId>,
     leaks: HashMap<ItemId, u64>,
     /// Import: the place chosen, and which reviewed entries are ticked.
@@ -323,8 +331,8 @@ struct State {
     dialog_folder: Option<FolderId>,
     /// How long the last unlock took on this computer.
     unlock_seconds: Option<f64>,
-    /// The guarded item whose check was just passed.
-    unlocked_item: Option<ItemId>,
+    /// The item lock's check was passed: every locked item is open, until locked again.
+    secrets_open: bool,
     /// Wrong tries at a guarded item since the last right one.
     guard_attempts: u32,
 }
@@ -337,6 +345,7 @@ struct Timers {
     auto_lock: Timer,
     totp: Timer,
     auth: Timer,
+    relock: Timer,
 }
 
 pub struct Controller {
@@ -428,6 +437,7 @@ impl Controller {
                 history_revealed: Vec::new(),
                 health: None,
                 health_stale: false,
+                health_generation: 0,
                 health_ids: Vec::new(),
                 leaks: HashMap::new(),
                 import_source: None,
@@ -436,7 +446,7 @@ impl Controller {
                 history: navigation::History::default(),
                 dialog_folder: None,
                 unlock_seconds: None,
-                unlocked_item: None,
+                secrets_open: false,
                 guard_attempts: 0,
             }),
             timers: Timers::default(),
@@ -585,7 +595,11 @@ impl Controller {
         on!(on_change_kdf, |c| c.change_kdf());
         on!(on_choose_keyfile, |c| c.choose_keyfile());
         on!(on_keyfile_action, |c, what| c.keyfile_action(what));
-        on!(on_unlock_item, |c| c.unlock_item());
+        on!(on_unlock_item, |c| c.unlock_secrets(AfterUnlock::Show));
+        on!(on_lock_secrets, |c| {
+            c.lock_secrets();
+            c.notify(notice::SECRETS_LOCKED, "");
+        });
         on!(on_save_guard, |c| c.save_guard());
         on!(on_show_codes, |c| c.show_codes());
         on!(on_hide_codes, |c| c.hide_codes());
@@ -811,6 +825,7 @@ impl Controller {
             CoreError::KeyChecksumMismatch => (error::SECRET_KEY_TYPO, String::new()),
             CoreError::InvalidKeyFormat => (error::SECRET_KEY_FORMAT, String::new()),
             CoreError::InvalidTotp => (error::BAD_TOTP, String::new()),
+            CoreError::SecretsLocked => (error::SECRETS_LOCKED, String::new()),
             CoreError::Io(io) => (error::FILE, io.to_string()),
             other => (error::OTHER, other.to_string()),
         }
@@ -944,16 +959,38 @@ impl Controller {
                     None => self.notify_long(notice::KEYFILE_REMOVED, ""),
                 }
             }
-            JobResult::ItemUnlocked { session, id } => {
+            JobResult::ItemUnlocked {
+                session,
+                upgraded,
+                then,
+            } => {
                 self.clear_secret(field::REPROMPT);
                 {
                     let mut state = self.state.borrow_mut();
                     state.session = Some(session);
-                    state.unlocked_item = Some(id);
+                    state.secrets_open = true;
                     state.guard_attempts = 0;
+                    state.summaries_stale = true;
                 }
                 self.set_error(error::NONE, "");
-                self.show_detail();
+                let weak = self.weak();
+                self.timers
+                    .relock
+                    .start(TimerMode::SingleShot, SECRETS_OPEN_FOR, move || {
+                        if let Some(controller) = weak.upgrade() {
+                            controller.relock_secrets();
+                        }
+                    });
+                if upgraded && !self.save_vault() {
+                    return;
+                }
+                match then {
+                    AfterUnlock::Show => self.secrets_changed(),
+                    AfterUnlock::SaveItem => {
+                        self.sync_guard_state();
+                        self.save_item();
+                    }
+                }
             }
             JobResult::ItemRefused { session } => {
                 self.state.borrow_mut().session = Some(session);
@@ -1499,7 +1536,7 @@ impl Controller {
             state.editing = None;
             state.health = None;
             state.leaks.clear();
-            state.unlocked_item = None;
+            state.secrets_open = false;
         }
         app.set_leaks_checked(false);
         app.set_search_text(SharedString::new());
@@ -1527,6 +1564,7 @@ impl Controller {
             &self.timers.auto_lock,
             &self.timers.totp,
             &self.timers.auth,
+            &self.timers.relock,
         ] {
             timer.stop();
         }
@@ -1572,7 +1610,7 @@ impl Controller {
             state.import_include.clear();
             state.history = navigation::History::default();
             state.dialog_folder = None;
-            state.unlocked_item = None;
+            state.secrets_open = false;
             state.guard_attempts = 0;
         }
         self.clear_all_secrets();
@@ -1777,14 +1815,13 @@ impl Controller {
         self.items.set_vec(rows);
         app.set_counts(ModelRc::from(Rc::new(VecModel::from(counts.to_vec()))));
         app.set_total_items(self.state.borrow().summaries.len() as i32);
-        let guard_all = self.guards_every_item();
         app.set_totp_count(
             i32::try_from(
                 self.state
                     .borrow()
                     .summaries
                     .iter()
-                    .filter(|s| s.has_totp && !(guard_all || s.reprompt))
+                    .filter(|s| s.has_totp)
                     .count(),
             )
             .unwrap_or(0),
@@ -1835,7 +1872,7 @@ impl Controller {
     /// route (the right-click menu, a shortcut).
     fn selected_item(&self) -> Option<(ItemId, ItemData)> {
         let (id, item) = self.selected_item_raw()?;
-        (!self.item_locked(&id, &item)).then_some((id, item))
+        (!self.item_locked(&item)).then_some((id, item))
     }
 
     fn selected_item_raw(&self) -> Option<(ItemId, ItemData)> {
@@ -1859,17 +1896,20 @@ impl Controller {
             app.set_detail_codes(ModelRc::default());
             return;
         };
-        {
-            // The check opens one item; picking another closes it again.
-            let mut state = self.state.borrow_mut();
-            if state.unlocked_item.is_some_and(|open| open != id) {
-                state.unlocked_item = None;
-            }
-        }
         // Guarded and not opened yet: the page shows who the account is (title, username,
         // website, plain fields, notes) and nothing secret leaves Rust.
-        let locked = self.item_locked(&id, &item);
+        let locked = self.item_locked(&item);
         app.set_detail_locked(locked);
+        self.sync_guard_state();
+        app.set_detail_guarded_open(
+            !locked
+                && self
+                    .state
+                    .borrow()
+                    .session
+                    .as_ref()
+                    .is_some_and(|s| s.vault.guards(&item)),
+        );
         app.set_detail_check(
             self.state
                 .borrow()
@@ -2052,7 +2092,7 @@ impl Controller {
     }
 
     fn copy_from_selected(&self, what: CopyWhat) {
-        let Some((id, item)) = self.selected_item_raw() else {
+        let Some((_, item)) = self.selected_item_raw() else {
             return;
         };
         // What a locked item still shows can be copied; its secrets cannot.
@@ -2063,7 +2103,7 @@ impl Controller {
                 .any(|f| i32::try_from(f.index) == Ok(index) && !f.hideable),
             _ => false,
         };
-        if !visible && self.item_locked(&id, &item) {
+        if !visible && self.item_locked(&item) {
             return;
         }
         let (value, secret, code) = match what {
@@ -2396,18 +2436,46 @@ impl Controller {
     // -----------------------------------------------------------------------------------------
 
     fn open_authenticator(&self) {
-        let guard_all = self.guards_every_item();
-        let ids: Vec<ItemId> = self
+        self.fill_authenticator();
+        let app = self.app();
+        app.set_auth_search(SharedString::new());
+        app.set_panel(Panel::Authenticator);
+        self.set_error(error::NONE, "");
+        self.clear_secret(field::REPROMPT);
+        self.tick_auth();
+        let weak = self.weak();
+        self.timers
+            .auth
+            .start(TimerMode::Repeated, Duration::from_secs(1), move || {
+                if let Some(controller) = weak.upgrade() {
+                    controller.tick_auth();
+                }
+            });
+    }
+
+    /// Every item with a one-time code. Locked items are listed too, without their secret:
+    /// the page shows them masked until the item lock's check is passed.
+    fn fill_authenticator(&self) {
+        let (guard_all, open) = {
+            let state = self.state.borrow();
+            (
+                state
+                    .session
+                    .as_ref()
+                    .is_some_and(|s| s.vault.item_guard().all_items),
+                state.secrets_open,
+            )
+        };
+        let listed: Vec<(ItemId, bool)> = self
             .state
             .borrow()
             .summaries
             .iter()
-            // Guarded items keep their codes behind their check.
-            .filter(|s| s.has_totp && !(guard_all || s.reprompt))
-            .map(|s| s.id)
+            .filter(|s| s.has_totp)
+            .map(|s| (s.id, guard_all || s.reprompt))
             .collect();
-        let mut entries = Vec::with_capacity(ids.len());
-        for id in ids {
+        let mut entries = Vec::with_capacity(listed.len());
+        for (id, guarded) in listed {
             let item = {
                 let state = self.state.borrow();
                 let Some(session) = state.session.as_ref() else {
@@ -2418,9 +2486,14 @@ impl Controller {
                     Err(_) => continue,
                 }
             };
-            // A broken secret is reported on the item page; here it is simply left out.
-            let Ok(totp) = Totp::parse(&item.totp) else {
-                continue;
+            let totp = if guarded && !open {
+                None
+            } else {
+                // A broken secret is reported on the item page; here it is simply left out.
+                match Totp::parse(&item.totp) {
+                    Ok(totp) => Some(totp),
+                    Err(_) => continue,
+                }
             };
             let url = item.urls.first().map(String::as_str).unwrap_or_default();
             let visual = self.icon_for(item.kind, url, &item.icon_url, &item.title);
@@ -2435,24 +2508,74 @@ impl Controller {
                 title: item.title.clone(),
                 subtitle,
                 totp,
+                guarded,
                 visual,
             });
         }
         entries.sort_by_key(|e| e.title.to_lowercase());
-        self.state.borrow_mut().auth = entries;
         let app = self.app();
-        app.set_auth_search(SharedString::new());
-        app.set_panel(Panel::Authenticator);
-        self.set_error(error::NONE, "");
-        self.tick_auth();
-        let weak = self.weak();
-        self.timers
-            .auth
-            .start(TimerMode::Repeated, Duration::from_secs(1), move || {
-                if let Some(controller) = weak.upgrade() {
-                    controller.tick_auth();
-                }
-            });
+        app.set_auth_locked(entries.iter().any(|e| e.totp.is_none()));
+        app.set_auth_guarded_open(entries.iter().any(|e| e.guarded && e.totp.is_some()));
+        self.state.borrow_mut().auth = entries;
+        self.sync_guard_state();
+    }
+
+    /// Mirrors the item lock's state for the pages that depend on it.
+    fn sync_guard_state(&self) {
+        let app = self.app();
+        let state = self.state.borrow();
+        let guard = state.session.as_ref().map(|s| s.vault.item_guard());
+        app.set_secrets_open(state.secrets_open);
+        app.set_guard_encrypts(guard.is_some_and(|g| g.encrypts()));
+        app.set_guard_current_all(guard.is_some_and(|g| g.all_items));
+        app.set_detail_check(guard.map_or(0, |g| protection::check_code(g.check)));
+    }
+
+    /// The item lock opened or closed: redraw what shows secrets.
+    fn secrets_changed(&self) {
+        self.conceal();
+        self.refresh_list();
+        match self.app().get_panel() {
+            Panel::Authenticator => {
+                self.fill_authenticator();
+                self.tick_auth();
+            }
+            _ => self.show_detail(),
+        }
+    }
+
+    /// Closes every locked item again (the Lock button, or the time is up).
+    fn lock_secrets(&self) {
+        self.timers.relock.stop();
+        {
+            let mut state = self.state.borrow_mut();
+            state.secrets_open = false;
+            state.summaries_stale = true;
+            if let Some(session) = state.session.as_mut() {
+                session.vault.lock_secrets();
+            }
+        }
+        self.clear_secret(field::REPROMPT);
+        self.secrets_changed();
+    }
+
+    /// The open time is up. An item being edited keeps its secrets until it is saved or
+    /// closed, so nothing typed is lost.
+    fn relock_secrets(&self) {
+        if self.app().get_panel() == Panel::Editor {
+            let weak = self.weak();
+            self.timers
+                .relock
+                .start(TimerMode::SingleShot, Duration::from_secs(30), move || {
+                    if let Some(controller) = weak.upgrade() {
+                        controller.relock_secrets();
+                    }
+                });
+            return;
+        }
+        if self.state.borrow().session.is_some() {
+            self.lock_secrets();
+        }
     }
 
     /// Entries matching the page's search box, in display order.
@@ -2485,13 +2608,20 @@ impl Controller {
             .iter()
             .map(|&i| {
                 let e = &state.auth[i];
-                let (code, left) = e.totp.now();
+                let (code, left, period) = match &e.totp {
+                    Some(totp) => {
+                        let (code, left) = totp.now();
+                        (view::group_code(&code), left, totp.period())
+                    }
+                    None => (String::new(), 0, 30),
+                };
                 AuthRow {
                     title: SharedString::from(e.title.as_str()),
                     subtitle: SharedString::from(e.subtitle.as_str()),
-                    code: SharedString::from(view::group_code(&code)),
+                    code: SharedString::from(code),
+                    locked: e.totp.is_none(),
                     left: i32::try_from(left).unwrap_or(0),
-                    period: i32::try_from(e.totp.period()).unwrap_or(30),
+                    period: i32::try_from(period).unwrap_or(30),
                     kind: view::kind_to_int(ItemKind::Login),
                     icon: e.visual.image.clone(),
                     has_icon: e.visual.has_image,
@@ -2509,7 +2639,10 @@ impl Controller {
         let code = usize::try_from(index)
             .ok()
             .and_then(|i| visible.get(i))
-            .map(|&i| self.state.borrow().auth[i].totp.now().0);
+            .and_then(|&i| {
+                let state = self.state.borrow();
+                state.auth[i].totp.as_ref().map(|totp| totp.now().0)
+            });
         if let Some(code) = code {
             self.copy(code, true, notice::CODE_COPIED);
         }
@@ -2629,10 +2762,12 @@ impl Controller {
                 .session
                 .as_ref()
                 .and_then(|s| s.vault.get_item(&id).ok());
-            if item.is_some_and(|item| self.item_locked(&id, &item)) {
+            if item.is_some_and(|item| self.item_locked(&item)) {
                 return; // its check first
             }
         }
+        self.clear_secret(field::REPROMPT);
+        self.sync_guard_state();
         let item = id.and_then(|id| {
             self.state
                 .borrow()
@@ -2836,6 +2971,26 @@ impl Controller {
         }
         item.touch();
 
+        // The item will be sealed by the item lock (or was read while locked): its PIN or
+        // password is needed first, typed in the editor.
+        let was_locked = item.is_locked();
+        item.sealed = None;
+        let needs_unlock = was_locked
+            || self
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .is_some_and(|s| s.vault.needs_unlock_to_store(&item));
+        if needs_unlock {
+            if self.state.borrow().secrets[field::REPROMPT].is_empty() {
+                self.set_error(error::SECRETS_LOCKED, "");
+            } else {
+                self.unlock_secrets(AfterUnlock::SaveItem);
+            }
+            return;
+        }
+
         let result = {
             let mut state = self.state.borrow_mut();
             let Some(session) = state.session.as_mut() else {
@@ -2849,12 +3004,7 @@ impl Controller {
         match result {
             Ok(id) => {
                 if self.save_vault() {
-                    {
-                        // Just typed or already opened: no need to ask right away.
-                        let mut state = self.state.borrow_mut();
-                        state.selected = Some(id);
-                        state.unlocked_item = Some(id);
-                    }
+                    self.state.borrow_mut().selected = Some(id);
                     self.close_editor();
                     self.refresh_list();
                     self.show_detail();
@@ -3159,15 +3309,24 @@ impl Controller {
     }
 
     /// After the master password check: writes the unencrypted export to a file the user picks.
-    fn export_verified(&self, session: Session) {
+    fn export_verified(&self, mut session: Session) {
         self.clear_secret(field::CURRENT);
         let app = self.app();
         let csv = app.get_export_format() == 2;
-        let text = if csv {
+        let sealed = session
+            .vault
+            .summaries()
+            .is_ok_and(|all| all.iter().any(|s| s.locked));
+        let text = if sealed {
+            Err(CoreError::SecretsLocked)
+        } else if csv {
             vault_import::export_csv(&session.vault)
         } else {
             vault_import::export_json(&session.vault)
         };
+        if !self.state.borrow().secrets_open {
+            session.vault.lock_secrets();
+        }
         let (runner, vault_path) = {
             let state = self.state.borrow();
             (state.runner, state.path.clone())
@@ -3547,14 +3706,20 @@ impl Controller {
                 };
             }
             let kdf = session.vault.kdf_params().clone();
-            let outcome = session
-                .vault
-                .change_password(
-                    &new_password,
-                    &session.secret_key,
-                    session.keyfile.as_ref(),
-                    &kdf,
-                )
+            // With the secrets open, the item lock's reset copy of its key follows the new
+            // master password.
+            let was_open = session.vault.secrets_open();
+            let _ = session.vault.unlock_secrets_with_master(&current);
+            let changed = session.vault.change_password(
+                &new_password,
+                &session.secret_key,
+                session.keyfile.as_ref(),
+                &kdf,
+            );
+            if !was_open {
+                session.vault.lock_secrets();
+            }
+            let outcome = changed
                 .and_then(|()| session.vault.to_bytes())
                 .and_then(|bytes| storage::write_atomic(&path, &bytes));
             match outcome {
@@ -3600,7 +3765,12 @@ impl Controller {
             }
             match action {
                 KitAction::Show => JobResult::KitVerified { session },
-                KitAction::Export => JobResult::ExportVerified { session },
+                KitAction::Export => {
+                    // The master password just typed also opens locked secrets for the
+                    // export, when the item lock kept a copy of its key for it.
+                    let _ = session.vault.unlock_secrets_with_master(&current);
+                    JobResult::ExportVerified { session }
+                }
                 KitAction::NewRecoveryKey => {
                     let outcome = RecoveryKey::generate().and_then(|key| {
                         session.vault.set_recovery_key(Some(&key))?;
@@ -3640,6 +3810,15 @@ enum CopyWhat {
     RecoveryCode(i32),
 }
 
+/// What follows a passed item lock check.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AfterUnlock {
+    /// Show the secrets where they were asked for.
+    Show,
+    /// Save the item in the editor, which needed the lock open.
+    SaveItem,
+}
+
 #[derive(Debug, Clone, Copy)]
 enum KitAction {
     Show,
@@ -3653,7 +3832,10 @@ struct AuthEntry {
     id: ItemId,
     title: String,
     subtitle: String,
-    totp: Totp,
+    /// `None` while the item's secrets are locked.
+    totp: Option<Totp>,
+    /// The item lock covers this item.
+    guarded: bool,
     visual: IconVisual,
 }
 
