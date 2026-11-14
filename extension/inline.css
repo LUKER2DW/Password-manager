@@ -1,13 +1,13 @@
 /* The small card a page shows under a field: compact, rounded, with a little arrow pointing
    at the field. The frame itself is transparent; only the card is drawn.
 
-   It is see-through, like frosted glass without the blur: a blur needs `backdrop-filter` on
-   the frame (a frame can't blur the page behind it from inside), and with any filter on the
-   frame the browser stops vouching that it is fully visible, so every click in it would be
-   refused (see inline.js). A faint sheen at the top and a slightly stronger rim keep the
-   card readable over busy pages instead. */
+   Nearly opaque: the page behind only tints it. Frosted glass (blurring the page behind)
+   would need `backdrop-filter` on the frame, since a frame can't reach the page's pixels from
+   inside; and with any filter on the frame the browser stops vouching that it is fully
+   visible, so every click in it would be refused (see inline.js). Tested: the frame then
+   reports `isVisible: false`. A faint sheen at the top and a clear rim stand in for it. */
 :root {
-  --pop: rgba(22, 28, 37, 0.86);
+  --pop: rgba(22, 28, 37, 0.97);
   --pop-sheen: rgba(255, 255, 255, 0.05);
   --pop-hover: rgba(255, 255, 255, 0.08);
   --pop-rule: rgba(255, 255, 255, 0.14);
@@ -15,7 +15,7 @@
 
 @media (prefers-color-scheme: light) {
   :root {
-    --pop: rgba(255, 255, 255, 0.88);
+    --pop: rgba(255, 255, 255, 0.98);
     --pop-sheen: rgba(255, 255, 255, 0.5);
     --pop-hover: rgba(20, 30, 45, 0.06);
     --pop-rule: rgba(20, 30, 45, 0.12);
