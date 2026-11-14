@@ -13,5 +13,6 @@
 
 pub mod host;
 pub mod origin;
+pub mod pairing;
 pub mod protocol;
 pub mod service;

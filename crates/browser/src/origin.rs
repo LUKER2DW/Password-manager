@@ -4,6 +4,10 @@
 //! `accounts.example.com` is not `example.com`, and a look-alike host is simply another host.
 //! Pages without HTTPS are never filled: on them anyone on the network can read what is typed.
 //!
+//! A login can be used on more sites only by the person's choice: every website saved in the
+//! item counts, and one written as `*.example.com` stands for `example.com` and every site
+//! under it (default port only).
+//!
 //! Addresses are parsed with the WHATWG URL rules browsers use, so tricks such as
 //! `https://good.example@evil.example/` or mixed-script hosts resolve here exactly as they do
 //! in the address bar (international names compare in their punycode form).
@@ -19,9 +23,13 @@ pub enum PageProblem {
     Insecure,
 }
 
-/// The origin of a page, as text: `https://host` or `https://host:port`.
+/// The origin of a page: `https://host` or `https://host:port`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Origin(String);
+pub struct Origin {
+    text: String,
+    host: String,
+    default_port: bool,
+}
 
 impl Origin {
     /// The origin of the page at `url` (the tab's full address, as the browser reports it).
@@ -32,10 +40,16 @@ impl Origin {
             "http" => return Err(PageProblem::Insecure),
             _ => return Err(PageProblem::NotAWebsite),
         }
-        if url.host_str().is_none_or(str::is_empty) {
-            return Err(PageProblem::NotAWebsite);
-        }
-        Ok(Self(url.origin().ascii_serialization()))
+        Self::of_https(&url).ok_or(PageProblem::NotAWebsite)
+    }
+
+    fn of_https(url: &Url) -> Option<Self> {
+        let host = url.host_str().filter(|host| !host.is_empty())?;
+        Some(Self {
+            text: url.origin().ascii_serialization(),
+            host: host.to_owned(),
+            default_port: url.port().is_none(),
+        })
     }
 
     /// The origin a saved website stands for. People save `example.com`, `http://example.com`
@@ -55,22 +69,55 @@ impl Origin {
         if url.scheme() == "http" && url.port().is_none() {
             url.set_scheme("https").ok()?;
         }
-        if url.scheme() != "https" || url.host_str().is_none_or(str::is_empty) {
+        if url.scheme() != "https" {
             return None;
         }
-        Some(Self(url.origin().ascii_serialization()))
+        Self::of_https(&url)
     }
 
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.text
     }
 }
 
-/// Whether any of an item's saved websites is the page's origin.
+/// The site a `*.example.com` entry is about (`example.com`, as the browser writes it), or
+/// `None` when the text is not such an entry. The part after `*.` must be a name with at
+/// least one dot (not `*.com`, not an IP address), on HTTPS and its default port.
+pub fn wildcard_base(saved: &str) -> Option<String> {
+    let text = saved.trim();
+    let rest = text.strip_prefix("https://").unwrap_or(text);
+    let name = rest.strip_prefix("*.")?;
+    // Only the name: no path, port, user or further wildcard may hide in it.
+    let name = name.strip_suffix('/').unwrap_or(name);
+    if name.is_empty() || name.contains(['/', ':', '@', '*', '?', '#', ' ']) {
+        return None;
+    }
+    let url = Url::parse(&format!("https://{name}")).ok()?;
+    match url.host()? {
+        url::Host::Domain(domain) if domain.contains('.') && !domain.ends_with('.') => {
+            Some(domain.to_owned())
+        }
+        _ => None,
+    }
+}
+
+/// Whether one saved website covers the page: its exact origin, or by `*.` its site and
+/// everything under it.
+pub fn saved_matches(saved: &str, page: &Origin) -> bool {
+    if let Some(base) = wildcard_base(saved) {
+        return page.default_port
+            && (page.host == base
+                || page
+                    .host
+                    .strip_suffix(&base)
+                    .is_some_and(|sub| sub.ends_with('.')));
+    }
+    Origin::of_saved(saved).as_ref() == Some(page)
+}
+
+/// Whether any of an item's saved websites covers the page.
 pub fn item_matches<S: AsRef<str>>(saved: &[S], page: &Origin) -> bool {
-    saved
-        .iter()
-        .any(|url| Origin::of_saved(url.as_ref()).as_ref() == Some(page))
+    saved.iter().any(|url| saved_matches(url.as_ref(), page))
 }
 
 #[cfg(test)]
@@ -150,6 +197,54 @@ mod tests {
             &github
         ));
         assert!(!item_matches::<&str>(&[], &github));
+    }
+
+    #[test]
+    fn a_star_entry_covers_the_site_and_what_is_under_it_and_nothing_else() {
+        let saved = ["*.example.com"];
+        for url in [
+            "https://example.com/",
+            "https://accounts.example.com/login",
+            "https://a.b.example.com/",
+            "https://ACCOUNTS.Example.com/",
+        ] {
+            assert!(item_matches(&saved, &page(url)), "{url}");
+        }
+        for url in [
+            "https://badexample.com/",
+            "https://example.com.evil.example/",
+            "https://example.org/",
+            "https://accounts.example.com:8443/",
+            "https://example.com@evil.example/",
+        ] {
+            assert!(!item_matches(&saved, &page(url)), "{url}");
+        }
+        assert!(item_matches(
+            &["https://*.example.com/"],
+            &page("https://x.example.com/")
+        ));
+        // Too wide, or not a plain name: such entries match nothing at all.
+        let anywhere = page("https://accounts.example.com/");
+        for bad in [
+            "*.com",
+            "*.",
+            "*",
+            "*.*.example.com",
+            "*.example.com:8443",
+            "*.example.com/path",
+            "*.example.com@evil.example",
+            "*.192.168.0.1",
+            "http://*.example.com",
+            "a.*.example.com",
+            "*.example.com.",
+        ] {
+            assert_eq!(wildcard_base(bad), None, "{bad}");
+            assert!(!item_matches(&[bad], &anywhere), "{bad}");
+        }
+        assert_eq!(
+            wildcard_base(" *.Example.COM ").as_deref(),
+            Some("example.com")
+        );
     }
 
     #[test]

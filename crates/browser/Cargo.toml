@@ -22,8 +22,11 @@ workspace = true
 [dependencies]
 vault-core = { path = "../core" }
 vault-platform = { path = "../platform" }
+getrandom = "0.4"
+hmac = "0.13"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.11"
 # WHATWG URL parsing: origins are compared exactly as a browser computes them.
 url = "2.5"
 zeroize = "1.9"
