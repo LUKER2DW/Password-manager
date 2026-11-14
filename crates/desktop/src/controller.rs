@@ -126,6 +126,7 @@ mod error {
     pub const GUARD_HELLO: i32 = 39;
     pub const LOCKED_FILL_NEEDS_HELLO: i32 = 40;
     pub const TOTP_REQUIRED: i32 = 41;
+    pub const BROWSER_PIPE: i32 = 42;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).

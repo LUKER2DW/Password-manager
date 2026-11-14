@@ -169,6 +169,7 @@ export global Messages {
         if (code == 40) { return @tr("Filling while the vault is locked uses Windows Hello: turn it on in Settings → Item lock first (with a PIN or another password)."); }
         if (code == 39) { return @tr("Windows Hello no longer opens the item lock on this computer (its PIN or password was changed). Use the PIN, then turn Windows Hello on again in Settings → Item lock."); }
         if (code == 38) { return @tr("The helper program for browsers ({}) is missing next to the app, so the extension can't be connected.", detail); }
+        if (code == 42) { return @tr("The browser extension can't reach this window: its channel is already in use, by another window of the app or by another program. Close the other window, then turn the extension setting off and on again."); }
         if (code == 37) { return @tr("Locked secrets are in the way. Open the item lock first: type its PIN or password on a locked item or on the Authenticator page, then try again."); }
 
         if (code == 24) { return @tr("The vault file was changed outside this window (another window or program). Your last change was not saved: lock and unlock to load the newest version, then make it again."); }

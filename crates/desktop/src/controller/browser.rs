@@ -104,8 +104,14 @@ impl Controller {
             pipe: pipe.clone(),
         });
         std::thread::spawn(move || {
-            // Taken already: another window of the app is answering the extension.
+            // Taken already: another window of the app is answering the extension, or another
+            // program holds the name. Said in the app, and this link is not kept as running.
             let Ok(mut server) = browser_link::Server::bind(&pipe, &host) else {
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
+                        controller.browser_link_failed(&stop);
+                    }
+                });
                 return;
             };
             /// Runs `work` on the UI thread (where the vault lives) and waits for it here.
@@ -138,6 +144,21 @@ impl Controller {
                 }
             }
         });
+    }
+
+    /// The pipe could not be made: forget the link (if it is still this one) and say so.
+    fn browser_link_failed(&self, stop: &Arc<AtomicBool>) {
+        {
+            let mut state = self.state.borrow_mut();
+            if state
+                .browser_link
+                .as_ref()
+                .is_some_and(|link| Arc::ptr_eq(&link.stop, stop))
+            {
+                state.browser_link = None;
+            }
+        }
+        self.set_error(error::BROWSER_PIPE, "");
     }
 
     /// Answers one message from the extension, asking Windows Hello first when the message
@@ -550,17 +571,24 @@ impl Controller {
     }
 }
 
-/// Writes the DPAPI copy of the connection key, when it is missing.
+/// Writes the DPAPI copy of the connection key, when it is missing or holds another key (an
+/// extension connected again: the earlier key must stop working while locked too).
 fn store_locked_pairing(vault_id: &str, key: &PairingKey) {
     let Some(path) = pairing_path_locked(vault_id) else {
         return;
     };
-    if path.exists() {
+    let current = std::fs::read(&path)
+        .ok()
+        .and_then(|sealed| dpapi::unprotect(&sealed));
+    if current.is_some_and(|current| current.as_slice() == key.as_bytes()) {
         return;
     }
+    // Gone first: if the new copy can't be written, no earlier key is left behind.
+    let _ = std::fs::remove_file(&path);
     if let Some(sealed) = dpapi::protect(key.as_bytes()) {
         let _ = storage::write_atomic(&path, &sealed);
     }
+    let _ = std::fs::remove_file(storage::backup_path(&path));
 }
 
 /// `{"type":"pairing","key":…,"code":…}`, in a buffer wiped on drop.

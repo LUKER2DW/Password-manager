@@ -838,6 +838,28 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_screen(), Screen::Vault);
     assert_eq!(app.get_total_items(), 1);
 
+    // ---- connecting the extension again replaces the earlier key, locked or not ----
+    let earlier = key;
+    let pairing = raw(r#"{"type":"pair"}"#);
+    let key: Vec<u8> = (0..32)
+        .map(|i| u8::from_str_radix(&field(&pairing, "key")[2 * i..2 * i + 2], 16).unwrap())
+        .collect();
+    type_into(&app, 14, NEW_PASSWORD);
+    app.invoke_pairing_decided(true);
+    assert_eq!(app.get_error_code(), 0);
+    let ask = |message: &str| signed(&key, message);
+    assert!(signed(&earlier, logins_request).contains("not_paired"));
+    assert!(!ask(logins_request).contains("not_paired"));
+    app.invoke_lock();
+    assert!(
+        signed(&earlier, logins_request).contains("not_paired"),
+        "the earlier key is refused while the vault is locked too"
+    );
+    assert!(!ask(logins_request).contains("not_paired"));
+    type_into(&app, 0, NEW_PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_screen(), Screen::Vault);
+
     // ---- item lock: secrets wait for a second check, the rest stays visible ----
     let relock = |app: &AppWindow| {
         app.invoke_lock();
