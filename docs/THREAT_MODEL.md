@@ -158,8 +158,8 @@ On top of that:
    device. Reading a browser's own password store (the infostealer technique) happens only when
    the user clicks for it, for the signed-in Windows user, in memory; otherwise the user exports
    a file and the app offers to wipe it afterwards. Icons are asked of each site directly, over
-   HTTPS, on the site's own port. An IP address or a home-network name (`.local`, `.lan`,
-   `.home.arpa`…) usually has a certificate of its own; for those only, when the checked request
-   failed, the icon is asked again without the certificate check. The worst a forged answer can
-   do is show a wrong picture: every image (SVG included, drawn without fetching anything it
-   links to) is size-limited and decoded by pure-Rust decoders.
+   HTTPS, on the site's own port. A site whose certificate isn't trusted (self-signed, as on
+   routers and NAS boxes, expired, or for another name) gives no picture: the app only checks
+   that it answers without the certificate check, uses nothing it sends, and shows a globe with
+   a warning mark. Every image taken (SVG included, drawn without fetching anything it links
+   to) is size-limited and decoded by pure-Rust decoders.
