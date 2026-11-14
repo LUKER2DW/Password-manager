@@ -1,15 +1,22 @@
 /* The small card a page shows under a field: compact, rounded, with a little arrow pointing
-   at the field. The frame itself is transparent; only the card is drawn, and it is opaque. */
+   at the field. The frame itself is transparent; only the card is drawn.
+
+   It is see-through, like frosted glass without the blur: a blur needs `backdrop-filter` on
+   the frame (a frame can't blur the page behind it from inside), and with any filter on the
+   frame the browser stops vouching that it is fully visible, so every click in it would be
+   refused (see inline.js). A faint sheen at the top and a slightly stronger rim keep the
+   card readable over busy pages instead. */
 :root {
-  /* A little see-through: what is behind shows faintly; the card and its text stay clear. */
-  --pop: rgba(22, 28, 37, 0.95);
-  --pop-hover: rgba(255, 255, 255, 0.07);
-  --pop-rule: rgba(255, 255, 255, 0.12);
+  --pop: rgba(22, 28, 37, 0.86);
+  --pop-sheen: rgba(255, 255, 255, 0.05);
+  --pop-hover: rgba(255, 255, 255, 0.08);
+  --pop-rule: rgba(255, 255, 255, 0.14);
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --pop: rgba(255, 255, 255, 0.96);
+    --pop: rgba(255, 255, 255, 0.88);
+    --pop-sheen: rgba(255, 255, 255, 0.5);
     --pop-hover: rgba(20, 30, 45, 0.06);
     --pop-rule: rgba(20, 30, 45, 0.12);
   }
@@ -32,10 +39,11 @@ body {
   margin: 9px 10px 14px;
   padding: 6px 0;
   border-radius: 12px;
-  background: var(--pop);
+  background: linear-gradient(var(--pop-sheen), transparent 48px), var(--pop);
   box-shadow:
     0 8px 24px rgba(6, 10, 16, 0.3),
-    0 0 0 1px var(--pop-rule);
+    0 0 0 1px var(--pop-rule),
+    inset 0 1px 0 var(--pop-sheen);
 }
 
 /* The arrow: a small rotated square whose outer half sticks out of the card's top edge,

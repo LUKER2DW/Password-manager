@@ -24,7 +24,9 @@ Status: early development, like the rest of the project. Use a test vault.
   - *This site*: the logins for the page in front, to fill; *Details* opens one.
   - *All logins*: search the whole vault; show a password or copy username, password or
     one-time code. *New* adds a login by hand.
-  - *Generator*: a password from the app's generator; *Copy* or *Use for a new login*.
+  - *Generator*: a password from the app's generator; *Copy* or *Use for a new login*. It
+    works with the vault locked too: making a password needs no vault, and one you used joins
+    the app's history once the vault is open again.
 - Copying is done **by the app**: the value never reaches the browser, it stays out of
   Windows clipboard history, and it is cleared after the time set in the app.
 - **Works with the vault locked** (the app must be running, the window may be closed to the

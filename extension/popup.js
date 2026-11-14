@@ -50,7 +50,8 @@ function explain(code) {
     case "not_running":
       return say(t("notRunningTitle"), t("notRunningText"));
     case "locked":
-      return say(t("lockedTitle"), t("lockedText"));
+      // The generator still works: the app makes passwords without opening the vault.
+      return say(t("lockedTitle"), t("lockedText"), { chrome: true });
     case "insecure_page":
       return say(t("insecureTitle"), t("insecureText"), connected);
     case "not_a_website":

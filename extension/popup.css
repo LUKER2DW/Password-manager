@@ -561,6 +561,18 @@ p:empty {
 }
 
 /* A line drawn by hand from here to the app: the only picture in this window. */
+/* The app's logo, and the stroke that reaches from it to this browser. */
+#pair-art {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#pair-art img {
+  display: block;
+  border-radius: 11px;
+}
+
 #pair-mark {
   width: 64px;
   height: 40px;

@@ -145,9 +145,10 @@ async function handle(message, sender) {
               passwordRules: typeof rules.passwordRules === "string" ? rules.passwordRules : undefined,
             },
           });
-          // The app makes the password: offered only when it can answer.
+          // The app makes the password: offered whenever it answers, locked or not (its
+          // generator needs no vault).
           const status = await loginsFor(tab);
-          return { show: status.type === "logins" };
+          return { show: status.type === "logins" || status.code === "locked" };
         }
         const listed = await loginsFor(tab);
         return { show: listed.type === "logins" && listed.items.length > 0 };
