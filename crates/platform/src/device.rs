@@ -46,6 +46,8 @@ pub struct Settings {
     pub website_icons: bool,
     /// Let the browser extension ask this app for logins. Off by default.
     pub browser_extension: bool,
+    /// Closing the window keeps the app running in the notification area. On by default.
+    pub close_to_tray: bool,
     /// The generator's last options.
     pub generator: GeneratorPrefs,
 }
@@ -58,6 +60,7 @@ impl Default for Settings {
             dark_theme: true,
             website_icons: false,
             browser_extension: false,
+            close_to_tray: true,
             generator: GeneratorPrefs::default(),
         }
     }
