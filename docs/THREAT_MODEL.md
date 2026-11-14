@@ -82,8 +82,10 @@ On top of that:
   each fill.
   Known limit: a program already running as the same Windows user can copy the browser's
   stored data, pairing key included, and then ask like the extension does. It gets nothing while the vault is locked and
-  nothing behind the item lock, and it must name the exact site of a login to get it; the
-  notice in the app makes it visible. The same program could already read an unlocked
+  nothing behind the item lock. Filling needs the exact site of the login; showing or copying
+  a password from the extension's window does not (it goes by the item, as in the app), so
+  with the vault unlocked such a program can read every login outside the item lock. Each
+  one shows a notice in the app. The same program could already read an unlocked
   vault's memory, so the link adds no new reach, but it is one more reason for the item lock.
 - **The frame shown inside pages** (since extension 0.2) brings back the risk the extension's
   own window avoided: a page can draw over it, make it see-through or move it under the

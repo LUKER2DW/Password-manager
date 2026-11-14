@@ -98,7 +98,8 @@ not in memory, it is stored like an unguarded item (sealed under the vault key, 
 under the guard key the next time it is in memory (`Vault::seal_pending`, which the apps call
 right after the guard opens; the item's revision goes up by one). Until then the apps still
 ask for the guard's check before showing its secrets, but the core doesn't enforce it for
-that item. Changing an existing guarded item still needs the guard key.
+that item, which can also be changed and stays unsealed until then. Changing an item already
+sealed under the guard key still needs that key.
 
 **On one device, Windows Hello can stand in for the PIN.** The security chip signs a fixed
 challenge after verifying the user (as in §3.1, with a key of its own), and
