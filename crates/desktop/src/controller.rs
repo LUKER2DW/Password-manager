@@ -46,6 +46,7 @@ mod browser;
 mod features;
 mod folders;
 mod generated;
+mod locked_fill;
 mod navigation;
 mod protection;
 
@@ -122,6 +123,7 @@ mod error {
     pub const SECRETS_LOCKED: i32 = 37;
     pub const BROWSER_HOST: i32 = 38;
     pub const GUARD_HELLO: i32 = 39;
+    pub const LOCKED_FILL_NEEDS_HELLO: i32 = 40;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -169,6 +171,7 @@ mod notice {
     pub const BROWSER_UNPAIRED: i32 = 42;
     pub const BROWSER_SAVED: i32 = 43;
     pub const GENERATED_CLEARED: i32 = 44;
+    pub const LOCKED_FILL_ON: i32 = 45;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -278,6 +281,11 @@ enum JobResult {
     /// The master password was right: the browser extension may be connected.
     PairingVerified {
         session: Session,
+    },
+    /// A job that borrowed the open vault is done; `notice` (0: none) says how it went.
+    Returned {
+        session: Session,
+        notice: i32,
     },
     RecoveryIssued {
         session: Session,
@@ -1116,6 +1124,12 @@ impl Controller {
                 self.state.borrow_mut().session = Some(session);
                 self.finish_pairing();
             }
+            JobResult::Returned { session, notice } => {
+                self.state.borrow_mut().session = Some(session);
+                if notice != 0 {
+                    self.notify(notice, "");
+                }
+            }
             JobResult::KitVerified { session } => {
                 self.clear_secret(field::CURRENT);
                 app.set_kit_secret_key(SharedString::from(
@@ -1669,6 +1683,7 @@ impl Controller {
         self.restart_auto_lock();
         self.start_icon_fetch();
         self.refresh_health();
+        self.refresh_locked_fill();
     }
 
     /// What the notification area icon's menu asks for.
@@ -2375,6 +2390,7 @@ impl Controller {
                 let _ = device::record_revision(&id, revision);
                 // Keep the index's count of problems current (cheap: no network).
                 self.state.borrow_mut().health_stale = true;
+                self.refresh_locked_fill();
                 if self.app().get_error_code() == error::CHANGED_OUTSIDE {
                     self.set_error(error::NONE, "");
                 }
@@ -2707,6 +2723,8 @@ impl Controller {
     /// The item lock opened or closed: redraw what shows secrets.
     fn secrets_changed(&self) {
         self.conceal();
+        // The item lock was opened here: the locked-fill index gets every password now.
+        self.refresh_locked_fill();
         self.refresh_list();
         match self.app().get_panel() {
             Panel::Authenticator => {
@@ -3270,6 +3288,7 @@ impl Controller {
         app.set_clipboard_seconds(settings.clipboard_clear_seconds as i32);
         app.set_website_icons(settings.website_icons);
         app.set_close_to_tray(settings.close_to_tray);
+        app.set_browser_locked_fill(settings.browser_locked_fill);
         app.set_browser_extension(settings.browser_extension);
         app.set_browser_paired(self.browser_is_paired());
         self.show_vault_settings();
@@ -3677,6 +3696,7 @@ impl Controller {
             website_icons: app.get_website_icons(),
             browser_extension: app.get_browser_extension(),
             close_to_tray: app.get_close_to_tray(),
+            browser_locked_fill: app.get_browser_locked_fill(),
             generator: self.state.borrow().settings.generator.clone(),
         };
         let mut device_state = DeviceState::load().unwrap_or_default();
@@ -3686,9 +3706,19 @@ impl Controller {
         }
         let icons_were_on = self.state.borrow().settings.website_icons;
         let browser_was_on = self.state.borrow().settings.browser_extension;
+        let locked_fill_was_on = self.state.borrow().settings.browser_locked_fill;
         self.state.borrow_mut().settings = settings.clone();
         if browser_was_on != settings.browser_extension {
             self.apply_browser_link(settings.browser_extension);
+        }
+        if locked_fill_was_on != settings.browser_locked_fill
+            || browser_was_on != settings.browser_extension
+        {
+            if settings.browser_locked_fill && settings.browser_extension {
+                self.enable_locked_fill();
+            } else {
+                self.refresh_locked_fill();
+            }
         }
         self.restart_auto_lock();
         match (icons_were_on, settings.website_icons) {

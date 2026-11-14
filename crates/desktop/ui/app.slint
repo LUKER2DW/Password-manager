@@ -325,6 +325,7 @@ export component AppWindow inherits Window {
     in-out property <int> clipboard-seconds: 20;
     in-out property <bool> website-icons;
     in-out property <bool> close-to-tray: true;
+    in-out property <bool> browser-locked-fill: true;
     in property <[GeneratedRow]> gen-history;
     in property <bool> gen-history-locked;
     callback gen-reveal-history(int);
@@ -682,6 +683,7 @@ export component AppWindow inherits Window {
                 clipboard-seconds <=> root.clipboard-seconds;
                 website-icons <=> root.website-icons;
                 close-to-tray <=> root.close-to-tray;
+                browser-locked-fill <=> root.browser-locked-fill;
                 browser-extension <=> root.browser-extension;
                 browser-paired <=> root.browser-paired;
                 forget-pairing => { root.forget-pairing(); }

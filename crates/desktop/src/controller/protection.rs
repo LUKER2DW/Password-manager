@@ -311,6 +311,10 @@ impl Controller {
         let secret = (!secret.is_empty() && check != GuardCheck::Master).then_some(secret);
         let all = app.get_guard_all();
         let want_hello = app.get_guard_hello();
+        let locked_fill = {
+            let settings = &self.state.borrow().settings;
+            settings.browser_extension && settings.browser_locked_fill
+        };
         let verifier = self.state.borrow().verifier.clone();
         let Some(session) = self.state.borrow_mut().session.take() else {
             return;
@@ -340,13 +344,23 @@ impl Controller {
                 let id = session.vault.id_hex();
                 let key_id = quick_unlock::item_lock_key_id(&id);
                 let was_on = quick_unlock::item_lock_enrolled(&id);
-                let on = want_hello
+                let mut on = false;
+                if want_hello
                     && session.vault.item_guard().encrypts()
-                    && verifier.as_ref().is_some_and(|verifier| {
-                        verifier.enroll(&key_id).is_ok_and(|secret| {
-                            quick_unlock::item_lock_enroll(&session.vault, &secret).is_ok()
-                        })
-                    });
+                    && let Some(secret) = verifier
+                        .as_ref()
+                        .and_then(|verifier| verifier.enroll(&key_id).ok())
+                {
+                    on = quick_unlock::item_lock_enroll(&session.vault, &secret).is_ok();
+                    // The browser extension's fill while locked follows the item lock: made
+                    // again with the new key, from every password (the lock is open now).
+                    if on && locked_fill {
+                        let _ = super::locked_fill::create(&session.vault, &secret);
+                    }
+                }
+                if !on {
+                    super::locked_fill::remove_index(&id);
+                }
                 if !on && was_on {
                     quick_unlock::item_lock_forget(&id);
                     if let Some(verifier) = &verifier {

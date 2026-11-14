@@ -441,7 +441,8 @@ fn whole_app_flow_headless() {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_millis() as u64,
+            .as_millis() as u64
+            * vault_browser::pairing::COUNTER_SCALE,
     );
     let signed = |key: &[u8], message: &str| {
         use hmac::{Hmac, KeyInit, Mac};

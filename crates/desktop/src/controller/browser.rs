@@ -27,7 +27,7 @@ use vault_browser::{
 };
 use vault_core::{GuardCheck, ItemData, ItemGuard, Vault, storage};
 use vault_platform::{
-    browser_link, paths,
+    browser_link, dpapi, paths,
     quick_unlock::{self, DeviceVerifier},
 };
 use zeroize::Zeroizing;
@@ -52,6 +52,16 @@ fn pairing_path(vault_id: &str) -> Option<PathBuf> {
         paths::app_dir()
             .ok()?
             .join(format!("browser-pairing-{vault_id}.bin")),
+    )
+}
+
+/// The connection key again, protected for the Windows user (DPAPI), so requests can be
+/// checked while the vault is locked.
+fn pairing_path_locked(vault_id: &str) -> Option<PathBuf> {
+    Some(
+        paths::app_dir()
+            .ok()?
+            .join(format!("browser-pairing-{vault_id}.dpapi")),
     )
 }
 
@@ -140,13 +150,24 @@ impl Controller {
         self.browser_answer(message, device)
     }
 
-    /// Whether this message asks for Windows Hello, and Hello can open the item lock here.
+    /// Whether this message asks for Windows Hello, and Hello can open the item lock here (or,
+    /// with the vault locked, the passwords kept for the extension).
     fn browser_hello_inputs(&self, message: &[u8]) -> Option<HelloInputs> {
         let Envelope::Signed { body, .. } = Envelope::parse(message) else {
             return None;
         };
         if !service::wants_hello(body.as_bytes()) {
             return None;
+        }
+        if self.state.borrow().session.is_none() {
+            let id = self.locked_vault_id()?;
+            super::locked_fill::read_index(&id)?;
+            return self
+                .state
+                .borrow()
+                .verifier
+                .clone()
+                .map(|verifier| (verifier, quick_unlock::item_lock_key_id(&id)));
         }
         let state = self.state.borrow();
         let vault = &state.session.as_ref()?.vault;
@@ -168,9 +189,6 @@ impl Controller {
             Envelope::Status => self.browser_inner(br#"{"type":"status"}"#, None),
             Envelope::Pair => self.start_pairing(),
             Envelope::Signed { counter, body, mac } => {
-                if self.state.borrow().session.is_none() {
-                    return fixed(LOCKED);
-                }
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
@@ -180,6 +198,9 @@ impl Controller {
                     && self.state.borrow_mut().browser_replay.accept(counter, now);
                 if !trusted {
                     return fixed(NOT_PAIRED);
+                }
+                if self.state.borrow().session.is_none() {
+                    return self.browser_locked(body.as_bytes(), device);
                 }
                 self.browser_inner(body.as_bytes(), device)
             }
@@ -250,13 +271,62 @@ impl Controller {
         answer.bytes
     }
 
+    /// The id of the vault this window would unlock, read from its file's header.
+    fn locked_vault_id(&self) -> Option<String> {
+        let path = self.state.borrow().path.clone();
+        let bytes = storage::read(&path).ok()?;
+        Some(Vault::inspect(&bytes).ok()?.id_hex)
+    }
+
+    /// Answers the extension while the vault is locked: from what was kept for it, with
+    /// Windows Hello for any password (see `vault_browser::locked`).
+    fn browser_locked(
+        &self,
+        request: &[u8],
+        device: Option<Zeroizing<Vec<u8>>>,
+    ) -> Zeroizing<Vec<u8>> {
+        let locked = || Zeroizing::new(LOCKED.to_vec());
+        let Some(id) = self.locked_vault_id() else {
+            return locked();
+        };
+        let wanted = {
+            let settings = &self.state.borrow().settings;
+            settings.browser_locked_fill && quick_unlock::item_lock_enrolled(&id)
+        };
+        let Some(file) = super::locked_fill::read_index(&id).filter(|_| wanted) else {
+            return locked();
+        };
+        let logins = super::locked_fill::logins(&file);
+        let mut gate = super::locked_fill::HelloGate {
+            file: &file,
+            vault_id: id,
+            device,
+        };
+        let answer = vault_browser::locked::answer_locked(request, &logins, &mut gate);
+        if let Some(copy) = answer.copy {
+            let (secret, code) = match copy.what {
+                CopyWhat::Username => (false, notice::USERNAME_COPIED),
+                CopyWhat::Password => (true, notice::PASSWORD_COPIED),
+                CopyWhat::Code => (true, notice::CODE_COPIED),
+            };
+            self.copy(copy.value, secret, code);
+        } else if let Some(title) = &answer.filled {
+            self.notify(notice::BROWSER_FILLED, title);
+        }
+        answer.bytes
+    }
+
     // ---- pairing ----
 
-    /// The connected extension's key, read (once per unlock) from its file sealed with the
-    /// vault.
+    /// The connected extension's key: read once per unlock from its file sealed with the
+    /// vault, or, while the vault is locked, from its copy protected for the Windows user.
     fn pairing_key(&self) -> Option<PairingKey> {
         if let Some(key) = &self.state.borrow().browser_pairing {
             return Some(key.clone());
+        }
+        if self.state.borrow().session.is_none() {
+            let sealed = std::fs::read(pairing_path_locked(&self.locked_vault_id()?)?).ok()?;
+            return PairingKey::from_bytes(&dpapi::unprotect(&sealed)?);
         }
         let key = {
             let state = self.state.borrow();
@@ -265,6 +335,16 @@ impl Controller {
             let plain = vault.open_local(PAIRING_PURPOSE, &sealed).ok()?;
             PairingKey::from_bytes(&plain)?
         };
+        // Connected before the copy for a locked vault existed: make it now.
+        if let Some(id) = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .map(|s| s.vault.id_hex())
+        {
+            store_locked_pairing(&id, &key);
+        }
         self.state.borrow_mut().browser_pairing = Some(key.clone());
         Some(key)
     }
@@ -385,6 +465,15 @@ impl Controller {
             })
         };
         if stored.is_some() {
+            if let Some(id) = self
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .map(|s| s.vault.id_hex())
+            {
+                store_locked_pairing(&id, &key);
+            }
             self.state.borrow_mut().browser_pairing = Some(key);
             self.app().set_browser_paired(true);
             self.set_error(error::NONE, "");
@@ -406,6 +495,10 @@ impl Controller {
             let _ = std::fs::remove_file(storage::backup_path(&path));
             let _ = std::fs::remove_file(path);
         }
+        if let Some(path) = id.as_deref().and_then(pairing_path_locked) {
+            let _ = std::fs::remove_file(storage::backup_path(&path));
+            let _ = std::fs::remove_file(path);
+        }
         {
             let mut state = self.state.borrow_mut();
             state.browser_pairing = None;
@@ -423,6 +516,19 @@ impl Controller {
             .as_ref()
             .and_then(|s| pairing_path(&s.vault.id_hex()))
             .is_some_and(|path| path.exists())
+    }
+}
+
+/// Writes the DPAPI copy of the connection key, when it is missing.
+fn store_locked_pairing(vault_id: &str, key: &PairingKey) {
+    let Some(path) = pairing_path_locked(vault_id) else {
+        return;
+    };
+    if path.exists() {
+        return;
+    }
+    if let Some(sealed) = dpapi::protect(key.as_bytes()) {
+        let _ = storage::write_atomic(&path, &sealed);
     }
 }
 
