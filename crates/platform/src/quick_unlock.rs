@@ -117,6 +117,47 @@ pub fn forget(vault_id: &str) {
     }
 }
 
+// ---- the item lock: Windows Hello in place of its PIN or password ----
+
+/// The name of the device key that opens the item lock (apart from the one that opens the
+/// vault, so turning one off leaves the other alone).
+pub fn item_lock_key_id(vault_id: &str) -> String {
+    format!("{vault_id}-items")
+}
+
+fn item_lock_path(vault_id: &str) -> Result<PathBuf> {
+    Ok(paths::app_dir()?.join(format!("item-lock-{vault_id}.bin")))
+}
+
+/// Whether the device's user verification can open this vault's item lock here.
+pub fn item_lock_enrolled(vault_id: &str) -> bool {
+    item_lock_path(vault_id).is_ok_and(|path| path.exists())
+}
+
+/// The wrapped item guard key for this device.
+pub fn item_lock_load(vault_id: &str) -> Option<Vec<u8>> {
+    std::fs::read(item_lock_path(vault_id).ok()?).ok()
+}
+
+/// Wraps the item guard key (which must be open) with the device secret and stores it.
+pub fn item_lock_enroll(vault: &Vault, device_secret: &[u8]) -> Result<()> {
+    let sealed = vault.seal_guard_for_device(device_secret)?;
+    let path = item_lock_path(&vault.id_hex())?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    storage::write_atomic(&path, &sealed)?;
+    Ok(())
+}
+
+/// Forgets the wrapped item guard key on this device.
+pub fn item_lock_forget(vault_id: &str) {
+    if let Ok(path) = item_lock_path(vault_id) {
+        let _ = std::fs::remove_file(storage::backup_path(&path));
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
