@@ -1,8 +1,11 @@
-//! The phone app end to end, headless: new vault, items, the item page, codes, generator,
-//! lock and unlock. Slow work runs inline; test values only.
+//! The phone app end to end, headless: a vault made on the computer is brought in, then
+//! items, the item page, codes, generator, lock, unlock and a newer copy. Slow work runs
+//! inline; test values only.
+
+use std::path::Path;
 
 use slint::{ComponentHandle, Model};
-use vault_core::{GuardCheck, SecretKey, Unlock, Vault};
+use vault_core::{GuardCheck, ItemData, ItemKind, KdfParams, SecretKey, Unlock, Vault};
 
 use crate::{
     Controller,
@@ -23,62 +26,103 @@ fn length(app: &PhoneWindow, field: usize) -> i32 {
         .unwrap()
 }
 
+fn open_file(path: &Path, secret_key: &str) -> Vault {
+    let key = SecretKey::parse(secret_key).unwrap();
+    Vault::open(
+        &std::fs::read(path).unwrap(),
+        Unlock::Password {
+            password: PASSWORD,
+            secret_key: &key,
+        },
+    )
+    .unwrap()
+}
+
 #[test]
-fn the_phone_app_from_a_new_vault_to_a_locked_one() {
+fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     let dir = tempfile::tempdir().unwrap();
     // SAFETY: the only test of this crate; nothing else reads the environment meanwhile.
     #[allow(unsafe_code)]
     unsafe {
         std::env::set_var("VAULT_HOME", dir.path().join("home"));
     }
+
+    // ---- the vault, as the desktop app made it ----
+    let key = SecretKey::generate().unwrap();
+    let secret_key = key.to_display_string().to_string();
+    let mut made = Vault::create(PASSWORD, &key, None, KdfParams::minimum().unwrap()).unwrap();
+    let mut settings = made.settings().clone();
+    settings.name = "Test vault".into();
+    made.set_settings(settings).unwrap();
+    let from_computer = dir.path().join("from-the-computer.vault");
+    std::fs::write(&from_computer, made.to_bytes().unwrap()).unwrap();
+    let vault_id = made.id_hex();
+    drop(made);
+
     i_slint_backend_testing::init_no_event_loop();
     let app = PhoneWindow::new().unwrap();
-    let path = dir.path().join("phone.vault");
+    let path = dir.path().join("phone").join("vault.vault");
     let controller = Controller::start(&app, path.clone(), true);
 
-    // ---- no vault yet: make one ----
-    assert_eq!(app.get_screen(), Screen::Welcome);
-    app.invoke_create_start();
-    assert_eq!(app.get_screen(), Screen::Create);
-    type_secret(&app, 0, "too short");
-    type_secret(&app, 1, "too short");
-    app.invoke_create_vault();
-    assert_eq!(app.get_error_code(), 3);
+    // ---- no vault on the phone: one is brought in, never made ----
+    assert_eq!(app.get_screen(), Screen::Start);
+    controller.bring_vault(b"not a vault at all".to_vec());
+    assert_eq!((app.get_error_code(), app.get_screen()), (2, Screen::Start));
+    controller.bring_vault_file(&from_computer);
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    assert!(app.get_incoming() && !app.get_has_copy());
+    assert!(app.get_needs_secret_key(), "a new phone asks for the key");
+    app.invoke_cancel_incoming();
+    assert_eq!(app.get_screen(), Screen::Start, "back to choosing a file");
+    controller.bring_vault_file(&from_computer);
     type_secret(&app, 0, PASSWORD);
-    type_secret(&app, 1, "another passphrase entirely");
-    app.invoke_create_vault();
-    assert_eq!(app.get_error_code(), 2);
+    type_secret(&app, 1, "S0-not-a-key");
+    app.invoke_unlock();
+    assert_eq!(app.get_error_code(), 3);
+    type_secret(&app, 0, "not the master password");
+    type_secret(&app, 1, &secret_key);
+    app.invoke_unlock();
+    assert_eq!(
+        (app.get_error_code(), app.get_screen()),
+        (1, Screen::Unlock)
+    );
     assert!(
         !path.exists(),
-        "nothing is written before the form is right"
+        "a file that didn't open is not kept on the phone"
     );
-    type_secret(&app, 1, PASSWORD);
-    app.invoke_create_vault();
-    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
-    assert_eq!(app.get_screen(), Screen::Keys);
-    let secret_key = app.get_kit_secret_key().to_string();
-    assert!(secret_key.starts_with("S0-") && app.get_kit_recovery_key().starts_with("R0-"));
-    assert_eq!(length(&app, 0), 0, "typed passwords are wiped");
-    app.invoke_keys_noted();
-    assert_eq!(app.get_kit_secret_key(), "", "the keys leave the screen");
-    assert_eq!(app.get_screen(), Screen::Vault);
+    type_secret(&app, 0, PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "{}",
+        app.get_error_detail()
+    );
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        std::fs::read(&from_computer).unwrap(),
+        "the phone keeps its own copy"
+    );
+    assert_eq!(app.get_vault_name(), "Test vault");
+    assert_eq!(
+        (length(&app, 0), length(&app, 1)),
+        (0, 0),
+        "typed keys wiped"
+    );
     assert_eq!((app.get_total(), app.get_items().row_count()), (0, 0));
-    let vault_id = Vault::inspect(&std::fs::read(&path).unwrap())
-        .unwrap()
-        .id_hex;
 
     // ---- a login ----
     app.invoke_new_item();
     assert_eq!(app.get_page(), Page::Editor);
     app.invoke_save_item();
-    assert_eq!(app.get_error_code(), 6, "a name is needed");
+    assert_eq!(app.get_error_code(), 5, "a name is needed");
     app.set_ed_title("GitHub".into());
     app.set_ed_username("octocat".into());
     app.set_ed_website("github.com".into());
     app.set_ed_totp("not a key!".into());
-    type_secret(&app, 4, "gh-test-password-1");
+    type_secret(&app, 3, "gh-test-password-1");
     app.invoke_save_item();
-    assert_eq!(app.get_error_code(), 11);
+    assert_eq!(app.get_error_code(), 10);
     app.set_ed_totp("JBSWY3DPEHPK3PXP".into());
     app.invoke_save_item();
     assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
@@ -139,7 +183,7 @@ fn the_phone_app_from_a_new_vault_to_a_locked_one() {
     app.invoke_edit_item();
     assert_eq!(app.get_ed_title(), "GitHub");
     assert_eq!(
-        length(&app, 4),
+        length(&app, 3),
         18,
         "the editor holds the password, not the screen"
     );
@@ -177,7 +221,7 @@ fn the_phone_app_from_a_new_vault_to_a_locked_one() {
     app.invoke_gen_changed();
     assert_eq!(
         (app.get_gen_password().as_str(), app.get_error_code()),
-        ("", 12)
+        ("", 11)
     );
     app.set_gen_mode(1);
     app.invoke_gen_changed();
@@ -186,16 +230,7 @@ fn the_phone_app_from_a_new_vault_to_a_locked_one() {
 
     // ---- the item lock: a PIN before the secrets ----
     {
-        let bytes = std::fs::read(&path).unwrap();
-        let key = SecretKey::parse(&secret_key).unwrap();
-        let mut vault = Vault::open(
-            &bytes,
-            Unlock::Password {
-                password: PASSWORD,
-                secret_key: &key,
-            },
-        )
-        .unwrap();
+        let mut vault = open_file(&path, &secret_key);
         vault
             .set_item_guard(true, GuardCheck::Pin, Some("4821"), None)
             .unwrap();
@@ -207,7 +242,7 @@ fn the_phone_app_from_a_new_vault_to_a_locked_one() {
     app.invoke_toggle_favorite();
     assert_eq!(
         app.get_error_code(),
-        7,
+        6,
         "a file changed elsewhere is not overwritten"
     );
     app.invoke_lock_now();
@@ -215,6 +250,7 @@ fn the_phone_app_from_a_new_vault_to_a_locked_one() {
     assert!(!controller.is_unlocked());
     assert_eq!(app.get_items().row_count(), 0);
     assert!(!app.get_needs_secret_key(), "this phone has the Secret Key");
+    assert!(!app.get_incoming());
 
     // ---- unlock ----
     type_secret(&app, 0, "not the master password");
@@ -255,10 +291,10 @@ fn the_phone_app_from_a_new_vault_to_a_locked_one() {
         ("", 0),
         "nothing shown, nothing copied"
     );
-    type_secret(&app, 3, "0000");
+    type_secret(&app, 2, "0000");
     app.invoke_unlock_item();
-    assert_eq!((app.get_error_code(), app.get_d_check()), (8, 2));
-    type_secret(&app, 3, "4821");
+    assert_eq!((app.get_error_code(), app.get_d_check()), (7, 2));
+    type_secret(&app, 2, "4821");
     app.invoke_unlock_item();
     assert_eq!((app.get_error_code(), app.get_d_check()), (0, 0));
     assert!(app.get_d_has_password() && app.get_d_has_code());
@@ -269,7 +305,7 @@ fn the_phone_app_from_a_new_vault_to_a_locked_one() {
 
     // ---- delete, asked twice ----
     app.invoke_open_item(1);
-    type_secret(&app, 3, "4821");
+    type_secret(&app, 2, "4821");
     app.invoke_unlock_item();
     app.invoke_edit_item();
     assert_eq!(app.get_page(), Page::Editor);
@@ -280,16 +316,66 @@ fn the_phone_app_from_a_new_vault_to_a_locked_one() {
     assert_eq!((app.get_total(), app.get_page()), (1, Page::None));
     assert_eq!(app.get_notice_code(), 4);
 
+    // ---- a copy older than the phone's: refused, the phone's copy stays ----
+    let phone_copy = std::fs::read(&path).unwrap();
+    controller.bring_vault_file(&from_computer);
+    assert!(
+        !controller.is_unlocked(),
+        "the open vault left memory first"
+    );
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    assert!(app.get_incoming() && app.get_has_copy());
+    type_secret(&app, 0, PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(
+        (app.get_error_code(), app.get_screen()),
+        (8, Screen::Unlock)
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), phone_copy);
+    app.invoke_cancel_incoming();
+    assert!(!app.get_incoming(), "back to the phone's own copy");
+
+    // ---- a newer copy from the computer: it replaces the phone's ----
+    {
+        let mut vault = open_file(&path, &secret_key);
+        vault
+            .add_item(&ItemData::new(
+                ItemKind::SecureNote,
+                "Added on the computer",
+            ))
+            .unwrap();
+        std::fs::write(&from_computer, vault.to_bytes().unwrap()).unwrap();
+    }
+    controller.bring_vault_file(&from_computer);
+    type_secret(&app, 0, PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "{}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_total(), 2);
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        std::fs::read(&from_computer).unwrap()
+    );
+    app.invoke_open_item(0);
+    app.invoke_toggle_favorite();
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "the new copy is the one this phone saves to"
+    );
+    app.invoke_close_item();
+
     // ---- another phone: the Secret Key is typed once ----
     app.invoke_lock_now();
     vault_platform::secret_store::forget(&vault_id).unwrap();
     app.invoke_lock_now();
     assert!(app.get_needs_secret_key());
     type_secret(&app, 0, PASSWORD);
-    type_secret(&app, 2, "S0-not-a-key");
-    app.invoke_unlock();
-    assert_eq!(app.get_error_code(), 4);
-    type_secret(&app, 2, &secret_key);
+    type_secret(&app, 1, &secret_key);
     app.invoke_unlock();
     assert_eq!(
         app.get_screen(),

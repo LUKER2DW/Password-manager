@@ -38,6 +38,10 @@ sha2 = "0.11"
 slint = "1.18"
 zeroize = "1.9"
 
+# The computer's file dialog, for the phone-sized window only; Android uses its own picker.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+rfd = "0.18"
+
 [build-dependencies]
 slint-build = "1.18"
 

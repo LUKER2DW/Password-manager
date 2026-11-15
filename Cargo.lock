@@ -6616,6 +6616,7 @@ version = "0.0.0"
 dependencies = [
  "i-slint-backend-testing",
  "image",
+ "rfd",
  "sha2 0.11.0",
  "slint",
  "slint-build",

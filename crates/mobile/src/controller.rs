@@ -1,5 +1,9 @@
 //! Wires the phone's screens to the vault.
 //!
+//! The phone opens a vault made on the computer; it never makes one. A file the person
+//! brings in replaces the phone's copy only after it opened with their keys and proved no
+//! older than what this phone saw (docs/MOBILE.md §6).
+//!
 //! Rules it keeps (AGENTS.md §4.1): typed secrets live in locked buffers and never in Slint
 //! strings; a secret is put on screen only while the person asked to see it; an item behind
 //! the item lock shows nothing secret before its check; a vault file changed by something
@@ -7,7 +11,7 @@
 
 use std::{
     cell::RefCell,
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::{Rc, Weak},
     time::{Duration, Instant},
 };
@@ -15,8 +19,7 @@ use std::{
 use sha2::{Digest, Sha256};
 use slint::{Color, ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use vault_core::{
-    Error as CoreError, GuardCheck, ItemData, ItemId, ItemKind, KdfParams, RecoveryKey, SecretKey,
-    Unlock, Vault,
+    Error as CoreError, GuardCheck, ItemData, ItemId, ItemKind, SecretKey, Unlock, Vault,
     generator::{
         PassphraseOptions, PasswordOptions, WordCase, generate_passphrase, generate_password,
     },
@@ -34,28 +37,26 @@ use crate::{
 /// Secure field ids (the `field` of each `SecretField` in app.slint).
 mod field {
     pub const MASTER: usize = 0;
-    pub const CONFIRM: usize = 1;
-    pub const SECRET_KEY: usize = 2;
-    pub const ITEM_CHECK: usize = 3;
-    pub const ITEM_PASSWORD: usize = 4;
-    pub const COUNT: usize = 5;
+    pub const SECRET_KEY: usize = 1;
+    pub const ITEM_CHECK: usize = 2;
+    pub const ITEM_PASSWORD: usize = 3;
+    pub const COUNT: usize = 4;
 }
 
 /// Error codes (texts live in app.slint → Words.error).
 mod error {
     pub const NONE: i32 = 0;
     pub const WRONG: i32 = 1;
-    pub const MISMATCH: i32 = 2;
-    pub const TOO_SHORT: i32 = 3;
-    pub const SECRET_KEY: i32 = 4;
-    pub const UNREADABLE: i32 = 5;
-    pub const NAME: i32 = 6;
-    pub const NOT_SAVED: i32 = 7;
-    pub const WRONG_CHECK: i32 = 8;
-    pub const OLDER: i32 = 9;
-    pub const KEYFILE: i32 = 10;
-    pub const TOTP: i32 = 11;
-    pub const NO_CHARACTERS: i32 = 12;
+    pub const NOT_A_VAULT: i32 = 2;
+    pub const SECRET_KEY: i32 = 3;
+    pub const UNREADABLE: i32 = 4;
+    pub const NAME: i32 = 5;
+    pub const NOT_SAVED: i32 = 6;
+    pub const WRONG_CHECK: i32 = 7;
+    pub const OLDER: i32 = 8;
+    pub const KEYFILE: i32 = 9;
+    pub const TOTP: i32 = 10;
+    pub const NO_CHARACTERS: i32 = 11;
 }
 
 /// Notice codes (texts live in app.slint → Words.notice).
@@ -69,7 +70,6 @@ mod notice {
     pub const COPIED: i32 = 7;
 }
 
-const MIN_MASTER_PASSWORD_CHARS: usize = 12;
 /// A copied secret leaves the clipboard after this long.
 const CLIPBOARD_SECONDS: u64 = 30;
 const NOTICE_FOR: Duration = Duration::from_secs(3);
@@ -142,7 +142,10 @@ fn fingerprint(bytes: &[u8]) -> [u8; 32] {
 struct State {
     /// Slow work (password hashing) runs inline: headless tests and screenshots.
     inline: bool,
+    /// The phone's copy of the vault file.
     path: PathBuf,
+    /// A vault file the person chose, waiting to prove itself before it replaces the copy.
+    incoming: Option<Vec<u8>>,
     vault: Option<Vault>,
     secret_key: Option<SecretKey>,
     /// SHA-256 of the vault file as last read or written here.
@@ -190,21 +193,19 @@ struct Opened {
     hash: [u8; 32],
 }
 
-struct Created {
-    vault: Result<Vault, CoreError>,
-    secret_key: SecretKey,
-    recovery_key: RecoveryKey,
-}
-
 impl Controller {
-    /// Wires the window and shows the first screen for the vault at `path`. `inline` runs
-    /// slow work on the calling thread (tests, screenshots).
+    /// Wires the window and shows the first screen for the phone's copy of the vault at
+    /// `path`. `inline` runs slow work on the calling thread (tests, screenshots).
+    ///
+    /// The window's `pick-vault` callback is left to the shell: it shows the system's file
+    /// picker and hands the chosen file to [`Controller::bring_vault`].
     pub fn start(app: &PhoneWindow, path: PathBuf, inline: bool) -> Rc<Self> {
         let controller = Rc::new(Self {
             app: app.as_weak(),
             state: RefCell::new(State {
                 inline,
                 path,
+                incoming: None,
                 vault: None,
                 secret_key: None,
                 file_hash: None,
@@ -260,10 +261,10 @@ impl Controller {
                 });
             }};
         }
-        on!(on_create_start, |c| c.show_create());
-        on!(on_back_to_welcome, |c| c.show_entry());
-        on!(on_create_vault, |c| c.create_vault());
-        on!(on_keys_noted, |c| c.keys_noted());
+        on!(on_cancel_incoming, |c| {
+            c.state.borrow_mut().incoming = None;
+            c.show_entry();
+        });
         on!(on_unlock, |c| c.unlock());
         on!(on_search_changed, |c, _text| c.refresh_list());
         on!(on_filter_changed, |c, _index| c.refresh_list());
@@ -435,17 +436,22 @@ impl Controller {
         });
     }
 
-    // ---- entry: welcome, new vault, unlock ----
+    // ---- entry: bringing a vault in, unlock ----
 
-    /// The screen for a locked or missing vault.
+    /// The screen for a locked or missing vault, or for a chosen file waiting to open.
     fn show_entry(&self) {
         self.clear_secrets();
         self.set_error(error::NONE, "");
         let app = self.app();
         app.set_page(Page::None);
-        let path = self.state.borrow().path.clone();
-        let Ok(bytes) = storage::read(&path) else {
-            app.set_screen(Screen::Welcome);
+        let (incoming, path) = {
+            let state = self.state.borrow();
+            (state.incoming.clone(), state.path.clone())
+        };
+        app.set_incoming(incoming.is_some());
+        app.set_has_copy(path.exists());
+        let Some(bytes) = incoming.or_else(|| storage::read(&path).ok()) else {
+            app.set_screen(Screen::Start);
             return;
         };
         let known = Vault::inspect(&bytes)
@@ -456,95 +462,35 @@ impl Controller {
         app.set_screen(Screen::Unlock);
     }
 
-    fn show_create(&self) {
-        self.clear_secrets();
-        self.set_error(error::NONE, "");
-        self.app().set_screen(Screen::Create);
-    }
-
-    fn create_vault(&self) {
+    /// A vault file the person chose (from the system's file picker, or shared to the app).
+    /// It is only looked at here; it replaces the phone's copy once it opens with the
+    /// person's keys and is no older than the copy this phone saw last.
+    pub fn bring_vault(&self, bytes: Vec<u8>) {
         if self.app().get_busy() {
             return;
         }
-        {
-            let state = self.state.borrow();
-            let (first, second) = (
-                &state.secrets[field::MASTER],
-                &state.secrets[field::CONFIRM],
-            );
-            let problem = if first.char_count() < MIN_MASTER_PASSWORD_CHARS {
-                error::TOO_SHORT
-            } else if !first.matches(second) {
-                error::MISMATCH
-            } else {
-                error::NONE
-            };
-            drop(state);
-            self.set_error(problem, "");
-            if problem != error::NONE {
-                return;
-            }
-        }
-        let password = self.secret(field::MASTER);
-        self.run(
-            move || {
-                let keys = SecretKey::generate().and_then(|secret_key| {
-                    RecoveryKey::generate().map(|recovery_key| (secret_key, recovery_key))
-                });
-                match keys {
-                    Ok((secret_key, recovery_key)) => {
-                        let vault = KdfParams::recommended().and_then(|kdf| {
-                            Vault::create(&password, &secret_key, Some(&recovery_key), kdf)
-                        });
-                        Some(Created {
-                            vault,
-                            secret_key,
-                            recovery_key,
-                        })
-                    }
-                    Err(_) => None,
-                }
-            },
-            |c, created| c.created(created),
-        );
-    }
-
-    fn created(&self, created: Option<Created>) {
-        let Some(Created {
-            vault: Ok(vault),
-            secret_key,
-            recovery_key,
-        }) = created
-        else {
-            return self.set_error(error::NOT_SAVED, "the vault could not be made");
+        let info = match Vault::inspect(&bytes) {
+            Ok(info) => info,
+            Err(err) => return self.set_error(error::NOT_A_VAULT, &err.to_string()),
         };
-        // The phone keeps the Secret Key before the file exists: a vault is never left
-        // without the key that opens it.
-        if let Err(err) = secret_store::store(&vault.id_hex(), &secret_key) {
-            return self.set_error(error::NOT_SAVED, &err.to_string());
+        if info.needs_keyfile {
+            return self.set_error(error::KEYFILE, "");
         }
-        let app = self.app();
-        app.set_kit_secret_key(secret_key.to_display_string().as_str().into());
-        app.set_kit_recovery_key(recovery_key.to_display_string().as_str().into());
-        {
-            let mut state = self.state.borrow_mut();
-            state.vault = Some(vault);
-            state.secret_key = Some(secret_key);
-            state.file_hash = None;
+        self.state.borrow_mut().incoming = Some(bytes);
+        if self.is_unlocked() {
+            // A newer copy for an open vault: what is open now leaves memory first.
+            self.lock();
+        } else {
+            self.show_entry();
         }
-        if !self.save() {
-            self.state.borrow_mut().vault = None;
-            return;
-        }
-        self.clear_secrets();
-        app.set_screen(Screen::Keys);
     }
 
-    fn keys_noted(&self) {
-        let app = self.app();
-        app.set_kit_secret_key(SharedString::new());
-        app.set_kit_recovery_key(SharedString::new());
-        self.enter_vault();
+    /// [`Controller::bring_vault`] for a file on a path (the computer's file dialog).
+    pub fn bring_vault_file(&self, file: &Path) {
+        match std::fs::read(file) {
+            Ok(bytes) => self.bring_vault(bytes),
+            Err(err) => self.set_error(error::UNREADABLE, &err.to_string()),
+        }
     }
 
     fn unlock(&self) {
@@ -552,8 +498,11 @@ impl Controller {
             return;
         }
         self.set_error(error::NONE, "");
-        let path = self.state.borrow().path.clone();
-        let bytes = match storage::read(&path) {
+        let (incoming, path) = {
+            let state = self.state.borrow();
+            (state.incoming.clone(), state.path.clone())
+        };
+        let bytes = match incoming.map_or_else(|| storage::read(&path), Ok) {
             Ok(bytes) => bytes,
             Err(err) => return self.set_error(error::UNREADABLE, &err.to_string()),
         };
@@ -609,6 +558,21 @@ impl Controller {
         if let RollbackStatus::Older { .. } = device.check_rollback(&id, vault.revision()) {
             return self.set_error(error::OLDER, "");
         }
+        // A chosen file proved itself: it becomes the phone's copy (the old one stays as
+        // `.bak` next to it).
+        let incoming = self.state.borrow_mut().incoming.take();
+        if let Some(bytes) = incoming {
+            let path = self.state.borrow().path.clone();
+            let written = path
+                .parent()
+                .map_or(Ok(()), std::fs::create_dir_all)
+                .map_err(|e| e.to_string())
+                .and_then(|()| storage::write_atomic(&path, &bytes).map_err(|e| e.to_string()));
+            if let Err(detail) = written {
+                self.state.borrow_mut().incoming = Some(bytes);
+                return self.set_error(error::NOT_SAVED, &detail);
+            }
+        }
         device.record_revision(&id, vault.revision());
         let _ = device.save();
         if opened.typed_key {
@@ -641,6 +605,8 @@ impl Controller {
         };
         app.set_vault_name(name.into());
         app.set_vault_path(path.into());
+        app.set_incoming(false);
+        app.set_has_copy(true);
         app.set_search(SharedString::new());
         app.set_filter(0);
         app.set_place(Place::Items);

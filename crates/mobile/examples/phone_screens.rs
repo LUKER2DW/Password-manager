@@ -114,7 +114,7 @@ fn add_login(app: &PhoneWindow, title: &str, user: &str, password: &str, site: &
     app.set_ed_username(user.into());
     app.set_ed_website(site.into());
     app.set_ed_totp(totp.into());
-    type_secret(app, 4, password);
+    type_secret(app, 3, password);
     app.invoke_save_item();
     app.invoke_close_item();
 }
@@ -148,9 +148,25 @@ fn main() {
         scale_factor: scale,
     });
 
+    // The vault as the desktop app would have made it, in a file to bring to the phone.
+    let key = vault_core::SecretKey::generate().expect("a Secret Key");
+    let mut made = vault_core::Vault::create(
+        PASSWORD,
+        &key,
+        None,
+        vault_core::KdfParams::minimum().expect("parameters"),
+    )
+    .expect("a demo vault");
+    let mut settings = made.settings().clone();
+    settings.name = "Personal".into();
+    made.set_settings(settings).expect("a name");
+    let from_computer = home.path().join("from-the-computer.vault");
+    std::fs::write(&from_computer, made.to_bytes().expect("bytes")).expect("write the file");
+    drop(made);
+
     let app = PhoneWindow::new().expect("create the window");
     app.show().expect("show the window");
-    let path = home.path().join("demo.vault");
+    let path = home.path().join("phone").join("vault.vault");
     let controller = Controller::start(&app, path.clone(), true);
     let mut camera = Camera {
         window,
@@ -158,14 +174,14 @@ fn main() {
         shots: Vec::new(),
     };
 
-    camera.shot("welcome", "No vault on this phone yet");
-    app.invoke_create_start();
+    camera.shot("start", "No vault on this phone yet: choose the file");
+    controller.bring_vault(b"a photo, not a vault".to_vec());
+    camera.shot("start-wrong", "A file that isn't a vault, in words");
+    controller.bring_vault_file(&from_computer);
+    type_secret(&app, 1, &key.to_display_string());
     type_secret(&app, 0, PASSWORD);
-    type_secret(&app, 1, PASSWORD);
-    camera.shot("new-vault", "New vault: the master password, twice");
-    app.invoke_create_vault();
-    camera.shot("keys", "The two keys to write down");
-    app.invoke_keys_noted();
+    camera.shot("first-unlock", "The first time: the Secret Key, once");
+    app.invoke_unlock();
     camera.shot("empty", "An empty vault");
 
     add_login(
@@ -273,6 +289,11 @@ fn main() {
     type_secret(&app, 0, "not the password");
     app.invoke_unlock();
     camera.shot("unlock-wrong", "A wrong password, in words");
+    controller.bring_vault_file(&from_computer);
+    camera.shot(
+        "newer-copy",
+        "A newer copy chosen: it replaces the phone's once it opens",
+    );
 
     camera.write_gallery();
     println!(

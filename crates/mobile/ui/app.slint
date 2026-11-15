@@ -9,7 +9,8 @@ import { Glyph } from "../../desktop/ui/icons.slint";
 
 export { Theme, Sketch, Secrets }
 
-export enum Screen { welcome, create, keys, unlock, vault }
+// The phone opens a vault made on the computer; it never makes one.
+export enum Screen { start, unlock, vault }
 export enum Place { items, codes, generator, settings }
 export enum Page { none, item, editor }
 
@@ -39,17 +40,16 @@ export struct CodeRow {
 export global Words {
     pure public function error(code: int, detail: string) -> string {
         if (code == 1) { return @tr("That didn't open the vault. Check the master password (and the Secret Key, if you typed it)."); }
-        if (code == 2) { return @tr("The two passwords are different. Type the same one twice."); }
-        if (code == 3) { return @tr("A master password has at least 12 characters. A few words in a row work well."); }
-        if (code == 4) { return @tr("That isn't a Secret Key. It starts with S0- and is printed on your emergency kit."); }
-        if (code == 5) { return @tr("The vault file can't be read ({}).", detail); }
-        if (code == 6) { return @tr("Give it a name first."); }
-        if (code == 7) { return @tr("Not saved ({}). Your change is still on screen: try again.", detail); }
-        if (code == 8) { return @tr("That isn't it. Try again."); }
-        if (code == 9) { return @tr("This vault file is older than the one this phone opened last. Someone may have put an old copy in its place."); }
-        if (code == 10) { return @tr("This vault also needs its keyfile, which the phone app can't use yet."); }
-        if (code == 11) { return @tr("That isn't a setup key for one-time codes. Paste the key the site shows under “Can't scan it?”."); }
-        if (code == 12) { return @tr("Pick at least one kind of character."); }
+        if (code == 2) { return @tr("That file isn't a vault. Choose the .vault file from your computer."); }
+        if (code == 3) { return @tr("That isn't a Secret Key. It starts with S0- and is printed on your emergency kit."); }
+        if (code == 4) { return @tr("The vault file can't be read ({}).", detail); }
+        if (code == 5) { return @tr("Give it a name first."); }
+        if (code == 6) { return @tr("Not saved ({}). Your change is still on screen: try again.", detail); }
+        if (code == 7) { return @tr("That isn't it. Try again."); }
+        if (code == 8) { return @tr("This vault file is older than the one this phone opened last. Bring the newest copy from your computer."); }
+        if (code == 9) { return @tr("This vault also needs its keyfile, which the phone app can't use yet."); }
+        if (code == 10) { return @tr("That isn't a setup key for one-time codes. Paste the key the site shows under “Can't scan it?”."); }
+        if (code == 11) { return @tr("Pick at least one kind of character."); }
         return detail;
     }
     pure public function notice(code: int, arg: string) -> string {
@@ -280,7 +280,7 @@ export component PhoneWindow inherits Window {
     in property <length> inset-top: 0px;
     in property <length> inset-bottom: 0px;
 
-    in-out property <Screen> screen: Screen.unlock;
+    in-out property <Screen> screen: Screen.start;
     in-out property <Place> place: Place.items;
     in-out property <Page> page: Page.none;
     in property <bool> busy;
@@ -289,16 +289,14 @@ export component PhoneWindow inherits Window {
     in property <int> notice-code;
     in property <string> notice-arg;
 
-    // Unlock and new vault
+    // Bringing a vault in, and unlock
     in property <string> vault-name;
     in property <bool> needs-secret-key;
-    in property <string> kit-secret-key;
-    in property <string> kit-recovery-key;
-    callback create-start();
-    callback create-vault();
-    callback keys-noted();
+    in property <bool> incoming;        // a chosen file waits to open
+    in property <bool> has-copy;        // the phone already keeps a vault
+    callback pick-vault();              // the shell shows the system's file picker
+    callback cancel-incoming();
     callback unlock();
-    callback back-to-welcome();
 
     // The list
     in property <[ItemRow]> items;
@@ -388,8 +386,9 @@ export component PhoneWindow inherits Window {
         padding-top: root.inset-top;
         padding-bottom: root.inset-bottom;
 
-        // ---------------------------------------------------------------- welcome
-        if root.screen == Screen.welcome: VerticalLayout {
+        // ---------------------------------------------------------------- no vault yet
+        // The vault is made on the computer; the phone opens a copy of its file.
+        if root.screen == Screen.start: VerticalLayout {
             padding: root.gutter;
             padding-top: 72px;
             spacing: 14px;
@@ -402,114 +401,45 @@ export component PhoneWindow inherits Window {
                 wrap: word-wrap;
             }
             Text {
-                text: @tr("A vault is one encrypted file. It opens with your master password and a Secret Key that stays on your devices, so the file alone is no use to anyone.");
+                text: @tr("The phone opens the vault you made on your computer. Copy its .vault file to the phone, then choose it here.");
                 font-size: Theme.body;
                 color: Theme.graphite;
                 wrap: word-wrap;
             }
+            // How the file gets here, in the order most people have at hand.
+            VerticalLayout {
+                padding-top: 6px;
+                spacing: 10px;
+                for way in [
+                    @tr("A USB cable: drop the file into the phone's Download folder."),
+                    @tr("Quick Share or Bluetooth from the computer."),
+                    @tr("A drive or folder you already sync between the two."),
+                ]: HorizontalLayout {
+                    spacing: 10px;
+                    VerticalLayout {
+                        padding-top: 7px;
+                        alignment: start;
+                        Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.graphite; }
+                    }
+                    Text {
+                        text: way;
+                        font-size: Theme.body;
+                        color: Theme.ink;
+                        wrap: word-wrap;
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                    }
+                }
+            }
             Rectangle { vertical-stretch: 1; }
             Text {
-                text: @tr("Already have a vault on your computer? Bringing it to the phone comes with sync. Until then, start a new one here.");
+                text: @tr("The file alone opens nothing: it also needs your master password and the Secret Key from your emergency kit.");
                 font-size: Theme.small;
                 color: Theme.graphite;
                 wrap: word-wrap;
             }
-            Button { text: @tr("Create a new vault"); clicked => { root.create-start(); } }
-        }
-
-        // ---------------------------------------------------------------- new vault
-        if root.screen == Screen.create: VerticalLayout {
-            TopBar { title: @tr("New vault"); back: @tr("Back"); went-back => { root.back-to-welcome(); } }
-            VerticalLayout {
-                padding: root.gutter;
-                padding-top: 8px;
-                spacing: 16px;
-                alignment: start;
-                Text {
-                    text: @tr("Choose the one password you will remember. Nobody can reset it for you.");
-                    font-size: Theme.body;
-                    color: Theme.graphite;
-                    wrap: word-wrap;
-                }
-                first := SecretField {
-                    field: 0;
-                    label: @tr("Master password");
-                    icon: "key";
-                    placeholder: @tr("At least 12 characters");
-                    error: root.error-code == 3;
-                    accepted => { second.focus(); }
-                }
-                second := SecretField {
-                    field: 1;
-                    label: @tr("The same password again");
-                    icon: "key";
-                    error: root.error-code == 2;
-                    accepted => { root.create-vault(); }
-                }
-                if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
-                Button {
-                    text: @tr("Create vault");
-                    busy: root.busy;
-                    busy-text: @tr("Creating…");
-                    clicked => { root.create-vault(); }
-                }
-            }
-        }
-
-        // ---------------------------------------------------------------- the two keys
-        if root.screen == Screen.keys: VerticalLayout {
-            TopBar { title: @tr("Write these down"); }
-            Flickable {
-                vertical-stretch: 1;
-                content-height: keys.preferred-height;
-                keys := VerticalLayout {
-                    padding: root.gutter;
-                    padding-top: 8px;
-                    spacing: 16px;
-                    alignment: start;
-                    Text {
-                        text: @tr("On paper, kept somewhere safe. You need the Secret Key to open the vault on another device, and the Recovery Key if you ever forget the master password.");
-                        font-size: Theme.body;
-                        color: Theme.graphite;
-                        wrap: word-wrap;
-                    }
-                    for entry in [
-                        { label: @tr("Secret Key"), value: root.kit-secret-key },
-                        { label: @tr("Recovery Key"), value: root.kit-recovery-key },
-                    ]: VerticalLayout {
-                        spacing: 6px;
-                        Text { text: entry.label; font-size: Theme.small; color: Theme.graphite; }
-                        Rectangle {
-                            border-radius: Theme.radius;
-                            border-width: 1px;
-                            border-color: Theme.rule;
-                            background: Theme.field;
-                            height: key-text.preferred-height + 24px;
-                            key-text := Text {
-                                x: 12px;
-                                width: parent.width - 24px;
-                                text: entry.value;
-                                font-family: Theme.mono-font;
-                                font-size: Theme.lead;
-                                color: Theme.ink;
-                                // Breaks after a dash, never inside a group.
-                                wrap: word-wrap;
-                                vertical-alignment: center;
-                            }
-                        }
-                    }
-                    Text {
-                        text: @tr("They are not shown again on this screen. The phone keeps the Secret Key for you; the Recovery Key exists only where you write it.");
-                        font-size: Theme.small;
-                        color: Theme.graphite;
-                        wrap: word-wrap;
-                    }
-                }
-            }
-            VerticalLayout {
-                padding: root.gutter;
-                Button { text: @tr("I wrote them down"); clicked => { root.keys-noted(); } }
-            }
+            if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
+            Button { text: @tr("Choose the vault file"); clicked => { root.pick-vault(); } }
         }
 
         // ---------------------------------------------------------------- unlock
@@ -543,17 +473,19 @@ export component PhoneWindow inherits Window {
                 Text {
                     text: root.needs-secret-key
                         ? @tr("First time on this phone: it needs the Secret Key from your emergency kit, once.")
+                        : root.incoming && root.has-copy
+                        ? @tr("Type your master password. The file you chose replaces the phone's copy once it opens.")
                         : @tr("Locked. Type your master password to open it.");
                     font-size: Theme.body;
                     color: Theme.graphite;
                     wrap: word-wrap;
                 }
                 if root.needs-secret-key: SecretField {
-                    field: 2;
+                    field: 1;
                     label: @tr("Secret Key");
                     icon: "shield";
                     placeholder: "S0-…";
-                    error: root.error-code == 4;
+                    error: root.error-code == 3;
                 }
                 SecretField {
                     field: 0;
@@ -568,6 +500,13 @@ export component PhoneWindow inherits Window {
                     busy: root.busy;
                     busy-text: @tr("Opening…");
                     clicked => { root.unlock(); }
+                }
+                // A chosen file that isn't the right one: another, or back to what was here.
+                if root.incoming: HorizontalLayout {
+                    spacing: 10px;
+                    alignment: start;
+                    QuietButton { text: @tr("Another file"); icon: "folder"; outlined: true; clicked => { root.pick-vault(); } }
+                    QuietButton { text: @tr("Cancel"); clicked => { root.cancel-incoming(); } }
                 }
                 Rectangle { vertical-stretch: 2; }
             }
@@ -956,6 +895,30 @@ export component PhoneWindow inherits Window {
                                 icon: "folder";
                                 value: root.vault-path;
                             }
+                            VerticalLayout {
+                                padding-top: 12px;
+                                padding-bottom: 6px;
+                                spacing: 8px;
+                                Text {
+                                    text: @tr("Changed the vault on the computer? Bring its newest file here. Until sync exists, what you change on the phone stays in the phone's copy.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    QuietButton {
+                                        text: @tr("Bring a newer copy");
+                                        icon: "folder";
+                                        outlined: true;
+                                        clicked => { root.pick-vault(); }
+                                    }
+                                }
+                                // Only what choosing a file can go wrong with.
+                                if root.error-code == 2 || root.error-code == 4 || root.error-code == 9: ErrorLine {
+                                    text: Words.error(root.error-code, root.error-detail);
+                                }
+                            }
                             Fact {
                                 label: @tr("App");
                                 icon: "shield";
@@ -1071,10 +1034,10 @@ export component PhoneWindow inherits Window {
                                 wrap: word-wrap;
                             }
                             SecretField {
-                                field: 3;
+                                field: 2;
                                 label: root.d-check == 1 ? @tr("Master password") : root.d-check == 2 ? @tr("Item PIN") : @tr("Item password");
                                 icon: "lock";
-                                error: root.error-code == 8;
+                                error: root.error-code == 7;
                                 accepted => { root.unlock-item(); }
                             }
                             if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
@@ -1147,7 +1110,7 @@ export component PhoneWindow inherits Window {
                             required: true;
                             placeholder: root.ed-kind == 0 ? @tr("The site or app") : @tr("What the note is about");
                             text <=> root.ed-title;
-                            error: root.error-code == 6;
+                            error: root.error-code == 5;
                         }
                         if root.ed-kind == 0: LineField {
                             label: @tr("Username");
@@ -1160,7 +1123,7 @@ export component PhoneWindow inherits Window {
                                 spacing: 6px;
                                 SecretField {
                                     horizontal-stretch: 1;
-                                    field: 4;
+                                    field: 3;
                                     label: @tr("Password");
                                     icon: "key";
                                     revealed: root.ed-password;
@@ -1192,7 +1155,7 @@ export component PhoneWindow inherits Window {
                             hint: @tr("Paste the setup key the site shows for its authenticator app, often under “Can't scan it?”. Leave it empty if the site has none.");
                             mono: true;
                             text <=> root.ed-totp;
-                            error: root.error-code == 11;
+                            error: root.error-code == 10;
                         }
                         NotesField {
                             label: @tr("Notes");
