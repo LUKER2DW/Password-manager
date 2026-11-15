@@ -151,6 +151,15 @@ network can see which sites were contacted — is stated in the setting's hint.
 `SHOT_ICONS=1 cargo run -p vault-desktop --example screenshots` renders the screens with real
 icons (it fetches them for the demo sites).
 
+## On a phone
+
+The phone app (`crates/mobile`, docs/MOBILE.md) uses these tokens and widgets with
+`Theme.touch` on: body text 16 px, controls 48 px tall, radius 8 px. One column; four places
+at the bottom (Vault, Codes, Generator, Settings) with the marker stroke under the current
+one; an item or the editor covers them, with a way back top left. The main action sits at
+the bottom of the screen, within reach of a thumb. Facts on the item page are rows: label,
+value, Copy on the right. Confirmations sit just above whatever is at the bottom.
+
 ## Not yet
 
 - Screen-reader pass on the custom secure field and hints.

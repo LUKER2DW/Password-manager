@@ -32,12 +32,14 @@ crates/
   cli/                  vault-cli: the `vault` command-line client
   browser/              vault-browser: what the extension may ask and get, and its native host
   desktop/              vault-desktop: the Slint desktop app
+  mobile/               vault-mobile: the phone app's screens and controller (Android first)
 extension/              the Chrome/Edge extension (Manifest V3, plain JavaScript)
 docs/
   THREAT_MODEL.md       who we defend against and the principles that follow
   ARCHITECTURE.md       overall design and decisions
   DESIGN.md             visual system and UI rules
   IMPLEMENTATION_PLAN.md  milestones and what is done (keep it current)
+  MOBILE.md             the phone app: plan, screens, security on a phone, milestones
   ROADMAP.md            phases
   spec/CRYPTO.md        exact cryptography (normative)
   spec/VAULT_FORMAT.md  exact file format (normative)
@@ -150,6 +152,16 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `ui/dialogs.slint` | Dialogs over the whole window (`Modal`, `FolderDialog`) |
 | `ui/welcome.slint`, `vault.slint`, `pages.slint`, `kit.slint`, `app.slint` | Screens; right-click menus live in `app.slint` |
 
+### 2.6 `crates/mobile` (vault-mobile)
+
+The phone app (Android first), see [docs/MOBILE.md](docs/MOBILE.md). `ui/app.slint` is the
+phone's layout and imports the desktop's `theme.slint`, `widgets.slint` and `icons.slint`
+(one design for both; `Theme.touch` sizes it for fingers). `src/controller.rs` wires it to the
+vault with the same rules as the desktop (secure fields, item lock, `changed_outside`-style
+save check, clipboard cleared). `src/tests.rs` runs it headless;
+`examples/phone_screens.rs` renders every screen to PNG. A change to a shared widget must
+look right in both apps' screenshots.
+
 ## 3. Build, run, test
 
 The toolchain comes from `rust-toolchain.toml`. On Windows, if `cargo` is not on `PATH`, prefix
@@ -243,7 +255,7 @@ to review layout; do not drive the real desktop to check UI.
 ### 4.3 Commits
 
 - Small, focused, **one commit per area**: `Core: …`, `Platform: …`, `Import: …`, `CLI: …`,
-  `Browser: …`, `Extension: …`, `Desktop: …`, `Docs: …`, `Build: …`. A short subject in the imperative-free style used in
+  `Browser: …`, `Extension: …`, `Desktop: …`, `Mobile: …`, `Docs: …`, `Build: …`. A short subject in the imperative-free style used in
   the log ("Core: format v3 (folder icon and colour, item icon website)"), then a body that says
   what changed and why.
 - Run fmt, clippy and the tests first. Never commit a failing build.

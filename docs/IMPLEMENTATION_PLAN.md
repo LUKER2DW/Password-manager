@@ -254,9 +254,19 @@ Rules:
 - OPAQUE login, encrypted item records, signed manifest, rollback/fork detection
 - **Done when:** two devices converge; ZK-AE-Tester style malicious-server tests pass.
 
-### M7 — Android ⬜
-- Slint UI + Kotlin Autofill Service + Credential Manager provider (passwords, passkeys)
-- BiometricPrompt Class 3 quick unlock (StrongBox)
+### M7 — Android 🚧
+Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
+- ✅ M7.0 Base: `crates/mobile` (vault-mobile) with the phone's screens in Slint (welcome,
+  new vault and its two keys, unlock, the list with search and filters, the item page with the
+  item lock, editor for logins and notes, one-time codes, generator, settings), its own
+  controller, a headless end-to-end test and off-screen screenshots
+  (`cargo run -p vault-mobile --example phone_screens`). Shares the desktop's tokens, widgets
+  and icons; `Theme.touch` makes text a step larger and controls 48 px tall
+- ⬜ M7.1 Runs on a phone (NDK build, Slint Android backend, fonts, soft keyboard)
+- ⬜ M7.2 Phone storage (Keystore Secret Key, file picker, `FLAG_SECURE`, sensitive clipboard)
+- ⬜ M7.3 BiometricPrompt Class 3 quick unlock (StrongBox)
+- ⬜ M7.4 Kotlin Autofill Service; M7.5 Credential Manager provider (passwords, passkeys)
+- ⬜ M7.6 Sync; M7.7 cards, custom fields, folders, health, import, translations
 
 ### M8 — Advanced ⬜
 - Secure sharing (Send-style links, HPKE hybrid X25519 + ML-KEM-768)

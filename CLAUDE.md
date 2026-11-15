@@ -24,7 +24,7 @@ On Windows, if `cargo` is not found: `$env:Path = "$HOME\.cargo\bin;$env:Path"`.
   or screenshots of real data. `research/` is git-ignored.
 - Review UI changes through the off-screen screenshots (read the PNGs); don't drive the real
   desktop to check them.
-- Commit and push by area (`Core:`, `Platform:`, `Import:`, `CLI:`, `Browser:`, `Extension:`, `Desktop:`, `Docs:`,
+- Commit and push by area (`Core:`, `Platform:`, `Import:`, `CLI:`, `Browser:`, `Extension:`, `Desktop:`, `Mobile:`, `Docs:`,
   `Build:`), after fmt, clippy and tests pass.
 - Format changes follow AGENTS.md §5.1: new version, old layouts kept, new fixture, older
   fixtures never regenerated.
