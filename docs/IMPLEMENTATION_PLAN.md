@@ -256,14 +256,19 @@ Rules:
 
 ### M7 — Android 🚧
 Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
-- ✅ M7.0 Base: `crates/mobile` (vault-mobile) with the phone's screens in Slint (welcome,
-  new vault and its two keys, unlock, the list with search and filters, the item page with the
-  item lock, editor for logins and notes, one-time codes, generator, settings), its own
-  controller, a headless end-to-end test and off-screen screenshots
+- ✅ M7.0 Base: `crates/mobile` (vault-mobile) with the phone's screens in Slint (start,
+  unlock, the list with search and filters, the item page with the item lock, editor for
+  logins and notes, one-time codes, generator, settings), its own controller, a headless
+  end-to-end test and off-screen screenshots
   (`cargo run -p vault-mobile --example phone_screens`). Shares the desktop's tokens, widgets
   and icons; `Theme.touch` makes text a step larger and controls 48 px tall
-- ⬜ M7.1 Runs on a phone (NDK build, Slint Android backend, fonts, soft keyboard)
-- ⬜ M7.2 Phone storage (Keystore Secret Key, file picker, `FLAG_SECURE`, sensitive clipboard)
+- ✅ The phone opens a vault made on the computer and never makes one: a chosen file
+  (`Controller::bring_vault`) replaces the phone's copy only after it opens with the person's
+  keys and is no older than what the phone saw; "Bring a newer copy" in Settings
+- ⬜ M7.1 Runs on a phone (NDK build, Slint Android backend, Barlow and Cascadia Mono
+  bundled, a secret input view that keeps no text, a drawn PIN pad): MOBILE.md §6.1–6.2
+- ⬜ M7.2 Phone storage (Keystore Secret Key, the system file picker and "open with",
+  `FLAG_SECURE`, sensitive clipboard): MOBILE.md §6.3
 - ⬜ M7.3 BiometricPrompt Class 3 quick unlock (StrongBox)
 - ⬜ M7.4 Kotlin Autofill Service; M7.5 Credential Manager provider (passwords, passkeys)
 - ⬜ M7.6 Sync; M7.7 cards, custom fields, folders, health, import, translations

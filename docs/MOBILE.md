@@ -2,7 +2,8 @@
 
 > Status: **started**. The screens and their controller exist (`crates/mobile`) and run in a
 > phone-sized window on the desktop; nothing is packaged for Android yet. This document is the
-> plan: what the app is, how it is built, the order of the work, and what is still open.
+> plan: what the app is, how it is built, the order of the work, what we chose after looking
+> into the keyboard, fonts and moving the vault over (§6), and what is still open.
 
 ## 1. What it is
 
@@ -12,6 +13,9 @@ into apps and websites by Android itself.
 
 It is not a second product. It reads and writes the same vault file with the same core, shows
 the same design, and follows the same rules (AGENTS.md §4).
+
+**The phone opens a vault; it never makes one.** A vault is created on the computer, where
+the emergency kit is printed. The phone keeps a copy of that file (§6.3).
 
 ## 2. How it is built
 
@@ -64,15 +68,14 @@ them when an item is open.
 
 | Screen | What it does | State |
 |---|---|---|
-| Welcome | No vault on this phone: create one, or bring one from another device | ✅ create; ⬜ bring |
-| New vault | Master password twice, then the Secret Key and Recovery Key to write down | ✅ |
-| Unlock | Master password (and the Secret Key the first time on this phone) | ✅; ⬜ biometrics |
+| Start | No vault on this phone: how to copy the file over, and "Choose the vault file" | ✅ (picker: computer's dialog now, Android's in M7.2) |
+| Unlock | Master password (and the Secret Key the first time on this phone); a chosen file waits here until it opens | ✅; ⬜ biometrics |
 | Vault | Search, filters (all, favourites, logins, cards, notes), the list | ✅ |
 | Item | Every field with Copy; password and code hidden until asked; item lock | ✅ |
 | Editor | New login or note, edit, delete | ✅ logins and notes; ⬜ cards, custom fields |
 | Codes | One-time codes with their countdown; tap to copy | ✅ |
 | Generator | Characters or words, length, strength; copy | ✅ |
-| Settings | Theme, auto-lock, about, lock now | ✅; ⬜ biometrics, autofill, sync |
+| Settings | Theme, auto-lock, bring a newer copy of the file, about, lock now | ✅; ⬜ biometrics, autofill, sync |
 | Autofill sheet | Android's own picker over another app | ⬜ (Kotlin) |
 
 Rules carried over from DESIGN.md: one yellow thing per screen (the main button), hand-drawn
@@ -90,7 +93,7 @@ thumb (bottom of the form, not the top bar), nothing that needs hover.
 | Clipboard | Marked sensitive (`EXTRA_IS_SENSITIVE`, Android 13+), cleared after the timeout |
 | Background | Locks when the app leaves the screen for longer than the auto-lock time; at once when the screen turns off |
 | Autofill | Answers only for the app's verified package and signing certificate, or the website's exact origin; never fills a field of another app on its word alone |
-| Typed secrets | Slint secure field → locked buffer in Rust; the system keyboard is told the field is a password (no suggestions, no learning) |
+| Typed secrets | Slint secure field → locked buffer in Rust, through an input connection that keeps no text (§6.1); the keyboard is told the field is a password (no suggestions, no learning) |
 | Backups | The vault file is excluded from Android cloud backup; the wrapped keys never leave the phone |
 | Root / debugger | Not defended against beyond what the Keystore gives: stated in THREAT_MODEL.md |
 
@@ -99,33 +102,133 @@ thumb (bottom of the form, not the top bar), nothing that needs hover.
 | # | Milestone | Done when |
 |---|---|---|
 | M7.0 | **Base** — crate, screens, controller, off-screen screenshots, headless test | ✅ this document's first commit |
-| M7.1 | **Runs on a phone** — NDK and `cargo-apk`/Gradle build, Slint Android backend, bundled font, back button, soft keyboard for the secure field | An APK opens a test vault on a device |
-| M7.2 | **Phone storage** — Keystore-backed Secret Key, app-private vault path, file picker to bring a vault in, `FLAG_SECURE`, sensitive clipboard | A vault made on Windows opens on the phone |
+| M7.1 | **Runs on a phone** — NDK and Gradle build, Slint Android backend, bundled fonts (§6.2), back button, the secret input view (§6.1) | An APK opens a test vault on a device |
+| M7.2 | **Phone storage** — Keystore-backed Secret Key, app-private vault path, the system file picker and "open with" for `.vault` files (§6.3), `FLAG_SECURE`, sensitive clipboard | A vault made on Windows opens on the phone |
 | M7.3 | **Biometrics** — Class 3 prompt, key invalidated when biometrics change | Unlock with a fingerprint after one password unlock |
 | M7.4 | **Autofill** — `AutofillService` with app and origin matching, save prompt | A login fills into a browser and an app |
 | M7.5 | **Passkeys and Credential Manager** (Android 14+) | Depends on passkeys in the core |
 | M7.6 | **Sync** with the self-hosted server (M6) | The same vault on both devices without copying a file |
 | M7.7 | Cards and custom fields in the editor, folders, health, import, translations | Parity with what the desktop edits |
 
-## 6. Open questions
+## 6. Researched choices
 
-1. **The keyboard.** The secure field takes key events; Android's soft keyboard talks to an
-   input connection instead. Either the Slint Android backend forwards committed text as key
-   events for a password-type field (to check on a device), or the Kotlin shell owns a small
-   hidden input that forwards each character to Rust. An in-app keyboard is the last resort.
-2. **Fonts.** Bahnschrift and Cascadia Mono ship with Windows only. The app needs two fonts
-   it may bundle (a DIN-like sans and a mono, both under the OFL).
-3. **How the vault gets onto the phone before sync exists**: the file picker (M7.2). The
-   Secret Key is typed once from the emergency kit, or scanned from the kit's QR code later.
-4. **One activity or two.** Autofill needs a way to unlock without opening the whole app: a
+### 6.1 The soft keyboard and the secure field
+
+**What Slint does on Android.** Slint 1.18's Android backend shows the keyboard only for a
+`TextInput`. Its Java side keeps the field's whole text in an editable buffer
+(`SlintEditable`, a `SpannableStringBuilder`). On every change it hands the full text to Rust
+as a new Java `String`. A `TextInput { input-type: password; }` does set
+`TYPE_TEXT_VARIATION_PASSWORD | TYPE_TEXT_FLAG_NO_SUGGESTIONS`, so the keyboard learns
+nothing. But the password would sit in Java strings the app can't wipe, one copy per
+keystroke, plus a Slint string: that breaks rule 4.1.3. Our `SecretField` is a `FocusScope`,
+not a `TextInput`, so as it stands no keyboard opens for it at all.
+
+| Option | Secret in memory we don't control | Keyboard apps see the keys | Effort |
+|---|---|---|---|
+| A. `TextInput` with `input-type: password` | Yes: Java strings and a Slint string | Yes | None |
+| B. **Our own input view** in the Kotlin shell (chosen) | One character at a time, never the whole secret | Yes | Small |
+| C. A keyboard drawn by the app | No | No | Large; accessibility and languages suffer |
+
+**Chosen: B, with C for the item PIN.**
+
+- **The view.** The shell adds `SecretInputView`, a plain `View` whose
+  `onCreateInputConnection` returns a connection that holds no text:
+  - `EditorInfo.inputType = TYPE_CLASS_TEXT | TYPE_TEXT_VARIATION_PASSWORD`;
+  - `imeOptions = IME_FLAG_NO_PERSONALIZED_LEARNING | IME_FLAG_NO_EXTRACT_UI | IME_ACTION_DONE`.
+- **Typed text.** `commitText` passes each character straight to Rust over JNI
+  (`Secrets.insert`). `deleteSurroundingText` and a `KEYCODE_DEL` key event become
+  `Secrets.backspace`. `performEditorAction` becomes `accepted`.
+- **What the keyboard is shown.** `getTextBeforeCursor` returns as many `•` as the field holds,
+  so the keyboard knows there is something to delete without seeing it.
+- **Opening and closing the keyboard.** `SecretField`'s focus changes call the shell
+  (`Secrets.focused(field, bool)`). The shell focuses the view and asks the
+  `InputMethodManager` to show or hide the keyboard.
+- **The PIN.** The item PIN is digits only, so the app draws a 3 × 4 pad for it. No keyboard
+  app sees the PIN at all.
+- **Later.** A setting, off by default, could offer the same drawn keyboard for the master
+  password, for people who don't trust their keyboard app.
+
+The remaining risk is the keyboard app itself: it sees the keys of any field it serves. This
+goes in THREAT_MODEL.md, next to the clipboard.
+
+### 6.2 Fonts the app may carry
+
+| Role | Desktop (Windows) | Phone | Licence |
+|---|---|---|---|
+| Interface | Bahnschrift (ships with Windows, may not be redistributed) | **Barlow**: a slightly rounded DIN-like grotesk with weights 100–900, so the 300/400/600 the design uses are all there | SIL OFL 1.1 |
+| Codes, keys, passwords | Cascadia Mono | **Cascadia Mono**, the same font | SIL OFL 1.1, Microsoft; "Cascadia Code" is a reserved name, so it ships unmodified |
+
+Other candidates we looked at:
+- **D-DIN** is closer to DIN but has only two weights.
+- **Sofia Sans** and **Saira** have a width axis like Bahnschrift.
+
+Barlow wins on weights and on how it reads at small sizes.
+
+How the fonts get in:
+- `import "fonts/Barlow-Regular.ttf";` (and the Light, SemiBold and Cascadia Mono files) in
+  `crates/mobile/ui/app.slint`. Slint compiles the files into the binary, a few hundred KB in
+  all.
+- `Theme.ui-font` and `Theme.mono-font` become `in-out`, and the phone sets them to `"Barlow"`
+  and `"Cascadia Mono"`.
+- The `.ttf` files and their `OFL.txt` go in `crates/mobile/ui/fonts/`.
+- Without them the phone falls back to Roboto, which works but loses the look.
+
+Linux (ROADMAP) has the same problem, so the same two fonts could serve it. Whether the
+Windows app keeps Bahnschrift or moves to Barlow too is a design decision for later.
+
+### 6.3 Getting the vault onto the phone before sync
+
+The file is safe to carry over any channel: without the master password and the Secret Key
+it opens nothing (zero-knowledge). What matters is that the person can do it with what they
+already have, and that a wrong or old file can't replace the phone's copy.
+
+**Now (built): the phone keeps its own copy.**
+- The start screen's "Choose the vault file" goes to the shell's picker. On Android that is
+  `ACTION_OPEN_DOCUMENT` from the Storage Access Framework, which covers Download, a USB stick
+  (OTG), Drive and any other document provider.
+- An intent filter makes `.vault` files shared or opened from other apps land in the same
+  place: Quick Share from Windows, Bluetooth, a mail attachment.
+- `Controller::bring_vault(bytes)` only reads the file. The phone's copy, in app-private
+  storage, is replaced once the file:
+  1. opened with the person's keys, and
+  2. is no older than the revision this phone saw.
+
+  The old copy stays as `.bak`.
+- An older file is refused with "Bring the newest copy". "Cancel" goes back to the phone's own
+  copy.
+- Settings has "Bring a newer copy" for the same thing later.
+- Saving on the phone writes to its own copy. Until sync, changes made on both sides diverge:
+  Settings says so.
+
+**Considered and set aside for now:**
+- **Open in place** (keep the SAF document and write back to it, as KeePass-style apps do).
+  The file can then be swapped under the app by the provider or another app, and it doesn't
+  work offline. Worth reconsidering for a person who already syncs a folder (Syncthing), as an
+  option.
+- **Straight from the desktop over Wi-Fi.** The desktop shows a QR code with its address and a
+  one-time key; the phone fetches the file sealed under that key. It is convenient but needs
+  the `INTERNET` permission and an open port on the PC (a Windows firewall prompt). It belongs
+  with sync (M7.6), which needs both anyway.
+- **An animated QR stream** (the file in many QR frames). It is fully offline, but slow for a
+  vault with pictures, and it needs the camera.
+
+**The Secret Key.** It is typed once from the emergency kit (`S0-` and 26 characters in Crockford
+Base32, which accepts small letters and reads O as 0, I and L as 1). It is then kept in the Keystore. Scanning it is a
+later convenience: a QR on the desktop's kit page, read by CameraX and decoded in Rust
+(`rxing`). The QR is shown only on request, never printed by default.
+
+### 6.4 Still open
+
+1. **One activity or two.** Autofill needs a way to unlock without opening the whole app: a
    small unlock sheet in the same process, sharing the open vault with the main activity.
-5. **iOS** is not planned. Nothing here rules it out: the Rust part is the same, the shell
+2. **iOS** is not planned. Nothing here rules it out: the Rust part is the same, the shell
    would be Swift.
 
 ## 7. Working on it
 
 ```bash
-# The app in a phone-sized window, against a test vault:
+# The app in a phone-sized window. VAULT_FILE is where the "phone" keeps its copy (default:
+# <app dir>/phone/vault.vault); "Choose the vault file" opens the computer's file dialog.
 VAULT_FILE=target/phone-test.vault cargo run -p vault-mobile
 
 # Every screen as a PNG, off-screen (fake data), with an index.html gallery:
