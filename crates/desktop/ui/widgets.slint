@@ -113,7 +113,7 @@ export component QuietButton inherits Rectangle {
     accessible-role: button;
     accessible-label: root.text;
     forward-focus: focus;
-    height: root.outlined ? 34px : 32px;
+    height: Theme.touch ? 44px : root.outlined ? 34px : 32px;
     min-width: label.preferred-width + (root.icon != "" ? 22px : 0px) + (root.outlined ? 28px : 20px);
     border-radius: Theme.radius;
     border-width: root.outlined ? 1px : 0px;
@@ -170,8 +170,8 @@ export component EyeButton inherits Rectangle {
     accessible-role: button;
     accessible-label: root.open ? @tr("Hide") : @tr("Show");
     forward-focus: focus;
-    width: 32px;
-    height: 32px;
+    width: Theme.touch ? 44px : 32px;
+    height: Theme.touch ? 44px : 32px;
     border-radius: Theme.radius;
     background: touch.has-hover || focus.has-focus ? Theme.hover : transparent;
     animate background { duration: Theme.quick; }
@@ -741,7 +741,7 @@ export component Check inherits Rectangle {
     accessible-checked: root.checked;
     accessible-label: root.text;
     forward-focus: focus;
-    min-height: 28px;
+    min-height: Theme.touch ? 44px : 28px;
 
     HorizontalLayout {
         spacing: 10px;
@@ -873,11 +873,11 @@ export component Slider inherits Rectangle {
     in property <string> label;
     callback changed(int);
 
-    property <length> knob-size: 18px;
+    property <length> knob-size: Theme.touch ? 26px : 18px;
     property <float> ratio: (root.value - root.minimum) / Math.max(1, root.maximum - root.minimum);
     property <length> travel: root.width - root.knob-size;
 
-    height: 28px;
+    height: Theme.touch ? 44px : 28px;
     min-width: 160px;
     horizontal-stretch: 1;
     accessible-role: slider;
@@ -965,7 +965,7 @@ export component Choice inherits HorizontalLayout {
     alignment: start;
     for option[index] in root.options: Rectangle {
         min-width: label.preferred-width + 20px;
-        height: 34px;
+        height: Theme.touch ? 44px : 34px;
         border-radius: Theme.radius;
         background: touch.has-hover && index != root.selected ? Theme.hover : transparent;
         accessible-role: button;

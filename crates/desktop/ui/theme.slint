@@ -41,16 +41,19 @@ export global Theme {
     out property <string> mono-font: "Cascadia Mono";
     out property <string> hand-font: "Ink Free";
 
-    // Scale (base 14 px, ratio ≈ 1.25)
-    out property <length> small: 12px;
-    out property <length> body: 14px;
-    out property <length> lead: 16px;
-    out property <length> title: 21px;
-    out property <length> headline: 28px;
+    // A phone or tablet (the mobile app sets it): text a step larger, controls a finger tall.
+    in-out property <bool> touch: false;
+
+    // Scale (base 14 px, ratio ≈ 1.25; base 16 px on touch screens)
+    out property <length> small: root.touch ? 13px : 12px;
+    out property <length> body: root.touch ? 16px : 14px;
+    out property <length> lead: root.touch ? 18px : 16px;
+    out property <length> title: root.touch ? 23px : 21px;
+    out property <length> headline: root.touch ? 30px : 28px;
     out property <length> display: 44px;
 
-    out property <length> radius: 6px;
-    out property <length> control-height: 38px;
+    out property <length> radius: root.touch ? 8px : 6px;
+    out property <length> control-height: root.touch ? 48px : 38px;
     out property <duration> quick: 120ms;
     out property <duration> sweep: 200ms;
 }
