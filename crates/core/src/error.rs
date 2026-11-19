@@ -51,6 +51,8 @@ pub enum Error {
     SyncFork,
     #[error("the device that wrote this copy was removed from this vault")]
     DeviceRemoved,
+    #[error("this device was removed from the vault on another device")]
+    RemovedHere,
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }

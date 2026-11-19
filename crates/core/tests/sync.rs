@@ -299,7 +299,7 @@ fn a_removed_device_is_refused_and_learns_it() {
     let from_desktop = d[0].copy();
     assert!(matches!(
         d[1].try_take(&from_desktop),
-        Err(Error::DeviceRemoved)
+        Err(Error::RemovedHere)
     ));
     // Once removed, the same id can't be added again.
     assert!(matches!(

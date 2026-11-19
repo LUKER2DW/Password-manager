@@ -214,8 +214,48 @@ pub(crate) fn guard_key_id(key: &[u8]) -> [u8; 8] {
 /// What this device has already seen from each other device: the highest revision and the
 /// hash of that copy. Kept in device state between rounds (it is not secret), and passed to
 /// every [`crate::Vault::merge`].
+///
+/// Serialized as a map from device id (hex) to `[revision, copy hash (hex)]`, so it reads well
+/// in a JSON state file.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    into = "BTreeMap<String, (u64, String)>",
+    try_from = "BTreeMap<String, (u64, String)>"
+)]
 pub struct SeenRevisions(BTreeMap<DeviceId, (u64, [u8; 32])>);
+
+impl From<SeenRevisions> for BTreeMap<String, (u64, String)> {
+    fn from(seen: SeenRevisions) -> Self {
+        seen.0
+            .into_iter()
+            .map(|(device, (revision, hash))| {
+                let hash = hash.iter().map(|b| format!("{b:02x}")).collect();
+                (device.to_hex(), (revision, hash))
+            })
+            .collect()
+    }
+}
+
+impl TryFrom<BTreeMap<String, (u64, String)>> for SeenRevisions {
+    type Error = String;
+
+    fn try_from(map: BTreeMap<String, (u64, String)>) -> std::result::Result<Self, String> {
+        let mut seen = BTreeMap::new();
+        for (device, (revision, hash)) in map {
+            let device = DeviceId::from_hex(&device).ok_or("not a device id")?;
+            if hash.len() != 64 || !hash.is_ascii() {
+                return Err("not a copy hash".into());
+            }
+            let mut bytes = [0u8; 32];
+            for (i, byte) in bytes.iter_mut().enumerate() {
+                *byte = u8::from_str_radix(&hash[2 * i..2 * i + 2], 16)
+                    .map_err(|_| "not a copy hash")?;
+            }
+            seen.insert(device, (revision, bytes));
+        }
+        Ok(Self(seen))
+    }
+}
 
 impl SeenRevisions {
     pub fn new() -> Self {
@@ -274,5 +314,21 @@ impl MergeReport {
             || self.unlock_changed
             || self.guard_changed
             || self.other_changed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seen_revisions_read_back_from_json() {
+        let mut seen = SeenRevisions::new();
+        seen.note(DeviceId::from_bytes([0xab; 16]), 7, [0x5c; 32]);
+        let text = serde_json::to_string(&seen).unwrap();
+        assert!(text.contains(&"ab".repeat(16)), "{text}");
+        let back: SeenRevisions = serde_json::from_str(&text).unwrap();
+        assert_eq!(back, seen);
+        assert!(serde_json::from_str::<SeenRevisions>(r#"{"zz":[1,"00"]}"#).is_err());
     }
 }

@@ -63,8 +63,8 @@ impl Vault {
     /// [`Error::OtherVault`], [`Error::UnsupportedVersion`] for a copy written by another
     /// format version, [`Error::DecryptionFailed`] for a copy not sealed with this vault's
     /// key, [`Error::SyncRollback`] / [`Error::SyncFork`] for a replayed or forked copy,
-    /// [`Error::DeviceRemoved`] for a copy from a removed device (or when this device was
-    /// removed there), [`Error::SecretsLocked`] when taking the other copy's item lock needs
+    /// [`Error::DeviceRemoved`] for a copy from a removed device, [`Error::RemovedHere`] when
+    /// the copy says this device was removed, [`Error::SecretsLocked`] when taking the other copy's item lock needs
     /// this one's open first.
     pub fn merge(&mut self, other: &[u8], seen: &mut SeenRevisions) -> Result<MergeReport> {
         let parsed = format::parse(other)?;
@@ -148,7 +148,7 @@ impl Vault {
             && !self.sync.writer.is_none()
         {
             // This device was removed on the other one: it takes nothing more from it.
-            return Err(Error::DeviceRemoved);
+            return Err(Error::RemovedHere);
         }
         let devices_before = self.sync.devices.clone();
         for device in &theirs.sync.devices {
