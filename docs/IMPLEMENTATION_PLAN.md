@@ -259,7 +259,12 @@ Rules:
   devices, item lineage) and `Vault::merge`: items by lineage, both passwords kept on a
   conflict, rollback/fork/other-vault/removed-device copies refused; property test with
   three devices (they converge, no typed password is lost)
-- ⬜ M6.2 Folder target in the desktop app and CLI, Settings → Sync
+- ✅ M6.2 Folder target: `vault sync [FOLDER] [--stop]` in the CLI; Settings → Sync in the
+  desktop app (choose a folder, last synced, computers, Sync now, Stop syncing), with a round
+  at unlock, a few seconds after each save, every 5 minutes and when the item lock opens
+  with edits waiting for it; notices for changes, conflicts, edits waiting for the lock, a
+  new master password, refused copies and this computer removed
+- ⬜ Removing a device from the app; watching the folder instead of looking every 5 minutes
 - ⬜ M6.3 `vault-server` (axum, Docker, Tailscale, signed requests, long-poll) and WebDAV
 - ⬜ M6.4 Phone (M7.6), enrollment by QR; M6.5 nearby sync over the LAN
 - **Done when:** two devices converge; ZK-AE-Tester style malicious-server tests pass.

@@ -306,7 +306,9 @@ open one.
 
 1. ✅ **M6.1 Core**: format v7 (tombstones, revisions, writer, devices, lineage), `Vault::merge`, the
    tests of §9 except the server ones.
-2. **M6.2 Folder target** in the desktop app and CLI (`vault sync <dir>`), Settings → Sync.
+2. ✅ **M6.2 Folder target** in the desktop app and CLI (`vault sync <dir>`), Settings → Sync.
+   Not yet: removing a device from the app, and watching the folder (the app looks every 5
+   minutes, a few seconds after each save, and at unlock).
 3. **M6.3 `vault-server`** (axum, Docker, signed requests, long-poll) and its client in
    `vault-platform`; WebDAV client.
 4. **M6.4 Phone**: M7.6 on top of M6.3, enrollment by QR.

@@ -80,7 +80,8 @@ out of history (`clipboard.rs`), screen-capture blocking (`screen.rs`), locked m
 secrets (`secure_buffer.rs`), Windows Hello quick unlock (`quick_unlock.rs`), DPAPI
 (`dpapi.rs`), installed browsers (`browsers.rs`), the extension's local pipe and host
 registration (`browser_link.rs`), the emergency kit PDF (`kit_pdf.rs`), file
-helpers and secure wiping (`files.rs`), app paths (`paths.rs`).
+helpers and secure wiping (`files.rs`), app paths (`paths.rs`), sync targets and one sync
+round (`sync.rs`: the folder target, fetch, merge, this device joining the vault).
 
 ### 2.3 `crates/import` (vault-import)
 
@@ -101,7 +102,7 @@ Importers only produce `ItemData`; they never touch keys.
 ### 2.4 `crates/cli` (vault-cli)
 
 `vault init | info | list | add | show | edit | rm | generate | totp | passwd | recover | kit |
-forget | keyfile | import`. Same vault and device state as the desktop app.
+forget | keyfile | import | sync`. Same vault and device state as the desktop app.
 
 ### 2.4.1 `crates/browser` (vault-browser) and `extension/`
 
@@ -136,6 +137,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/browser.rs` | The browser extension's link: listens on the pipe, answers from the open vault |
 | `src/controller/generated.rs` | History of generated passwords (sealed per vault on this computer) |
 | `src/controller/drop_box.rs` | Logins the browser saved while the vault was locked, added at the next unlock |
+| `src/controller/syncing.rs` | Sync through a folder: Settings → Sync, rounds at unlock, after saves, every 5 minutes and on demand (folder read and written off the UI thread) |
 | `src/tray.rs` | The notification area icon (tray mode) and its menu window (`ui/tray.slint`) |
 | `src/i18n.rs` | The app's language: picks a compiled-in catalogue from `translations/` |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
