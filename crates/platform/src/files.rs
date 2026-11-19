@@ -28,16 +28,54 @@ pub fn write_for_printing(name: &str, bytes: &[u8]) -> Result<PathBuf> {
 
 /// Overwrites a file with zeros and deletes it. On SSDs and copy-on-write file systems the old
 /// blocks may survive until reused; this still removes the obvious copy.
+///
+/// A link (symbolic link or junction) is refused and left alone: writing through it would
+/// zero whatever file it points at, and deleting only the link would leave the real file.
 pub fn wipe(path: &Path) -> Result<()> {
-    if let Ok(meta) = std::fs::metadata(path) {
-        if let Ok(mut file) = std::fs::OpenOptions::new().write(true).open(path) {
-            let zeros = vec![0u8; usize::try_from(meta.len()).unwrap_or(0).min(16 << 20)];
-            let _ = file.write_all(&zeros);
-            let _ = file.sync_all();
-        }
-        std::fs::remove_file(path).context("cannot delete the file")?;
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return Ok(());
+    };
+    if is_link(&meta) {
+        anyhow::bail!(
+            "{} is a link, not the file itself: nothing was wiped",
+            path.display()
+        );
     }
+    if meta.is_file() {
+        if let Ok(mut file) = std::fs::OpenOptions::new().write(true).open(path) {
+            let _ = overwrite_with_zeros(&mut file, meta.len());
+        }
+    }
+    std::fs::remove_file(path).context("cannot delete the file")?;
     Ok(())
+}
+
+/// Writes `len` zero bytes from the start of `file` and flushes them.
+pub fn overwrite_with_zeros(file: &mut std::fs::File, len: u64) -> std::io::Result<()> {
+    let zeros = vec![0u8; 64 * 1024];
+    let mut remaining = len;
+    while remaining > 0 {
+        let chunk = remaining.min(zeros.len() as u64) as usize;
+        file.write_all(&zeros[..chunk])?;
+        remaining -= chunk as u64;
+    }
+    file.sync_all()
+}
+
+/// Whether `meta` (from `symlink_metadata`) describes a link rather than the file itself.
+pub fn is_link(meta: &std::fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    false
 }
 
 /// Wipes everything left in [`print_dir`]. Files still open in a viewer may fail to delete;
