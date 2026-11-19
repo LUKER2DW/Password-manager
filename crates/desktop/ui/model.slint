@@ -281,6 +281,7 @@ export global Messages {
         if (code == 47) { return @tr("This computer's record of the newest version of each vault couldn't be read, so it started again (the old file was kept as state.json.unreadable). An older copy of a vault is noticed again once its newest version has been opened here."); }
         if (code == 49) { return arg == "1" ? @tr("Leak check: one locked login wasn't checked, because the item lock keeps its password closed. None of the others is in a known breach. Open the item lock, then check again.") : @tr("Leak check: {} locked logins weren't checked, because the item lock keeps their passwords closed. None of the others is in a known breach. Open the item lock, then check again.", arg); }
         if (code == 50) { return @tr("Leak check done: {} found in known breaches. Change them first. Locked logins weren't checked: open the item lock, then check again.", arg); }
+        if (code == 51) { return @tr("Updated the password of “{}” from the browser. The old one is in its history.", arg); }
         if (code == 48) { return @tr("This computer couldn't record the vault's newest version ({}), so an older copy put in its place may not be noticed.", arg); }
         return "";
     }

@@ -181,6 +181,7 @@ mod notice {
     pub const DEVICE_STATE_NOT_SAVED: i32 = 48;
     pub const LEAKS_SKIPPED_LOCKED: i32 = 49;
     pub const LEAKS_FOUND_SOME_LOCKED: i32 = 50;
+    pub const BROWSER_UPDATED: i32 = 51;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
