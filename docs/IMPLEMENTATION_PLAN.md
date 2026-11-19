@@ -249,9 +249,13 @@ Rules:
 - ⬜ Installer that puts the app and the host side by side; store listing
 - **Done when:** fills logins on Chromium with confirmation; clickjacking test page fails to leak.
 
-### M6 — Sync server ⬜
-- Rust server (axum) in Docker, reachable via Tailscale only
-- OPAQUE login, encrypted item records, signed manifest, rollback/fork detection
+### M6 — Sync ⬜ ([design](spec/SYNC.md))
+- ✅ Design: one sealed copy per device on a folder, WebDAV or own server; merge in the core;
+  the server optional and blind
+- ⬜ M6.1 Core: format v7 (tombstones, writer, unlock/guard revisions, devices), `Vault::merge`
+- ⬜ M6.2 Folder target in the desktop app and CLI, Settings → Sync
+- ⬜ M6.3 `vault-server` (axum, Docker, Tailscale, signed requests, long-poll) and WebDAV
+- ⬜ M6.4 Phone (M7.6), enrollment by QR; M6.5 nearby sync over the LAN
 - **Done when:** two devices converge; ZK-AE-Tester style malicious-server tests pass.
 
 ### M7 — Android 🚧

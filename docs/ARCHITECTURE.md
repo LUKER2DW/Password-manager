@@ -133,18 +133,20 @@ Candidate libraries: the **RustCrypto** ecosystem (`argon2`, `chacha20poly1305`,
 
 ## 6. Sync
 
-- Self-hosted server (Rust, e.g. `axum`), shipped as a Docker image with a Compose file.
-- Target host: a small Linux box (Ubuntu LTS, Docker, ~4 GiB RAM). The server never runs
-  Argon2id (key stretching happens on the client), so its resource needs are tiny.
-- Exposure: reachable **only over a private overlay network** (e.g. Tailscale/WireGuard), never
-  directly from the public internet. TLS on top regardless (e.g. `tailscale serve` certificates
-  or a local reverse proxy). Defense in depth: even a fully exposed server only holds ciphertext.
-- Stores only encrypted blobs plus minimal version metadata. It never sends cryptographic
-  parameters that the client would accept without validation.
-- The client detects rollback/fork (monotonic counter authenticated in the manifest).
-- New device enrollment requires the Secret Key (QR code from an enrolled device, or typed from
-  the emergency kit).
-- Test against the ETH Zurich group's **ZK-AE-Tester** tool.
+Full design: [spec/SYNC.md](spec/SYNC.md). In short:
+
+- Every device keeps a whole vault file and works offline; sync only moves sealed copies.
+- A **server is optional**. The same engine syncs through a folder (OneDrive, Drive, Syncthing,
+  a NAS), a WebDAV host, our own `vault-server` (Docker, reached over Tailscale) or, later,
+  directly between PC and phone on the same Wi-Fi.
+- Each device writes only its own copy (`devices/<device id>.vault`) and merges the others
+  in `vault-core` (`Vault::merge`): items by id, deletions as tombstones, the newer edit wins
+  and the other password goes into the history. Nothing is lost to a conflict.
+- The other copies are opened with the vault key already in memory: the target never
+  supplies a key or a KDF parameter. Rollback, replay and forks are refused per writer.
+- The server authenticates devices by signed requests (Ed25519 keys made on each device);
+  no password or password hash reaches it.
+- The browser extension does not sync: it follows the desktop app on the same computer.
 
 ## 7. User interface: native Rust with Slint (_Proposal_, prototype passed)
 

@@ -34,12 +34,13 @@
 - Autofill **with confirmation** outside the DOM, strict origin matching
 - Offer to save newly detected credentials
 
-## Phase 4: Self-hosted sync
-- Rust server as a Docker image + Compose file, OPAQUE, encrypted blobs only
-- Reachable only over a private overlay network (e.g. Tailscale), with TLS
-- Device enrollment via QR code / Secret Key
-- Rollback/fork detection, conflict resolution
-- Testing with ZK-AE-Tester
+## Phase 4: Sync ([design](spec/SYNC.md))
+- Merge in the core (format v7: tombstones, per-device writer, unlock and guard revisions)
+- Folder target first (any cloud drive or Syncthing), then WebDAV and an optional
+  self-hosted Rust server (Docker, Tailscale only, signed device requests)
+- Device enrollment via QR code + Secret Key; removing a lost device
+- Rollback/fork detection per device, conflict copies, ZK-AE-Tester style tests
+- Later: direct PC ↔ phone sync on the same Wi-Fi
 
 ## Phase 5: Android
 - Slint Android app (same UI) + Kotlin services calling the Rust core
