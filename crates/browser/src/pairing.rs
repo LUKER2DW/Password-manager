@@ -1,8 +1,11 @@
 //! Pairing: only an extension the person connected to the app may ask for logins.
 //!
-//! The first time, the extension asks to be connected. The app makes a random key, shows a
-//! short code and waits for the person to allow it in the app's own window; the extension
-//! shows the same code. From then on every request carries a counter and an
+//! The first time, the extension asks to be connected. The app makes a random key and waits
+//! for the person in the app's own window; the extension shows a short code derived from the
+//! key, and the person types it into the app (with the master password). The app never shows
+//! the code: whatever asked to connect is told it too, so only a code read off the extension's
+//! window proves that the approval is for the extension. From then on every request carries
+//! a counter and an
 //! HMAC-SHA-256 over it, made with that key. A request without a valid one gets nothing, so
 //! a program that merely starts the native host is refused.
 //!
