@@ -17,7 +17,7 @@ use std::{
 };
 
 use sha2::{Digest, Sha256};
-use slint::{Color, ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
+use slint::{Color, ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use vault_core::{
     Error as CoreError, GuardCheck, ItemData, ItemId, ItemKind, SecretKey, Unlock, Vault,
     generator::{
@@ -1392,7 +1392,44 @@ impl Controller {
         if app.get_page() == Page::Item && app.get_d_has_code() {
             self.show_item();
         } else if app.get_page() == Page::None && app.get_place() == Place::Codes {
-            self.refresh_codes();
+            self.tick_codes();
+        }
+    }
+
+    /// Once a second on the codes list: the codes and countdowns of the rows already listed,
+    /// changed in place. Only the items that have a code are read, not the whole vault, and
+    /// the list keeps its rows (a phone's battery and a scroll position are spared). The list
+    /// itself is rebuilt by `refresh_codes`, after any change to the items.
+    fn tick_codes(&self) {
+        let codes = self.app().get_codes();
+        let state = self.state.borrow();
+        let Some(vault) = state.vault.as_ref() else {
+            return;
+        };
+        if codes.row_count() != state.code_ids.len() {
+            drop(state);
+            return self.refresh_codes();
+        }
+        for (i, id) in state.code_ids.iter().enumerate() {
+            let (Some(mut row), Ok(item)) = (codes.row_data(i), vault.get_item(id)) else {
+                continue;
+            };
+            let code = (self.check_for(vault, &item) == 0)
+                .then(|| Totp::parse(&item.totp).ok())
+                .flatten()
+                .map(|totp| (totp.now(), totp.period()));
+            let (digits, left, period) = match code {
+                Some(((digits, left), period)) => (grouped(&digits), left, period),
+                None => (String::new(), 0, 30),
+            };
+            let left = i32::try_from(left).unwrap_or(0);
+            let period = i32::try_from(period).unwrap_or(30);
+            if row.code != digits.as_str() || row.left != left || row.period != period {
+                row.code = digits.into();
+                row.left = left;
+                row.period = period;
+                codes.set_row_data(i, row);
+            }
         }
     }
 
