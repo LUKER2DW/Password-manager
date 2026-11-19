@@ -528,6 +528,133 @@ pub fn forget(ctx: &Context) -> Result<()> {
     Ok(())
 }
 
+/// `vault sync [FOLDER] [--stop]`: one round with the copies in the folder (SYNC.md).
+pub fn sync(
+    ctx: &Context,
+    prompter: &mut Prompter,
+    folder: Option<PathBuf>,
+    stop: bool,
+) -> Result<()> {
+    use vault_platform::{
+        DeviceState,
+        sync::{self, Target as _},
+    };
+
+    let bytes = session::read_vault_file(&ctx.path)?;
+    let id = Vault::inspect(&bytes).map_err(explain)?.id_hex;
+    let mut state = DeviceState::load()?;
+    if stop {
+        state.set_sync_folder(&id, None);
+        state.save()?;
+        println!("This vault no longer syncs on this device. The copies in the folder were left.");
+        return Ok(());
+    }
+    let place = state.sync_place(&id);
+    let folder = match (folder, &place) {
+        (Some(folder), _) => folder,
+        (None, Some(place)) => place.folder.clone(),
+        (None, None) => bail!("no sync folder yet: run `vault sync <folder>` once"),
+    };
+    if !folder.is_dir() {
+        bail!("{} is not a folder", folder.display());
+    }
+    let device = state.device_id().map_err(explain)?;
+    state.save()?;
+    let (mut seen, published) = match place.filter(|p| p.folder == folder) {
+        Some(place) => (place.seen, place.published),
+        None => Default::default(),
+    };
+
+    let mut session = ctx.unlock(prompter)?;
+    let target = sync::FolderTarget::new(&folder, &id)?;
+    let joined = sync::join(&mut session.vault, device, &sync::device_name()).map_err(explain)?;
+    let fetched = sync::fetch(&target, device)?;
+    for (other, why) in &fetched.unreadable {
+        eprintln!("Couldn't read the copy of device {}: {why}", short(other));
+    }
+    let mut round = sync::merge_all(&mut session.vault, &fetched, &mut seen);
+    if round.removed_here {
+        state = DeviceState::load()?;
+        state.set_sync_folder(&id, None);
+        state.save()?;
+        bail!("this device was removed from the vault on another device: sync is off here");
+    }
+    if round.waiting_for_lock() > 0 {
+        // Edits made on two devices to items behind the item lock: opened, they are folded.
+        println!(
+            "{} item(s) were changed on two devices and are behind the item lock.",
+            round.waiting_for_lock()
+        );
+        session.open_secrets(prompter)?;
+        round = sync::merge_all(&mut session.vault, &fetched, &mut seen);
+    }
+    let changed = round.changed() || joined;
+    if changed {
+        session.save()?;
+    }
+    let mut published_now = published;
+    if changed || session.vault.revision() > published {
+        let saved = storage::read(&session.path).map_err(explain)?;
+        target.put(device, &saved)?;
+        published_now = session.vault.revision();
+    }
+    // Read again: saving the vault recorded its revision in the same file.
+    let mut state = DeviceState::load()?;
+    state.set_sync_folder(&id, Some(&folder));
+    state.record_sync(&id, &seen, unix_now(), published_now);
+    state.save()?;
+
+    let others = fetched.copies.len();
+    let (mut added, mut updated, mut removed) = (0, 0, 0);
+    for report in &round.reports {
+        added += report.added;
+        updated += report.updated;
+        removed += report.removed;
+    }
+    println!(
+        "Synced with {others} other device(s) in {}: {added} added, {updated} updated, \
+         {removed} removed here.",
+        folder.display()
+    );
+    if round.conflicts() > 0 {
+        println!(
+            "{} item(s) were changed on two devices: the newer version was kept, and the \
+             other password is in the item's history.",
+            round.conflicts()
+        );
+    }
+    if round.waiting_for_lock() > 0 {
+        println!(
+            "{} item(s) still wait for the item lock: each device keeps its own version.",
+            round.waiting_for_lock()
+        );
+    }
+    if round.unlock_changed() {
+        println!(
+            "The master password, keyfile or Recovery Key was changed on another device: \
+             use that one from now on."
+        );
+    }
+    for (other, err) in round.refused {
+        eprintln!(
+            "Not used: the copy of device {}: {}",
+            short(&other),
+            explain(err)
+        );
+    }
+    Ok(())
+}
+
+fn short(device: &vault_core::sync::DeviceId) -> String {
+    device.to_hex()[..8].to_owned()
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
 pub struct ImportRequest {
     pub file: PathBuf,
     /// `None` = detect from the contents.

@@ -94,6 +94,16 @@ enum Command {
     },
     /// Import an export from another password manager or a browser (JSON, CSV or KDBX).
     Import(ImportArgs),
+    /// Sync this vault with your other devices through a folder they all see (OneDrive,
+    /// Google Drive, Dropbox, Syncthing, a network share). Each device writes only its own
+    /// sealed copy there; the others' copies are merged in.
+    Sync {
+        /// The folder, the first time (remembered afterwards).
+        folder: Option<PathBuf>,
+        /// Stop syncing this vault on this device (the copies in the folder are left).
+        #[arg(long, conflicts_with = "folder")]
+        stop: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -398,6 +408,7 @@ fn run() -> Result<()> {
                 KeyfileCommand::Remove => commands::KeyfileAction::Remove,
             },
         ),
+        Command::Sync { folder, stop } => commands::sync(&ctx, &mut prompter, folder, stop),
         Command::Import(args) => commands::import(
             &ctx,
             &mut prompter,

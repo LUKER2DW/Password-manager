@@ -331,3 +331,82 @@ fn keyfile_as_a_third_factor() {
     std::fs::remove_file(&moved).unwrap();
     assert!(env.ok(&["list"], &[NEW_MASTER]).contains("Site"));
 }
+
+#[test]
+fn two_devices_sync_through_a_folder() {
+    let desktop = Env::new();
+    desktop.ok(
+        &["init", "--kdf-target-ms", "50", "--kdf-memory-mib", "64"],
+        &[MASTER],
+    );
+    desktop.ok(
+        &[
+            "add",
+            "Desktop item",
+            "-u",
+            "d",
+            "--url",
+            "https://d.example",
+        ],
+        &[MASTER, "desktop-item-password"],
+    );
+    // The phone (another device: its own state folder) starts from a copy of the file. The
+    // Secret Key comes from the same credential store here.
+    let phone = Env::new();
+    std::fs::copy(&desktop.vault, &phone.vault).unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let folder_arg = folder.path().to_str().unwrap();
+
+    desktop.fails(&["sync"], &[MASTER]); // no folder yet
+    let first = desktop.ok(&["sync", folder_arg], &[MASTER]);
+    assert!(first.contains("Synced with 0 other device(s)"), "{first}");
+    let joined = phone.ok(&["sync", folder_arg], &[MASTER]);
+    assert!(joined.contains("Synced with 1 other device(s)"), "{joined}");
+
+    phone.ok(
+        &["add", "Phone item", "-u", "p", "--url", "https://p.example"],
+        &[MASTER, "phone-item-password"],
+    );
+    phone.ok(&["sync"], &[MASTER]);
+    let back = desktop.ok(&["sync"], &[MASTER]);
+    assert!(back.contains("1 added"), "{back}");
+    let list = desktop.ok(&["list"], &[MASTER]);
+    assert!(
+        list.contains("Phone item") && list.contains("Desktop item"),
+        "{list}"
+    );
+
+    // A deletion goes round too.
+    desktop.ok(&["rm", "Phone item", "--yes"], &[MASTER]);
+    desktop.ok(&["sync"], &[MASTER]);
+    let gone = phone.ok(&["sync"], &[MASTER]);
+    assert!(gone.contains("1 removed"), "{gone}");
+    assert!(!phone.ok(&["list"], &[MASTER]).contains("Phone item"));
+
+    // Only one sealed copy per device in the folder, nothing in clear.
+    let devices = std::fs::read_dir(folder.path())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path()
+        .join("devices");
+    let mut copies: Vec<String> = std::fs::read_dir(&devices)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    copies.sort();
+    assert_eq!(copies.len(), 2, "{copies:?}");
+    for name in &copies {
+        let bytes = std::fs::read(devices.join(name)).unwrap();
+        assert!(bytes.starts_with(b"PMVAULT\0"));
+        assert!(
+            !bytes
+                .windows(13)
+                .any(|w| w == b"Desktop item\0"[..13].as_ref())
+        );
+    }
+
+    phone.ok(&["sync", "--stop"], &[]);
+    phone.fails(&["sync"], &[MASTER]);
+}
