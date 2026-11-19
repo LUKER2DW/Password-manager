@@ -17,6 +17,7 @@ pub mod quick_unlock;
 pub mod screen;
 pub mod secret_store;
 pub mod secure_buffer;
+pub mod sync;
 
-pub use device::{DeviceState, RollbackStatus, StateFile};
+pub use device::{DeviceState, RollbackStatus, StateFile, SyncPlace};
 pub use secure_buffer::SecretBuffer;

@@ -5,7 +5,10 @@ use std::{collections::BTreeMap, fs};
 
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
-use vault_core::storage;
+use vault_core::{
+    storage,
+    sync::{DeviceId, SeenRevisions},
+};
 
 use crate::paths;
 
@@ -20,6 +23,9 @@ pub struct DeviceState {
     /// Vault files opened on this device, most recent first (paths only).
     #[serde(default)]
     recent_vaults: Vec<String>,
+    /// This device's id for sync (hex), made the first time a vault is synced here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    device_id: Option<String>,
 }
 
 /// How many vault files the device remembers.
@@ -31,6 +37,32 @@ struct VaultState {
     /// Where the vault's keyfile was last found (a location, never the key).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     keyfile_path: Option<String>,
+    /// Sync: the folder chosen for this vault on this device, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sync_folder: Option<String>,
+    /// Sync: the copies already seen from each other device (rollback and fork checks).
+    #[serde(default, skip_serializing_if = "is_empty_seen")]
+    sync_seen: SeenRevisions,
+    /// Sync: when the last round finished (Unix seconds), and the revision last published.
+    #[serde(default)]
+    sync_at: i64,
+    #[serde(default)]
+    sync_published: u64,
+}
+
+fn is_empty_seen(seen: &SeenRevisions) -> bool {
+    *seen == SeenRevisions::default()
+}
+
+/// What this device keeps about syncing one vault.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SyncPlace {
+    pub folder: std::path::PathBuf,
+    pub seen: SeenRevisions,
+    /// Unix seconds of the last finished round; 0 = never.
+    pub at: i64,
+    /// The vault revision whose copy was last put in the folder.
+    pub published: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,6 +277,47 @@ impl DeviceState {
     pub fn set_keyfile_path(&mut self, vault_id: &str, path: Option<&std::path::Path>) {
         let entry = self.vaults.entry(vault_id.to_owned()).or_default();
         entry.keyfile_path = path.map(|p| p.to_string_lossy().into_owned());
+    }
+
+    /// This device's sync id, made (and kept, once saved) the first time it is asked for.
+    pub fn device_id(&mut self) -> vault_core::Result<DeviceId> {
+        if let Some(id) = self.device_id.as_deref().and_then(DeviceId::from_hex) {
+            return Ok(id);
+        }
+        let id = DeviceId::generate()?;
+        self.device_id = Some(id.to_hex());
+        Ok(id)
+    }
+
+    /// Where and how vault `vault_id` syncs on this device; `None` when it doesn't.
+    pub fn sync_place(&self, vault_id: &str) -> Option<SyncPlace> {
+        let state = self.vaults.get(vault_id)?;
+        Some(SyncPlace {
+            folder: std::path::PathBuf::from(state.sync_folder.as_deref()?),
+            seen: state.sync_seen.clone(),
+            at: state.sync_at,
+            published: state.sync_published,
+        })
+    }
+
+    /// Starts syncing vault `vault_id` through `folder`, or (with `None`) stops. Stopping
+    /// forgets what was seen: syncing again later starts afresh.
+    pub fn set_sync_folder(&mut self, vault_id: &str, folder: Option<&std::path::Path>) {
+        let entry = self.vaults.entry(vault_id.to_owned()).or_default();
+        entry.sync_folder = folder.map(|p| p.to_string_lossy().into_owned());
+        if folder.is_none() {
+            entry.sync_seen = SeenRevisions::default();
+            entry.sync_at = 0;
+            entry.sync_published = 0;
+        }
+    }
+
+    /// Records a finished round.
+    pub fn record_sync(&mut self, vault_id: &str, seen: &SeenRevisions, at: i64, published: u64) {
+        let entry = self.vaults.entry(vault_id.to_owned()).or_default();
+        entry.sync_seen = seen.clone();
+        entry.sync_at = at;
+        entry.sync_published = entry.sync_published.max(published);
     }
 }
 
