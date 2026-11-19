@@ -9,8 +9,9 @@ Status: early development, like the rest of the project. Use a test vault.
 
 ## What it does
 
-- **Connect once.** The first time you open it, it offers *Connect*. The app comes forward,
-  shows a code and asks for your master password (typed in the app, never in the browser).
+- **Connect once.** The first time you open it, it offers *Connect* and shows a six-digit
+  code. The app comes forward and asks you to type that code, then your master password
+  (both typed in the app, never in the browser).
   The extension then holds a connection key (never a password) and signs every request.
 - **Under a sign-in field**, a small card with an arrow pointing at the field lists the
   usernames saved for that exact site (same scheme, host and port; https only), with the

@@ -103,7 +103,7 @@
     "message": "Continue in the app"
   },
   "pairWaitText": {
-    "message": "The password manager is asking for your master password. It shows the code below. This window carries on by itself once you connect."
+    "message": "The password manager asks for the code below, then your master password: type both there. This window carries on by itself once you connect."
   },
   "pairRestart": {
     "message": "Start over"
