@@ -279,6 +279,14 @@ impl DeviceState {
         entry.keyfile_path = path.map(|p| p.to_string_lossy().into_owned());
     }
 
+    /// Whether this device already has a sync id.
+    pub fn has_device_id(&self) -> bool {
+        self.device_id
+            .as_deref()
+            .and_then(DeviceId::from_hex)
+            .is_some()
+    }
+
     /// This device's sync id, made (and kept, once saved) the first time it is asked for.
     pub fn device_id(&mut self) -> vault_core::Result<DeviceId> {
         if let Some(id) = self.device_id.as_deref().and_then(DeviceId::from_hex) {
