@@ -181,7 +181,8 @@ pub fn parse_expiry(text: &str) -> Option<(u32, u32)> {
     let text = text.trim();
     let (month, year) = match text.split_once(['/', '-', ' ', '.']) {
         Some((m, y)) => (m.trim(), y.trim()),
-        None if text.len() == 4 => text.split_at(2),
+        // Four bytes that are not four ASCII characters (`a€`) have no split after the second.
+        None if text.len() == 4 && text.is_ascii() => text.split_at(2),
         None => return None,
     };
     let month: u32 = month.parse().ok()?;
@@ -217,11 +218,22 @@ pub enum CardProblem {
 }
 
 /// The card's details as typed in the editor. Empty means "not stored".
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct CardDetails {
     pub number: String,
     pub expiry: String,
     pub security_code: String,
+}
+
+/// Never prints the number or the security code (AGENTS.md §4.1, rule 2).
+impl std::fmt::Debug for CardDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CardDetails")
+            .field("number", &masked(&digits(&self.number)))
+            .field("expiry", &self.expiry)
+            .field("security_code", &"<redacted>")
+            .finish()
+    }
 }
 
 impl CardDetails {
@@ -341,6 +353,9 @@ mod tests {
         assert_eq!(parse_expiry("0829"), Some((8, 2029)));
         assert_eq!(parse_expiry("13/29"), None);
         assert_eq!(parse_expiry("soon"), None);
+        // Four bytes but not four characters: refused, never a panic.
+        assert_eq!(parse_expiry("a€"), None);
+        assert_eq!(parse_expiry("é€"), None);
         assert_eq!(format_expiry((8, 2029)), "08/29");
         assert!(is_expired((10, 2026), (11, 2026)));
         assert!(

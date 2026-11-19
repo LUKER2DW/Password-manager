@@ -900,6 +900,23 @@ impl Vault {
             .collect()
     }
 
+    /// Runs `change`: a change to what opens the vault (password, keyfile, hashing, Recovery
+    /// Key) together with the write that makes it real. When it fails, the vault is put back
+    /// as it was, so the copy in memory never needs a factor the file on disk doesn't (a
+    /// keyfile that was never saved, say) and a later save can't lock the person out.
+    pub fn change_unlock<T>(&mut self, change: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
+        let header = self.header.clone();
+        let guard = self.guard.clone();
+        let revision = self.revision;
+        let result = change(self);
+        if result.is_err() {
+            self.header = header;
+            self.guard = guard;
+            self.revision = revision;
+        }
+        result
+    }
+
     /// Re-protects the vault with a new master password and/or Secret Key, KDF cost and
     /// keyfile. The vault key and items are unchanged; only the password slot is rewritten.
     ///
@@ -1142,6 +1159,47 @@ mod tests {
         edit(&mut header);
         let header_bytes = format::encode_header(&header).unwrap();
         format::assemble(&header_bytes, parsed.body).unwrap()
+    }
+
+    #[test]
+    fn a_failed_unlock_change_leaves_the_vault_as_it_was() {
+        let secret_key = SecretKey::generate().unwrap();
+        let mut vault = Vault::create(
+            "correct horse battery staple",
+            &secret_key,
+            None,
+            KdfParams::minimum().unwrap(),
+        )
+        .unwrap();
+        let revision = vault.revision();
+        let keyfile = Keyfile::from_bytes(&[7u8; 32]).unwrap();
+        // The keyfile is added, the write "fails".
+        let failed: Result<()> = vault.change_unlock(|vault| {
+            let kdf = vault.kdf_params().clone();
+            vault.change_password(
+                "correct horse battery staple",
+                &secret_key,
+                Some(&keyfile),
+                &kdf,
+            )?;
+            vault.to_bytes()?;
+            Err(Error::Malformed)
+        });
+        assert!(failed.is_err());
+        assert_eq!(vault.revision(), revision);
+        assert!(
+            !vault.needs_keyfile(),
+            "the unsaved keyfile is not required"
+        );
+        let bytes = vault.to_bytes().unwrap();
+        Vault::open(
+            &bytes,
+            Unlock::Password {
+                password: "correct horse battery staple",
+                secret_key: &secret_key,
+            },
+        )
+        .unwrap();
     }
 
     #[test]
