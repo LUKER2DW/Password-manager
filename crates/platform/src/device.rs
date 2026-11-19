@@ -119,6 +119,18 @@ impl Default for GeneratorPrefs {
     }
 }
 
+/// What [`DeviceState::load_or_set_aside`] found in the state file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StateFile {
+    /// Read as it was, or there was none yet.
+    Read,
+    /// It couldn't be read: moved to `state.json.unreadable` (kept), and a fresh state started.
+    SetAside,
+    /// It couldn't be read nor moved: a fresh state in memory only. Don't save it, or it
+    /// would replace the file.
+    Unreadable,
+}
+
 /// Outcome of comparing an opened vault with what this device has seen before.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RollbackStatus {
@@ -163,6 +175,38 @@ impl DeviceState {
                 .with_context(|| format!("reading {}", path.display())),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+        }
+    }
+
+    /// Like [`DeviceState::load`], for the apps: a state file that can't be read is never
+    /// written over (it holds the highest revision seen of every vault) and never locks the
+    /// person out. It is moved to `state.json.unreadable`, kept, and a fresh state starts;
+    /// [`StateFile`] says which happened, so the app can tell the person that older copies
+    /// of their vaults aren't caught until they are opened again here.
+    pub fn load_or_set_aside() -> (Self, StateFile) {
+        match paths::app_dir() {
+            Ok(dir) => Self::load_or_set_aside_at(&dir.join("state.json")),
+            Err(_) => (Self::default(), StateFile::Unreadable),
+        }
+    }
+
+    fn load_or_set_aside_at(path: &std::path::Path) -> (Self, StateFile) {
+        match fs::read(path) {
+            Ok(bytes) => {
+                if let Ok(state) = serde_json::from_slice(&bytes) {
+                    return (state, StateFile::Read);
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return (Self::default(), StateFile::Read);
+            }
+            Err(_) => {}
+        }
+        if fs::rename(path, path.with_file_name("state.json.unreadable")).is_ok() {
+            (Self::default(), StateFile::SetAside)
+        } else {
+            // Still there (held by another program, say): left alone, and not saved over.
+            (Self::default(), StateFile::Unreadable)
         }
     }
 
@@ -214,6 +258,36 @@ pub fn record_revision(vault_id: &str, revision: u64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unreadable_state_file_is_set_aside_not_written_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        assert_eq!(DeviceState::load_or_set_aside_at(&path).1, StateFile::Read);
+
+        let mut state = DeviceState::default();
+        state.record_revision("v", 7);
+        fs::write(&path, serde_json::to_vec(&state).unwrap()).unwrap();
+        let (read, file) = DeviceState::load_or_set_aside_at(&path);
+        assert_eq!(file, StateFile::Read);
+        assert_eq!(
+            read.check_rollback("v", 6),
+            RollbackStatus::Older {
+                revision: 6,
+                highest_seen: 7
+            }
+        );
+
+        fs::write(&path, b"{ damaged").unwrap();
+        let (fresh, file) = DeviceState::load_or_set_aside_at(&path);
+        assert_eq!(file, StateFile::SetAside);
+        assert_eq!(fresh.check_rollback("v", 0), RollbackStatus::Ok);
+        assert!(!path.exists());
+        assert_eq!(
+            fs::read(dir.path().join("state.json.unreadable")).unwrap(),
+            b"{ damaged"
+        );
+    }
 
     #[test]
     fn rollback_detection() {

@@ -18,5 +18,5 @@ pub mod screen;
 pub mod secret_store;
 pub mod secure_buffer;
 
-pub use device::{DeviceState, RollbackStatus};
+pub use device::{DeviceState, RollbackStatus, StateFile};
 pub use secure_buffer::SecretBuffer;
