@@ -651,41 +651,25 @@ export component DetailPage inherits Rectangle {
                 }
             }
 
-            if root.notes != "": VerticalLayout {
-                padding-top: 14px;
-                spacing: 8px;
-                HorizontalLayout {
-                    spacing: 10px;
-                    alignment: start;
-                    FieldIcon { name: "note"; size: 26px; }
-                    Text {
-                        text: @tr("Notes");
-                        font-size: Theme.body;
-                        color: Theme.graphite;
-                        vertical-alignment: center;
-                    }
+            // Notes read like every other fact: label on the left, the eye on the right, and
+            // the text under the row while it is shown.
+            if root.notes != "": FieldRow {
+                label: @tr("Notes");
+                icon: "note";
+                value: root.notes-shown ? "" : @tr("Hidden");
+                EyeButton {
+                    open: root.notes-shown;
+                    clicked => { root.notes-shown = !root.notes-shown; }
                 }
-                if root.notes-shown: Text {
+            }
+            if root.notes != "" && root.notes-shown: VerticalLayout {
+                padding-top: 6px;
+                padding-bottom: 10px;
+                Text {
                     text: root.notes;
                     font-size: Theme.body;
                     color: Theme.ink;
                     wrap: word-wrap;
-                }
-                if root.notes-shown: HorizontalLayout {
-                    alignment: start;
-                    QuietButton {
-                        outlined: true;
-                        text: @tr("Hide notes");
-                        clicked => { root.notes-shown = false; }
-                    }
-                }
-                if !root.notes-shown: HorizontalLayout {
-                    alignment: start;
-                    QuietButton {
-                        outlined: true;
-                        text: @tr("Show notes");
-                        clicked => { root.notes-shown = true; }
-                    }
                 }
             }
 
