@@ -116,10 +116,13 @@ pub(crate) fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
                 .and_then(|v| non_empty(Some(v)))
         };
 
-        let url = get(columns.url);
-        let username = get(columns.username).or_else(|| get(columns.email));
+        // Text cells may carry the mark our export puts on formula-like text.
+        let text = |column: Option<usize>| get(column).map(crate::export::from_text);
+
+        let url = text(columns.url);
+        let username = text(columns.username).or_else(|| text(columns.email));
         let password = get(columns.password);
-        let notes = get(columns.notes);
+        let notes = text(columns.notes);
         if url.is_none() && username.is_none() && password.is_none() && notes.is_none() {
             report
                 .warnings
@@ -136,7 +139,7 @@ pub(crate) fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
             Some("card") => ItemKind::Card,
             _ => ItemKind::Login,
         };
-        let title = get(columns.title)
+        let title = text(columns.title)
             .or_else(|| url.as_deref().and_then(host_of))
             .unwrap_or_else(|| "Untitled".into());
 
@@ -158,7 +161,7 @@ pub(crate) fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
             item.password_changed_at = changed / 1000;
         }
         // KeePassXC exports its root group as "Root/…".
-        let folder = get(columns.folder).map(|folder| {
+        let folder = text(columns.folder).map(|folder| {
             let trimmed = folder.strip_prefix("Root/").unwrap_or(&folder);
             if trimmed == "Root" {
                 String::new()
@@ -167,7 +170,7 @@ pub(crate) fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
             }
         });
         // Bitwarden CSV: "name: value" per line.
-        for line in get(columns.fields).unwrap_or_default().lines() {
+        for line in text(columns.fields).unwrap_or_default().lines() {
             if let Some((name, value)) = line.split_once(": ") {
                 item.custom_fields.push(CustomField {
                     name: name.to_owned(),

