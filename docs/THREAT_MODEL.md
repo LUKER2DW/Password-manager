@@ -77,9 +77,13 @@ On top of that:
 - The browser extension stores no secrets; it asks the native app for each credential. The
   app decides whether the page's origin is the login's, and announces every fill. Logins are
   picked in the extension's own window or in a small frame under a sign-in field.
-  Requests are accepted only from the extension the person connected (pairing, with a code
-  allowed in the app), and a locked login needs Windows Hello or the item lock's PIN for
-  each fill.
+  Requests are accepted only from the extension the person connected (pairing), and a
+  locked login needs Windows Hello or the item lock's PIN for each fill. To connect, the
+  person types into the app the six-digit code the extension's own window shows, then the
+  master password. The app never shows that code: any program that asks the app to connect
+  is told the code too, so only the code read off the extension's window ties the approval
+  to the extension. A program that sends its own request gets a dialog the person can't
+  complete without a matching code.
   Known limit: a program already running as the same Windows user can copy the browser's
   stored data, pairing key included, and then ask like the extension does. It gets nothing while the vault is locked and
   nothing behind the item lock. Filling needs the exact site of the login; showing or copying

@@ -88,8 +88,11 @@ sealed    = seal(guard_key, pad(ItemSecrets), aad = "vault-v0/item-secrets" ‖ 
 ```
 
 `slot` is 0x01 for the PIN or password and 0x02 for the copy wrapped by the master password
-(so a forgotten PIN can be replaced; rewritten when the master password changes while the
-guard key is in memory). `sealed` sits inside the item, which is then sealed as usual (§5), so
+(so a forgotten PIN can be replaced). When the master password changes, that copy is rewrapped
+under the new password if the guard key is in memory, and removed if it is not: kept as it
+was, the old master password would still open guarded secrets. The apps open the guard with
+the current master password before changing it, so the copy normally follows; once removed,
+it comes back the next time the guard is set up with the master password. `sealed` sits inside the item, which is then sealed as usual (§5), so
 tampering, swapping and rollback protection are unchanged; the AAD ties the secrets to their
 item. The guard key leaves memory when the secrets are locked again.
 
