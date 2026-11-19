@@ -2955,7 +2955,35 @@ impl Controller {
             })
             .collect();
         drop(state);
-        app.set_auth_rows(ModelRc::from(Rc::new(VecModel::from(rows))));
+        // Once a second only the countdowns move (and every 30 s the codes): with the same
+        // rows listed, those are changed in place. A new model would make the list build
+        // every row again, icons included, each second.
+        let current = app.get_auth_rows();
+        let same_rows = current.row_count() == rows.len()
+            && rows.iter().enumerate().all(|(i, row)| {
+                current.row_data(i).is_some_and(|old| {
+                    old.title == row.title
+                        && old.subtitle == row.subtitle
+                        && old.has_icon == row.has_icon
+                        && old.initial == row.initial
+                        && old.tint == row.tint
+                })
+            });
+        if !same_rows {
+            app.set_auth_rows(ModelRc::from(Rc::new(VecModel::from(rows))));
+            return;
+        }
+        for (i, row) in rows.into_iter().enumerate() {
+            let moved = current.row_data(i).is_some_and(|old| {
+                old.code != row.code
+                    || old.left != row.left
+                    || old.period != row.period
+                    || old.locked != row.locked
+            });
+            if moved {
+                current.set_row_data(i, row);
+            }
+        }
     }
 
     fn auth_copy(&self, index: i32) {
