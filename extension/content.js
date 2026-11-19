@@ -188,7 +188,7 @@
         if (anchor) dismissed.add(anchor);
         close("logins");
       }
-      if (event.key === "Enter" && event.target?.tagName === "INPUT") report();
+      if (event.key === "Enter" && event.isTrusted && event.target?.tagName === "INPUT") report();
     },
     true,
   );
@@ -199,6 +199,9 @@
 
   // ---- what was typed, when the form is sent ----
 
+  // Only what the person did counts: a page script that fills the fields and dispatches a
+  // click or a submit of its own would otherwise get "Save this login?" or "Update the saved
+  // password?" offered for a password it chose.
   let reported = "";
   function report() {
     if (retired) return;
@@ -210,10 +213,11 @@
     if (typed.password) say({ kind: "submitted", username: typed.username, password: typed.password });
     else if (typed.username) say({ kind: "username-step", username: typed.username });
   }
-  document.addEventListener("submit", report, true);
+  document.addEventListener("submit", (event) => event.isTrusted && report(), true);
   document.addEventListener(
     "click",
     (event) => {
+      if (!event.isTrusted) return;
       const button = event.target?.closest?.("button, input[type=submit], [role=button]");
       if (button) report();
     },

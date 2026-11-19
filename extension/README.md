@@ -64,6 +64,10 @@ Status: early development, like the rest of the project. Use a test vault.
   that is not behind the item lock (for a locked one it says it can't tell), so the extension
   can't test guesses against locked logins.
 - A one-time code, like a password, leaves the app only for a page of the login's own site.
+- Only what the person does counts as signing in: submits and clicks a page script makes up
+  are ignored, so a page can't get an offer for a password it chose by itself. A page that
+  sets its fields before a real click still can, which is why an update always asks and
+  keeps the old password in the login's history.
 
 To use one login on several sites, save `*.example.com` as its website in the app: it then
 covers `example.com` and every site under it. A name anyone can register under (`*.co.uk`,
