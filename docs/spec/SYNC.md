@@ -1,8 +1,8 @@
 # Sync — design
 
-> Status: **design, not built** (milestone M6). This replaces the earlier sketch in
-> ARCHITECTURE.md §6. Byte layouts here become normative when format v7 lands
-> (VAULT_FORMAT.md); until then they are the plan.
+> Status: **M6.1 built** (format v7 and `Vault::merge` in `vault-core`, tested in
+> `crates/core/tests/sync.rs`); the targets (§5) are not. Byte layouts are in
+> [VAULT_FORMAT.md](VAULT_FORMAT.md) §3. This replaces the earlier sketch in ARCHITECTURE.md §6.
 
 ## 1. What sync has to do
 
@@ -20,7 +20,7 @@ files by hand, and without trusting anything between the devices.
   parameter or an unauthenticated byte.
 - **No data is lost to a conflict.** Two devices that changed the same login offline both
   keep what they typed: the newer version wins, and the other password goes into the
-  history or becomes a conflict copy (§4.3).
+  history; with the item lock closed, each keeps its own version until it is opened (§4.3).
 - **The browser extension does not sync.** It holds no secrets and talks only to the desktop
   app on the same computer (ARCHITECTURE.md §5). On the phone, the Autofill Service of the phone
   app plays that role. So "PC ↔ phone ↔ extension" is really "PC ↔ phone". The extension
@@ -100,49 +100,60 @@ impl Vault {
 
 ### 4.2 Items
 
-Items are matched by id. For each id:
+Items are matched by id. Each copy remembers, per item, the last few versions (up to 8) its
+current one was made from (`lineage`: a short digest of each earlier record, CRYPTO.md §6.1).
+A record is copied between devices byte for byte, so the digest names the same version on
+every device. For each id:
 
 | Here | There | Result |
 |---|---|---|
-| item | nothing | keep ours, unless there is a tombstone for it (below) |
+| item | nothing | keep ours, unless a tombstone covers it (below) |
 | nothing | item | add theirs, same rule |
-| item | item, same `revision` and `updated_at` | unchanged |
-| item | item, different | the newer wins (§4.3) |
+| the same record | | unchanged |
+| item | made from ours (ours is in its lineage) | take theirs as it is |
+| made from theirs | item | keep ours |
+| item | neither made from the other | both changed: §4.3 |
 
-**Deleting leaves a tombstone** (`id`, `deleted_at`, format v7). A missing item never means
-"deleted": a copy that simply doesn't have an item adds nothing and removes nothing.
-Tombstones are merged by id (latest `deleted_at`). An item is removed by a tombstone only if
-it was not changed after the deletion (`updated_at <= deleted_at`). An edit made on one device
-while another deleted the item keeps the item: losing an edit is worse than a login that has
-to be deleted twice. Tombstones are kept for 400 days, then dropped. A device that has been
-offline for longer is asked to sync from scratch: it takes the other copy and adds only its
-own items that are newer than the tombstones it lost.
+**Deleting leaves a tombstone** (`id`, `deleted_at`). A missing item never means "deleted":
+a copy that simply doesn't have an item adds nothing and removes nothing. Tombstones are
+merged by id (latest `deleted_at`). A tombstone removes an item only if the item was not
+changed after the deletion (`updated_at <= deleted_at`). An edit made on one device while
+another deleted the item keeps the item: losing an edit is worse than a login that has to be
+deleted twice. Tombstones are dropped after 400 days. A device offline for longer could bring
+an item back. Asking such a device to start again from another copy is not built yet.
 
 ### 4.3 Two devices changed the same item
 
-"Newer" is a total order, so every device reaches the same result in any order:
-`(revision, updated_at, SHA-256 of the item record)`, compared in that order.
+Both versions are read in full (with the item lock open when they are sealed).
 
-- The winner is kept as it is.
-- If the loser's password differs and isn't already in the winner's history, it is added to
-  the winner's `password_history` (with `replaced_at` = the loser's `password_changed_at`).
-  The winner's revision then becomes `max + 1`. Both devices compute the same item, so the
-  next merge sees it as unchanged.
-- If the loser's secrets can't be read (the item lock is closed and the item is sealed), the
-  loser is kept as a **conflict copy**: a new item whose id is
-  `SHA-256("vault-v0/conflict" ‖ loser id ‖ loser revision)[..16]`, the same on every device,
-  titled "<title> (conflict)" in the UI. The person merges or deletes it.
-- `MergeReport.conflicts` lists the titles, so the app can show "Changed on two devices: kept
-  the newer version" with a link to each.
+- "Newer" is a total order, so every device reaches the same result in any order:
+  `(revision, updated_at, SHA-256 of the item's contents without its password history)`.
+  The newer one wins.
+- Every password of the other version that the winner doesn't know (its password and its
+  history) is added to the winner's `password_history`, oldest first, cut to
+  `history_limit`. The result keeps the winner's revision and change time, so it ranks as the
+  winner did: a third device's concurrent edit compares with it exactly as with the winner.
+- Two devices that folded the same edits each made their own record with the same contents.
+  When two versions have equal contents, every device keeps the one with the smaller digest.
+- The lineage of the result lists both versions, so neither comes back as "concurrent".
+- `MergeReport.conflicts` lists the ids, so the app can show "Changed on two devices: kept the
+  newer version" with a link to each.
+- **The item lock is closed and a version is sealed:** the passwords can't be read, so this
+  copy keeps its own version and counts it in `MergeReport.waiting_for_lock`. The app asks
+  for the PIN and merges the same copy again (`SeenRevisions` accepts a copy it has seen once
+  more). Nothing is lost while it waits: each device still has its own version. An item that
+  was edited more than 8 times on one device between two syncs looks concurrent too. It is
+  then folded, which is harmless, or waits for the lock.
 
-Password history of both sides is merged (union by `(password, replaced_at)`, oldest first,
-cut to `history_limit`).
+Tested as a property: whatever three devices do offline (add, edit, delete), after their
+copies have gone round they hold the same items, and every password typed into an item that
+is still there is its password or in its history.
 
 ### 4.4 The rest of the body
 
 | Part | Rule |
 |---|---|
-| Folders | Like items: by id, newer wins by `(updated_at, hash)`, folder tombstones. Items whose folder is gone go to "No folder" |
+| Folders | By id, newer wins by `(folder_times, bytes)`, folder tombstones. An item whose folder is gone keeps the dangling id and shows under no folder |
 | Folder order | The whole list, newer `order_changed_at` wins; folders missing from it go to the end |
 | Settings (`name`, `history_limit`) | Newer `settings_changed_at` wins |
 | Item lock (`guard`) | Newer `guard_revision` wins (see §4.5) |
@@ -160,10 +171,16 @@ device"). A rollback to an older header (an old, maybe leaked, password) needs a
 `unlock_revision`, which §4.1 already refuses.
 
 The same holds for the item lock: changing the PIN or password **rewraps** the guard key
-(format v7 keeps one guard key for as long as the lock is on). So guarded items sealed on
-either device open with the same key. Only turning the lock off and on again makes a new
-key. A copy sealed under another key (`SealedSecrets.key_id` ≠ ours) asks for the other
-device's PIN once, re-seals those items and carries on.
+while it is open (`set_item_guard` keeps the key it has), so guarded items sealed on either
+device open with the same key. `guard_key_id` says which key a copy's items are sealed
+under. When a newer item lock arrives with another key (the lock was turned on, or set up
+again with the lock closed):
+
+- this copy's sealed items are opened with the key open here and stored waiting for the new
+  key. They are sealed again the next time the lock is opened, as new items are. Merging
+  fails with `SecretsLocked` while this copy's lock is closed, and nothing changes;
+- the other copy's sealed items can't be read here. They wait (`waiting_for_lock`) until that
+  device has taken this copy's lock and stored them again.
 
 A new Secret Key is the same: the vault key is unchanged and the slots follow.
 
@@ -221,47 +238,28 @@ unlocked, and on demand. With the vault locked nothing is merged: merging needs 
   sync round with the PC acting as the target. Needs the phone's `INTERNET` permission and a
   Windows firewall prompt the first time.
 
-## 6. Format v7 (what the body gains)
+## 6. Format v7
 
-```rust
-struct VaultBody {          // v7
-    revision: u64,
-    items: Vec<ItemRecord>,
-    folders: Vec<Folder>,   // Folder gains updated_at: i64
-    settings: VaultSettings,
-    guard: ItemGuard,
-    // new in v7:
-    writer: [u8; 16],                  // device id of the device that wrote this copy
-    tombstones: Vec<Tombstone>,        // deleted items and folders
-    unlock_revision: u64,              // +1 on every change to the key slots or KDF
-    guard_revision: u64,               // +1 on every change to the item lock
-    settings_changed_at: i64,
-    order_changed_at: i64,
-    devices: Vec<SyncDevice>,          // devices allowed to write copies of this vault
-}
+The body gains one `SyncState` (VAULT_FORMAT.md §3): the writer, tombstones, when each folder,
+the folder order and the settings last changed, the unlock and item lock revisions, the guard
+key id, the devices, and each item's lineage. `Folder` and `ItemData` are unchanged. An
+upgraded v0–v6 body has no writer and nothing synced yet.
 
-struct Tombstone { id: [u8; 16], folder: bool, deleted_at: i64 }
+Every change records itself:
+- an item replaced by a new version notes the old one in its lineage;
+- a deletion leaves a tombstone;
+- folder, order and settings changes stamp a time that never goes backwards
+  (`max(now, last + 1)`);
+- password, keyfile, hashing and Recovery Key changes bump `unlock_revision`;
+- item lock changes bump `guard_revision`.
 
-struct SyncDevice {
-    id: [u8; 16],
-    name: String,                      // "Desktop", "Phone": chosen by the person
-    signing_key: Option<[u8; 32]>,     // Ed25519 public key, for the own server
-    added_at: i64,
-}
-
-struct SealedSecrets { /* v6 fields */ key_id: [u8; 8] } // first bytes of SHA-256(guard key id)
-```
-
-Following AGENTS.md §5.1: `FORMAT_VERSION` 7, v6 layouts kept as `…V6` with `upgrade()`
-(an upgraded body gets `writer` = this device, no tombstones, revisions at 0), a new fixture,
-and the old fixtures left alone. `writer` makes the body differ per device. Two devices that
-merged the same changes still write different files, and that is expected: equality is
-judged on the items, not on the bytes.
+`Vault::change_unlock` restores all of it when the write that makes an unlock change real
+fails.
 
 Clocks: `updated_at` and `deleted_at` come from the device clock, which can be wrong. They
-only break ties after `revision`, and a device whose clock is more than a day ahead of the
-newest copy it reads gets a warning. A wrong clock can make the older of two concurrent edits
-win. Its password still lands in the history, so nothing is lost.
+only rank versions that were changed on both devices, after `revision`. The other password
+still lands in the history, so a wrong clock changes which password is current, not what is
+kept.
 
 ## 7. Adding a device
 
@@ -306,7 +304,7 @@ open one.
 
 ## 10. Milestones
 
-1. **M6.1 Core**: format v7 (tombstones, revisions, writer, devices), `Vault::merge`, the
+1. ✅ **M6.1 Core**: format v7 (tombstones, revisions, writer, devices, lineage), `Vault::merge`, the
    tests of §9 except the server ones.
 2. **M6.2 Folder target** in the desktop app and CLI (`vault sync <dir>`), Settings → Sync.
 3. **M6.3 `vault-server`** (axum, Docker, signed requests, long-poll) and its client in

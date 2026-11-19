@@ -306,6 +306,20 @@ the vault key.
 `header_bytes` is the exact serialized header as stored in the file (magic and version
 included), so any change to the header — KDF parameters, slots — makes the body fail to open.
 
+### 6.1 Names used by sync (not keys)
+
+Merging copies (SYNC.md) compares two short digests kept inside the sealed body. Neither is a
+key or reveals one:
+
+- guard key id = `SHA-256("vault-v0/guard-key-id" ‖ guard_key)[..8]`: whether two copies
+  seal guarded items under the same guard key;
+- record digest = `SHA-256("vault-v0/record" ‖ ItemRecord.data)[..8]`: names one stored
+  version of an item (its ciphertext is new for every version and copied unchanged between
+  devices).
+
+Another device's copy is opened with this vault's own key (`subkey("body")` and the item
+keys under `subkey("item-wrap")`); nothing in it is used to derive or select a key.
+
 ## 7. Padding
 
 Plaintexts are padded before sealing: `u32 LE length ‖ data ‖ zeros`.

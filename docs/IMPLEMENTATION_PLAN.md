@@ -255,7 +255,10 @@ Rules:
 ### M6 — Sync ⬜ ([design](spec/SYNC.md))
 - ✅ Design: one sealed copy per device on a folder, WebDAV or own server; merge in the core;
   the server optional and blind
-- ⬜ M6.1 Core: format v7 (tombstones, writer, unlock/guard revisions, devices), `Vault::merge`
+- ✅ M6.1 Core: format v7 (writer, tombstones, change times, unlock and item lock revisions,
+  devices, item lineage) and `Vault::merge`: items by lineage, both passwords kept on a
+  conflict, rollback/fork/other-vault/removed-device copies refused; property test with
+  three devices (they converge, no typed password is lost)
 - ⬜ M6.2 Folder target in the desktop app and CLI, Settings → Sync
 - ⬜ M6.3 `vault-server` (axum, Docker, Tailscale, signed requests, long-poll) and WebDAV
 - ⬜ M6.4 Phone (M7.6), enrollment by QR; M6.5 nearby sync over the LAN

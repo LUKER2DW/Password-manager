@@ -1,6 +1,6 @@
-# Vault File Format — v6
+# Vault File Format — v7
 
-> Status: **draft v6**, not stable. v0–v5 files are still read and upgraded to v6 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
+> Status: **draft v7**, not stable. v0–v6 files are still read and upgraded to v7 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
 > Structures are serialized with [postcard](https://postcard.jamesmunns.com/wire-format) 1.x
 > (stable wire format). Integers in the file envelope are little-endian.
 
@@ -69,6 +69,35 @@ struct VaultBody {
     folders: Vec<Folder>,    // v1; absent in v0
     settings: VaultSettings, // v2; absent before
     guard: ItemGuard,        // v5; absent before
+    sync: SyncState,         // v7; absent before (defaults: never synced)
+}
+
+struct SyncState {           // what merging copies from several devices needs (SYNC.md)
+    writer: [u8; 16],        // device id of the device that wrote this copy; zero = never synced
+    tombstones: Vec<Tombstone>,
+    folder_times: Vec<([u8; 16], i64)>, // when each folder last changed (Unix seconds)
+    order_changed_at: i64,   // when the folders were last put in another order
+    settings_changed_at: i64,
+    unlock_revision: u64,    // +1 on every change to the key slots or the password hashing
+    guard_revision: u64,     // +1 on every change to the item guard
+    guard_key_id: [u8; 8],   // SHA-256("vault-v0/guard-key-id" ‖ guard key)[..8]; zero = none
+    devices: Vec<SyncDevice>,
+    lineage: Vec<([u8; 16], Vec<[u8; 8]>)>, // per item, the versions its current one was made
+                             // from, newest first, at most 8: SHA-256("vault-v0/record" ‖
+                             // ItemRecord.data)[..8]
+}
+
+struct Tombstone {
+    id: [u8; 16],
+    kind: Gone,              // postcard enum: Item (0), Folder (1), Device (2)
+    deleted_at: i64,         // kept 400 days, then dropped on save
+}
+
+struct SyncDevice {
+    id: [u8; 16],
+    name: String,            // ≤ 60 characters
+    signing_key: Option<[u8; 32]>, // Ed25519 public key, for a sync server
+    added_at: i64,
 }
 
 struct ItemGuard {           // a second check before guarded items show their secrets
@@ -191,7 +220,9 @@ A v0 file has no `folders` in the body and its items end after `updated_at`; a v
 items after `password_changed_at`; a v3 file's folders end after `color`; v3 and v4 items end
 after `icon_url`. When an older file is opened, every item is decrypted with its old layout and
 re-encrypted with the current layout in memory (same ids and revisions, new item keys); the next
-save writes a v6 file. v5 items end after `reprompt`; a v0–v5 header holds a bare `KdfParams`.
+save writes a v7 file. v5 items end after `reprompt`; a v0–v5 header holds a bare `KdfParams`.
+A v0–v6 body has no `sync`; it is read as never synced (no writer, no tombstones, revisions
+at 0). The item layout is unchanged in v7.
 
 v0–v4 bodies have no `guard` (it defaults to: only marked items, master password). A v5 guard
 ends after `verifier`.
