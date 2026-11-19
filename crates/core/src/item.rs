@@ -62,6 +62,10 @@ impl FolderId {
         random::array().map(Self)
     }
 
+    pub(crate) fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
+
     /// Lowercase hex form (32 characters).
     pub fn to_hex(&self) -> String {
         self.0.iter().map(|b| format!("{b:02x}")).collect()

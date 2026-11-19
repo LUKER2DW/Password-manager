@@ -9,7 +9,7 @@ use crate::{
     RecoveryKey, Result, SecretKey, VaultSettings, aead,
     format::{
         self, ItemRecord, KeySlot, SlotKind, VaultBody, VaultBodyV0, VaultBodyV1, VaultBodyV2,
-        VaultBodyV3, VaultBodyV4, VaultBodyV5, VaultHeader,
+        VaultBodyV3, VaultBodyV4, VaultBodyV5, VaultBodyV6, VaultHeader,
     },
     guard::{GuardKeySlots, GuardSlot, WrappedGuardKey},
     item::{
@@ -18,7 +18,16 @@ use crate::{
     },
     keys::{self, Keyfile, VaultKey},
     padding,
+    sync::{DeviceId, Gone, SyncDevice, SyncState, guard_key_id, record_digest},
 };
+
+mod merge;
+
+/// A time for a change to something merged by "newest wins": now, but never earlier than the
+/// last change to it, so a clock that is behind can't make a new change look old.
+fn later(previous: i64) -> i64 {
+    crate::item::unix_now().max(previous.saturating_add(1))
+}
 
 const SUBKEY_BODY: &[u8] = b"body";
 const SUBKEY_ITEM_WRAP: &[u8] = b"item-wrap";
@@ -73,6 +82,8 @@ pub struct Vault {
     guard: ItemGuard,
     /// The item guard key, while guarded secrets are open (see [`Vault::unlock_secrets`]).
     guard_key: Option<Zeroizing<aead::Key>>,
+    /// What sync needs (format v7).
+    sync: SyncState,
 }
 
 impl fmt::Debug for Vault {
@@ -111,6 +122,7 @@ impl Vault {
             settings: VaultSettings::default(),
             guard: ItemGuard::default(),
             guard_key: None,
+            sync: SyncState::default(),
         };
         let slot = vault.password_slot(password, secret_key, None, &vault.header.kdf)?;
         vault.header.slots.push(slot);
@@ -210,6 +222,7 @@ impl Vault {
                     folders: Vec::new(),
                     settings: VaultSettings::default(),
                     guard: ItemGuard::default(),
+                    sync: SyncState::default(),
                 }
             }
             1 => {
@@ -220,6 +233,7 @@ impl Vault {
                     folders: old.folders.into_iter().map(FolderV1::upgrade).collect(),
                     settings: VaultSettings::default(),
                     guard: ItemGuard::default(),
+                    sync: SyncState::default(),
                 }
             }
             2 => {
@@ -230,6 +244,7 @@ impl Vault {
                     folders: old.folders.into_iter().map(FolderV1::upgrade).collect(),
                     settings: old.settings,
                     guard: ItemGuard::default(),
+                    sync: SyncState::default(),
                 }
             }
             3 => {
@@ -240,6 +255,7 @@ impl Vault {
                     folders: old.folders.into_iter().map(FolderV3::upgrade).collect(),
                     settings: old.settings,
                     guard: ItemGuard::default(),
+                    sync: SyncState::default(),
                 }
             }
             4 => {
@@ -250,6 +266,7 @@ impl Vault {
                     folders: old.folders,
                     settings: old.settings,
                     guard: ItemGuard::default(),
+                    sync: SyncState::default(),
                 }
             }
             5 => {
@@ -260,6 +277,18 @@ impl Vault {
                     folders: old.folders,
                     settings: old.settings,
                     guard: old.guard.upgrade(),
+                    sync: SyncState::default(),
+                }
+            }
+            6 => {
+                let old: VaultBodyV6 = format::decode_exact(plain)?;
+                VaultBody {
+                    revision: old.revision,
+                    items: old.items,
+                    folders: old.folders,
+                    settings: old.settings,
+                    guard: old.guard,
+                    sync: SyncState::default(),
                 }
             }
             _ => format::decode_exact(plain)?,
@@ -285,6 +314,7 @@ impl Vault {
             settings: body.settings,
             guard: body.guard,
             guard_key: None,
+            sync: body.sync,
         };
         if parsed.version < format::ITEM_LAYOUT_VERSION {
             vault.upgrade_items(parsed.version)?;
@@ -334,6 +364,7 @@ impl Vault {
             name: name.to_owned(),
             ..settings
         };
+        self.sync.settings_changed_at = later(self.sync.settings_changed_at);
         Ok(())
     }
 
@@ -420,6 +451,8 @@ impl Vault {
             ),
             std::mem::replace(&mut self.guard_key, guard_key),
         );
+        let previous_sync = self.sync.clone();
+        self.note_guard_change();
         let records = self
             .items
             .iter()
@@ -428,11 +461,15 @@ impl Vault {
             .collect::<Result<Vec<_>>>();
         match records {
             Ok(records) => {
+                for old in &self.items {
+                    self.sync.descend(old.id, record_digest(&old.data));
+                }
                 self.items = records;
                 Ok(())
             }
             Err(err) => {
                 (self.guard, self.guard_key) = previous;
+                self.sync = previous_sync;
                 Err(err)
             }
         }
@@ -514,6 +551,16 @@ impl Vault {
         .concat())
     }
 
+    /// Records that the item lock changed, for sync: a newer revision, and which key now
+    /// seals guarded items.
+    fn note_guard_change(&mut self) {
+        self.sync.guard_revision = self.sync.guard_revision.saturating_add(1);
+        self.sync.guard_key_id = self
+            .guard_key
+            .as_ref()
+            .map_or([0; 8], |key| guard_key_id(key.as_ref()));
+    }
+
     /// Closes guarded secrets again: the guard key leaves memory.
     pub fn lock_secrets(&mut self) {
         self.guard_key = None;
@@ -562,6 +609,7 @@ impl Vault {
             color: 0,
             icon_url: String::new(),
         });
+        self.touch_folder(id);
         Ok(id)
     }
 
@@ -575,6 +623,7 @@ impl Vault {
         let folder = self.folders.remove(from);
         let to = index.min(self.folders.len());
         self.folders.insert(to, folder);
+        self.sync.order_changed_at = later(self.sync.order_changed_at);
         Ok(())
     }
 
@@ -593,6 +642,7 @@ impl Vault {
             .find(|f| f.id == *id)
             .ok_or(Error::FolderNotFound)?;
         folder.icon_url = url.to_owned();
+        self.touch_folder(*id);
         Ok(())
     }
 
@@ -607,6 +657,7 @@ impl Vault {
             .find(|f| f.id == *id)
             .ok_or(Error::FolderNotFound)?;
         folder.name = name.to_owned();
+        self.touch_folder(*id);
         Ok(())
     }
 
@@ -625,6 +676,7 @@ impl Vault {
             .ok_or(Error::FolderNotFound)?;
         folder.icon = icon.to_owned();
         folder.color = color;
+        self.touch_folder(*id);
         Ok(())
     }
 
@@ -644,7 +696,15 @@ impl Vault {
             }
         }
         self.folders.remove(index);
+        self.sync.folder_times.retain(|(folder, _)| folder != id);
+        self.sync
+            .bury(Gone::Folder, *id.as_bytes(), crate::item::unix_now());
         Ok(())
+    }
+
+    fn touch_folder(&mut self, id: FolderId) {
+        let at = later(self.sync.folder_time(&id));
+        self.sync.touch_folder(id, at);
     }
 
     /// Reads the public, unencrypted header information without unlocking.
@@ -661,6 +721,7 @@ impl Vault {
     /// Serializes the vault into file bytes. Increments the vault revision.
     pub fn to_bytes(&mut self) -> Result<Vec<u8>> {
         let next_revision = self.revision.checked_add(1).ok_or(Error::Malformed)?;
+        self.sync.prune(crate::item::unix_now());
         let header_bytes = format::encode_header(&self.header)?;
         let body = VaultBody {
             revision: next_revision,
@@ -668,6 +729,7 @@ impl Vault {
             folders: self.folders.clone(),
             settings: self.settings.clone(),
             guard: self.guard.clone(),
+            sync: self.sync.clone(),
         };
         let encoded = postcard::to_allocvec(&body).map_err(|_| Error::Malformed)?;
         let padded = padding::pad(&encoded, padding::body_bucket)?;
@@ -785,7 +847,8 @@ impl Vault {
                 record.revision.checked_add(1).ok_or(Error::Malformed)?,
             );
             let data = self.open_item(record)?;
-            self.items[index] = self.store_item(id, revision, &data)?;
+            let record = self.store_item(id, revision, &data)?;
+            self.replace_record(index, record);
             sealed += 1;
         }
         Ok(sealed)
@@ -826,13 +889,15 @@ impl Vault {
         if data.is_locked() {
             if old.is_locked() {
                 data.sealed.clone_from(&old.sealed);
-                self.items[index] = self.seal_item(*id, revision, &data)?;
+                let record = self.seal_item(*id, revision, &data)?;
+                self.replace_record(index, record);
                 return Ok(());
             }
             // Read while locked, written after the secrets were opened: they are unchanged.
             data.sealed = None;
             data.put_secrets(old.take_secrets())?;
-            self.items[index] = self.store_item(*id, revision, &data)?;
+            let record = self.store_item(*id, revision, &data)?;
+            self.replace_record(index, record);
             return Ok(());
         }
         if old.is_locked() {
@@ -855,12 +920,20 @@ impl Vault {
         // An item still waiting for its seal (added while the guard was closed) stays that
         // way: it can be starred, moved or edited without the guard's check, like when it was
         // added. `old` was read in full with the guard key out of memory, so it was not sealed.
-        self.items[index] = if self.needs_unlock_to_store(&data) && self.guards(&old) {
+        let record = if self.needs_unlock_to_store(&data) && self.guards(&old) {
             self.seal_item(*id, revision, &data)?
         } else {
             self.store_item(*id, revision, &data)?
         };
+        self.replace_record(index, record);
         Ok(())
+    }
+
+    /// Puts a new version of item `index` in place, remembering the one it replaces: sync
+    /// tells a later edit from a concurrent one by it.
+    fn replace_record(&mut self, index: usize, record: ItemRecord) {
+        let old = std::mem::replace(&mut self.items[index], record);
+        self.sync.descend(old.id, record_digest(&old.data));
     }
 
     /// Forgets an item's earlier passwords.
@@ -878,13 +951,19 @@ impl Vault {
             .revision
             .checked_add(1)
             .ok_or(Error::Malformed)?;
-        self.items[index] = self.store_item(*id, revision, &item)?;
+        let record = self.store_item(*id, revision, &item)?;
+        self.replace_record(index, record);
         Ok(())
     }
 
     pub fn remove_item(&mut self, id: &ItemId) -> Result<()> {
         let index = self.position(id).ok_or(Error::ItemNotFound)?;
         self.items.remove(index);
+        self.sync.forget_item(id);
+        // Kept as a tombstone, so a copy on another device that still has it doesn't bring it
+        // back when the two are merged.
+        self.sync
+            .bury(Gone::Item, *id.as_bytes(), crate::item::unix_now());
         Ok(())
     }
 
@@ -908,11 +987,13 @@ impl Vault {
         let header = self.header.clone();
         let guard = self.guard.clone();
         let revision = self.revision;
+        let sync = self.sync.clone();
         let result = change(self);
         if result.is_err() {
             self.header = header;
             self.guard = guard;
             self.revision = revision;
+            self.sync = sync;
         }
         result
     }
@@ -949,12 +1030,14 @@ impl Vault {
                 )?),
                 None => None,
             };
+            self.sync.guard_revision = self.sync.guard_revision.saturating_add(1);
         }
         self.header.kdf = kdf;
         self.header
             .slots
             .retain(|s| !matches!(s.kind, SlotKind::Password | SlotKind::PasswordKeyfile));
         self.header.slots.insert(0, slot);
+        self.sync.unlock_revision = self.sync.unlock_revision.saturating_add(1);
         Ok(())
     }
 
@@ -972,6 +1055,67 @@ impl Vault {
         if let Some(slot) = slot {
             self.header.slots.push(slot);
         }
+        self.sync.unlock_revision = self.sync.unlock_revision.saturating_add(1);
+        Ok(())
+    }
+
+    // ---- devices (sync) ----
+
+    /// The device this copy is written by (zero until sync is set up on this device).
+    pub fn device(&self) -> DeviceId {
+        self.sync.writer
+    }
+
+    /// Makes this device the writer of the copies saved from now on. Called after opening,
+    /// with the id kept in the device state.
+    pub fn set_device(&mut self, id: DeviceId) {
+        self.sync.writer = id;
+    }
+
+    /// The devices that sync this vault.
+    pub fn sync_devices(&self) -> &[SyncDevice] {
+        &self.sync.devices
+    }
+
+    /// Adds a device to those that sync this vault, or renames it. Refused for a device that
+    /// was removed: it gets a new id when it is added again.
+    pub fn add_sync_device(&mut self, device: SyncDevice) -> Result<()> {
+        let name = device.name.trim();
+        if device.id.is_none()
+            || name.is_empty()
+            || name.chars().count() > SyncDevice::MAX_NAME_CHARS
+            || name.chars().any(char::is_control)
+        {
+            return Err(Error::InvalidName);
+        }
+        if self
+            .sync
+            .tombstone(Gone::Device, device.id.as_bytes())
+            .is_some()
+        {
+            return Err(Error::DeviceRemoved);
+        }
+        let device = SyncDevice {
+            name: name.to_owned(),
+            ..device
+        };
+        match self.sync.devices.iter_mut().find(|d| d.id == device.id) {
+            Some(known) => *known = device,
+            None => self.sync.devices.push(device),
+        }
+        Ok(())
+    }
+
+    /// Removes a device: copies it writes from now on are refused by every device that has
+    /// merged this change.
+    pub fn remove_sync_device(&mut self, id: &DeviceId) -> Result<()> {
+        let before = self.sync.devices.len();
+        self.sync.devices.retain(|d| d.id != *id);
+        if self.sync.devices.len() == before {
+            return Err(Error::ItemNotFound);
+        }
+        self.sync
+            .bury(Gone::Device, *id.as_bytes(), crate::item::unix_now());
         Ok(())
     }
 

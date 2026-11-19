@@ -174,6 +174,41 @@ fn reads_the_committed_v6_fixture() {
     }
 }
 
+#[test]
+fn a_v6_vault_is_upgraded_on_save() {
+    let bytes = std::fs::read(fixture_dir().join("vault-v6.bin")).unwrap();
+    let (secret_key, _) = credentials();
+    let keyfile =
+        Keyfile::from_bytes(&std::fs::read(fixture_dir().join("vault-v6.keyfile")).unwrap())
+            .unwrap();
+    let unlock = || Unlock::PasswordAndKeyfile {
+        password: PASSWORD,
+        secret_key: &secret_key,
+        keyfile: &keyfile,
+    };
+    let mut vault = Vault::open(&bytes, unlock()).unwrap();
+    // A v6 file has never been synced: no device, no other devices.
+    assert!(vault.device().is_none());
+    assert!(vault.sync_devices().is_empty());
+    let upgraded = vault.to_bytes().unwrap();
+    assert_eq!(
+        &upgraded[8..10],
+        &7u16.to_le_bytes(),
+        "written as format v7"
+    );
+    let mut reopened = Vault::open(&upgraded, unlock()).unwrap();
+    assert_eq!(reopened.revision(), 2);
+    assert_eq!(reopened.folders().len(), 2);
+    assert!(reopened.unlock_secrets(GUARD_PIN).unwrap());
+    let folder = reopened.folders()[1].id;
+    let mut items: Vec<ItemData> = reopened
+        .item_ids()
+        .map(|id| reopened.get_item(&id).unwrap())
+        .collect();
+    items.sort_by(|a, b| a.title.cmp(&b.title));
+    assert_eq!(items, expected_items(Some(folder)));
+}
+
 /// Regenerates the fixture. Run only when intentionally creating a new format version:
 /// `cargo test -p vault-core --test format_v6 -- --ignored`
 #[test]

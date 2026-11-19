@@ -7,6 +7,7 @@ use crate::{
     Error, Folder, ItemGuard, ItemId, KdfParams, PasswordKdf, Result, VaultSettings,
     guard::ItemGuardV5,
     item::{FolderV1, FolderV3},
+    sync::SyncState,
 };
 
 pub(crate) const MAGIC: &[u8; 8] = b"PMVAULT\0";
@@ -19,8 +20,10 @@ pub(crate) const MAGIC: &[u8; 8] = b"PMVAULT\0";
 /// needs a keyfile;
 /// v6 = the header names the password hashing method (Argon2id, scrypt or PBKDF2-SHA-256); the
 /// item guard wraps a key under its PIN or password, and guarded items keep their secrets
-/// sealed under that key.
-pub(crate) const FORMAT_VERSION: u16 = 6;
+/// sealed under that key;
+/// v7 = what sync needs (SYNC.md): the device that wrote the copy, tombstones, when folders and
+/// settings changed, unlock and item lock revisions, the devices that sync the vault.
+pub(crate) const FORMAT_VERSION: u16 = 7;
 /// Last version whose header has Argon2id parameters only.
 const LAST_ARGON2_ONLY_VERSION: u16 = 5;
 /// Last version that changed the item layout: items of older files are re-encrypted on open.
@@ -116,6 +119,17 @@ pub(crate) struct ItemRecord {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct VaultBody {
+    pub(crate) revision: u64,
+    pub(crate) items: Vec<ItemRecord>,
+    pub(crate) folders: Vec<Folder>,
+    pub(crate) settings: VaultSettings,
+    pub(crate) guard: ItemGuard,
+    pub(crate) sync: SyncState,
+}
+
+/// Body layout of format v6 (no sync state).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct VaultBodyV6 {
     pub(crate) revision: u64,
     pub(crate) items: Vec<ItemRecord>,
     pub(crate) folders: Vec<Folder>,

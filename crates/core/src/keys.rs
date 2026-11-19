@@ -327,6 +327,11 @@ impl VaultKey {
         &self.0
     }
 
+    /// A second copy, to open another copy of the same vault with (sync).
+    pub(crate) fn duplicate(&self) -> Self {
+        Self(self.0.clone())
+    }
+
     /// Purpose-bound subkey: HKDF(vault_key, salt = vault_id, info = "vault-v0/subkey/" ‖ purpose).
     pub(crate) fn subkey(&self, purpose: &[u8], vault_id: &[u8; 16]) -> Zeroizing<aead::Key> {
         hkdf32(self.0.as_ref(), vault_id, &[b"vault-v0/subkey/", purpose])

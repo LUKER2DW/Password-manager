@@ -43,6 +43,14 @@ pub enum Error {
     Rng,
     #[error("key derivation failed")]
     Kdf,
+    #[error("this copy belongs to another vault")]
+    OtherVault,
+    #[error("this copy is older than one already seen from the device that wrote it")]
+    SyncRollback,
+    #[error("the device that wrote this copy also wrote a different one with the same revision")]
+    SyncFork,
+    #[error("the device that wrote this copy was removed from this vault")]
+    DeviceRemoved,
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }
