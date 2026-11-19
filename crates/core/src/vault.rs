@@ -925,8 +925,11 @@ impl Vault {
     /// vault was opened with.
     ///
     /// The item guard's copy of its key for the master password follows the new password
-    /// only while guarded secrets are open (after [`Vault::unlock_secrets_with_master`] with
-    /// the current password, for instance).
+    /// while guarded secrets are open (after [`Vault::unlock_secrets_with_master`] with the
+    /// current password, for instance). With them closed it can't be rewrapped, so it is
+    /// dropped: left as it was, the old master password would still open guarded secrets.
+    /// The PIN or password still opens them, and the copy comes back the next time the
+    /// guard is set up with the master password.
     pub fn change_password(
         &mut self,
         new_password: &str,
@@ -936,12 +939,16 @@ impl Vault {
     ) -> Result<()> {
         let kdf = kdf.into().with_fresh_salt()?;
         let slot = self.password_slot(new_password, secret_key, keyfile, &kdf)?;
-        if let (Some(key), true) = (&self.guard_key, self.guard.encrypts()) {
-            let master =
-                WrappedGuardKey::wrap(new_password, key, &self.header.vault_id, GuardSlot::Master)?;
-            if let Some(slots) = &mut self.guard.key {
-                slots.master = Some(master);
-            }
+        if let Some(slots) = &mut self.guard.key {
+            slots.master = match &self.guard_key {
+                Some(key) => Some(WrappedGuardKey::wrap(
+                    new_password,
+                    key,
+                    &self.header.vault_id,
+                    GuardSlot::Master,
+                )?),
+                None => None,
+            };
         }
         self.header.kdf = kdf;
         self.header

@@ -239,6 +239,36 @@ fn guarded_secrets_are_encrypted_under_the_pin() {
     assert!(!vault.unlock_secrets_with_master("pw").unwrap());
     assert!(vault.unlock_secrets_with_master("pw2").unwrap());
 
+    // Changed with the secrets closed, the copy can't follow: it is dropped, so the old
+    // master password opens nothing, also after a save and a reopen.
+    vault.lock_secrets();
+    vault
+        .change_password("pw3", &secret_key, None, &kdf)
+        .unwrap();
+    assert!(!vault.item_guard().master_can_reset());
+    assert!(!vault.unlock_secrets_with_master("pw2").unwrap());
+    let bytes = vault.to_bytes().unwrap();
+    let mut reopened = Vault::open(
+        &bytes,
+        Unlock::Password {
+            password: "pw3",
+            secret_key: &secret_key,
+        },
+    )
+    .unwrap();
+    assert!(!reopened.unlock_secrets_with_master("pw2").unwrap());
+    assert!(!reopened.unlock_secrets_with_master("pw3").unwrap());
+    // The PIN still opens them, and setting the guard up again brings the copy back.
+    assert!(vault.unlock_secrets("9999").unwrap());
+    vault
+        .set_item_guard(true, GuardCheck::Pin, None, Some("pw3"))
+        .unwrap();
+    vault.lock_secrets();
+    assert!(vault.unlock_secrets_with_master("pw3").unwrap());
+    vault
+        .change_password("pw2", &secret_key, None, &kdf)
+        .unwrap();
+
     // Back to the master password as the check: nothing stays sealed.
     vault.lock_secrets();
     vault
