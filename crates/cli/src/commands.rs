@@ -472,6 +472,7 @@ pub fn recover(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
     vault
         .change_password(&password, &secret_key, None, &kdf)
         .map_err(explain)?;
+    session::ensure_unchanged(&ctx.path, &storage::fingerprint(&bytes))?;
     let bytes = vault.to_bytes().map_err(explain)?;
     storage::write_atomic(&ctx.path, &bytes).map_err(explain)?;
     session::store_secret_key(&vault.id_hex(), &secret_key)?;
@@ -612,19 +613,21 @@ pub fn import(ctx: &Context, prompter: &mut Prompter, request: ImportRequest) ->
 
 /// Best-effort wipe: overwrite with zeros, flush, delete. (On SSDs and copy-on-write file systems
 /// old blocks may survive; full-disk encryption is the real protection there.)
+/// A link is refused: writing through it would zero the file it points at, and deleting only
+/// the link would leave the plain-text export where it is.
 fn wipe_file(path: &std::path::Path) -> Result<()> {
-    use std::io::Write as _;
-    let len = std::fs::metadata(path)?.len();
+    use vault_platform::files;
+    let meta = std::fs::symlink_metadata(path)?;
+    if files::is_link(&meta) {
+        bail!(
+            "{} is a link, not the export itself: nothing was wiped. Delete the file it points \
+             to yourself.",
+            path.display()
+        );
+    }
     {
         let mut file = std::fs::OpenOptions::new().write(true).open(path)?;
-        let zeros = vec![0u8; 64 * 1024];
-        let mut remaining = len;
-        while remaining > 0 {
-            let chunk = remaining.min(zeros.len() as u64) as usize;
-            file.write_all(&zeros[..chunk])?;
-            remaining -= chunk as u64;
-        }
-        file.sync_all()?;
+        files::overwrite_with_zeros(&mut file, meta.len())?;
     }
     std::fs::remove_file(path)?;
     Ok(())

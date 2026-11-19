@@ -54,6 +54,8 @@ pub struct Session {
     /// The master password just typed, kept (wiped on drop) for commands that rewrite the
     /// password lock without changing the password.
     pub password: Zeroizing<String>,
+    /// The file as it was read or last written, to refuse a save over someone else's changes.
+    file_hash: [u8; 32],
 }
 
 impl Session {
@@ -135,10 +137,10 @@ impl Session {
             secret_key,
             keyfile: keyfile.map(|(key, _)| key),
             password,
+            file_hash: storage::fingerprint(&bytes),
         })
     }
 
-    /// Encrypts and writes the vault (atomic write + `.bak`).
     /// Opens the secrets the item lock encrypts: asks for its PIN or password, three tries.
     /// Does nothing when the vault has no such lock or the secrets are open already.
     pub fn open_secrets(&mut self, prompter: &mut Prompter) -> Result<()> {
@@ -184,11 +186,29 @@ impl Session {
         self.vault.get_item(id).map_err(explain)
     }
 
+    /// Encrypts and writes the vault, unless the file changed since this session read it.
     pub fn save(&mut self) -> Result<()> {
+        ensure_unchanged(&self.path, &self.file_hash)?;
         let bytes = self.vault.to_bytes().map_err(explain)?;
         storage::write_atomic(&self.path, &bytes).map_err(explain)?;
+        self.file_hash = storage::fingerprint(&bytes);
         device::record_revision(&self.vault.id_hex(), self.vault.revision())
     }
+}
+
+/// Refuses to go on when the vault file no longer holds what was read: someone else (the
+/// app, another device's sync, another command) wrote it in the meantime, and saving now
+/// would throw their changes away (AGENTS.md §4.1, rule 7).
+pub fn ensure_unchanged(path: &Path, read: &[u8; 32]) -> Result<()> {
+    let now = storage::read(path).map_err(explain)?;
+    if storage::fingerprint(&now) != *read {
+        bail!(
+            "{} changed while this command was running (another app or device saved it). \
+             Nothing was written: run the command again.",
+            path.display()
+        );
+    }
+    Ok(())
 }
 
 pub fn read_vault_file(path: &Path) -> Result<Vec<u8>> {
@@ -199,4 +219,26 @@ pub fn read_vault_file(path: &Path) -> Result<Vec<u8>> {
         );
     }
     storage::read(path).map_err(explain)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_changed_by_someone_else_is_not_written_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+        storage::write_atomic(&path, b"as read").unwrap();
+        let read = storage::fingerprint(b"as read");
+        ensure_unchanged(&path, &read).unwrap();
+
+        // The app (or a sync tool) saves in the meantime.
+        storage::write_atomic(&path, b"saved elsewhere").unwrap();
+        let refused = ensure_unchanged(&path, &read).unwrap_err().to_string();
+        assert!(
+            refused.contains("changed while this command was running"),
+            "{refused}"
+        );
+    }
 }
