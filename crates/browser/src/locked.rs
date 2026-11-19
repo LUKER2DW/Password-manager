@@ -151,6 +151,7 @@ fn finish(response: Response, filled: Option<String>, copy: Option<Copy>) -> Ans
         filled,
         copy,
         saved: None,
+        updated: None,
         kept: None,
     }
 }
@@ -183,6 +184,7 @@ pub fn answer_locked(message: &[u8], logins: &[LockedLogin], gate: &mut dyn Lock
                     title: login.title.clone(),
                     username: login.username.clone(),
                     locked: true,
+                    has_code: false,
                 })
                 .collect();
             items.sort_by_key(|entry| (entry.title.to_lowercase(), entry.username.to_lowercase()));
@@ -287,9 +289,12 @@ pub fn answer_locked(message: &[u8], logins: &[LockedLogin], gate: &mut dyn Lock
                 None => finish(error(ErrorCode::NoMatch), None, None),
             }
         }
-        Request::Save { .. } | Request::Generate { .. } | Request::Keep { .. } => {
-            finish(error(ErrorCode::Locked), None, None)
-        }
+        Request::Save { .. }
+        | Request::Generate { .. }
+        | Request::Keep { .. }
+        | Request::Code { .. }
+        | Request::Changed { .. }
+        | Request::Update { .. } => finish(error(ErrorCode::Locked), None, None),
     }
 }
 
@@ -408,7 +413,7 @@ mod tests {
         assert_eq!(listed["hello"], true);
         assert_eq!(
             listed["items"],
-            json!([{"id": "a1", "title": "GitHub", "username": "octocat", "locked": true}])
+            json!([{"id": "a1", "title": "GitHub", "username": "octocat", "locked": true, "has_code": false}])
         );
         assert!(!listed.to_string().contains("secret"));
 

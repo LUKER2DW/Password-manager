@@ -27,6 +27,16 @@ pub enum Request {
         #[serde(default)]
         hello: bool,
     },
+    /// The current one-time code of login `id`, to type into the page at `url`. Refused
+    /// unless the login is saved for that page's origin, as for [`Request::Fill`].
+    Code {
+        url: String,
+        id: String,
+        #[serde(default)]
+        check: Option<Secret>,
+        #[serde(default)]
+        hello: bool,
+    },
     /// Every login in the vault, for the extension's own window: who and where, never a
     /// password.
     Vault {},
@@ -96,6 +106,26 @@ pub enum Request {
         #[serde(default)]
         title: Option<String>,
         username: String,
+        password: Secret,
+        #[serde(default)]
+        check: Option<Secret>,
+        #[serde(default)]
+        hello: bool,
+    },
+    /// Whether `password`, just sent with `username` from the page at `url`, differs from the
+    /// password saved for that site and username: asked before offering to update it. A
+    /// locked login is not opened for this; the answer is then "unknown".
+    Changed {
+        url: String,
+        username: String,
+        password: Secret,
+    },
+    /// Replaces the password of login `id`, saved for `url`'s origin, with `password`. The old
+    /// one goes into the item's password history. A locked login is opened first, as for a
+    /// fill.
+    Update {
+        url: String,
+        id: String,
         password: Secret,
         #[serde(default)]
         check: Option<Secret>,
@@ -182,6 +212,7 @@ pub enum Response {
         items: Vec<LoginEntry>,
     },
     Fill(Credentials),
+    Code(OneTimeCode),
     Vault {
         check: Check,
         hello: bool,
@@ -203,6 +234,16 @@ pub enum Response {
         existing: bool,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         queued: bool,
+    },
+    /// The answer to [`Request::Changed`]: the login it is about, and whether its password is
+    /// another one (`None`: the login is locked, so the app can't tell without opening it).
+    Changed {
+        id: String,
+        changed: Option<bool>,
+    },
+    /// The password of the login was replaced (`changed`), or was already that one.
+    Updated {
+        changed: bool,
     },
     /// The app is asking the person whether to connect this extension. `key` is the shared
     /// key (hex), useless until the person allows it in the app; `code` is shown by both.
@@ -229,6 +270,8 @@ pub struct LoginEntry {
     pub username: String,
     /// Behind the item lock: its PIN or password is asked before it is filled.
     pub locked: bool,
+    /// It has a one-time code (unknown, and so `false`, while the vault is locked).
+    pub has_code: bool,
 }
 
 /// One login in the extension's view of the vault.
@@ -271,6 +314,26 @@ pub struct Revealed {
 impl std::fmt::Debug for Revealed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Revealed(<redacted>)")
+    }
+}
+
+/// A one-time code on its way into the page. Wiped from memory when dropped.
+#[derive(Serialize, Zeroize, ZeroizeOnDrop)]
+pub struct OneTimeCode {
+    /// The origin the page must still have when the code is typed.
+    #[zeroize(skip)]
+    pub origin: String,
+    pub code: String,
+    /// Seconds before it changes.
+    #[zeroize(skip)]
+    pub seconds: u64,
+}
+
+impl std::fmt::Debug for OneTimeCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OneTimeCode")
+            .field("origin", &self.origin)
+            .finish_non_exhaustive()
     }
 }
 

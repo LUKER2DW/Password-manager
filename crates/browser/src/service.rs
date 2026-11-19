@@ -5,13 +5,13 @@ use vault_core::{
     generator::{self, PassphraseOptions, PasswordOptions, WordCase},
     totp::Totp,
 };
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
     origin::{Origin, PageProblem, item_matches},
     protocol::{
-        Check, CopyWhat, Credentials, ErrorCode, GeneratedPassword, LoginEntry, Request, Response,
-        Revealed, Secret, Symbols, VaultEntry,
+        Check, CopyWhat, Credentials, ErrorCode, GeneratedPassword, LoginEntry, OneTimeCode,
+        Request, Response, Revealed, Secret, Symbols, VaultEntry,
     },
 };
 
@@ -26,6 +26,8 @@ pub struct Answer {
     pub copy: Option<Copy>,
     /// The title of a login that was just added to the vault: the app saves the file.
     pub saved: Option<String>,
+    /// The title of a login whose password was just replaced: the app saves the file.
+    pub updated: Option<String>,
     /// A generated password the person used: the app adds it to its history.
     pub kept: Option<Kept>,
 }
@@ -101,8 +103,10 @@ pub fn wants_hello(message: &[u8]) -> bool {
     matches!(
         serde_json::from_slice::<Request>(message),
         Ok(Request::Fill { hello: true, .. }
+            | Request::Code { hello: true, .. }
             | Request::Reveal { hello: true, .. }
-            | Request::Copy { hello: true, .. })
+            | Request::Copy { hello: true, .. }
+            | Request::Update { hello: true, .. })
     )
 }
 
@@ -154,6 +158,7 @@ fn finish(outcome: Outcome) -> Answer {
         filled: outcome.filled,
         copy: outcome.copy,
         saved: outcome.saved,
+        updated: outcome.updated,
         kept: outcome.kept,
     }
 }
@@ -255,6 +260,7 @@ struct Outcome {
     filled: Option<String>,
     copy: Option<Copy>,
     saved: Option<String>,
+    updated: Option<String>,
     kept: Option<Kept>,
 }
 
@@ -265,6 +271,7 @@ impl From<Response> for Outcome {
             filled: None,
             copy: None,
             saved: None,
+            updated: None,
             kept: None,
         }
     }
@@ -366,6 +373,20 @@ fn read_login(
     hello: bool,
     belongs: impl Fn(&ItemData) -> bool,
 ) -> Result<ItemData, Response> {
+    with_login(vault, gate, id, check, hello, belongs, |_, _, item| item)
+}
+
+/// Runs `act` on login `id` with its secrets readable, opening the item lock first when it
+/// covers the login (and closing it again right after `act`).
+fn with_login<R>(
+    vault: &mut Vault,
+    gate: &mut dyn Gate,
+    id: &str,
+    check: Option<Secret>,
+    hello: bool,
+    belongs: impl Fn(&ItemData) -> bool,
+    act: impl FnOnce(&mut Vault, &ItemId, ItemData) -> R,
+) -> Result<R, Response> {
     let id = ItemId::from_hex(id).ok_or_else(|| error(ErrorCode::NoMatch))?;
     let read = |vault: &Vault| {
         vault
@@ -375,14 +396,16 @@ fn read_login(
     };
     let item = read(vault).ok_or_else(|| error(ErrorCode::NoMatch))?;
     if !(item.is_locked() || gate.locked(vault, &item)) {
-        return Ok(item);
+        return Ok(act(vault, &id, item));
     }
     let kind = gate.check(vault);
     open_gate(vault, gate, check, hello)?;
     // Read once while open, then closed again: only this login was decrypted.
-    let opened = read(vault).filter(|item| !item.is_locked());
+    let done = read(vault)
+        .filter(|item| !item.is_locked())
+        .map(|item| act(vault, &id, item));
     gate.close(vault);
-    opened.ok_or_else(|| item_locked(kind))
+    done.ok_or_else(|| item_locked(kind))
 }
 
 /// Whether a login to save is of a size a sign-in form could hold: what the extension sends
@@ -403,12 +426,15 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
     }
     // A page's address is judged before anything else, locked or not.
     let origin = match &request {
-        Request::Logins { url } | Request::Fill { url, .. } | Request::Save { url, .. } => {
-            match page_origin(url) {
-                Ok(origin) => Some(origin),
-                Err(response) => return response.into(),
-            }
-        }
+        Request::Logins { url }
+        | Request::Fill { url, .. }
+        | Request::Code { url, .. }
+        | Request::Save { url, .. }
+        | Request::Changed { url, .. }
+        | Request::Update { url, .. } => match page_origin(url) {
+            Ok(origin) => Some(origin),
+            Err(response) => return response.into(),
+        },
         _ => None,
     };
     let Some(vault) = vault else {
@@ -426,6 +452,10 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                             title: item.title.clone(),
                             username: item.username.clone(),
                             locked: item.is_locked() || gate.locked(vault, &item),
+                            has_code: item
+                                .sealed
+                                .as_ref()
+                                .map_or(!item.totp.is_empty(), |sealed| sealed.has_totp),
                         }
                     })
                 })
@@ -459,6 +489,108 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                     })
                     .into()
                 },
+                Err(response) => response.into(),
+            }
+        }
+        (
+            Request::Code {
+                id, check, hello, ..
+            },
+            Some(origin),
+        ) => {
+            match read_login(vault, gate, &id, check, hello, |item| {
+                item_matches(&item.urls, &origin)
+            }) {
+                Ok(item) => match Totp::parse(&item.totp) {
+                    Ok(totp) => {
+                        let (code, seconds) = totp.now();
+                        Outcome {
+                            filled: Some(item.title.clone()),
+                            ..Response::Code(OneTimeCode {
+                                origin: origin.as_str().to_owned(),
+                                code: code.as_str().to_owned(),
+                                seconds,
+                            })
+                            .into()
+                        }
+                    }
+                    Err(_) => error(ErrorCode::NoMatch).into(),
+                },
+                Err(response) => response.into(),
+            }
+        }
+        (
+            Request::Changed {
+                username, password, ..
+            },
+            Some(origin),
+        ) => {
+            if !save_fits(None, &username, &password) {
+                return error(ErrorCode::BadRequest).into();
+            }
+            // The first login of this site with that username, in the order they are listed.
+            let mut matches: Vec<(ItemId, ItemData)> = vault
+                .item_ids()
+                .filter_map(|id| Some((id, vault.get_item(&id).ok()?)))
+                .filter(|(_, item)| {
+                    item.kind == ItemKind::Login
+                        && item.username == username
+                        && item_matches(&item.urls, &origin)
+                })
+                .collect();
+            matches.sort_by_key(|(_, item)| item.title.to_lowercase());
+            match matches.into_iter().next() {
+                Some((id, item)) => {
+                    // Never opened for this: a locked login answers "unknown".
+                    let changed = (!(item.is_locked() || gate.locked(vault, &item)))
+                        .then(|| item.password != password.as_str());
+                    Response::Changed {
+                        id: id.to_hex(),
+                        changed,
+                    }
+                    .into()
+                }
+                None => error(ErrorCode::NoMatch).into(),
+            }
+        }
+        (
+            Request::Update {
+                id,
+                password,
+                check,
+                hello,
+                ..
+            },
+            Some(origin),
+        ) => {
+            if password.as_str().is_empty() || !save_fits(None, "", &password) {
+                return error(ErrorCode::BadRequest).into();
+            }
+            let done = with_login(
+                vault,
+                gate,
+                &id,
+                check,
+                hello,
+                |item| item_matches(&item.urls, &origin),
+                |vault, id, mut item| {
+                    if item.password == password.as_str() {
+                        return Ok((item.title.clone(), false));
+                    }
+                    item.password.zeroize();
+                    item.password.push_str(password.as_str());
+                    // The old password goes into the history (`Vault::update_item`).
+                    vault
+                        .update_item(id, &item)
+                        .map(|()| (item.title.clone(), true))
+                },
+            );
+            match done {
+                Ok(Ok((title, changed))) => Outcome {
+                    updated: changed.then_some(title),
+                    ..Response::Updated { changed }.into()
+                },
+                Ok(Err(_)) => error(ErrorCode::BadRequest).into(),
                 Err(response) => response.into(),
             }
         }
@@ -760,8 +892,8 @@ mod tests {
         assert_eq!(
             reply,
             json!({"type": "logins", "origin": "https://github.com", "check": "app", "hello": false, "items": [
-                {"id": github, "title": "GitHub", "username": "octocat", "locked": false},
-                {"id": work, "title": "GitHub (work)", "username": "hubot", "locked": true},
+                {"id": github, "title": "GitHub", "username": "octocat", "locked": false, "has_code": false},
+                {"id": work, "title": "GitHub (work)", "username": "hubot", "locked": true, "has_code": false},
             ]})
         );
         assert!(!reply.to_string().contains("secret"));
@@ -1278,6 +1410,143 @@ mod tests {
         assert!(ask(&mut held, json!({"type": "vault"})).is_none());
         assert!(ask(&mut held, json!({"type": "status"})).is_none());
         assert!(answer_generator(b"not json", &mut held).is_none());
+    }
+
+    #[test]
+    fn a_one_time_code_leaves_only_for_its_own_site() {
+        let (mut vault, github, work) = vault();
+        let id = ItemId::from_hex(&github).unwrap();
+        let mut item = vault.get_item(&id).unwrap();
+        item.totp = "JBSWY3DPEHPK3PXP".into();
+        vault.update_item(&id, &item).unwrap();
+
+        let (listed, _) = ask(
+            Some(&mut vault),
+            json!({"type": "logins", "url": "https://github.com/"}),
+        );
+        assert_eq!(listed["items"][0]["has_code"], json!(true));
+        assert_eq!(listed["items"][1]["has_code"], json!(false));
+
+        let (reply, filled) = ask(
+            Some(&mut vault),
+            json!({"type": "code", "url": "https://github.com/sessions/two-factor", "id": github}),
+        );
+        assert_eq!(reply["type"], json!("code"));
+        assert_eq!(reply["origin"], json!("https://github.com"));
+        let code = reply["code"].as_str().unwrap();
+        assert!(code.len() == 6 && code.bytes().all(|b| b.is_ascii_digit()));
+        assert!((1..=30).contains(&reply["seconds"].as_u64().unwrap()));
+        assert_eq!(filled.as_deref(), Some("GitHub"));
+
+        for url in [
+            "https://github.com.evil.example/",
+            "https://gist.github.com/",
+        ] {
+            let (reply, filled) = ask(
+                Some(&mut vault),
+                json!({"type": "code", "url": url, "id": github}),
+            );
+            assert_eq!(reply, json!({"type": "error", "code": "no_match"}), "{url}");
+            assert!(filled.is_none());
+        }
+        // A login with no code, once opened, has nothing to give.
+        let mut gate = TestGate::new(Check::Pin);
+        let (locked, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "code", "url": "https://github.com/", "id": work}),
+        );
+        assert_eq!(
+            locked,
+            json!({"type": "error", "code": "item_locked", "check": "pin"})
+        );
+        let (none, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "code", "url": "https://github.com/", "id": work, "check": "4821"}),
+        );
+        assert_eq!(none, json!({"type": "error", "code": "no_match"}));
+        assert_eq!(gate.closed, 1);
+    }
+
+    #[test]
+    fn a_changed_password_is_noticed_and_updated_with_its_history() {
+        let (mut vault, github, work) = vault();
+        let mut gate = TestGate::new(Check::Pin);
+        let send = |vault: &mut Vault, gate: &mut TestGate, request: Value| {
+            let answer = answer(request.to_string().as_bytes(), Some(vault), gate);
+            let reply: Value = serde_json::from_slice(&answer.bytes).unwrap();
+            (reply, answer.updated)
+        };
+        let changed = |username: &str, password: &str| {
+            json!({"type": "changed", "url": "https://github.com/login",
+                   "username": username, "password": password})
+        };
+
+        let (same, _) = send(&mut vault, &mut gate, changed("octocat", "gh-secret"));
+        assert_eq!(
+            same,
+            json!({"type": "changed", "id": github, "changed": false})
+        );
+        let (other, _) = send(&mut vault, &mut gate, changed("octocat", "gh-new"));
+        assert_eq!(
+            other,
+            json!({"type": "changed", "id": github, "changed": true})
+        );
+        // Behind the item lock the app can't tell, and doesn't open it to find out.
+        let (unknown, _) = send(&mut vault, &mut gate, changed("hubot", "guess"));
+        assert_eq!(
+            unknown,
+            json!({"type": "changed", "id": work, "changed": null})
+        );
+        assert_eq!(gate.closed, 0);
+        let (nobody, _) = send(&mut vault, &mut gate, changed("someone", "x"));
+        assert_eq!(nobody, json!({"type": "error", "code": "no_match"}));
+
+        let update = |id: &str, url: &str, password: &str| json!({"type": "update", "url": url, "id": id, "password": password});
+        let (wrong_site, updated) = send(
+            &mut vault,
+            &mut gate,
+            update(&github, "https://bank.example/", "gh-new"),
+        );
+        assert_eq!(wrong_site, json!({"type": "error", "code": "no_match"}));
+        assert!(updated.is_none());
+        let (done, updated) = send(
+            &mut vault,
+            &mut gate,
+            update(&github, "https://github.com/", "gh-new"),
+        );
+        assert_eq!(done, json!({"type": "updated", "changed": true}));
+        assert_eq!(updated.as_deref(), Some("GitHub"));
+        let item = vault.get_item(&ItemId::from_hex(&github).unwrap()).unwrap();
+        assert_eq!(item.password, "gh-new");
+        assert_eq!(item.password_history.last().unwrap().password, "gh-secret");
+        let (again, updated) = send(
+            &mut vault,
+            &mut gate,
+            update(&github, "https://github.com/", "gh-new"),
+        );
+        assert_eq!(again, json!({"type": "updated", "changed": false}));
+        assert!(updated.is_none());
+
+        // A locked login is opened for the change only, then closed again.
+        let (locked, _) = send(
+            &mut vault,
+            &mut gate,
+            update(&work, "https://github.com/", "work-new"),
+        );
+        assert_eq!(
+            locked,
+            json!({"type": "error", "code": "item_locked", "check": "pin"})
+        );
+        let mut with_pin = update(&work, "https://github.com/", "work-new");
+        with_pin["check"] = json!("4821");
+        let (opened, updated) = send(&mut vault, &mut gate, with_pin);
+        assert_eq!(opened, json!({"type": "updated", "changed": true}));
+        assert_eq!(updated.as_deref(), Some("GitHub (work)"));
+        assert_eq!(gate.closed, 1);
+        let item = vault.get_item(&ItemId::from_hex(&work).unwrap()).unwrap();
+        assert_eq!(item.password, "work-new");
     }
 
     #[test]
