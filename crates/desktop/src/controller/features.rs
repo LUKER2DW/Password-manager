@@ -1075,7 +1075,10 @@ impl Controller {
         let Some(session) = self.state.borrow_mut().session.take() else {
             return;
         };
-        let path = self.state.borrow().path.clone();
+        let (path, expected) = {
+            let state = self.state.borrow();
+            (state.path.clone(), state.file_hash)
+        };
         self.run_job(move || {
             let mut session = session;
             if let Err((code, detail)) = super::verify_current(&path, &current, &session) {
@@ -1086,32 +1089,37 @@ impl Controller {
                     card: 1,
                 };
             }
-            let outcome = (|| -> vault_core::Result<f64> {
+            if !super::file_unchanged(&path, expected) {
+                return JobResult::KdfFailed {
+                    code: error::CHANGED_OUTSIDE,
+                    detail: String::new(),
+                    session,
+                    card: 1,
+                };
+            }
+            let secret_key = &session.secret_key;
+            let keyfile = session.keyfile.as_ref();
+            let outcome = session.vault.change_unlock(|vault| {
                 let params = PasswordKdf::preset(method, level)?;
-                session.vault.change_password(
-                    &current,
-                    &session.secret_key,
-                    session.keyfile.as_ref(),
-                    &params,
-                )?;
-                let bytes = session.vault.to_bytes()?;
+                vault.change_password(&current, secret_key, keyfile, &params)?;
+                let bytes = vault.to_bytes()?;
                 let started = std::time::Instant::now();
-                let unlock = match &session.keyfile {
+                let unlock = match keyfile {
                     Some(keyfile) => Unlock::PasswordAndKeyfile {
                         password: &current,
-                        secret_key: &session.secret_key,
+                        secret_key,
                         keyfile,
                     },
                     None => Unlock::Password {
                         password: &current,
-                        secret_key: &session.secret_key,
+                        secret_key,
                     },
                 };
                 Vault::open(&bytes, unlock)?;
                 let seconds = started.elapsed().as_secs_f64();
                 vault_core::storage::write_atomic(&path, &bytes)?;
                 Ok(seconds)
-            })();
+            });
             match outcome {
                 Ok(seconds) => {
                     let _ = vault_platform::device::record_revision(

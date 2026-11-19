@@ -38,7 +38,8 @@ fn main() -> anyhow::Result<()> {
     // The native window exists once the event loop runs.
     let weak = app.as_weak();
     slint::Timer::single_shot(Duration::from_millis(120), move || {
-        if std::env::var_os("VAULT_ALLOW_CAPTURE").is_some() {
+        // Exactly "1": an empty or stray value left in the environment keeps the protection.
+        if std::env::var_os("VAULT_ALLOW_CAPTURE").is_some_and(|value| value == "1") {
             return;
         }
         if let Some(app) = weak.upgrade() {

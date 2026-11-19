@@ -86,7 +86,10 @@ impl Controller {
         let Some(session) = self.state.borrow_mut().session.take() else {
             return;
         };
-        let path = self.state.borrow().path.clone();
+        let (path, expected) = {
+            let state = self.state.borrow();
+            (state.path.clone(), state.file_hash)
+        };
         self.run_job(move || {
             let mut session = session;
             let failed = |code: i32, detail: String, session| JobResult::KdfFailed {
@@ -97,6 +100,9 @@ impl Controller {
             };
             if let Err((code, detail)) = super::verify_current(&path, &current, &session) {
                 return failed(code, detail, session);
+            }
+            if !super::file_unchanged(&path, expected) {
+                return failed(error::CHANGED_OUTSIDE, String::new(), session);
             }
             let new = match (what, &target) {
                 (CREATE, Some(file)) => keyfile::create(file).map(Some),
@@ -109,26 +115,27 @@ impl Controller {
                     return failed(error::KEYFILE_UNREADABLE, format!("{err:#}"), session);
                 }
             };
-            let outcome = (|| -> vault_core::Result<()> {
-                let kdf = session.vault.kdf_params().clone();
-                session
-                    .vault
-                    .change_password(&current, &session.secret_key, new.as_ref(), &kdf)?;
-                let bytes = session.vault.to_bytes()?;
+            // On failure the vault is put back as it is on disk: it must never need the new
+            // keyfile, which is deleted below.
+            let secret_key = &session.secret_key;
+            let outcome = session.vault.change_unlock(|vault| {
+                let kdf = vault.kdf_params().clone();
+                vault.change_password(&current, secret_key, new.as_ref(), &kdf)?;
+                let bytes = vault.to_bytes()?;
                 let unlock = match &new {
                     Some(keyfile) => Unlock::PasswordAndKeyfile {
                         password: &current,
-                        secret_key: &session.secret_key,
+                        secret_key,
                         keyfile,
                     },
                     None => Unlock::Password {
                         password: &current,
-                        secret_key: &session.secret_key,
+                        secret_key,
                     },
                 };
                 Vault::open(&bytes, unlock)?;
                 storage::write_atomic(&path, &bytes)
-            })();
+            });
             match outcome {
                 Ok(()) => {
                     let id = session.vault.id_hex();

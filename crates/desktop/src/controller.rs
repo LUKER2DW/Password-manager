@@ -2532,11 +2532,7 @@ impl Controller {
             let state = self.state.borrow();
             (state.path.clone(), state.file_hash)
         };
-        match (expected, std::fs::read(&path)) {
-            (Some(expected), Ok(bytes)) => file_hash(&bytes) != expected,
-            // Deleted or unreadable: writing it again is the safe move.
-            _ => false,
-        }
+        !file_unchanged(&path, expected)
     }
 
     fn toggle_favorite(&self) {
@@ -4100,7 +4096,10 @@ impl Controller {
         let Some(session) = self.state.borrow_mut().session.take() else {
             return;
         };
-        let path = self.state.borrow().path.clone();
+        let (path, expected) = {
+            let state = self.state.borrow();
+            (state.path.clone(), state.file_hash)
+        };
         self.run_job(move || {
             let mut session = session;
             if let Err(failure) = verify_current(&path, &current, &session) {
@@ -4110,23 +4109,30 @@ impl Controller {
                     session: Some(session),
                 };
             }
+            if !file_unchanged(&path, expected) {
+                return JobResult::Failed {
+                    code: error::CHANGED_OUTSIDE,
+                    detail: String::new(),
+                    session: Some(session),
+                };
+            }
             let kdf = session.vault.kdf_params().clone();
             // With the secrets open, the item lock's reset copy of its key follows the new
             // master password.
             let was_open = session.vault.secrets_open();
             let _ = session.vault.unlock_secrets_with_master(&current);
-            let changed = session.vault.change_password(
-                &new_password,
-                &session.secret_key,
-                session.keyfile.as_ref(),
-                &kdf,
-            );
-            if !was_open {
-                session.vault.lock_secrets();
-            }
-            let outcome = changed
-                .and_then(|()| session.vault.to_bytes())
-                .and_then(|bytes| storage::write_atomic(&path, &bytes));
+            let secret_key = &session.secret_key;
+            let keyfile = session.keyfile.as_ref();
+            // A failed write leaves the vault as it is on disk (the old password).
+            let outcome = session.vault.change_unlock(|vault| {
+                let changed = vault.change_password(&new_password, secret_key, keyfile, &kdf);
+                if !was_open {
+                    vault.lock_secrets();
+                }
+                changed?;
+                let bytes = vault.to_bytes()?;
+                storage::write_atomic(&path, &bytes)
+            });
             match outcome {
                 Ok(()) => {
                     let _ =
@@ -4158,7 +4164,10 @@ impl Controller {
         let Some(session) = self.state.borrow_mut().session.take() else {
             return;
         };
-        let path = self.state.borrow().path.clone();
+        let (path, expected) = {
+            let state = self.state.borrow();
+            (state.path.clone(), state.file_hash)
+        };
         self.run_job(move || {
             let mut session = session;
             if let Err(failure) = verify_current(&path, &current, &session) {
@@ -4177,9 +4186,18 @@ impl Controller {
                     JobResult::ExportVerified { session }
                 }
                 KitAction::NewRecoveryKey => {
-                    let outcome = RecoveryKey::generate().and_then(|key| {
-                        session.vault.set_recovery_key(Some(&key))?;
-                        let bytes = session.vault.to_bytes()?;
+                    if !file_unchanged(&path, expected) {
+                        return JobResult::Failed {
+                            code: error::CHANGED_OUTSIDE,
+                            detail: String::new(),
+                            session: Some(session),
+                        };
+                    }
+                    // A failed write keeps the Recovery Key the file still has.
+                    let outcome = session.vault.change_unlock(|vault| {
+                        let key = RecoveryKey::generate()?;
+                        vault.set_recovery_key(Some(&key))?;
+                        let bytes = vault.to_bytes()?;
                         storage::write_atomic(&path, &bytes)?;
                         Ok(key)
                     });
@@ -4259,8 +4277,18 @@ fn same_path(a: &std::path::Path, b: &std::path::Path) -> bool {
 }
 
 fn file_hash(bytes: &[u8]) -> [u8; 32] {
-    use sha2::{Digest, Sha256};
-    Sha256::digest(bytes).into()
+    storage::fingerprint(bytes)
+}
+
+/// Whether the vault file still holds what this window last read or wrote (`expected`).
+/// Background jobs that write the file themselves check it too, so no path overwrites
+/// someone else's save (AGENTS.md §4.1, rule 7).
+fn file_unchanged(path: &std::path::Path, expected: Option<[u8; 32]>) -> bool {
+    match (expected, std::fs::read(path)) {
+        (Some(expected), Ok(bytes)) => file_hash(&bytes) == expected,
+        // Deleted or unreadable, or never read: writing it again is the safe move.
+        _ => true,
+    }
 }
 
 /// Shows a generated secret's strength: bits and the estimated time to crack it.

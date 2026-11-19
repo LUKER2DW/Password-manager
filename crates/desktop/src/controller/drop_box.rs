@@ -101,23 +101,26 @@ impl Controller {
     /// logins were added.
     pub(super) fn open_drop_box(&self) {
         let wanted = self.state.borrow().settings.browser_extension;
+        // The drop file is emptied only once its logins are safe in the saved vault: emptied
+        // before a save that then fails, they would live only in memory.
+        let mut emptied: Option<DropFile> = None;
+        let id;
         let added = {
             let mut state = self.state.borrow_mut();
             let Some(session) = state.session.as_mut() else {
                 return;
             };
             let vault = &mut session.vault;
-            let id = vault.id_hex();
+            id = vault.id_hex();
             match read(&id) {
                 Some(file) => match DropBoxKey::open_with(vault, &file.sealed_key) {
                     Ok(key) => {
                         let added = add_entries(vault, &key, &file.entries);
                         if !file.entries.is_empty() {
-                            let emptied = DropFile {
+                            emptied = Some(DropFile {
                                 entries: Vec::new(),
                                 ..file
-                            };
-                            let _ = write(&id, &emptied);
+                            });
                         }
                         added
                     }
@@ -140,10 +143,16 @@ impl Controller {
         };
         if added > 0 {
             self.state.borrow_mut().summaries_stale = true;
-            if self.save_vault() {
-                self.refresh_list();
-                self.notify_long(notice::BROWSER_DROPPED, &added.to_string());
+            if !self.save_vault() {
+                // Kept in the drop file: the next unlock adds them again (known ones are
+                // skipped, so nothing is doubled).
+                return;
             }
+            self.refresh_list();
+            self.notify_long(notice::BROWSER_DROPPED, &added.to_string());
+        }
+        if let Some(emptied) = emptied {
+            let _ = write(&id, &emptied);
         }
     }
 }

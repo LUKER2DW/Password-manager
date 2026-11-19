@@ -43,29 +43,80 @@ fn now() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0))
 }
 
+/// What the history file holds for a vault.
+enum Loaded {
+    /// No file yet.
+    Missing,
+    Entries(Vec<GeneratedEntry>),
+    /// A file that can't be read or opened (damaged, another vault's, held by another
+    /// program). Never written over: it may still be the person's history.
+    Unreadable,
+}
+
+fn load(vault: &vault_core::Vault) -> Loaded {
+    let Some(path) = history_path(&vault.id_hex()) else {
+        return Loaded::Missing;
+    };
+    let sealed = match std::fs::read(&path) {
+        Ok(sealed) => sealed,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Loaded::Missing,
+        Err(_) => return Loaded::Unreadable,
+    };
+    vault
+        .open_local(PURPOSE, &sealed)
+        .ok()
+        .and_then(|plain| postcard::from_bytes::<Vec<GeneratedEntry>>(&plain).ok())
+        .map_or(Loaded::Unreadable, Loaded::Entries)
+}
+
 impl Controller {
-    /// The history, read once per unlock from its sealed file.
+    /// The history, read once per unlock from its sealed file. A file that can't be opened
+    /// is set aside (renamed, not deleted) so a new history can start without losing it.
     fn generated_entries(&self) -> Vec<GeneratedEntry> {
         if let Some(list) = &self.state.borrow().generated_history {
             return list.clone();
         }
-        let list = {
+        let loaded = {
             let state = self.state.borrow();
-            state
-                .session
-                .as_ref()
-                .and_then(|session| {
-                    let sealed = std::fs::read(history_path(&session.vault.id_hex())?).ok()?;
-                    let plain = session.vault.open_local(PURPOSE, &sealed).ok()?;
-                    postcard::from_bytes::<Vec<GeneratedEntry>>(&plain).ok()
-                })
-                .unwrap_or_default()
+            match state.session.as_ref() {
+                Some(session) => (load(&session.vault), session.vault.id_hex()),
+                None => (Loaded::Missing, String::new()),
+            }
+        };
+        let list = match loaded {
+            (Loaded::Missing, _) => Vec::new(),
+            (Loaded::Entries(list), _) => list,
+            (Loaded::Unreadable, id) => {
+                let set_aside = history_path(&id).is_some_and(|path| {
+                    let aside = path.with_file_name(format!("generated-{id}.unreadable.bin"));
+                    std::fs::rename(&path, aside).is_ok()
+                });
+                if !set_aside {
+                    // Still there and still unreadable: not cached, so nothing is written
+                    // over it (see `store_generated`) and it is tried again next time.
+                    return Vec::new();
+                }
+                Vec::new()
+            }
         };
         self.state.borrow_mut().generated_history = Some(list.clone());
         list
     }
 
     fn store_generated(&self, list: Vec<GeneratedEntry>) {
+        let unreadable = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .is_some_and(|session| matches!(load(&session.vault), Loaded::Unreadable));
+        if unreadable {
+            self.set_error(
+                error::OTHER,
+                "the history of generated passwords could not be read, so it was not changed",
+            );
+            return;
+        }
         let written = {
             let state = self.state.borrow();
             state.session.as_ref().and_then(|session| {

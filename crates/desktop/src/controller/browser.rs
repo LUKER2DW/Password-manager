@@ -90,8 +90,7 @@ impl Controller {
             self.set_error(error::BROWSER_HOST, browser_link::HOST_EXE);
             return;
         };
-        let pipe = match browser_link::register_host(&host).and_then(|()| browser_link::pipe_name())
-        {
+        let pipe = match browser_link::pipe_name() {
             Ok(pipe) => pipe,
             Err(err) => {
                 self.set_error(error::OTHER, &err.to_string());
@@ -114,6 +113,19 @@ impl Controller {
                 });
                 return;
             };
+            // Only the copy of the app that holds the pipe points Chrome and Edge at its host.
+            // Registered before the pipe was ours, a second copy elsewhere (that then failed
+            // to bind) would leave the browsers talking to its host, which this pipe refuses.
+            if let Err(err) = browser_link::register_host(&host) {
+                let detail = err.to_string();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
+                        controller.browser_link_failed(&stop);
+                        controller.set_error(error::OTHER, &detail);
+                    }
+                });
+                return;
+            }
             /// Runs `work` on the UI thread (where the vault lives) and waits for it here.
             fn on_ui<T: Send + 'static>(
                 work: impl FnOnce(&Controller) -> T + Send + 'static,
