@@ -50,6 +50,7 @@ mod generated;
 mod locked_fill;
 mod navigation;
 mod protection;
+mod syncing;
 
 /// What to draw next to an item.
 struct IconVisual {
@@ -182,6 +183,12 @@ mod notice {
     pub const LEAKS_SKIPPED_LOCKED: i32 = 49;
     pub const LEAKS_FOUND_SOME_LOCKED: i32 = 50;
     pub const BROWSER_UPDATED: i32 = 51;
+    pub const SYNC_CHANGED: i32 = 52;
+    pub const SYNC_CONFLICTS: i32 = 53;
+    pub const SYNC_WAITING: i32 = 54;
+    pub const SYNC_UNLOCK_CHANGED: i32 = 55;
+    pub const SYNC_REFUSED: i32 = 56;
+    pub const SYNC_REMOVED: i32 = 57;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -361,6 +368,7 @@ struct State {
     health_generation: u64,
     health_ids: Vec<ItemId>,
     leaks: HashMap<ItemId, u64>,
+    sync: syncing::SyncStatus,
     /// Import: the place chosen, and which reviewed entries are ticked.
     import_source: Option<vault_import::Source>,
     import_include: Vec<bool>,
@@ -410,6 +418,9 @@ struct Timers {
     totp: Timer,
     auth: Timer,
     relock: Timer,
+    /// Sync: a round a moment after a save, and one every few minutes.
+    sync_soon: Timer,
+    sync_every: Timer,
 }
 
 pub struct Controller {
@@ -506,6 +517,7 @@ impl Controller {
                 health_generation: 0,
                 health_ids: Vec::new(),
                 leaks: HashMap::new(),
+                sync: syncing::SyncStatus::default(),
                 import_source: None,
                 import_include: Vec::new(),
                 browser_profiles: Vec::new(),
@@ -691,6 +703,9 @@ impl Controller {
         on!(on_unlock_item_hello, |c| c.unlock_secrets_hello());
         on!(on_pairing_decided, |c, allow| c.pairing_decided(allow));
         on!(on_forget_pairing, |c| c.forget_pairing());
+        on!(on_sync_choose, |c| c.sync_choose());
+        on!(on_sync_now, |c| c.sync_round());
+        on!(on_sync_stop, |c| c.sync_stop());
         on!(on_lock_secrets, |c| {
             c.lock_secrets();
             c.notify(notice::SECRETS_LOCKED, "");
@@ -1082,6 +1097,7 @@ impl Controller {
                     state.guard_attempts = 0;
                     state.summaries_stale = true;
                 }
+                self.sync_after_unlocking_items();
                 self.set_error(error::NONE, "");
                 let weak = self.weak();
                 self.timers
@@ -1735,6 +1751,7 @@ impl Controller {
         self.refresh_locked_fill();
         self.record_pending_generated();
         self.open_drop_box();
+        self.start_sync();
     }
 
     /// How many items wait to be sealed under the item lock (for the headless test).
@@ -1812,6 +1829,7 @@ impl Controller {
     }
 
     fn lock(&self) {
+        self.stop_sync();
         self.stop_lock_warning();
         self.lock_deadline.set(None);
         for timer in [
@@ -2530,6 +2548,7 @@ impl Controller {
                 if self.app().get_error_code() == error::CHANGED_OUTSIDE {
                     self.set_error(error::NONE, "");
                 }
+                self.sync_after_save();
                 true
             }
             Err(err) => {

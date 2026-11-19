@@ -1799,6 +1799,16 @@ export component SettingsPage inherits Rectangle {
     in-out property <bool> guard-hello;
     in-out property <bool> browser-paired;
     callback forget-pairing();
+    in property <string> sync-folder;
+    in property <int> sync-state;
+    in property <int> sync-minutes: -1;
+    in property <string> sync-detail;
+    in property <int> sync-waiting;
+    in property <string> sync-devices;
+    in property <string> sync-this-device;
+    callback sync-choose();
+    callback sync-now();
+    callback sync-stop();
     callback save-guard();
     // Keyfile: whether the vault needs one, where it is, the file for the next action.
     in property <bool> keyfile-on;
@@ -2046,6 +2056,56 @@ hint: @tr("The extension keeps no passwords. The first time, it asks to be conne
                     font-size: Theme.small;
                     color: Theme.graphite;
                     wrap: word-wrap;
+                }
+            }
+
+            SettingsCard {
+                icon: "refresh";
+                title: @tr("Sync");
+                summary: @tr("Keeps this vault the same on your other computers through a folder they all see: OneDrive, Google Drive, Dropbox, Syncthing or a network share.");
+                hint: @tr("Each computer writes only its own copy into the folder, encrypted like the vault file: it opens only with your master password and Secret Key. This app sends nothing anywhere; the folder's own program carries the files. Copies from the other computers are merged item by item: an item deleted on one is deleted on all, and when the same item was changed on two, the newer version is kept and the other password goes into its history. An older copy put back in the folder is refused.");
+                if root.sync-folder == "": HorizontalLayout {
+                    alignment: start;
+                    QuietButton {
+                        outlined: true;
+                        text: @tr("Choose a folder…");
+                        clicked => { root.sync-choose(); }
+                    }
+                }
+                if root.sync-folder != "": VerticalLayout {
+                    spacing: 8px;
+                    Fact { label: @tr("Folder"); value: root.sync-folder; }
+                    Fact {
+                        label: @tr("Last synced");
+                        value: root.sync-state == 2 ? @tr("Syncing…")
+                            : root.sync-state == 3 ? (root.sync-detail == "" ? @tr("Failed") : @tr("Failed: {}", root.sync-detail))
+                            : root.sync-minutes < 0 ? @tr("Not yet")
+                            : root.sync-minutes == 0 ? @tr("Just now")
+                            : @tr("{n} minute ago" | "{n} minutes ago" % root.sync-minutes);
+                    }
+                    if root.sync-state == 4: Fact {
+                        label: @tr("Waiting");
+                        value: @tr("{n} item changed on two computers waits for the item lock" | "{n} items changed on two computers wait for the item lock" % root.sync-waiting);
+                    }
+                    Fact {
+                        label: @tr("Computers");
+                        value: root.sync-devices == "" ? @tr("{} (this computer)", root.sync-this-device)
+                            : @tr("{} (this computer), {}", root.sync-this-device, root.sync-devices);
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        alignment: start;
+                        QuietButton {
+                            outlined: true;
+                            text: @tr("Sync now");
+                            enabled: root.sync-state != 2;
+                            clicked => { root.sync-now(); }
+                        }
+                        QuietButton {
+                            text: @tr("Stop syncing");
+                            clicked => { root.sync-stop(); }
+                        }
+                    }
                 }
             }
 

@@ -547,6 +547,29 @@ fn main() {
     );
     app.set_kdf_method(app.get_kdf_current_method());
     app.set_kdf_level(app.get_kdf_current().max(0));
+    // Sync through a folder (demo values): synced a few minutes ago, then waiting for the
+    // item lock, then the folder gone.
+    app.set_sync_folder(r"D:\Sync\Vault".into());
+    app.set_sync_this_device("Desktop".into());
+    app.set_sync_devices("Laptop, Phone".into());
+    app.set_sync_minutes(3);
+    app.set_sync_state(1);
+    camera.shot(
+        "settings-sync",
+        "Settings, whole page: sync through a folder",
+    );
+    app.set_sync_waiting(2);
+    app.set_sync_state(4);
+    camera.shot(
+        "settings-sync-waiting",
+        "Settings, whole page: sync, two edits waiting for the item lock",
+    );
+    app.set_sync_detail(r"the folder D:\Sync\Vault can't be reached".into());
+    app.set_sync_state(3);
+    camera.shot("settings-sync-failed", "Settings, whole page: sync failed");
+    app.set_sync_folder("".into());
+    app.set_sync_state(0);
+    app.set_sync_detail("".into());
     camera.window.set_size(normal);
     app.invoke_open_authenticator();
     camera.shot("authenticator", "Authenticator: every one-time code, live");

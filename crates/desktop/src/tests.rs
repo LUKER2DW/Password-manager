@@ -195,6 +195,71 @@ fn whole_app_flow_headless() {
     let counts: Vec<i32> = app.get_counts().iter().collect();
     assert_eq!(counts, [2, 0, 1, 0, 1]);
 
+    // ---- sync through a folder: another computer's copy is merged in ----
+    let sync_dir = dir.path().join("sync folder");
+    std::fs::create_dir_all(&sync_dir).unwrap();
+    let vault_id = app.get_vault_id().to_string();
+    let other_device = vault_core::sync::DeviceId::from_bytes([0x42; 16]);
+    {
+        // The other computer: the same vault, opened with the same keys, one more item.
+        let mut other = vault_core::Vault::open(
+            &std::fs::read(&path).unwrap(),
+            vault_core::Unlock::Password {
+                password: PASSWORD,
+                secret_key: &vault_core::SecretKey::parse(&secret_key).unwrap(),
+            },
+        )
+        .unwrap();
+        other.set_device(other_device);
+        other
+            .add_item(&vault_core::ItemData::login(
+                "From the laptop",
+                "l",
+                "laptop-pw",
+                "https://laptop.example",
+            ))
+            .unwrap();
+        let devices = sync_dir.join(&vault_id).join("devices");
+        std::fs::create_dir_all(&devices).unwrap();
+        std::fs::write(
+            devices.join(format!("{}.vault", other_device.to_hex())),
+            other.to_bytes().unwrap(),
+        )
+        .unwrap();
+    }
+    app.invoke_open_settings();
+    assert_eq!(app.get_sync_folder(), "", "off until a folder is chosen");
+    controller.sync_start(sync_dir.clone());
+    assert_eq!(app.get_total_items(), 3, "the laptop's item arrived");
+    assert_eq!(app.get_notice_code(), 52);
+    assert_eq!(app.get_sync_state(), 1, "synced: {}", app.get_sync_detail());
+    assert_eq!(app.get_sync_minutes(), 0);
+    assert!(
+        !app.get_sync_this_device().is_empty(),
+        "this computer is listed"
+    );
+    let own = std::fs::read_dir(sync_dir.join(&vault_id).join("devices"))
+        .unwrap()
+        .count();
+    assert_eq!(own, 2, "this computer's copy is in the folder too");
+    // Nothing new: another round changes nothing.
+    app.set_notice_code(0);
+    controller.sync_round();
+    assert_eq!(app.get_notice_code(), 0);
+    assert_eq!(app.get_total_items(), 3);
+    app.invoke_sync_stop();
+    assert_eq!(app.get_sync_folder(), "");
+    assert_eq!(app.get_sync_state(), 0);
+    app.invoke_select_category(0);
+    let laptop = app
+        .get_items()
+        .iter()
+        .position(|row| row.title == "From the laptop")
+        .unwrap();
+    app.invoke_select(i32::try_from(laptop).unwrap());
+    app.invoke_delete_item();
+    assert_eq!(app.get_total_items(), 2);
+
     app.set_search_text("git".into());
     app.invoke_search("git".into());
     assert_eq!(app.get_items().row_count(), 1);

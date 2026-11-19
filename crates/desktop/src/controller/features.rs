@@ -1180,6 +1180,7 @@ impl Controller {
     // -----------------------------------------------------------------------------------------
 
     pub(super) fn show_vault_settings(&self) {
+        self.show_sync_settings();
         let app = self.app();
         let state = self.state.borrow();
         let Some(session) = state.session.as_ref() else {
