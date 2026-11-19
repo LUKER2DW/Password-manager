@@ -465,7 +465,8 @@ fn whole_app_flow_headless() {
     let logins_request = r#"{"type":"logins","url":"https://github.com/login"}"#;
     assert!(raw(logins_request).contains("bad_request"));
     assert!(signed(&[9u8; 32], logins_request).contains("not_paired"));
-    // The extension asks to connect: the app shows a code and waits for the person.
+    // The extension asks to connect: the app waits for the person to type the code the
+    // extension shows (the app itself never shows it).
     let pairing = raw(r#"{"type":"pair"}"#);
     let field = |json: &str, name: &str| {
         json.split(&format!(r#""{name}":""#))
@@ -478,6 +479,7 @@ fn whole_app_flow_headless() {
         .map(|i| u8::from_str_radix(&field(&pairing, "key")[2 * i..2 * i + 2], 16).unwrap())
         .collect();
     assert_eq!(app.get_pairing_code(), field(&pairing, "code").as_str());
+    assert_eq!(app.get_pairing_typed(), "");
     assert!(
         signed(&key, logins_request).contains("not_paired"),
         "the key opens nothing until it is allowed in the app"
@@ -492,8 +494,21 @@ fn whole_app_flow_headless() {
     let key: Vec<u8> = (0..32)
         .map(|i| u8::from_str_radix(&field(&pairing, "key")[2 * i..2 * i + 2], 16).unwrap())
         .collect();
-    // Connecting takes the master password, typed in the app's dialog.
+    // Connecting takes the code from the extension's window, then the master password.
     assert!(app.get_pairing_needs_password());
+    type_into(&app, 14, PASSWORD);
+    app.invoke_pairing_decided(true);
+    assert_eq!(app.get_error_code(), 43, "no code typed");
+    app.set_pairing_typed("000 000".into());
+    if field(&pairing, "code") != "000 000" {
+        app.invoke_pairing_decided(true);
+        assert_eq!(app.get_error_code(), 43, "not the extension's code");
+        assert_ne!(app.get_pairing_code(), "", "the dialog stays open");
+    }
+    assert!(signed(&key, logins_request).contains("not_paired"));
+    // Typed with or without the space.
+    app.set_pairing_typed(field(&pairing, "code").replace(' ', "").into());
+    type_into(&app, 14, "");
     app.invoke_pairing_decided(true);
     assert_eq!(app.get_error_code(), 11, "no password typed");
     type_into(&app, 14, "not the master password");
@@ -505,6 +520,7 @@ fn whole_app_flow_headless() {
     app.invoke_pairing_decided(true);
     assert_eq!(app.get_error_code(), 0);
     assert_eq!(app.get_pairing_code(), "");
+    assert_eq!(app.get_pairing_typed(), "");
     assert_eq!(length(&app, 14), 0);
     assert_eq!(app.get_notice_code(), 41);
     assert!(app.get_browser_paired());
@@ -844,6 +860,7 @@ fn whole_app_flow_headless() {
     let key: Vec<u8> = (0..32)
         .map(|i| u8::from_str_radix(&field(&pairing, "key")[2 * i..2 * i + 2], 16).unwrap())
         .collect();
+    app.set_pairing_typed(field(&pairing, "code").into());
     type_into(&app, 14, NEW_PASSWORD);
     app.invoke_pairing_decided(true);
     assert_eq!(app.get_error_code(), 0);

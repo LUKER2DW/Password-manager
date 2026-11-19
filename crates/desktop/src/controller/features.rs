@@ -740,6 +740,11 @@ impl Controller {
                 .collect()
         };
         if queries.is_empty() {
+            // Nothing to ask about, but logins behind the item lock may be why.
+            let locked = self.locked_logins();
+            if locked > 0 {
+                self.notify_long(notice::LEAKS_SKIPPED_LOCKED, &locked.to_string());
+            }
             return;
         }
         if self.state.borrow().runner == Runner::Inline {
@@ -749,6 +754,24 @@ impl Controller {
         self.run_job(move || JobResult::LeaksChecked {
             result: lookup_breaches(&queries),
         });
+    }
+
+    /// Logins whose password the item lock keeps closed right now.
+    fn locked_logins(&self) -> usize {
+        let state = self.state.borrow();
+        let Some(session) = state.session.as_ref() else {
+            return 0;
+        };
+        session
+            .vault
+            .item_ids()
+            .filter(|id| {
+                session
+                    .vault
+                    .get_item(id)
+                    .is_ok_and(|item| item.kind == ItemKind::Login && item.is_locked())
+            })
+            .count()
     }
 
     pub(super) fn finish_leak_check(&self, result: Result<Vec<(ItemId, u64)>, String>) {
@@ -763,7 +786,18 @@ impl Controller {
                 }
                 app.set_leaks_checked(true);
                 self.refresh_health();
-                self.notify(notice::LEAKS_CHECKED, &found.to_string());
+                // Locked logins keep their passwords out of reach, so they weren't asked
+                // about: never an all-clear that leaves them out without saying so.
+                let locked = self.locked_logins();
+                match (found, locked) {
+                    (_, 0) => self.notify(notice::LEAKS_CHECKED, &found.to_string()),
+                    (0, locked) => {
+                        self.notify_long(notice::LEAKS_SKIPPED_LOCKED, &locked.to_string())
+                    }
+                    (found, _) => {
+                        self.notify_long(notice::LEAKS_FOUND_SOME_LOCKED, &found.to_string())
+                    }
+                }
             }
             Err(detail) => self.set_error(error::LEAK_CHECK, &detail),
         }

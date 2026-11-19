@@ -169,6 +169,7 @@ export global Messages {
         if (code == 40) { return @tr("Filling while the vault is locked uses Windows Hello: turn it on in Settings → Item lock first (with a PIN or another password)."); }
         if (code == 39) { return @tr("Windows Hello no longer opens the item lock on this computer (its PIN or password was changed). Use the PIN, then turn Windows Hello on again in Settings → Item lock."); }
         if (code == 38) { return @tr("The helper program for browsers ({}) is missing next to the app, so the extension can't be connected.", detail); }
+        if (code == 43) { return @tr("That isn't the code the extension shows. Look at the extension's window and type its six digits."); }
         if (code == 42) { return @tr("The browser extension can't reach this window: its channel is already in use, by another window of the app or by another program. Close the other window, then turn the extension setting off and on again."); }
         if (code == 37) { return @tr("Locked secrets are in the way. Open the item lock first: type its PIN or password on a locked item or on the Authenticator page, then try again."); }
 
@@ -277,6 +278,10 @@ export global Messages {
         if (code == 44) { return @tr("History of generated passwords cleared."); }
         if (code == 46) { return arg == "1" ? @tr("A login saved from the browser while the vault was locked is in your vault now.") : @tr("{} logins saved from the browser while the vault was locked are in your vault now.", arg); }
         if (code == 45) { return @tr("The browser extension can now fill with Windows Hello while the vault is locked."); }
+        if (code == 47) { return @tr("This computer's record of the newest version of each vault couldn't be read, so it started again (the old file was kept as state.json.unreadable). An older copy of a vault is noticed again once its newest version has been opened here."); }
+        if (code == 49) { return arg == "1" ? @tr("Leak check: one locked login wasn't checked, because the item lock keeps its password closed. None of the others is in a known breach. Open the item lock, then check again.") : @tr("Leak check: {} locked logins weren't checked, because the item lock keeps their passwords closed. None of the others is in a known breach. Open the item lock, then check again.", arg); }
+        if (code == 50) { return @tr("Leak check done: {} found in known breaches. Change them first. Locked logins weren't checked: open the item lock, then check again.", arg); }
+        if (code == 48) { return @tr("This computer couldn't record the vault's newest version ({}), so an older copy put in its place may not be noticed.", arg); }
         return "";
     }
 

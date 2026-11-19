@@ -26,7 +26,7 @@ use vault_core::{
     totp::Totp,
 };
 use vault_platform::{
-    DeviceState, RollbackStatus, SecretBuffer, clipboard, device, files,
+    DeviceState, RollbackStatus, SecretBuffer, StateFile, clipboard, device, files,
     kit_pdf::{self, KitContents},
     quick_unlock::{self, DeviceVerifier, QuickUnlockError},
     secret_store,
@@ -127,6 +127,7 @@ mod error {
     pub const LOCKED_FILL_NEEDS_HELLO: i32 = 40;
     pub const TOTP_REQUIRED: i32 = 41;
     pub const BROWSER_PIPE: i32 = 42;
+    pub const PAIRING_CODE: i32 = 43;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -176,6 +177,10 @@ mod notice {
     pub const GENERATED_CLEARED: i32 = 44;
     pub const LOCKED_FILL_ON: i32 = 45;
     pub const BROWSER_DROPPED: i32 = 46;
+    pub const DEVICE_STATE_RESET: i32 = 47;
+    pub const DEVICE_STATE_NOT_SAVED: i32 = 48;
+    pub const LEAKS_SKIPPED_LOCKED: i32 = 49;
+    pub const LEAKS_FOUND_SOME_LOCKED: i32 = 50;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -995,7 +1000,9 @@ impl Controller {
                 }
                 let id = session.vault.id_hex();
                 let revision = session.vault.revision();
-                let mut device_state = DeviceState::load().unwrap_or_default();
+                // A damaged record of the newest revisions is set aside, never written over,
+                // and the person is told that older copies aren't caught until then.
+                let (mut device_state, state_file) = DeviceState::load_or_set_aside();
                 if let RollbackStatus::Older {
                     revision,
                     highest_seen,
@@ -1005,7 +1012,14 @@ impl Controller {
                     return;
                 }
                 device_state.record_revision(&id, revision);
-                let _ = device_state.save();
+                if state_file != StateFile::Unreadable
+                    && let Err(err) = device_state.save()
+                {
+                    self.notify_long(notice::DEVICE_STATE_NOT_SAVED, &err.to_string());
+                }
+                if state_file != StateFile::Read {
+                    self.notify_long(notice::DEVICE_STATE_RESET, "");
+                }
                 if typed_secret_key {
                     if let Err(err) = secret_store::store(&id, &session.secret_key) {
                         self.set_error(error::OTHER, &err.to_string());
@@ -1808,6 +1822,13 @@ impl Controller {
         ] {
             timer.stop();
         }
+        // A secret copied a moment ago leaves the clipboard with the vault (only if it is
+        // still what the clipboard holds: anything copied since is left alone).
+        self.timers.clipboard.stop();
+        let copied = self.state.borrow_mut().copied.take();
+        if let Some(value) = copied {
+            clipboard::clear_if(&value);
+        }
         self.state.borrow_mut().editor_generated = None;
         {
             // The lock screen asks for the keyfile again when the vault uses one.
@@ -1870,6 +1891,7 @@ impl Controller {
             app.set_vault_name(SharedString::new());
             app.set_folder_dialog(-1);
             app.set_pairing_code(SharedString::new());
+            app.set_pairing_typed(SharedString::new());
             app.set_can_go_back(false);
             app.set_can_go_forward(false);
         }

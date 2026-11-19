@@ -750,11 +750,13 @@ fn main() {
     app.invoke_open_settings();
     camera.shot("settings-item-lock", "Settings with a PIN item lock");
     app.set_pairing_code("482 913".into());
+    app.set_pairing_typed("482 913".into());
     camera.shot(
         "pairing",
-        "A browser extension asks to connect: compare the code, allow or refuse",
+        "A browser extension asks to connect: type the code it shows, allow or refuse",
     );
     app.set_pairing_code("".into());
+    app.set_pairing_typed("".into());
     app.invoke_open_settings();
     app.set_guard_check(0);
     app.set_guard_all(false);

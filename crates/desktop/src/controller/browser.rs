@@ -462,6 +462,7 @@ impl Controller {
         self.clear_secret(field::PAIRING);
         let app = self.app();
         app.set_pairing_needs_password(needs_password);
+        app.set_pairing_typed(SharedString::new());
         app.set_pairing_code(SharedString::from(code));
     }
 
@@ -488,11 +489,18 @@ impl Controller {
             self.state.borrow_mut().browser_pending = None;
             self.clear_secret(field::PAIRING);
             app.set_pairing_code(SharedString::new());
+            app.set_pairing_typed(SharedString::new());
             self.set_error(error::NONE, "");
             return;
         }
         if self.state.borrow().browser_pending.is_none() {
             app.set_pairing_code(SharedString::new());
+            return;
+        }
+        // The code typed from the extension's window, not one the app showed: whatever sent
+        // the request knows the code too, the person's eyes on the extension are the proof.
+        if !self.pairing_code_matches() {
+            self.set_error(error::PAIRING_CODE, "");
             return;
         }
         if !app.get_pairing_needs_password() {
@@ -523,10 +531,22 @@ impl Controller {
         );
     }
 
+    /// Whether the code typed in the dialog is the waiting connection's (spaces aside).
+    fn pairing_code_matches(&self) -> bool {
+        let digits = |text: &str| -> String { text.chars().filter(char::is_ascii_digit).collect() };
+        let typed = digits(&self.app().get_pairing_typed());
+        self.state
+            .borrow()
+            .browser_pending
+            .as_ref()
+            .is_some_and(|key| !typed.is_empty() && typed == digits(&key.code()))
+    }
+
     /// Stores the connection: from now on requests signed with its key are answered.
     pub(super) fn finish_pairing(&self) {
         self.clear_secret(field::PAIRING);
         self.app().set_pairing_code(SharedString::new());
+        self.app().set_pairing_typed(SharedString::new());
         let Some(key) = self.state.borrow_mut().browser_pending.take() else {
             return;
         };

@@ -168,7 +168,9 @@ export component AppWindow inherits Window {
     callback unlock-item-hello();
     // Browser extension: the code of a connection waiting for an answer ("" = none);
     // whether one is connected.
+    // Not shown: non-empty while a connection waits (see PairingDialog).
     in property <string> pairing-code;
+    in-out property <string> pairing-typed;
     in property <bool> pairing-needs-password: true;
     in-out property <bool> browser-paired;
     callback pairing-decided(bool);
@@ -910,7 +912,7 @@ export component AppWindow inherits Window {
     if root.screen == Screen.vault && root.pairing-code != "": PairingDialog {
         width: root.width;
         height: root.height;
-        code: root.pairing-code;
+        typed-code <=> root.pairing-typed;
         needs-password: root.pairing-needs-password;
         busy: root.busy;
         error-code: root.error-code;
