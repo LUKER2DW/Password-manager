@@ -26,7 +26,9 @@ use vault_core::{
     storage,
     totp::Totp,
 };
-use vault_platform::{DeviceState, RollbackStatus, SecretBuffer, clipboard, secret_store};
+use vault_platform::{
+    DeviceState, RollbackStatus, SecretBuffer, StateFile, clipboard, secret_store,
+};
 use zeroize::Zeroizing;
 
 use crate::{
@@ -68,6 +70,7 @@ mod notice {
     pub const CODE_COPIED: i32 = 5;
     pub const WEBSITE_COPIED: i32 = 6;
     pub const COPIED: i32 = 7;
+    pub const STATE_RESET: i32 = 8;
 }
 
 /// A copied secret leaves the clipboard after this long.
@@ -554,7 +557,8 @@ impl Controller {
         let id = vault.id_hex();
         // An older file than the one opened here before: refused, it may be an old copy put
         // in its place.
-        let mut device = DeviceState::load().unwrap_or_default();
+        // A damaged record of the newest revisions is set aside, never written over.
+        let (mut device, state_file) = DeviceState::load_or_set_aside();
         if let RollbackStatus::Older { .. } = device.check_rollback(&id, vault.revision()) {
             return self.set_error(error::OLDER, "");
         }
@@ -574,7 +578,9 @@ impl Controller {
             }
         }
         device.record_revision(&id, vault.revision());
-        let _ = device.save();
+        if state_file != StateFile::Unreadable {
+            let _ = device.save();
+        }
         if opened.typed_key {
             let _ = secret_store::store(&id, &opened.secret_key);
         }
@@ -585,6 +591,9 @@ impl Controller {
             state.file_hash = Some(opened.hash);
         }
         self.enter_vault();
+        if state_file != StateFile::Read {
+            self.notify(notice::STATE_RESET, "");
+        }
     }
 
     fn enter_vault(&self) {
