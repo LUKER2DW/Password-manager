@@ -39,6 +39,18 @@
     return scope.length >= 2;
   }
 
+  const CODE = /one-time-code|otp|totp|2fa|mfa|two-?factor|one-?time|verif|authenticat|security.?code|auth.?code/;
+  const words = (el) =>
+    `${hint(el)} ${el.getAttribute("placeholder") || ""} ${el.getAttribute("aria-label") || ""}`.toLowerCase();
+
+  /** Whether `el` asks for a one-time code (two-step sign-in). */
+  function isCodeField(el) {
+    if (!el || el.tagName !== "INPUT" || !usable(el)) return false;
+    if (!["text", "tel", "number", ""].includes(type(el))) return false;
+    if ((el.getAttribute("autocomplete") || "").toLowerCase().includes("one-time-code")) return true;
+    return !looksLikeUser(el) && CODE.test(words(el));
+  }
+
   /** What the site allows in a new password, as the field says it. */
   function fieldRules(el) {
     const text = (value) => (typeof value === "string" && value.length <= 512 ? value : undefined);
@@ -86,5 +98,5 @@
     return { username: user ? user.value.trim() : "", password: password.value };
   }
 
-  globalThis.VaultFields = { isSignInField, isNewPasswordField, fieldRules, putNewPassword, typedLogin };
+  globalThis.VaultFields = { isSignInField, isNewPasswordField, isCodeField, fieldRules, putNewPassword, typedLogin };
 })();

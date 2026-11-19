@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { fillLogin } from "../fill.js";
+import { fillCode, fillLogin } from "../fill.js";
 
 class Event {
   constructor(type) {
@@ -130,4 +130,40 @@ test("prefers the field that looks like a username, else the first text field of
   const [only, secret] = page([{ name: "field1", form }, { type: "password", form }]);
   assert.equal(fill(), "both");
   assert.deepEqual([only.value, secret.value], ["octocat", "s3cret"]);
+});
+
+test("a one-time code goes into the field marked for it, never elsewhere", () => {
+  const form = {};
+  const [search, code] = page([
+    { name: "q" },
+    { name: "otp_attempt", autocomplete: "one-time-code", form },
+  ]);
+  assert.equal(fillCode("https://github.com", "123456"), "filled");
+  assert.equal(search.value, "");
+  assert.equal(code.value, "123456");
+  assert.deepEqual(code.events, ["input", "change"]);
+
+  const [named] = page([{ name: "totp" }]);
+  assert.equal(fillCode("https://github.com", "654321"), "filled");
+  assert.equal(named.value, "654321");
+
+  page([{ name: "q" }, { type: "password" }]);
+  assert.equal(fillCode("https://github.com", "123456"), "none");
+  const elsewhere = page([{ name: "otp" }], { origin: "https://github.com.evil.example" });
+  assert.equal(fillCode("https://github.com", "123456"), "wrong_page");
+  assert.equal(elsewhere[0].value, "");
+});
+
+test("a code split over one box per digit is spread over the boxes", () => {
+  const form = {};
+  const boxes = page(
+    Array.from({ length: 6 }, (_, i) => ({ name: `otp-${i}`, maxLength: 1, form })),
+  );
+  assert.equal(fillCode("https://github.com", "908172"), "filled");
+  assert.deepEqual(
+    boxes.map((box) => box.value),
+    ["9", "0", "8", "1", "7", "2"],
+  );
+  page(Array.from({ length: 4 }, (_, i) => ({ name: `otp-${i}`, maxLength: 1, form })));
+  assert.equal(fillCode("https://github.com", "908172"), "none", "too few boxes: nothing half-typed");
 });

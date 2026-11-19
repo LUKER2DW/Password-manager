@@ -65,3 +65,57 @@ export function fillLogin(expectedOrigin, username, password) {
   }
   return "none";
 }
+
+/**
+ * Types a one-time code into the page's code field: the one marked `one-time-code`, else one
+ * named like a code. A code split over one box per digit is spread over the boxes.
+ *
+ * Handed to chrome.scripting.executeScript like `fillLogin`, so it stands on its own.
+ *
+ * @param {string} expectedOrigin the origin the login belongs to
+ * @param {string} code
+ * @returns {"filled" | "none" | "wrong_page"}
+ */
+export function fillCode(expectedOrigin, code) {
+  if (window.top !== window || window.location.origin !== expectedOrigin) {
+    return "wrong_page";
+  }
+  const usable = (el) => {
+    if (el.disabled || el.readOnly) return false;
+    const box = el.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return false;
+    const style = window.getComputedStyle(el);
+    return style.display !== "none" && style.visibility !== "hidden";
+  };
+  const put = (el, value) => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    el.focus();
+    setter.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  const words = (el) =>
+    [el.getAttribute("autocomplete"), el.name, el.id, el.getAttribute("placeholder"), el.getAttribute("aria-label")]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+  const CODE = /one-time-code|otp|totp|2fa|mfa|two-?factor|one-?time|verif|authenticat|security.?code|auth.?code/;
+  const boxes = Array.from(document.querySelectorAll("input")).filter(
+    (el) => ["text", "tel", "number", ""].includes((el.type || "").toLowerCase()) && usable(el),
+  );
+  const marked = boxes.filter((el) => (el.getAttribute("autocomplete") || "").toLowerCase().includes("one-time-code"));
+  const named = boxes.filter((el) => CODE.test(words(el)));
+  const first = marked[0] || named[0];
+  if (!first) return "none";
+  if (first.maxLength === 1) {
+    // One box per digit: the boxes that follow it in the same form, as many as there are digits.
+    const row = boxes.filter((el) => el.maxLength === 1 && el.form === first.form);
+    const start = row.indexOf(first);
+    const digits = row.slice(start, start + code.length);
+    if (digits.length !== code.length) return "none";
+    digits.forEach((el, i) => put(el, code[i]));
+    return "filled";
+  }
+  put(first, code);
+  return "filled";
+}

@@ -5,8 +5,8 @@
 // listens to the browser: a click counts only after the frame has been reported fully
 // visible, with nothing drawn over it, for a moment.
 //
-// The frame's address says what to show and where the field is: `#logins`, `#new` or
-// `#save`, with `:up` when the card sits above the field, then `|` and the page's colour
+// The frame's address says what to show and where the field is: `#logins`, `#code`, `#new`
+// or `#save`, with `:up` when the card sits above the field, then `|` and the page's colour
 // scheme. The content script changes only that part when the card has to move above, which
 // doesn't reload this page.
 
@@ -116,6 +116,9 @@ const DOTS = "••••••••••••";
 
 async function showLogins() {
   const listed = await say({ kind: "frame-logins" });
+  // Under a one-time code field: only the logins that have a code.
+  const codes = mode === "code";
+  if (codes && listed?.items) listed.items = listed.items.filter((entry) => entry.has_code);
   if (!listed?.items?.length) return say({ kind: "frame-dismiss", which });
   // The logins are those of the page this card sits in, or they are not shown.
   if (around && around[0] !== listed.origin) return say({ kind: "frame-dismiss", which });
@@ -142,14 +145,14 @@ async function showLogins() {
     name.textContent = entry.username || (entry.title || "").trim() || t("noUsername");
     const dots = document.createElement("span");
     dots.className = "secret";
-    dots.textContent = DOTS;
+    dots.textContent = codes ? t("fillCodeRow") : DOTS;
     lines.append(name, dots);
     row.append(siteIcon(listed.origin, entry.title || site), lines);
     if (entry.locked) row.append(lockIcon(asks));
     row.addEventListener("click", async (event) => {
       if (!genuine(event)) return;
       for (const other of rows) other.disabled = true;
-      await say({ kind: "frame-fill", id: entry.id });
+      await say({ kind: codes ? "frame-code" : "frame-fill", id: entry.id });
     });
     return row;
   });
@@ -189,11 +192,11 @@ async function showSave() {
   $("save").hidden = false;
   const site = info.origin.replace(/^https:\/\//, "");
   $("save-icon").replaceWith(siteIcon(info.origin, site));
-  $("save-title").textContent = t("saveTitle");
+  $("save-title").textContent = t(info.update ? "updateTitle" : "saveTitle");
   $("save-who").textContent = `${info.username || t("noUsername")} ${t("saveOn", site)}`;
   const yes = $("save-yes");
   const no = $("save-no");
-  yes.textContent = t("saveYes");
+  yes.textContent = t(info.update ? "updateYes" : "saveYes");
   no.textContent = t("saveNo");
   no.onclick = (event) => event.isTrusted && say({ kind: "frame-dismiss", which });
   yes.onclick = async (event) => {

@@ -10,7 +10,7 @@
 // scripts (this one included) can use but not read.
 
 import { ask, originOf, pendingSave, send, setPendingSave } from "./app.js";
-import { fillLogin } from "./fill.js";
+import { fillCode, fillLogin } from "./fill.js";
 import { dropKey, loadKey, saveKey, startWaiting, stopWaiting, waitingCode } from "./link.js";
 
 const t = (key, ...parts) => chrome.i18n.getMessage(key, parts) || key;
@@ -351,13 +351,38 @@ function showSite() {
 }
 
 /** A login typed into this page and not saved yet: offer it at the top. */
+/** Types the current one-time code of `entry` into this page. */
+async function fillTheCode(entry, back) {
+  const tab = here.tab;
+  const reply = await guarded(entry, here.site, { type: "code", url: tab.url, id: entry.id }, t("fillCode"), back);
+  if (!reply) return;
+  if (reply.type !== "code") return explain(reply.code);
+  const now = await chrome.tabs.get(tab.id);
+  if (originOf(now.url) !== reply.origin) return say(t("pageChanged"), "", { isError: true });
+  let outcome = "none";
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: fillCode,
+      args: [reply.origin, reply.code],
+    });
+    outcome = result?.result ?? "none";
+  } catch {
+    outcome = "failed";
+  }
+  if (outcome === "filled") return window.close();
+  if (outcome === "wrong_page") return say(t("pageChanged"), "", { isError: true });
+  return say(t(outcome === "none" ? "noCodeField" : "failed"), "", { isError: true });
+}
+
 function showOffer() {
   const pending = here.pending;
   if (!pending) return;
-  $("offer-text").textContent = t("offerText", pending.username || t("noUsername"));
+  const update = pending.update;
+  $("offer-text").textContent = t(update ? "offerUpdateText" : "offerText", pending.username || t("noUsername"));
   const yes = $("offer-yes");
   const no = $("offer-no");
-  yes.textContent = t("saveYes");
+  yes.textContent = t(update ? "updateYes" : "saveYes");
   no.textContent = t("saveNo");
   const done = async () => {
     here.pending = undefined;
@@ -371,7 +396,23 @@ function showOffer() {
   yes.onclick = async () => {
     yes.disabled = true;
     // A new login asks for nothing (no PIN, no Windows Hello): the item lock seals it later.
-    const entry = { title: originOf(pending.url).replace(/^https:\/\//, ""), username: pending.username, locked: false };
+    const title = originOf(pending.url).replace(/^https:\/\//, "");
+    if (update) {
+      // Changing a locked login's password opens it first, as a fill does.
+      const entry = { title, username: pending.username, locked: update.locked };
+      const listing = here.site || { hello: false };
+      const request = { type: "update", url: pending.url, id: update.id, password: pending.password };
+      const reply = await guarded(entry, listing, request, t("updateYes"), showSite);
+      yes.disabled = false;
+      if (!reply) return;
+      if (reply.type !== "updated") return explain(reply.code);
+      await done();
+      toast(t(reply.changed ? "updatedToast" : "alreadySavedToast"));
+      await load();
+      showSite();
+      return;
+    }
+    const entry = { title, username: pending.username, locked: false };
     const listing = here.site || { hello: true };
     const request = { type: "save", url: pending.url, username: pending.username, password: pending.password };
     const reply = await guarded(entry, { ...listing, hello: true }, request, t("saveYes"), showSite);
@@ -493,6 +534,10 @@ function showEntry(entry, listing, back) {
   fillButton.hidden = !fits;
   fillButton.textContent = t("fillHere");
   fillButton.onclick = () => fill(entry, again);
+  const codeButton = $("entry-fill-code");
+  codeButton.hidden = !fits || !entry.has_code;
+  codeButton.textContent = t("fillCode");
+  codeButton.onclick = () => fillTheCode(entry, again);
 }
 
 // ---- start ----

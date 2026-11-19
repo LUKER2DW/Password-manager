@@ -12,7 +12,7 @@
 //   password.
 
 import { ask, originOf, pendingSave, setPendingSave } from "./app.js";
-import { fillLogin } from "./fill.js";
+import { fillCode, fillLogin } from "./fill.js";
 import { fallbacks, patternTest, rulesFor } from "./generator.js";
 
 const INLINE = chrome.runtime.getURL("inline.html");
@@ -92,6 +92,31 @@ async function fillFromFrame(tab, id) {
   }
 }
 
+/** Types the current one-time code of login `id` into the page's code field. */
+async function codeFromFrame(tab, id) {
+  const listed = await loginsFor(tab);
+  const entry =
+    listed.type === "logins" ? listed.items.find((item) => item.id === id && item.has_code) : undefined;
+  if (!entry) return { done: false };
+  const reply = await ask({ type: "code", url: tab.url, id, hello: entry.locked && listed.hello });
+  if (reply.type !== "code") {
+    const popup = reply.code === "item_locked" && (await continueInPopup());
+    return { done: false, popup };
+  }
+  const now = await chrome.tabs.get(tab.id);
+  if (originOf(now.url) !== reply.origin) return { done: false };
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, frameIds: [0] },
+      func: fillCode,
+      args: [reply.origin, reply.code],
+    });
+    return { done: result?.result === "filled" };
+  } catch {
+    return { done: false };
+  }
+}
+
 async function submitted(tab, message) {
   const password = typeof message.password === "string" ? message.password : "";
   let username = typeof message.username === "string" ? message.username : "";
@@ -106,14 +131,40 @@ async function submitted(tab, message) {
   const origin =
     listed.type === "logins" ? listed.origin : listed.code === "locked" && page.startsWith("https://") ? page : "";
   if (!origin) return;
-  if (listed.type === "logins" && listed.items.some((item) => item.username === username)) return;
-  await setPendingSave(tab.id, { url: tab.url, origin, username, password });
+  const saved = listed.type === "logins" && listed.items.find((item) => item.username === username);
+  let update;
+  if (saved) {
+    // Already saved: offered again only as an update, when the app says the password typed is
+    // another one (or can't tell, for a locked login).
+    const reply = await ask({ type: "changed", url: tab.url, username, password });
+    if (reply.type !== "changed" || reply.changed === false) return;
+    update = { id: reply.id, locked: reply.changed === null || saved.locked };
+  }
+  await setPendingSave(tab.id, { url: tab.url, origin, username, password, update });
   tell(tab.id, { kind: "offer-save" });
 }
 
 async function saveFromFrame(tab) {
   const pending = await pendingSave(tab.id);
   if (!pending) return { done: false };
+  if (pending.update) {
+    const listed = await loginsFor(tab);
+    const hello = pending.update.locked && listed.type === "logins" && listed.hello;
+    const reply = await ask({
+      type: "update",
+      url: pending.url,
+      id: pending.update.id,
+      password: pending.password,
+      hello,
+    });
+    if (reply.type === "updated") {
+      await setPendingSave(tab.id, undefined);
+      known.delete(tab.id);
+      return { done: true, queued: false };
+    }
+    const popup = reply.code === "item_locked" && (await continueInPopup());
+    return { done: false, popup };
+  }
   const reply = await ask({
     type: "save",
     url: pending.url,
@@ -139,6 +190,10 @@ async function handle(message, sender) {
   if (fromPage) {
     switch (message.kind) {
       case "field-focused": {
+        if (message.code) {
+          const listed = await loginsFor(tab);
+          return { show: listed.type === "logins" && listed.items.some((item) => item.has_code) };
+        }
         if (message.fresh) {
           const rules = message.rules && typeof message.rules === "object" ? message.rules : {};
           fresh.set(tab.id, {
@@ -181,11 +236,22 @@ async function handle(message, sender) {
         origin: listed.origin,
         hello: listed.hello,
         check: listed.check,
-        items: listed.items.map(({ id, title, username, locked }) => ({ id, title, username, locked })),
+        items: listed.items.map(({ id, title, username, locked, has_code }) => ({
+          id,
+          title,
+          username,
+          locked,
+          has_code,
+        })),
       };
     }
     case "frame-fill": {
       const outcome = await fillFromFrame(tab, String(message.id));
+      tell(tab.id, { kind: "close", which: "logins" });
+      return outcome;
+    }
+    case "frame-code": {
+      const outcome = await codeFromFrame(tab, String(message.id));
       tell(tab.id, { kind: "close", which: "logins" });
       return outcome;
     }
@@ -210,7 +276,7 @@ async function handle(message, sender) {
     }
     case "frame-save-info": {
       const pending = await pendingSave(tab.id);
-      return pending ? { origin: pending.origin, username: pending.username } : {};
+      return pending ? { origin: pending.origin, username: pending.username, update: Boolean(pending.update) } : {};
     }
     case "frame-save": {
       const outcome = await saveFromFrame(tab);

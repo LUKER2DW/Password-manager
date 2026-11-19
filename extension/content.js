@@ -12,7 +12,8 @@
 // site that login is saved for.
 
 (() => {
-  const { isSignInField, isNewPasswordField, fieldRules, putNewPassword, typedLogin } = globalThis.VaultFields;
+  const { isSignInField, isNewPasswordField, isCodeField, fieldRules, putNewPassword, typedLogin } =
+    globalThis.VaultFields;
   const inputs = () => Array.from(document.querySelectorAll("input"));
   // After the extension is reloaded or updated, this copy of the script keeps running in
   // pages already open, but it can no longer reach the extension: it then removes what it
@@ -148,12 +149,14 @@
     const all = inputs();
     // A new password (sign-up, change of password) gets a strong suggestion instead.
     const fresh = isNewPasswordField(field, all);
-    if (!fresh && !isSignInField(field, all)) return;
-    const answer = await say({ kind: "field-focused", fresh, rules: fresh ? fieldRules(field) : undefined });
+    // A one-time code field (the second step of a sign-in) gets the logins that have a code.
+    const code = !fresh && isCodeField(field);
+    if (!fresh && !code && !isSignInField(field, all)) return;
+    const answer = await say({ kind: "field-focused", fresh, code, rules: fresh ? fieldRules(field) : undefined });
     if (!answer?.show || document.activeElement !== field) return;
     close("logins");
     anchor = field;
-    frames.logins = makeFrame(fresh ? "new" : "logins");
+    frames.logins = makeFrame(fresh ? "new" : code ? "code" : "logins");
     show(frames.logins);
     place();
   }

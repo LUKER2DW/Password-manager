@@ -352,5 +352,34 @@
   },
   "connectedLocked": {
     "message": "Vault locked. Windows Hello fills."
+  },
+  "fillCode": {
+    "message": "Fill the one-time code"
+  },
+  "fillCodeRow": {
+    "message": "Fill its one-time code"
+  },
+  "noCodeField": {
+    "message": "No field for a one-time code on this page"
+  },
+  "updateTitle": {
+    "message": "Update the saved password?"
+  },
+  "updateYes": {
+    "message": "Update"
+  },
+  "offerUpdateText": {
+    "message": "You signed in as $USERNAME$ with another password. Update the one saved?",
+    "placeholders": {
+      "username": {
+        "content": "$1"
+      }
+    }
+  },
+  "updatedToast": {
+    "message": "Password updated. The old one is in the login's history."
+  },
+  "alreadySavedToast": {
+    "message": "That password was already saved."
   }
 }

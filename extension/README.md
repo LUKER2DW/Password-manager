@@ -23,6 +23,13 @@ Status: early development, like the rest of the project. Use a test vault.
 - **After you sign in or sign up** with a login that isn't saved, it asks *Save this login?*.
   Saving asks for nothing (no PIN, no Windows Hello), even with the vault locked: the app then
   keeps the login sealed and adds it at the next unlock.
+- **After you sign in with another password** for a login already saved, it asks *Update the
+  saved password?*. The old password goes into the login's history in the app. A login behind
+  the item lock is opened for the change (Windows Hello or the PIN), as for a fill.
+- **On a one-time code field** (the second step of a sign-in: `autocomplete="one-time-code"`,
+  or named like `otp`, `2fa`, `verification`), the card lists the site's logins that have a
+  one-time code; pick one and its current code is typed in, spread over one box per digit
+  when the site uses those. *Fill the one-time code* in a login's details does the same.
 - **Its window** (the toolbar button or Ctrl+Shift+L) has three tabs:
   - *This site*: the logins for the page in front, to fill; *Details* opens one.
   - *All logins*: search the whole vault; show a password or copy username, password or
@@ -52,7 +59,11 @@ Status: early development, like the rest of the project. Use a test vault.
   with nothing drawn over it (against extension clickjacking). It never shows a password
   except a freshly generated one.
 - A login typed into a page waits in the browser's memory (never on disk) for at most two
-  minutes, and goes to the app only if you choose *Save*.
+  minutes, and goes to the app only if you choose *Save*. Before offering an update, the app
+  is asked whether that password differs from the saved one; it answers only for a login
+  that is not behind the item lock (for a locked one it says it can't tell), so the extension
+  can't test guesses against locked logins.
+- A one-time code, like a password, leaves the app only for a page of the login's own site.
 
 To use one login on several sites, save `*.example.com` as its website in the app: it then
 covers `example.com` and every site under it. A name anyone can register under (`*.co.uk`,
