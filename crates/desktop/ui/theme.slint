@@ -80,4 +80,9 @@ export global Secrets {
     callback clear(int);
     // Pastes the clipboard's first line; `replace` drops what the field held first.
     callback paste(int, bool);
+    // The secret field that has the keyboard (-1 none), for the phone's own keyboard, and
+    // that keyboard's Done: the field whose `accepted` runs, counted so each tap is seen.
+    in-out property <int> focused: -1;
+    in-out property <int> done-field: -1;
+    in-out property <int> done-count: 0;
 }

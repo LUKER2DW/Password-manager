@@ -580,6 +580,11 @@ export component SecretField inherits VerticalLayout {
     property <int> length: Secrets.lengths[root.field];
     // Ctrl+A or a double click selects everything; the next key replaces or deletes it.
     property <bool> all-selected: false;
+    // Done on the phone's own keyboard.
+    property <int> done-count: Secrets.done-count;
+    changed done-count => {
+        if (Secrets.done-field == root.field && scope.has-focus) { root.accepted(); }
+    }
     forward-focus: scope;
     spacing: 6px;
 
@@ -596,16 +601,23 @@ export component SecretField inherits VerticalLayout {
             clicked => {
                 root.all-selected = false;
                 scope.focus();
+                Secrets.focused = root.field;
             }
             double-clicked => {
                 scope.focus();
+                Secrets.focused = root.field;
                 root.all-selected = root.length > 0;
             }
         }
         scope := FocusScope {
             focus-on-click: false;
             focus-changed-event => {
-                if (!self.has-focus) { root.all-selected = false; }
+                if (self.has-focus) {
+                    Secrets.focused = root.field;
+                } else {
+                    root.all-selected = false;
+                    if (Secrets.focused == root.field) { Secrets.focused = -1; }
+                }
             }
             key-pressed(event) => {
                 if (event.text == Key.Return) {
