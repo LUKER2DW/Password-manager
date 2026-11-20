@@ -358,8 +358,7 @@ open one.
 1. ✅ **M6.1 Core**: format v7 (tombstones, revisions, writer, devices, lineage), `Vault::merge`, the
    tests of §9 except the server ones.
 2. ✅ **M6.2 Folder target** in the desktop app and CLI (`vault sync <dir>`), Settings → Sync.
-   Not yet: removing a device from the app, and watching the folder (the app looks every 5
-   minutes, a few seconds after each save, and at unlock).
+   Removing a device and watching the folder came with M6.3.
 3. ✅ **M6.3 `vault-server`** (axum, Docker, signed requests, long-poll) and its client in
    `vault-platform`; WebDAV client. Settings → Sync: Use a server… (join with an invite or a
    `vaultsync:` line), Use WebDAV…, Add a device (QR code), Remove a device; the CLI's
@@ -369,8 +368,8 @@ open one.
 4. ✅ **M6.4 Phone** (the controller; running on a real phone is M7.1): Settings → Sync on the
    phone joins with the `vaultsync:` line from Add a device on a computer, then rounds at
    unlock, after saves, every 5 minutes, on the server's long-poll and on demand; Stop
-   syncing forgets its key. Not yet: scanning the QR code with the camera (M7), WebDAV on
-   the phone, syncing while the vault is locked (download only, then merge at unlock).
+   syncing forgets its key. WebDAV works there too. Not yet: scanning the QR code with the
+   camera (M7), syncing while the vault is locked (download only, then merge at unlock).
 5. **M6.5 Nearby** sync over the LAN.
 6. **M6.6 Cloud drive APIs** for the phone (§11): Google Drive and OneDrive app folders,
    Dropbox app folder.

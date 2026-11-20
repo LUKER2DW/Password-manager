@@ -265,7 +265,8 @@ Rules:
   with edits waiting for it; notices for changes, conflicts, edits waiting for the lock, a
   new master password, refused copies and this computer removed
 - ✅ Removing a device from the app (Settings → Sync → Remove) and the CLI (`--remove`)
-- ⬜ Watching the folder instead of looking every 5 minutes
+- ✅ The desktop app watches the sync folder (a round a second after another device's copy
+  lands) besides the 5-minute rounds
 - ✅ M6.3 `vault-server` (`crates/server`: axum, files on disk, Docker image and Compose,
   Tailscale HTTPS in front, [setup](SERVER.md)): Ed25519-signed requests with time and nonce
   (no password at the server), one-time invites stored as digests, enrollment that proves the
@@ -284,7 +285,10 @@ Rules:
   server's news and on demand; tested headless against a running server (a computer's item
   comes in, the phone's goes out). The phone window keeps its own device state in
   `<app dir>/phone`, so it syncs as a device of its own
-- ⬜ Scanning the invite's QR code with the camera (M7); WebDAV on the phone
+- ✅ WebDAV on the phone (Settings → Sync → Use WebDAV); the WebDAV target tested end to end
+  against a small WebDAV server (authentication, temporary file then MOVE, ETags)
+- ⬜ Scanning the invite's QR code with the camera (M7); on the phone, fetching copies while
+  the vault is locked so the merge at unlock needs no network
 - ⬜ M6.5 nearby sync over the LAN
 - **Done when:** two devices converge; ZK-AE-Tester style malicious-server tests pass.
 
