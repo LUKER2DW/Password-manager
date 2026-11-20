@@ -1,0 +1,26 @@
+# vault-server with Docker Compose (docs/SERVER.md):
+#   docker compose -f crates/server/compose.yaml up -d --build
+#   docker compose -f crates/server/compose.yaml exec vault-server vault-server invite
+#
+# The port is published on this machine only (127.0.0.1); `tailscale serve` puts HTTPS in
+# front of it for your own devices. Never publish it on 0.0.0.0 of a machine on the internet.
+
+services:
+  vault-server:
+    build:
+      context: ../..
+      dockerfile: crates/server/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8750:8750"
+    volumes:
+      - vault-data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - "no-new-privileges:true"
+    mem_limit: 256m
+    pids_limit: 128
+
+volumes:
+  vault-data:

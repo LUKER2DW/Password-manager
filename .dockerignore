@@ -1,0 +1,6 @@
+target/
+research/
+prototypes/
+.git/
+**/*.vault
+**/*.vaultx

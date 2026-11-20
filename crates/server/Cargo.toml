@@ -1,0 +1,27 @@
+[package]
+name = "vault-server"
+version = "0.0.0"
+description = "Self-hosted sync server: stores each device's sealed copy of a vault, never a key"
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-or-later"
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+vault-sync-wire = { path = "../sync-wire" }
+anyhow = "1"
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
+clap = { version = "4.6", features = ["derive", "env"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+
+[dev-dependencies]
+tempfile = "3.27"
+ureq = "3.5"
+# End to end: two devices sync a real vault through a running server.
+vault-core = { path = "../core" }
+vault-platform = { path = "../platform" }
