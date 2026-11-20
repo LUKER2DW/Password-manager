@@ -446,6 +446,20 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
 
     assert_eq!(app.get_sync_state(), 0, "off until joined");
     assert_eq!(app.get_sync_place(), "");
+    // WebDAV over plain http to the internet is refused before anything is sent.
+    app.set_sync_form(1);
+    app.set_sync_address("http://dav.example.com/vault".into());
+    app.set_sync_user("tester".into());
+    type_secret(&app, 4, "webdav-test-password");
+    app.invoke_sync_use_webdav();
+    assert_eq!(app.get_sync_state(), 3);
+    assert!(
+        app.get_sync_detail().contains("https"),
+        "{}",
+        app.get_sync_detail()
+    );
+    assert_eq!(app.get_sync_place(), "", "nothing kept");
+    app.set_sync_form(0);
     app.set_sync_invite_typed("not an invite".into());
     app.invoke_sync_join();
     assert_eq!(app.get_sync_state(), 3);

@@ -27,6 +27,7 @@ impl Controller {
     pub(super) fn stop_sync(&self) {}
     pub(super) fn sync_after_save(&self) {}
     pub(super) fn sync_join(&self) {}
+    pub(super) fn sync_use_webdav(&self) {}
     pub(super) fn sync_stop(&self) {}
     pub fn sync_round(&self) {}
 }
@@ -52,7 +53,12 @@ mod native {
     };
     use vault_sync_wire::InviteLink;
 
-    use super::{super::CURRENT, Controller, state};
+    use zeroize::Zeroizing;
+
+    use super::{
+        super::{CURRENT, field},
+        Controller, state,
+    };
 
     /// After a save, how long to wait for more saves before one round.
     const AFTER_SAVE: Duration = Duration::from_secs(3);
@@ -271,6 +277,58 @@ mod native {
             });
         }
 
+        /// "Connect": checks the WebDAV folder answers with these credentials, keeps the
+        /// password in the credential store, starts syncing.
+        pub(in crate::controller) fn sync_use_webdav(&self) {
+            let app = self.app();
+            let Some(vault_id) = self.vault_id() else {
+                return;
+            };
+            let address = match sync::check_address(&app.get_sync_address()) {
+                Ok(address) => address,
+                Err(err) => return self.sync_setup_failed(&format!("{err:#}")),
+            };
+            let user = app.get_sync_user().trim().to_owned();
+            if user.is_empty() {
+                return self.sync_setup_failed("type the WebDAV user name");
+            }
+            let password = Zeroizing::new(
+                self.state.borrow().secrets[field::SYNC_PASSWORD]
+                    .as_str()
+                    .to_owned(),
+            );
+            app.set_sync_busy(true);
+            app.set_sync_detail(SharedString::new());
+            let job = {
+                let (vault_id, address, user) = (vault_id.clone(), address.clone(), user.clone());
+                move || -> Result<(), String> {
+                    let target = sync::WebDavTarget::new(&address, &vault_id, &user, &password)
+                        .map_err(|err| format!("{err:#}"))?;
+                    sync::Target::list(&target).map_err(|err| format!("{err:#}"))?;
+                    secret_store::store_webdav_password(&vault_id, &password)
+                        .map_err(|err| format!("{err:#}"))
+                }
+            };
+            self.off_thread(job, move |controller, result| {
+                controller.app().set_sync_busy(false);
+                match result {
+                    Ok(()) => {
+                        controller.state.borrow_mut().secrets[field::SYNC_PASSWORD].clear();
+                        controller.publish_lengths();
+                        let mut device_state = DeviceState::load().unwrap_or_default();
+                        device_state
+                            .set_sync_to(&vault_id, Some(SyncTo::Webdav { url: address, user }));
+                        if let Err(err) = device_state.save() {
+                            return controller.sync_setup_failed(&format!("{err:#}"));
+                        }
+                        controller.app().set_sync_form(0);
+                        controller.start_sync();
+                    }
+                    Err(why) => controller.sync_setup_failed(&why),
+                }
+            });
+        }
+
         fn sync_setup_failed(&self, why: &str) {
             let app = self.app();
             app.set_sync_detail(SharedString::from(why));
@@ -443,6 +501,7 @@ mod native {
                 return;
             };
             app.set_sync_place(SharedString::from(place.to.describe()));
+            app.set_sync_webdav(matches!(place.to, SyncTo::Webdav { .. }));
             app.set_sync_minutes(if place.at > 0 {
                 i32::try_from((unix_now() - place.at).max(0) / 60).unwrap_or(i32::MAX)
             } else {

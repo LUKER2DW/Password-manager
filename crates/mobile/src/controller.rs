@@ -43,7 +43,10 @@ mod field {
     pub const SECRET_KEY: usize = 1;
     pub const ITEM_CHECK: usize = 2;
     pub const ITEM_PASSWORD: usize = 3;
-    pub const COUNT: usize = 4;
+    /// The WebDAV password in Settings → Sync.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const SYNC_PASSWORD: usize = 4;
+    pub const COUNT: usize = 5;
 }
 
 /// Error codes (texts live in app.slint → Words.error).
@@ -285,6 +288,7 @@ impl Controller {
         });
         on!(on_unlock, |c| c.unlock());
         on!(on_sync_join, |c| c.sync_join());
+        on!(on_sync_use_webdav, |c| c.sync_use_webdav());
         on!(on_sync_now, |c| c.sync_round());
         on!(on_sync_stop, |c| c.sync_stop());
         on!(on_search_changed, |c, _text| c.refresh_list());

@@ -387,7 +387,14 @@ export component PhoneWindow inherits Window {
     in property <string> sync-detail;
     in property <bool> sync-busy;
     in-out property <string> sync-invite-typed;
+    // Joining through WebDAV instead (0 the invite, 1 the WebDAV form), and whether the place
+    // in use is WebDAV.
+    in-out property <int> sync-form;
+    in-out property <string> sync-address;
+    in-out property <string> sync-user;
+    in property <bool> sync-webdav;
     callback sync-join();
+    callback sync-use-webdav();
     callback sync-now();
     callback sync-stop();
     callback lock-now();
@@ -916,7 +923,45 @@ export component PhoneWindow inherits Window {
                                 padding-bottom: 6px;
                                 spacing: 8px;
                                 Text { text: @tr("Sync"); font-size: Theme.small; color: Theme.graphite; }
-                                if root.sync-place == "": VerticalLayout {
+                                if root.sync-place == "" && root.sync-form == 1: VerticalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: @tr("Or through a WebDAV folder (Nextcloud, a NAS): the same address and user your computer uses. The password stays in this phone's keystore.");
+                                        font-size: Theme.small;
+                                        color: Theme.ink;
+                                        wrap: word-wrap;
+                                    }
+                                    LineField {
+                                        label: @tr("WebDAV address");
+                                        placeholder: "https://cloud.example.com/remote.php/dav/files/you/Vault";
+                                        text <=> root.sync-address;
+                                    }
+                                    LineField {
+                                        label: @tr("User name");
+                                        text <=> root.sync-user;
+                                    }
+                                    SecretField {
+                                        field: 4;
+                                        label: @tr("Password");
+                                        icon: "key";
+                                        accepted => { root.sync-use-webdav(); }
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 10px;
+                                        QuietButton {
+                                            text: root.sync-busy ? @tr("Connecting…") : @tr("Connect");
+                                            outlined: true;
+                                            enabled: !root.sync-busy;
+                                            clicked => { root.sync-use-webdav(); }
+                                        }
+                                        QuietButton {
+                                            text: @tr("Use an invite");
+                                            clicked => { root.sync-form = 0; }
+                                        }
+                                    }
+                                }
+                                if root.sync-place == "" && root.sync-form == 0: VerticalLayout {
                                     spacing: 8px;
                                     Text {
                                         text: @tr("Keep this phone and your computers the same through your vault server. On the computer: Settings, Sync, Add a device. Then paste the line it shows here.");
@@ -932,18 +977,23 @@ export component PhoneWindow inherits Window {
                                     }
                                     HorizontalLayout {
                                         alignment: start;
+                                        spacing: 10px;
                                         QuietButton {
                                             text: root.sync-busy ? @tr("Joining…") : @tr("Join");
                                             outlined: true;
                                             enabled: !root.sync-busy;
                                             clicked => { root.sync-join(); }
                                         }
+                                        QuietButton {
+                                            text: @tr("Use WebDAV");
+                                            clicked => { root.sync-form = 1; }
+                                        }
                                     }
                                 }
                                 if root.sync-place != "": VerticalLayout {
                                     spacing: 8px;
                                     Fact {
-                                        label: @tr("Server");
+                                        label: root.sync-webdav ? @tr("WebDAV") : @tr("Server");
                                         icon: "globe";
                                         value: root.sync-place;
                                     }
