@@ -155,6 +155,63 @@ impl Target for FolderTarget {
     }
 }
 
+/// Watches the folder target of vault `vault_id` under `folder` until `stop` is set, and calls
+/// `changed` (on this thread) when another device's copy appears, changes or goes: a second
+/// after the last such event, so a copy written in pieces counts once. This device's own
+/// copy and temporary files are ignored. Returns at once if the folder can't be watched
+/// (some network shares): the regular rounds still run.
+pub fn watch_folder(
+    folder: &Path,
+    vault_id: &str,
+    own: DeviceId,
+    stop: &std::sync::atomic::AtomicBool,
+    changed: impl Fn(),
+) {
+    use std::{sync::atomic::Ordering, time::Duration};
+
+    use notify::{RecursiveMode, Watcher};
+
+    let Ok(target) = FolderTarget::new(folder, vault_id) else {
+        return;
+    };
+    if fs::create_dir_all(&target.devices).is_err() {
+        return;
+    }
+    let own_name = format!("{}.vault", own.to_hex());
+    let (sender, events) = std::sync::mpsc::channel();
+    let Ok(mut watcher) = notify::recommended_watcher(sender) else {
+        return;
+    };
+    if watcher
+        .watch(&target.devices, RecursiveMode::NonRecursive)
+        .is_err()
+    {
+        return;
+    }
+    let concerns = |event: &notify::Event| {
+        event.paths.iter().any(|path| {
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.strip_suffix(".vault").map(|stem| (n, stem)))
+                .is_some_and(|(name, stem)| name != own_name && DeviceId::from_hex(stem).is_some())
+        })
+    };
+    let mut pending = false;
+    while !stop.load(Ordering::Relaxed) {
+        match events.recv_timeout(Duration::from_secs(1)) {
+            Ok(Ok(event)) => pending |= concerns(&event),
+            Ok(Err(_)) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if pending && !stop.load(Ordering::Relaxed) {
+                    pending = false;
+                    changed();
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+        }
+    }
+}
+
 /// The other devices' copies, read in one go (off the UI thread), and what couldn't be read.
 #[derive(Debug, Default)]
 pub struct Fetched {
@@ -348,6 +405,44 @@ mod tests {
         target.remove(device(2)).unwrap();
         assert_eq!(devices_of(&target), [device(1)]);
         assert!(FolderTarget::new(dir.path(), "../escape").is_err());
+    }
+
+    #[test]
+    fn a_folder_watch_hears_other_devices_only() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let id = "c".repeat(32);
+        let target = FolderTarget::new(dir.path(), &id).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let heard = Arc::new(AtomicUsize::new(0));
+        let watching = {
+            let (folder, id, stop, heard) = (
+                dir.path().to_owned(),
+                id.clone(),
+                stop.clone(),
+                heard.clone(),
+            );
+            std::thread::spawn(move || {
+                watch_folder(&folder, &id, device(1), &stop, || {
+                    heard.fetch_add(1, Ordering::SeqCst);
+                });
+            })
+        };
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        target.put(device(1), b"own copy").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1800));
+        assert_eq!(heard.load(Ordering::SeqCst), 0, "this device's own copy");
+        target.put(device(2), b"another device").unwrap();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while heard.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert_eq!(heard.load(Ordering::SeqCst), 1, "one change, heard once");
+        stop.store(true, Ordering::SeqCst);
+        watching.join().unwrap();
     }
 
     #[test]
