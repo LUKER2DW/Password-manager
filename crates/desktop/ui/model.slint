@@ -286,6 +286,8 @@ export global Messages {
         if (code == 54) { return @tr("{} items were changed here and on another device, behind the item lock. Open the item lock to keep both passwords; until then this computer keeps its own version.", arg); }
         if (code == 55) { return @tr("The master password, keyfile or Recovery Key was changed on another device. Use that one the next time you unlock."); }
         if (code == 56) { return @tr("A copy in the sync folder was not used: {}. It may be an older copy put back, or come from a device that was removed.", arg); }
+        if (code == 58) { return @tr("This computer joined the server. The vault syncs through it from now on."); }
+        if (code == 59) { return @tr("{} was removed. Every device refuses its copies from its next sync; it keeps only what it already had, which opens only with your master password and Secret Key.", arg); }
         if (code == 57) { return @tr("This computer was removed from the vault on another device, so it no longer syncs."); }
         if (code == 51) { return @tr("Updated the password of “{}” from the browser. The old one is in its history.", arg); }
         if (code == 48) { return @tr("This computer couldn't record the vault's newest version ({}), so an older copy put in its place may not be noticed.", arg); }

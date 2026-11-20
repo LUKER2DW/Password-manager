@@ -1806,9 +1806,28 @@ export component SettingsPage inherits Rectangle {
     in property <int> sync-waiting;
     in property <string> sync-devices;
     in property <string> sync-this-device;
+    // The kind of place (0 off, 1 folder, 2 server, 3 WebDAV), the setup form open (0 none,
+    // 1 server, 2 WebDAV) and its fields, the other devices by name (for Remove), the one
+    // whose Remove waits for a second click (-1 none), an invite to show.
+    in property <int> sync-kind;
+    in-out property <int> sync-form;
+    in-out property <string> sync-address;
+    in-out property <string> sync-invite-typed;
+    in-out property <string> sync-user;
+    in property <string> sync-setup-error;
+    in property <bool> sync-busy;
+    in property <[string]> sync-others;
+    in-out property <int> sync-removing: -1;
+    in property <string> sync-invite;
+    in property <image> sync-invite-qr;
     callback sync-choose();
     callback sync-now();
     callback sync-stop();
+    callback sync-join-server();
+    callback sync-use-webdav();
+    callback sync-add-device();
+    callback sync-hide-invite();
+    callback sync-remove(int);
     callback save-guard();
     // Keyfile: whether the vault needs one, where it is, the file for the next action.
     in property <bool> keyfile-on;
@@ -2062,19 +2081,111 @@ hint: @tr("The extension keeps no passwords. The first time, it asks to be conne
             SettingsCard {
                 icon: "refresh";
                 title: @tr("Sync");
-                summary: @tr("Keeps this vault the same on your other computers through a folder they all see: OneDrive, Google Drive, Dropbox, Syncthing or a network share.");
-                hint: @tr("Each computer writes only its own copy into the folder, encrypted like the vault file: it opens only with your master password and Secret Key. This app sends nothing anywhere; the folder's own program carries the files. Copies from the other computers are merged item by item: an item deleted on one is deleted on all, and when the same item was changed on two, the newer version is kept and the other password goes into its history. An older copy put back in the folder is refused.");
-                if root.sync-folder == "": HorizontalLayout {
+                summary: @tr("Keeps this vault the same on your other devices: through a folder they all see (OneDrive, Google Drive, Dropbox, Syncthing, a network share), your own vault server, or a WebDAV folder (Nextcloud, a NAS). A phone needs the server or WebDAV.");
+                hint: @tr("Each device writes only its own copy, encrypted like the vault file: it opens only with your master password and Secret Key, which never leave your devices. With a folder this app sends nothing anywhere; the folder's own program carries the files. A server gets only these sealed copies and each device's public key, and every request is signed by the device. Copies are merged item by item: an item deleted on one device is deleted on all, and when the same item was changed on two, the newer version is kept and the other password goes into its history. An older copy put back is refused.");
+                if root.sync-kind == 0 && root.sync-form == 0: HorizontalLayout {
                     alignment: start;
+                    spacing: 12px;
                     QuietButton {
                         outlined: true;
                         text: @tr("Choose a folder…");
                         clicked => { root.sync-choose(); }
                     }
+                    QuietButton {
+                        outlined: true;
+                        text: @tr("Use a server…");
+                        clicked => { root.sync-form = 1; }
+                    }
+                    QuietButton {
+                        outlined: true;
+                        text: @tr("Use WebDAV…");
+                        clicked => { root.sync-form = 2; }
+                    }
                 }
-                if root.sync-folder != "": VerticalLayout {
+                if root.sync-kind == 0 && root.sync-form == 1: VerticalLayout {
+                    spacing: 12px;
+                    LineField {
+                        label: @tr("Server address");
+                        placeholder: "https://vault.your-network.ts.net";
+                        text <=> root.sync-address;
+                        hint: @tr("Where your vault-server answers: https://, or http:// with a Tailscale address (100.x.y.z).");
+                    }
+                    LineField {
+                        label: @tr("Invite");
+                        mono: true;
+                        text <=> root.sync-invite-typed;
+                        hint: @tr("The 32 letters and digits from vault-server invite on the server, or the whole vaultsync: line from Add a device on a computer that already syncs. It works once, and it doesn't open the vault.");
+                        accepted => { root.sync-join-server(); }
+                    }
+                    if root.sync-setup-error != "": Text {
+                        text: root.sync-setup-error;
+                        font-size: Theme.body;
+                        color: Theme.seal;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 12px;
+                        Button {
+                            text: root.sync-busy ? @tr("Joining…") : @tr("Join");
+                            enabled: !root.sync-busy;
+                            clicked => { root.sync-join-server(); }
+                        }
+                        QuietButton {
+                            text: @tr("Cancel");
+                            clicked => { root.sync-form = 0; }
+                        }
+                    }
+                }
+                if root.sync-kind == 0 && root.sync-form == 2: VerticalLayout {
+                    spacing: 12px;
+                    LineField {
+                        label: @tr("WebDAV address");
+                        placeholder: "https://cloud.example.com/remote.php/dav/files/you/Vault";
+                        text <=> root.sync-address;
+                        hint: @tr("A folder on your WebDAV host. The vault's copies go in a folder of their own inside it.");
+                    }
+                    HorizontalLayout {
+                        spacing: 16px;
+                        LineField {
+                            horizontal-stretch: 1;
+                            label: @tr("User name");
+                            text <=> root.sync-user;
+                        }
+                        SecretField {
+                            horizontal-stretch: 1;
+                            field: 15;
+                            label: @tr("Password");
+                            hint: @tr("Kept in Windows Credential Manager on this computer, never in the vault. An app password from your host is better than your account's own.");
+                            accepted => { root.sync-use-webdav(); }
+                        }
+                    }
+                    if root.sync-setup-error != "": Text {
+                        text: root.sync-setup-error;
+                        font-size: Theme.body;
+                        color: Theme.seal;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 12px;
+                        Button {
+                            text: root.sync-busy ? @tr("Connecting…") : @tr("Connect");
+                            enabled: !root.sync-busy;
+                            clicked => { root.sync-use-webdav(); }
+                        }
+                        QuietButton {
+                            text: @tr("Cancel");
+                            clicked => { root.sync-form = 0; }
+                        }
+                    }
+                }
+                if root.sync-kind != 0: VerticalLayout {
                     spacing: 8px;
-                    Fact { label: @tr("Folder"); value: root.sync-folder; }
+                    Fact {
+                        label: root.sync-kind == 1 ? @tr("Folder") : root.sync-kind == 2 ? @tr("Server") : @tr("WebDAV");
+                        value: root.sync-folder;
+                    }
                     Fact {
                         label: @tr("Last synced");
                         value: root.sync-state == 2 ? @tr("Syncing…")
@@ -2085,12 +2196,84 @@ hint: @tr("The extension keeps no passwords. The first time, it asks to be conne
                     }
                     if root.sync-state == 4: Fact {
                         label: @tr("Waiting");
-                        value: @tr("{n} item changed on two computers waits for the item lock" | "{n} items changed on two computers wait for the item lock" % root.sync-waiting);
+                        value: @tr("{n} item changed on two devices waits for the item lock" | "{n} items changed on two devices wait for the item lock" % root.sync-waiting);
                     }
                     Fact {
-                        label: @tr("Computers");
-                        value: root.sync-devices == "" ? @tr("{} (this computer)", root.sync-this-device)
-                            : @tr("{} (this computer), {}", root.sync-this-device, root.sync-devices);
+                        label: @tr("This device");
+                        value: root.sync-this-device;
+                    }
+                    for name[index] in root.sync-others: HorizontalLayout {
+                        spacing: 12px;
+                        Text {
+                            width: 170px;
+                            text: index == 0 ? @tr("Other devices") : "";
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: name;
+                            font-size: Theme.body;
+                            color: Theme.ink;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        QuietButton {
+                            text: root.sync-removing == index ? @tr("Remove {}? Click again", name) : @tr("Remove");
+                            clicked => {
+                                if (root.sync-removing == index) {
+                                    root.sync-remove(index);
+                                } else {
+                                    root.sync-removing = index;
+                                }
+                            }
+                        }
+                    }
+                    if root.sync-invite != "": HorizontalLayout {
+                        spacing: 16px;
+                        Rectangle {
+                            width: 168px;
+                            height: 168px;
+                            background: white;
+                            border-radius: Theme.radius;
+                            Image {
+                                width: 160px;
+                                height: 160px;
+                                source: root.sync-invite-qr;
+                                image-rendering: pixelated;
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Text {
+                                text: @tr("Scan this on the phone, or paste the line below into Invite on the other device. It works once, for an hour. It doesn't open the vault: that still takes your master password and Secret Key.");
+                                font-size: Theme.body;
+                                color: Theme.ink;
+                                wrap: word-wrap;
+                            }
+                            Text {
+                                text: root.sync-invite;
+                                font-size: Theme.small;
+                                font-family: Theme.mono-font;
+                                color: Theme.graphite;
+                                wrap: char-wrap;
+                            }
+                            HorizontalLayout {
+                                alignment: start;
+                                QuietButton {
+                                    text: @tr("Done");
+                                    clicked => { root.sync-hide-invite(); }
+                                }
+                            }
+                        }
+                    }
+                    if root.sync-setup-error != "": Text {
+                        text: root.sync-setup-error;
+                        font-size: Theme.body;
+                        color: Theme.seal;
+                        wrap: word-wrap;
                     }
                     HorizontalLayout {
                         spacing: 12px;
@@ -2100,6 +2283,12 @@ hint: @tr("The extension keeps no passwords. The first time, it asks to be conne
                             text: @tr("Sync now");
                             enabled: root.sync-state != 2;
                             clicked => { root.sync-now(); }
+                        }
+                        if root.sync-kind == 2 && root.sync-invite == "": QuietButton {
+                            outlined: true;
+                            text: root.sync-busy ? @tr("Asking the server…") : @tr("Add a device");
+                            enabled: !root.sync-busy;
+                            clicked => { root.sync-add-device(); }
                         }
                         QuietButton {
                             text: @tr("Stop syncing");

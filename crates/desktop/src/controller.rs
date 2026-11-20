@@ -82,7 +82,9 @@ mod field {
     pub const GUARD_CURRENT: usize = 13;
     /// The master password typed to connect a browser extension.
     pub const PAIRING: usize = 14;
-    pub const COUNT: usize = 15;
+    /// The WebDAV password on the Sync card.
+    pub const SYNC_PASSWORD: usize = 15;
+    pub const COUNT: usize = 16;
 }
 
 /// Error codes (texts live in model.slint → Messages.error).
@@ -189,6 +191,8 @@ mod notice {
     pub const SYNC_UNLOCK_CHANGED: i32 = 55;
     pub const SYNC_REFUSED: i32 = 56;
     pub const SYNC_REMOVED: i32 = 57;
+    pub const SYNC_JOINED: i32 = 58;
+    pub const SYNC_DEVICE_REMOVED: i32 = 59;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -706,6 +710,11 @@ impl Controller {
         on!(on_sync_choose, |c| c.sync_choose());
         on!(on_sync_now, |c| c.sync_round());
         on!(on_sync_stop, |c| c.sync_stop());
+        on!(on_sync_join_server, |c| c.sync_join_server());
+        on!(on_sync_use_webdav, |c| c.sync_use_webdav());
+        on!(on_sync_add_device, |c| c.sync_add_device());
+        on!(on_sync_hide_invite, |c| c.sync_hide_invite());
+        on!(on_sync_remove, |c, index| c.sync_remove_device(index));
         on!(on_lock_secrets, |c| {
             c.lock_secrets();
             c.notify(notice::SECRETS_LOCKED, "");

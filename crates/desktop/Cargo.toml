@@ -51,6 +51,9 @@ serde_json = "1.0"
 # Fingerprint of the vault file, to notice changes made outside this window.
 sha2 = "0.11"
 ureq = "3.5"
+# Sync: the invite another device joins with, and its QR code.
+vault-sync-wire = { path = "../sync-wire" }
+qrcode = { version = "0.14", default-features = false }
 # The icon in the notification area (tray mode).
 tray-icon = { version = "0.26", default-features = false }
 slint = { version = "1.18", features = ["raw-window-handle-06", "unstable-winit-030"] }

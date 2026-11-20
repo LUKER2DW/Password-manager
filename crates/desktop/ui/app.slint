@@ -175,7 +175,7 @@ export component AppWindow inherits Window {
     in-out property <bool> browser-paired;
     callback pairing-decided(bool);
     callback forget-pairing();
-    // Sync through a folder: the folder ("" = off), what happened last (SyncState in
+    // Sync: the folder or address ("" = off), what happened last (SyncState in
     // controller/syncing.rs), minutes since the last round (-1 never), why it failed, how
     // many items wait for the item lock, this computer's name and the other devices'.
     in property <string> sync-folder;
@@ -185,9 +185,28 @@ export component AppWindow inherits Window {
     in property <int> sync-waiting;
     in property <string> sync-devices;
     in property <string> sync-this-device;
+    // The kind of place (0 off, 1 folder, 2 server, 3 WebDAV), the setup form open (0 none,
+    // 1 server, 2 WebDAV) and its fields, the other devices by name (for Remove), the one
+    // whose Remove waits for a second click (-1 none), an invite to show.
+    in property <int> sync-kind;
+    in-out property <int> sync-form;
+    in-out property <string> sync-address;
+    in-out property <string> sync-invite-typed;
+    in-out property <string> sync-user;
+    in property <string> sync-setup-error;
+    in property <bool> sync-busy;
+    in property <[string]> sync-others;
+    in-out property <int> sync-removing: -1;
+    in property <string> sync-invite;
+    in property <image> sync-invite-qr;
     callback sync-choose();
     callback sync-now();
     callback sync-stop();
+    callback sync-join-server();
+    callback sync-use-webdav();
+    callback sync-add-device();
+    callback sync-hide-invite();
+    callback sync-remove(int);
     // Windows Hello: usable on this computer / set up for this vault / prompt open now.
     in property <bool> quick-unlock-available;
     in-out property <bool> quick-unlock-on;
@@ -795,9 +814,25 @@ export component AppWindow inherits Window {
                 sync-waiting: root.sync-waiting;
                 sync-devices: root.sync-devices;
                 sync-this-device: root.sync-this-device;
+                sync-kind: root.sync-kind;
+                sync-form <=> root.sync-form;
+                sync-address <=> root.sync-address;
+                sync-invite-typed <=> root.sync-invite-typed;
+                sync-user <=> root.sync-user;
+                sync-setup-error: root.sync-setup-error;
+                sync-busy: root.sync-busy;
+                sync-others: root.sync-others;
+                sync-removing <=> root.sync-removing;
+                sync-invite: root.sync-invite;
+                sync-invite-qr: root.sync-invite-qr;
                 sync-choose => { root.sync-choose(); }
                 sync-now => { root.sync-now(); }
                 sync-stop => { root.sync-stop(); }
+                sync-join-server => { root.sync-join-server(); }
+                sync-use-webdav => { root.sync-use-webdav(); }
+                sync-add-device => { root.sync-add-device(); }
+                sync-hide-invite => { root.sync-hide-invite(); }
+                sync-remove(i) => { root.sync-remove(i); }
                 guard-hello <=> root.guard-hello;
                 vault-file-name: root.vault-file-name;
                 vault-name <=> root.vault-name-edit;
