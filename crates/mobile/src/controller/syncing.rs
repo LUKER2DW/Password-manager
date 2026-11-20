@@ -28,6 +28,12 @@ impl Controller {
     pub(super) fn sync_after_save(&self) {}
     pub(super) fn sync_join(&self) {}
     pub(super) fn sync_use_webdav(&self) {}
+    pub(super) fn setup_from_server(&self) {
+        self.set_error(
+            super::error::SYNC_SETUP,
+            "the browser preview has no server to sync with",
+        );
+    }
     pub(super) fn sync_stop(&self) {}
     pub fn sync_round(&self) {}
 }
@@ -325,6 +331,75 @@ mod native {
                         controller.start_sync();
                     }
                     Err(why) => controller.sync_setup_failed(&why),
+                }
+            });
+        }
+
+        /// "Set up from the server", on the start screen: joins the server with the invite
+        /// line, fetches a copy another device put there and brings it in like a chosen file
+        /// (it replaces nothing until it opens with the person's master password and Secret
+        /// Key). Sync stays on for that vault; the first round after unlock merges the rest.
+        pub(in crate::controller) fn setup_from_server(&self) {
+            let app = self.app();
+            let typed = app.get_setup_invite().trim().to_owned();
+            let Some(link) = InviteLink::parse(&typed) else {
+                return self.set_error(
+                    super::super::error::SYNC_SETUP,
+                    "paste the whole line that starts with vaultsync:1? from Add a device on your computer",
+                );
+            };
+            let address = match sync::check_address(&link.server) {
+                Ok(address) => address,
+                Err(err) => {
+                    return self.set_error(super::super::error::SYNC_SETUP, &format!("{err:#}"));
+                }
+            };
+            let Some(device) = self.device_id() else {
+                return self.set_error(
+                    super::super::error::SYNC_SETUP,
+                    "this phone's state can't be written",
+                );
+            };
+            self.set_error(super::super::error::NONE, "");
+            app.set_sync_busy(true);
+            let vault_id = link.vault.clone();
+            let job = {
+                let (vault_id, address) = (vault_id.clone(), address.clone());
+                move || -> Result<Vec<u8>, String> {
+                    let server =
+                        ServerTarget::join(&address, &vault_id, device, DEVICE_NAME, &link.invite)
+                            .map_err(|err| format!("{err:#}"))?;
+                    secret_store::store_sync_key(&vault_id, &device.to_hex(), &server.key_seed())
+                        .map_err(|err| format!("{err:#}"))?;
+                    let fetched = sync::fetch(&server, device, &Tags::new())
+                        .map_err(|err| format!("{err:#}"))?;
+                    // The biggest copy is the most likely to be the fullest; the first sync
+                    // round after unlock merges every other one anyway.
+                    fetched
+                        .copies
+                        .into_iter()
+                        .max_by_key(|(_, bytes)| bytes.len())
+                        .map(|(_, bytes)| bytes)
+                        .ok_or_else(|| {
+                            "no device has put the vault on the server yet: press Sync now on the computer first".to_owned()
+                        })
+                }
+            };
+            self.off_thread(job, move |controller, result| {
+                let app = controller.app();
+                app.set_sync_busy(false);
+                match result {
+                    Ok(bytes) => {
+                        let mut device_state = DeviceState::load().unwrap_or_default();
+                        device_state.set_sync_to(&vault_id, Some(SyncTo::Server { url: address }));
+                        if let Err(err) = device_state.save() {
+                            return controller
+                                .set_error(super::super::error::SYNC_SETUP, &format!("{err:#}"));
+                        }
+                        app.set_setup_invite(SharedString::new());
+                        controller.bring_vault(bytes);
+                    }
+                    Err(why) => controller.set_error(super::super::error::SYNC_SETUP, &why),
                 }
             });
         }

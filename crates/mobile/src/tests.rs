@@ -501,13 +501,64 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         .collect();
     assert!(titles.iter().any(|t| t == "From the phone"), "{titles:?}");
 
+    // A new phone is set up from the server alone: the invite line on its start screen.
+    {
+        // Its own app folder: a new phone has no device state yet.
+        // SAFETY: the only test of this crate; set back below.
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("VAULT_HOME", dir.path().join("second phone home"));
+        }
+        let fresh = PhoneWindow::new().unwrap();
+        let fresh_path = dir.path().join("second phone").join("vault.vault");
+        let second = Controller::start(&fresh, fresh_path.clone(), true);
+        assert_eq!(fresh.get_screen(), Screen::Start);
+        fresh.set_setup_invite("not an invite".into());
+        fresh.invoke_setup_from_server();
+        assert_eq!(fresh.get_error_code(), 12);
+        let link = pc_server
+            .invite_link(&pc_server.invite().unwrap())
+            .to_text()
+            .to_string();
+        fresh.set_setup_invite(link.as_str().into());
+        fresh.invoke_setup_from_server();
+        assert_eq!(
+            fresh.get_screen(),
+            Screen::Unlock,
+            "{}",
+            fresh.get_error_detail()
+        );
+        assert!(fresh.get_incoming(), "the copy waits to prove itself");
+        type_secret(&fresh, 0, PASSWORD);
+        fresh.invoke_unlock();
+        assert_eq!(
+            fresh.get_screen(),
+            Screen::Vault,
+            "{}",
+            fresh.get_error_detail()
+        );
+        assert_eq!(fresh.get_total(), 4, "everything from both devices");
+        assert_eq!(fresh.get_sync_place(), server.url.as_str());
+        assert!(fresh_path.exists());
+        second.lock();
+        // SAFETY: as above.
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("VAULT_HOME", dir.path().join("home"));
+        }
+    }
+
     // Stop: the phone forgets its server key; the copies stay on the server.
     app.invoke_sync_stop();
     assert_eq!(
         (app.get_sync_state(), app.get_sync_place().as_str()),
         (0, "")
     );
-    assert_eq!(pc_server.list().unwrap().len(), 2);
+    assert_eq!(
+        pc_server.list().unwrap().len(),
+        3,
+        "the computer's and both phones'"
+    );
     drop(server);
 
     // ---- another phone: the Secret Key is typed once ----

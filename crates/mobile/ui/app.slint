@@ -270,6 +270,136 @@ component ErrorLine inherits Text {
     wrap: word-wrap;
 }
 
+// One key of the app's own keyboard.
+component Key inherits Rectangle {
+    in property <string> label;
+    in property <bool> wide;
+    in property <bool> quiet;
+    callback tapped();
+    horizontal-stretch: root.wide ? 2 : 1;
+    min-width: 0px;
+    height: 46px;
+    border-radius: 6px;
+    background: touch.pressed ? Theme.selected : root.quiet ? Theme.hover : Theme.field;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.tapped(); }
+    Text {
+        text: root.label;
+        color: Theme.ink;
+        font-size: 18px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea { clicked => { root.tapped(); } }
+}
+
+// The app's own keyboard for secret fields (MOBILE.md §6.1): keys go straight to the secure
+// buffer, so no keyboard app ever sees a master password, a Secret Key or a PIN.
+component SecretKeyboard inherits Rectangle {
+    in property <int> field;
+    // 0 letters, 1 digits and symbols, 2 more symbols.
+    property <int> page: 0;
+    // 0 off, 1 the next letter, 2 locked.
+    property <int> shift: 0;
+    background: Theme.panel;
+    height: layout.preferred-height;
+
+    function put(text: string) {
+        Secrets.insert(root.field, root.page == 0 && root.shift > 0 ? text.to-uppercase() : text);
+        if (root.shift == 1) { root.shift = 0; }
+    }
+
+    layout := VerticalLayout {
+        padding: 6px;
+        padding-bottom: 10px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 4px;
+            for key in root.page == 0 ? ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"]
+                : root.page == 1 ? ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+                : ["~", "`", "^", "=", "<", ">", "[", "]", "{", "}"]: Key {
+                label: root.page == 0 && root.shift > 0 ? key.to-uppercase() : key;
+                tapped => { root.put(key); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            padding-left: root.page == 0 ? 16px : 0px;
+            padding-right: root.page == 0 ? 16px : 0px;
+            for key in root.page == 0 ? ["a", "s", "d", "f", "g", "h", "j", "k", "l"]
+                : root.page == 1 ? ["@", "#", "$", "%", "&", "*", "-", "+", "(", ")"]
+                : ["|", "\\", "€", "£", "¥", "§", "°", "•", "¿", "¡"]: Key {
+                label: root.page == 0 && root.shift > 0 ? key.to-uppercase() : key;
+                tapped => { root.put(key); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            Key {
+                wide: true;
+                quiet: true;
+                label: root.page == 0 ? (root.shift == 2 ? "⇪" : "⇧") : root.page == 1 ? "=\\<" : "?123";
+                tapped => {
+                    if (root.page == 0) {
+                        root.shift = root.shift == 0 ? 1 : root.shift == 1 ? 2 : 0;
+                    } else {
+                        root.page = root.page == 1 ? 2 : 1;
+                    }
+                }
+            }
+            for key in root.page == 0 ? ["z", "x", "c", "v", "b", "n", "m"]
+                : ["!", "?", ".", ",", ":", ";", "_", "/", "'", "\""]: Key {
+                label: root.page == 0 && root.shift > 0 ? key.to-uppercase() : key;
+                tapped => { root.put(key); }
+            }
+            Key {
+                wide: true;
+                quiet: true;
+                label: "←";
+                accessible-label: @tr("Delete");
+                tapped => { Secrets.backspace(root.field); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            Key {
+                wide: true;
+                quiet: true;
+                label: root.page == 0 ? "?123" : "ABC";
+                tapped => { root.page = root.page == 0 ? 1 : 0; }
+            }
+            Key {
+                wide: true;
+                quiet: true;
+                label: @tr("Paste");
+                tapped => { Secrets.paste(root.field, false); }
+            }
+            Key {
+                horizontal-stretch: 4;
+                label: " ";
+                accessible-label: @tr("Space");
+                tapped => { root.put(" "); }
+            }
+            Key {
+                wide: true;
+                quiet: true;
+                label: "↓";
+                accessible-label: @tr("Hide the keyboard");
+                tapped => { Secrets.focused = -1; }
+            }
+            Key {
+                wide: true;
+                label: @tr("Done");
+                tapped => {
+                    Secrets.done-field = root.field;
+                    Secrets.done-count += 1;
+                }
+            }
+        }
+    }
+}
+
 export component PhoneWindow inherits Window {
     title: "Vault";
     preferred-width: 390px;
@@ -298,6 +428,12 @@ export component PhoneWindow inherits Window {
     in property <bool> incoming;        // a chosen file waits to open
     in property <bool> has-copy;        // the phone already keeps a vault
     callback pick-vault();              // the shell shows the system's file picker
+    in property <bool> can-pick-file: true;  // not on Android until the shell has a picker
+    // Setting the phone up from the vault server with the invite line a computer shows.
+    in-out property <string> setup-invite;
+    callback setup-from-server();
+    // The app's own keyboard for secret fields (on a phone; a computer has a real one).
+    in property <bool> drawn-keyboard;
     callback cancel-incoming();
     callback unlock();
 
@@ -424,15 +560,38 @@ export component PhoneWindow inherits Window {
                 wrap: word-wrap;
             }
             Text {
-                text: @tr("The phone opens the vault you made on your computer. Copy its .vault file to the phone, then choose it here.");
+                text: @tr("The phone opens the vault you made on your computer, through your vault server or from its file.");
                 font-size: Theme.body;
                 color: Theme.graphite;
                 wrap: word-wrap;
             }
-            // How the file gets here, in the order most people have at hand.
-            VerticalLayout {
+            Text {
+                text: @tr("On the computer: Settings, Sync, Add a device. Paste the line it shows here.");
+                font-size: Theme.small;
+                color: Theme.ink;
+                wrap: word-wrap;
+            }
+            LineField {
+                placeholder: "vaultsync:1?server=…";
+                mono: true;
+                text <=> root.setup-invite;
+                accepted => { root.setup-from-server(); }
+            }
+            Button {
+                text: root.sync-busy ? @tr("Fetching the vault…") : @tr("Set up from the server");
+                enabled: !root.sync-busy;
+                clicked => { root.setup-from-server(); }
+            }
+            // Or the file, in the order most people have it at hand.
+            if root.can-pick-file: VerticalLayout {
                 padding-top: 6px;
                 spacing: 10px;
+                Text {
+                    text: @tr("Or copy its .vault file to the phone and choose it below:");
+                    font-size: Theme.small;
+                    color: Theme.ink;
+                    wrap: word-wrap;
+                }
                 for way in [
                     @tr("A USB cable: drop the file into the phone's Download folder."),
                     @tr("Quick Share or Bluetooth from the computer."),
@@ -456,13 +615,18 @@ export component PhoneWindow inherits Window {
             }
             Rectangle { vertical-stretch: 1; }
             Text {
-                text: @tr("The file alone opens nothing: it also needs your master password and the Secret Key from your emergency kit.");
+                text: @tr("Neither the server nor the file opens the vault on its own: it also needs your master password and the Secret Key from your emergency kit.");
                 font-size: Theme.small;
                 color: Theme.graphite;
                 wrap: word-wrap;
             }
             if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
-            Button { text: @tr("Choose the vault file"); clicked => { root.pick-vault(); } }
+            if root.can-pick-file: QuietButton {
+                text: @tr("Choose the vault file");
+                icon: "folder";
+                outlined: true;
+                clicked => { root.pick-vault(); }
+            }
         }
 
         // ---------------------------------------------------------------- unlock
@@ -1321,5 +1485,13 @@ export component PhoneWindow inherits Window {
                 text: Words.notice(root.notice-code, root.notice-arg);
             }
         }
+    }
+
+    // The app's own keyboard while a secret field has the focus (MOBILE.md §6.1).
+    if root.drawn-keyboard && Secrets.focused >= 0: SecretKeyboard {
+        field: Secrets.focused;
+        x: 0px;
+        width: root.width;
+        y: root.height - self.height - root.inset-bottom;
     }
 }

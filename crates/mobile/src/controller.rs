@@ -63,6 +63,8 @@ mod error {
     pub const KEYFILE: i32 = 9;
     pub const TOTP: i32 = 10;
     pub const NO_CHARACTERS: i32 = 11;
+    /// Setting the phone up from the server failed (the detail says why).
+    pub const SYNC_SETUP: i32 = 12;
 }
 
 mod syncing;
@@ -288,6 +290,7 @@ impl Controller {
         });
         on!(on_unlock, |c| c.unlock());
         on!(on_sync_join, |c| c.sync_join());
+        on!(on_setup_from_server, |c| c.setup_from_server());
         on!(on_sync_use_webdav, |c| c.sync_use_webdav());
         on!(on_sync_now, |c| c.sync_round());
         on!(on_sync_stop, |c| c.sync_stop());

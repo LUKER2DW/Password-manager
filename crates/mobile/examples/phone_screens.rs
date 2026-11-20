@@ -174,13 +174,33 @@ fn main() {
         shots: Vec::new(),
     };
 
-    camera.shot("start", "No vault on this phone yet: choose the file");
+    camera.shot(
+        "start",
+        "No vault on this phone yet: the server's invite, or the file",
+    );
+    app.set_can_pick_file(false);
+    camera.shot(
+        "start-android",
+        "On Android, until the file picker: the server's invite",
+    );
+    app.set_can_pick_file(true);
     controller.bring_vault(b"a photo, not a vault".to_vec());
     camera.shot("start-wrong", "A file that isn't a vault, in words");
     controller.bring_vault_file(&from_computer);
     type_secret(&app, 1, &key.to_display_string());
     type_secret(&app, 0, PASSWORD);
     camera.shot("first-unlock", "The first time: the Secret Key, once");
+    // On Android: no file picker yet, and the app's own keyboard for the secret fields.
+    app.set_can_pick_file(false);
+    app.set_drawn_keyboard(true);
+    app.global::<Secrets>().set_focused(0);
+    camera.shot(
+        "first-unlock-keyboard",
+        "On Android: the app's own keyboard types the master password",
+    );
+    app.global::<Secrets>().set_focused(-1);
+    app.set_drawn_keyboard(false);
+    app.set_can_pick_file(true);
     app.invoke_unlock();
     camera.shot("empty", "An empty vault");
 
