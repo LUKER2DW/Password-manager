@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vault phone preview</title>
+<meta name="description" content="The phone app running in the browser, with a demo vault.">
+<style>
+  :root {
+    --page: #EEF1F4;
+    --ink: #1F2A3D;
+    --soft: #5F6B7D;
+    --rule: #D3DAE2;
+    --shell: #1A222D;
+    --marker: #F2CF45;
+    --on-marker: #161A20;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page: #121821;
+      --ink: #E3E8EF;
+      --soft: #8E9AAC;
+      --rule: #283240;
+      --shell: #0B0F15;
+      --marker: #E7C54B;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page: #121821;
+    --ink: #E3E8EF;
+    --soft: #8E9AAC;
+    --rule: #283240;
+    --shell: #0B0F15;
+    --marker: #E7C54B;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--page);
+    color: var(--ink);
+    font: 16px/1.55 Bahnschrift, "Segoe UI", system-ui, sans-serif;
+  }
+  main {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 48px;
+    padding: 40px 16px 64px;
+  }
+  .phone {
+    flex: none;
+    width: min(414px, 100%);
+    padding: 12px;
+    border-radius: 48px;
+    background: var(--shell);
+    box-shadow: 0 30px 60px -30px rgba(0, 0, 0, .55);
+  }
+  .screen {
+    position: relative;
+    aspect-ratio: 390 / 844;
+    border-radius: 36px;
+    overflow: hidden;
+    background: #121821;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    outline: none;
+  }
+  .loading {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: #8E9AAC;
+    font-size: 15px;
+    text-align: center;
+    padding: 24px;
+  }
+  .notes {
+    flex: 0 1 380px;
+    max-width: 380px;
+    padding-top: 24px;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: 30px;
+    font-weight: 300;
+    letter-spacing: -.01em;
+  }
+  .lead { margin: 0 0 28px; color: var(--soft); }
+  .password {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    margin-bottom: 28px;
+  }
+  .password span { color: var(--soft); font-size: 14px; }
+  .password code {
+    flex: 1;
+    font: 600 16px/1.3 Consolas, "Cascadia Mono", monospace;
+  }
+  button {
+    font: inherit;
+    font-size: 14px;
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 0;
+    background: var(--marker);
+    color: var(--on-marker);
+    cursor: pointer;
+  }
+  button:focus-visible, canvas:focus-visible { outline: 2px solid var(--marker); outline-offset: 3px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+  ul { margin: 0 0 28px; padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  .fine { color: var(--soft); font-size: 14px; }
+  @media (max-width: 860px) {
+    main { gap: 28px; padding-top: 24px; }
+    .notes { padding-top: 0; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="phone">
+    <div class="screen">
+      <canvas id="canvas" tabindex="0" aria-label="The phone app"></canvas>
+      <div class="loading" id="loading">Making the demo vault…</div>
+    </div>
+  </div>
+  <section class="notes">
+    <h1>Vault on a phone</h1>
+    <p class="lead">This is the phone app itself, compiled for the browser: the same screens and the same code that will run on Android. Click and type as you would tap.</p>
+    <div class="password">
+      <span>Master password</span>
+      <code id="password">demo phone vault</code>
+      <button type="button" id="copy">Copy</button>
+    </div>
+    <h2>Things to try</h2>
+    <ul>
+      <li>Unlock with the password above: Copy, then Ctrl+V in the field, or type it.</li>
+      <li>Search, or filter to favourites and codes.</li>
+      <li>Open Email or Code host: the one-time code counts down.</li>
+      <li>Show and copy a password, then edit an item and save it.</li>
+      <li>Add a login and make a password with the generator.</li>
+      <li>Lock it again from the top of the list.</li>
+    </ul>
+    <p class="fine">The demo vault is made in this page when it opens and holds fake data only. Nothing is sent anywhere and nothing is kept: reload to start over. What the browser can't do here: the system clipboard is the page's own, and there is no file to bring in.</p>
+  </section>
+</main>
+<script type="module">
+  import init, { put_on_clipboard } from "./vault_mobile_web.js";
+
+  const copy = document.getElementById("copy");
+  copy.addEventListener("click", async () => {
+    const text = document.getElementById("password").textContent;
+    // For Ctrl+V inside the app, and for the computer's clipboard.
+    try { put_on_clipboard(text); } catch {}
+    try {
+      await navigator.clipboard.writeText(text);
+      copy.textContent = "Copied";
+    } catch {
+      copy.textContent = "Select it";
+    }
+    setTimeout(() => { copy.textContent = "Copy"; }, 1600);
+  });
+
+  const loading = document.getElementById("loading");
+  try {
+    await init();
+  } catch (error) {
+    // Slint's event loop throws to give control back to the browser: that is the app running.
+    if (!String(error).includes("Using exceptions for control flow")) {
+      loading.textContent = "The preview couldn't start: " + error;
+      throw error;
+    }
+  }
+  loading.remove();
+  document.getElementById("canvas").focus();
+</script>
+</body>
+</html>
