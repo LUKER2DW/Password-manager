@@ -12,6 +12,7 @@ members = [
     "crates/sync-wire",
     "crates/server",
     "crates/mobile-web",
+    "crates/mobile-android",
 ]
 # Prototypes are standalone experiments with their own lockfiles.
 exclude = ["prototypes"]
