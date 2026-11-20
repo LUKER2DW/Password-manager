@@ -29,8 +29,12 @@ impl Env {
         }
     }
 
-    /// Runs `vault <args>` feeding `stdin_lines`, one per prompt.
+    /// Runs `vault <args>` feeding `stdin_lines`, one per prompt. One at a time across the
+    /// tests: the OS credential store, shared by all of them, can miss a key written a moment
+    /// before by another process while several write at once.
     fn run(&self, args: &[&str], stdin_lines: &[&str]) -> Output {
+        static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
         let mut child = Command::new(env!("CARGO_BIN_EXE_vault"))
             .args(["--vault", self.vault.to_str().unwrap(), "--password-stdin"])
             .args(args)
