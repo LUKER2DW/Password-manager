@@ -13,7 +13,7 @@ use std::{
     cell::RefCell,
     path::{Path, PathBuf},
     rc::{Rc, Weak},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use sha2::{Digest, Sha256};
@@ -23,15 +23,16 @@ use vault_core::{
     generator::{
         PassphraseOptions, PasswordOptions, WordCase, generate_passphrase, generate_password,
     },
-    storage,
     totp::Totp,
 };
-use vault_platform::{
-    DeviceState, RollbackStatus, SecretBuffer, StateFile, clipboard, secret_store,
-};
+// The std clock on a phone or computer; the browser's in the web preview.
+use web_time::Instant;
 use zeroize::Zeroizing;
 
 use crate::{
+    platform::{
+        DeviceState, RollbackStatus, SecretBuffer, StateFile, clipboard, files, secret_store,
+    },
     sketch,
     ui::{CodeRow, ItemRow, Page, PhoneWindow, Place, Screen, Secrets, Sketch, Theme},
 };
@@ -453,7 +454,7 @@ impl Controller {
         };
         app.set_incoming(incoming.is_some());
         app.set_has_copy(path.exists());
-        let Some(bytes) = incoming.or_else(|| storage::read(&path).ok()) else {
+        let Some(bytes) = incoming.or_else(|| files::read(&path).ok()) else {
             app.set_screen(Screen::Start);
             return;
         };
@@ -490,7 +491,7 @@ impl Controller {
 
     /// [`Controller::bring_vault`] for a file on a path (the computer's file dialog).
     pub fn bring_vault_file(&self, file: &Path) {
-        match std::fs::read(file) {
+        match files::read_any(file) {
             Ok(bytes) => self.bring_vault(bytes),
             Err(err) => self.set_error(error::UNREADABLE, &err.to_string()),
         }
@@ -505,7 +506,7 @@ impl Controller {
             let state = self.state.borrow();
             (state.incoming.clone(), state.path.clone())
         };
-        let bytes = match incoming.map_or_else(|| storage::read(&path), Ok) {
+        let bytes = match incoming.map_or_else(|| files::read(&path), Ok) {
             Ok(bytes) => bytes,
             Err(err) => return self.set_error(error::UNREADABLE, &err.to_string()),
         };
@@ -569,9 +570,9 @@ impl Controller {
             let path = self.state.borrow().path.clone();
             let written = path
                 .parent()
-                .map_or(Ok(()), std::fs::create_dir_all)
+                .map_or(Ok(()), files::create_dir_all)
                 .map_err(|e| e.to_string())
-                .and_then(|()| storage::write_atomic(&path, &bytes).map_err(|e| e.to_string()));
+                .and_then(|()| files::write_atomic(&path, &bytes).map_err(|e| e.to_string()));
             if let Err(detail) = written {
                 self.state.borrow_mut().incoming = Some(bytes);
                 return self.set_error(error::NOT_SAVED, &detail);
@@ -660,18 +661,18 @@ impl Controller {
             let state = &mut *state;
             let vault = state.vault.as_mut().ok_or("the vault is locked")?;
             if let Some(expected) = state.file_hash {
-                let now = storage::read(&state.path).map_err(|e| e.to_string())?;
+                let now = files::read(&state.path).map_err(|e| e.to_string())?;
                 if fingerprint(&now) != expected {
                     return Err("the file was changed by something else".into());
                 }
             }
             let bytes = vault.to_bytes().map_err(|e| e.to_string())?;
             if let Some(parent) = state.path.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                files::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
-            storage::write_atomic(&state.path, &bytes).map_err(|e| e.to_string())?;
+            files::write_atomic(&state.path, &bytes).map_err(|e| e.to_string())?;
             state.file_hash = Some(fingerprint(&bytes));
-            let _ = vault_platform::device::record_revision(&vault.id_hex(), vault.revision());
+            let _ = crate::platform::device::record_revision(&vault.id_hex(), vault.revision());
             Ok(())
         })();
         match outcome {
@@ -919,7 +920,7 @@ impl Controller {
             };
             return self.run(
                 move || {
-                    storage::read(&path).is_ok_and(|bytes| {
+                    files::read(&path).is_ok_and(|bytes| {
                         Vault::open(
                             &bytes,
                             Unlock::Password {

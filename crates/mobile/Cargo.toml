@@ -32,14 +32,23 @@ all = { level = "warn", priority = -1 }
 
 [dependencies]
 vault-core = { path = "../core" }
-vault-platform = { path = "../platform" }
 # Fingerprint of the vault file, to notice changes made outside the app.
 sha2 = "0.11"
 slint = "1.18"
+# Clocks that also work in a browser (the web preview); std's own elsewhere.
+web-time = "1.1"
 zeroize = "1.9"
 
+# The system: files, credential store, clipboard, device state. In a browser a stand-in
+# takes its place (src/platform/web.rs).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+vault-platform = { path = "../platform" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+anyhow = "1"
+
 # The computer's file dialog, for the phone-sized window only; Android uses its own picker.
-[target.'cfg(not(target_os = "android"))'.dependencies]
+[target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 rfd = "0.18"
 
 [build-dependencies]
