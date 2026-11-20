@@ -9,6 +9,8 @@ members = [
     "crates/desktop",
     "crates/desktop/ui",
     "crates/mobile",
+    "crates/sync-wire",
+    "crates/server",
 ]
 # Prototypes are standalone experiments with their own lockfiles.
 exclude = ["prototypes"]
