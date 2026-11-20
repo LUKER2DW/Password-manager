@@ -72,8 +72,10 @@ impl Env {
 
 impl Drop for Env {
     fn drop(&mut self) {
-        // Remove the Secret Key from the OS credential store even if the test failed.
+        // Remove the Secret Key (and a sync server key) from the OS credential store even if
+        // the test failed.
         if self.vault.exists() {
+            let _ = self.run(&["sync", "--stop"], &[]);
             let _ = self.run(&["forget"], &[]);
         }
     }
@@ -409,4 +411,133 @@ fn two_devices_sync_through_a_folder() {
 
     phone.ok(&["sync", "--stop"], &[]);
     phone.fails(&["sync"], &[MASTER]);
+}
+
+/// A vault-server on a free local port, for as long as it lives.
+struct Server {
+    url: String,
+    data: tempfile::TempDir,
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Server {
+    fn start() -> Self {
+        let data = tempfile::tempdir().unwrap();
+        let root = data.path().to_owned();
+        let (ready, address) = std::sync::mpsc::channel();
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let thread = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                ready.send(listener.local_addr().unwrap()).unwrap();
+                vault_server::serve(&root, listener, async {
+                    let _ = stopped.await;
+                })
+                .await
+                .unwrap();
+            });
+        });
+        let address: std::net::SocketAddr = address.recv().unwrap();
+        Self {
+            url: format!("http://{address}"),
+            data,
+            stop: Some(stop),
+            thread: Some(thread),
+        }
+    }
+
+    fn invite(&self) -> String {
+        vault_server::admin_invite(self.data.path(), 1).unwrap().0
+    }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+#[test]
+fn two_devices_sync_through_a_server() {
+    let server = Server::start();
+    let desktop = Env::new();
+    desktop.ok(
+        &["init", "--kdf-target-ms", "50", "--kdf-memory-mib", "64"],
+        &[MASTER],
+    );
+    desktop.ok(
+        &[
+            "add",
+            "Desktop item",
+            "-u",
+            "d",
+            "--url",
+            "https://d.example",
+        ],
+        &[MASTER, "desktop-item-password"],
+    );
+    let phone = Env::new();
+    std::fs::copy(&desktop.vault, &phone.vault).unwrap();
+
+    // Without an invite the server is refused; with the admin's invite the desktop joins.
+    let refused = desktop.fails(&["sync", "--server", &server.url], &[MASTER]);
+    assert!(refused.contains("--invite"), "{refused}");
+    let first = desktop.ok(
+        &[
+            "sync",
+            "--server",
+            &server.url,
+            "--invite",
+            &server.invite(),
+        ],
+        &[MASTER],
+    );
+    assert!(first.contains("joined the server"), "{first}");
+    assert!(first.contains("Synced with 0 other device(s)"), "{first}");
+
+    // The desktop invites the phone; the phone joins with that line.
+    let link = desktop.ok(&["sync", "--add-device"], &[]);
+    let link = link.lines().next().unwrap().trim().to_owned();
+    assert!(link.starts_with("vaultsync:1?"), "{link}");
+    let joined = phone.ok(&["sync", "--join", &link], &[MASTER]);
+    assert!(joined.contains("Synced with 1 other device(s)"), "{joined}");
+    // The same invite doesn't work twice.
+    let other = Env::new();
+    std::fs::copy(&desktop.vault, &other.vault).unwrap();
+    let used = other.fails(&["sync", "--join", &link], &[MASTER]);
+    assert!(used.contains("invite"), "{used}");
+
+    phone.ok(
+        &["add", "Phone item", "-u", "p", "--url", "https://p.example"],
+        &[MASTER, "phone-item-password"],
+    );
+    phone.ok(&["sync"], &[MASTER]);
+    let back = desktop.ok(&["sync"], &[MASTER]);
+    assert!(back.contains("1 added"), "{back}");
+    assert!(desktop.ok(&["list"], &[MASTER]).contains("Phone item"));
+
+    // Both devices are listed; the phone is removed and gets nothing new afterwards.
+    let devices = desktop.ok(&["sync", "--devices"], &[MASTER]);
+    assert_eq!(devices.lines().count(), 3, "{devices}");
+    let phone_id = devices
+        .lines()
+        .skip(1)
+        .find(|l| !l.contains("(this device)"))
+        .and_then(|l| l.split_whitespace().next())
+        .unwrap()
+        .to_owned();
+    let removed = desktop.ok(&["sync", "--remove", &phone_id], &[MASTER]);
+    assert!(removed.contains("Removed"), "{removed}");
+    let after = phone.fails(&["sync"], &[MASTER]);
+    assert!(after.contains("isn't allowed in"), "{after}");
 }

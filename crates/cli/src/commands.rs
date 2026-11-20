@@ -528,54 +528,192 @@ pub fn forget(ctx: &Context) -> Result<()> {
     Ok(())
 }
 
-/// `vault sync [FOLDER] [--stop]`: one round with the copies in the folder (SYNC.md).
-pub fn sync(
-    ctx: &Context,
-    prompter: &mut Prompter,
-    folder: Option<PathBuf>,
-    stop: bool,
-) -> Result<()> {
+/// What `vault sync` was asked to do.
+#[derive(Debug, Default)]
+pub struct SyncRequest {
+    pub folder: Option<PathBuf>,
+    pub server: Option<String>,
+    pub invite: Option<String>,
+    pub join: Option<String>,
+    /// Address and user name.
+    pub webdav: Option<(String, String)>,
+    pub add_device: bool,
+    pub devices: bool,
+    pub remove: Option<String>,
+    pub stop: bool,
+}
+
+pub fn sync(ctx: &Context, prompter: &mut Prompter, request: SyncRequest) -> Result<()> {
     use vault_platform::{
-        DeviceState,
-        sync::{self, Target as _},
+        DeviceState, SyncTo, secret_store,
+        sync::{self, ServerTarget},
     };
 
     let bytes = session::read_vault_file(&ctx.path)?;
     let id = Vault::inspect(&bytes).map_err(explain)?.id_hex;
     let mut state = DeviceState::load()?;
-    if stop {
-        state.set_sync_folder(&id, None);
+    let device = state.device_id().map_err(explain)?;
+    state.save()?;
+    if request.stop {
+        state.set_sync_to(&id, None);
         state.save()?;
-        println!("This vault no longer syncs on this device. The copies in the folder were left.");
+        let _ = secret_store::forget_sync_key(&id, &device.to_hex());
+        let _ = secret_store::forget_webdav_password(&id);
+        println!("This vault no longer syncs on this device. The copies there were left.");
         return Ok(());
     }
     let place = state.sync_place(&id);
-    let folder = match (folder, &place) {
-        (Some(folder), _) => folder,
-        (None, Some(place)) => place.folder.clone(),
-        (None, None) => bail!("no sync folder yet: run `vault sync <folder>` once"),
+
+    // Where to sync: what was asked, else what was used last time.
+    let to = if let Some(folder) = request.folder {
+        if !folder.is_dir() {
+            bail!("{} is not a folder", folder.display());
+        }
+        SyncTo::Folder { path: folder }
+    } else if let Some(text) = request.join {
+        let link = vault_sync_wire::InviteLink::parse(&text)
+            .context("that isn't an invite: it starts with vaultsync:1?")?;
+        if link.vault != id {
+            bail!("that invite is for another vault");
+        }
+        join_server(&id, device, &link.server, &link.invite)?
+    } else if let Some(address) = request.server {
+        let url = sync::check_address(&address)?;
+        match request.invite {
+            Some(invite) => join_server(&id, device, &url, &invite)?,
+            None if matches!(&place, Some(p) if p.to == SyncTo::Server { url: url.clone() }) => {
+                SyncTo::Server { url }
+            }
+            None => bail!(
+                "the first time on a server needs --invite (from `vault-server invite` or another device)"
+            ),
+        }
+    } else if let Some((address, user)) = request.webdav {
+        let url = sync::check_address(&address)?;
+        let password = prompter.secret("WebDAV password")?;
+        // Checked before it is kept: the folder must answer with these credentials.
+        let target = sync::WebDavTarget::new(&url, &id, &user, &password)?;
+        sync::Target::list(&target)?;
+        secret_store::store_webdav_password(&id, &password)?;
+        SyncTo::Webdav { url, user }
+    } else if let Some(place) = &place {
+        place.to.clone()
+    } else {
+        bail!(
+            "this vault doesn't sync yet: run `vault sync <folder>`, `vault sync --server <address> --invite <invite>` or `vault sync --webdav <address> --user <name>` once"
+        );
     };
-    if !folder.is_dir() {
-        bail!("{} is not a folder", folder.display());
-    }
-    let device = state.device_id().map_err(explain)?;
-    state.save()?;
-    let (mut seen, published) = match place.filter(|p| p.folder == folder) {
+    let (mut seen, published) = match place.filter(|p| p.to == to) {
         Some(place) => (place.seen, place.published),
-        None => Default::default(),
+        None => match DeviceState::load()?.sync_place(&id) {
+            // Moved to another place: what was seen still holds there.
+            Some(place) => (place.seen, 0),
+            None => Default::default(),
+        },
     };
+    let target = sync::open_target(&id, device, &to)?;
+
+    if request.add_device {
+        let SyncTo::Server { url } = &to else {
+            bail!(
+                "an invite is for a server; with a folder or WebDAV, set the same place on the other device"
+            );
+        };
+        let seed = secret_store::load_sync_key(&id, &device.to_hex())?
+            .context("this device has no key for the server: join it again")?;
+        let server = ServerTarget::new(
+            url,
+            &id,
+            device,
+            vault_sync_wire::DeviceKey::from_seed(&seed),
+        )?;
+        let invite = server.invite()?;
+        println!("{}", *server.invite_link(&invite).to_text());
+        eprintln!(
+            "On the other device: vault sync --join \"<the line above>\" (or scan it in the app). \
+             Good once, for an hour. It doesn't open the vault: that still needs the master \
+             password and the Secret Key."
+        );
+        state = DeviceState::load()?;
+        state.set_sync_to(&id, Some(to));
+        state.save()?;
+        return Ok(());
+    }
 
     let mut session = ctx.unlock(prompter)?;
-    let target = sync::FolderTarget::new(&folder, &id)?;
     let joined = sync::join(&mut session.vault, device, &sync::device_name()).map_err(explain)?;
-    let fetched = sync::fetch(&target, device)?;
+
+    if request.devices {
+        let enrolled = match &to {
+            SyncTo::Server { url } => {
+                let seed = secret_store::load_sync_key(&id, &device.to_hex())?;
+                seed.and_then(|seed| {
+                    ServerTarget::new(
+                        url,
+                        &id,
+                        device,
+                        vault_sync_wire::DeviceKey::from_seed(&seed),
+                    )
+                    .ok()
+                })
+                .and_then(|server| server.enrolled().ok())
+            }
+            _ => None,
+        };
+        println!("Syncs through {}", to.describe());
+        for other in session.vault.sync_devices() {
+            let mark = if other.id == device {
+                "  (this device)"
+            } else {
+                ""
+            };
+            let seen_at = enrolled
+                .as_ref()
+                .and_then(|list| list.iter().find(|e| e.device == other.id.to_hex()))
+                .map(|e| format!("  last seen on the server at {}", e.seen_at))
+                .unwrap_or_default();
+            println!("  {}  {}{mark}{seen_at}", short(&other.id), other.name);
+        }
+        if joined {
+            session.save()?;
+        }
+        return Ok(());
+    }
+
+    if let Some(prefix) = &request.remove {
+        let prefix = prefix.trim().to_ascii_lowercase();
+        let matches: Vec<_> = session
+            .vault
+            .sync_devices()
+            .iter()
+            .filter(|d| !prefix.is_empty() && d.id.to_hex().starts_with(&prefix))
+            .map(|d| (d.id, d.name.clone()))
+            .collect();
+        let [(other, name)] = matches.as_slice() else {
+            bail!(
+                "{} devices start with that id: `vault sync --devices` lists them",
+                matches.len()
+            );
+        };
+        if *other == device {
+            bail!("this is this device: use `vault sync --stop` here instead");
+        }
+        session.vault.remove_sync_device(other).map_err(explain)?;
+        session.save()?;
+        if let Err(err) = target.remove(*other) {
+            eprintln!("Its copy couldn't be deleted there ({err:#}); it is refused anyway.");
+        }
+        println!("Removed {name}: the other devices refuse its copies from their next sync.");
+    }
+
+    let fetched = sync::fetch(&*target, device, &sync::Tags::new())?;
     for (other, why) in &fetched.unreadable {
         eprintln!("Couldn't read the copy of device {}: {why}", short(other));
     }
     let mut round = sync::merge_all(&mut session.vault, &fetched, &mut seen);
     if round.removed_here {
         state = DeviceState::load()?;
-        state.set_sync_folder(&id, None);
+        state.set_sync_to(&id, None);
         state.save()?;
         bail!("this device was removed from the vault on another device: sync is off here");
     }
@@ -588,10 +726,10 @@ pub fn sync(
         session.open_secrets(prompter)?;
         round = sync::merge_all(&mut session.vault, &fetched, &mut seen);
     }
-    let changed = round.changed() || joined;
-    if changed {
+    if round.changed() || joined {
         session.save()?;
     }
+    let changed = round.changed() || joined || request.remove.is_some();
     let mut published_now = published;
     if changed || session.vault.revision() > published {
         let saved = storage::read(&session.path).map_err(explain)?;
@@ -600,7 +738,7 @@ pub fn sync(
     }
     // Read again: saving the vault recorded its revision in the same file.
     let mut state = DeviceState::load()?;
-    state.set_sync_folder(&id, Some(&folder));
+    state.set_sync_to(&id, Some(to.clone()));
     state.record_sync(&id, &seen, unix_now(), published_now);
     state.save()?;
 
@@ -614,7 +752,7 @@ pub fn sync(
     println!(
         "Synced with {others} other device(s) in {}: {added} added, {updated} updated, \
          {removed} removed here.",
-        folder.display()
+        to.describe()
     );
     if round.conflicts() > 0 {
         println!(
@@ -643,6 +781,21 @@ pub fn sync(
         );
     }
     Ok(())
+}
+
+/// Enrolls this device on a server with a one-time invite and keeps its new key.
+fn join_server(
+    vault_id: &str,
+    device: vault_core::sync::DeviceId,
+    address: &str,
+    invite: &str,
+) -> Result<vault_platform::SyncTo> {
+    use vault_platform::{secret_store, sync};
+    let url = sync::check_address(address)?;
+    let server = sync::ServerTarget::join(&url, vault_id, device, &sync::device_name(), invite)?;
+    secret_store::store_sync_key(vault_id, &device.to_hex(), &server.key_seed())?;
+    println!("This device joined the server at {url}.");
+    Ok(vault_platform::SyncTo::Server { url })
 }
 
 fn short(device: &vault_core::sync::DeviceId) -> String {

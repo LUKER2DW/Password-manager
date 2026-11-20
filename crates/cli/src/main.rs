@@ -94,16 +94,47 @@ enum Command {
     },
     /// Import an export from another password manager or a browser (JSON, CSV or KDBX).
     Import(ImportArgs),
-    /// Sync this vault with your other devices through a folder they all see (OneDrive,
-    /// Google Drive, Dropbox, Syncthing, a network share). Each device writes only its own
-    /// sealed copy there; the others' copies are merged in.
-    Sync {
-        /// The folder, the first time (remembered afterwards).
-        folder: Option<PathBuf>,
-        /// Stop syncing this vault on this device (the copies in the folder are left).
-        #[arg(long, conflicts_with = "folder")]
-        stop: bool,
-    },
+    /// Sync this vault with your other devices: through a folder they all see (OneDrive,
+    /// Google Drive, Dropbox, Syncthing, a network share), your own vault-server, or a
+    /// WebDAV folder (Nextcloud, a NAS). Each device writes only its own sealed copy there;
+    /// the others' copies are merged in. The place is remembered after the first time.
+    Sync(SyncArgs),
+}
+
+#[derive(Debug, clap::Args)]
+struct SyncArgs {
+    /// Sync through this folder.
+    #[arg(conflicts_with_all = ["server", "join", "webdav"])]
+    folder: Option<PathBuf>,
+    /// Sync through your own vault-server at this address (https://, or http:// on
+    /// Tailscale). The first time needs --invite.
+    #[arg(long, conflicts_with_all = ["join", "webdav"])]
+    server: Option<String>,
+    /// The one-time invite made by `vault-server invite` or by a device already in.
+    #[arg(long, requires = "server")]
+    invite: Option<String>,
+    /// Join with the invite text another device showed (vaultsync:1?...).
+    #[arg(long, conflicts_with = "webdav")]
+    join: Option<String>,
+    /// Sync through a WebDAV folder at this address (asks for the password once).
+    #[arg(long, requires = "user")]
+    webdav: Option<String>,
+    /// The WebDAV user name.
+    #[arg(long, requires = "webdav")]
+    user: Option<String>,
+    /// Print an invite another device joins the server with (good for an hour).
+    #[arg(long, conflicts_with_all = ["devices", "remove", "stop"])]
+    add_device: bool,
+    /// List the devices that sync this vault.
+    #[arg(long, conflicts_with_all = ["remove", "stop"])]
+    devices: bool,
+    /// Remove a device from this vault (its id, or the first characters of it): it gets
+    /// nothing new from then on.
+    #[arg(long, conflicts_with = "stop")]
+    remove: Option<String>,
+    /// Stop syncing this vault on this device (the copies there are left).
+    #[arg(long, conflicts_with_all = ["folder", "server", "join", "webdav"])]
+    stop: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -408,7 +439,21 @@ fn run() -> Result<()> {
                 KeyfileCommand::Remove => commands::KeyfileAction::Remove,
             },
         ),
-        Command::Sync { folder, stop } => commands::sync(&ctx, &mut prompter, folder, stop),
+        Command::Sync(args) => commands::sync(
+            &ctx,
+            &mut prompter,
+            commands::SyncRequest {
+                folder: args.folder,
+                server: args.server,
+                invite: args.invite,
+                join: args.join,
+                webdav: args.webdav.zip(args.user),
+                add_device: args.add_device,
+                devices: args.devices,
+                remove: args.remove,
+                stop: args.stop,
+            },
+        ),
         Command::Import(args) => commands::import(
             &ctx,
             &mut prompter,
