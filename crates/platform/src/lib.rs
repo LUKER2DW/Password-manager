@@ -5,6 +5,11 @@
 
 pub mod browser_link;
 pub mod browsers;
+#[cfg(not(target_os = "android"))]
+pub mod clipboard;
+/// On Android the clipboard is the system's `ClipboardManager`, reached through JNI.
+#[cfg(target_os = "android")]
+#[path = "clipboard_android.rs"]
 pub mod clipboard;
 pub mod device;
 pub mod dpapi;

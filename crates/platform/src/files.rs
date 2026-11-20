@@ -64,17 +64,19 @@ pub fn overwrite_with_zeros(file: &mut std::fs::File, len: u64) -> std::io::Resu
 
 /// Whether `meta` (from `symlink_metadata`) describes a link rather than the file itself.
 pub fn is_link(meta: &std::fs::Metadata) -> bool {
-    if meta.file_type().is_symlink() {
-        return true;
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return true;
-        }
-    }
+    meta.file_type().is_symlink() || is_reparse_point(meta)
+}
+
+/// Windows: junctions and other reparse points count as links too.
+#[cfg(windows)]
+fn is_reparse_point(meta: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(_: &std::fs::Metadata) -> bool {
     false
 }
 
