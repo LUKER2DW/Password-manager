@@ -547,8 +547,34 @@ fn main() {
     );
     app.set_kdf_method(app.get_kdf_current_method());
     app.set_kdf_level(app.get_kdf_current().max(0));
+    // Sync, off: the three places to choose from, then the server form.
+    camera.shot(
+        "settings-sync-off",
+        "Settings, whole page: sync is off, three places",
+    );
+    app.set_sync_form(1);
+    app.set_sync_address("https://vault.example-net.ts.net".into());
+    camera.shot(
+        "settings-sync-server-form",
+        "Settings, whole page: joining a server with an invite",
+    );
+    app.set_sync_form(2);
+    app.set_sync_address("https://cloud.example.com/remote.php/dav/files/demo/Vault".into());
+    app.set_sync_user("demo".into());
+    camera.shot(
+        "settings-sync-webdav-form",
+        "Settings, whole page: WebDAV address, user and password",
+    );
+    app.set_sync_form(0);
     // Sync through a folder (demo values): synced a few minutes ago, then waiting for the
     // item lock, then the folder gone.
+    app.set_sync_kind(1);
+    app.set_sync_others(slint::ModelRc::from(std::rc::Rc::new(
+        slint::VecModel::from(vec![
+            slint::SharedString::from("Laptop"),
+            slint::SharedString::from("Phone"),
+        ]),
+    )));
     app.set_sync_folder(r"D:\Sync\Vault".into());
     app.set_sync_this_device("Desktop".into());
     app.set_sync_devices("Laptop, Phone".into());
@@ -567,6 +593,24 @@ fn main() {
     app.set_sync_detail(r"the folder D:\Sync\Vault can't be reached".into());
     app.set_sync_state(3);
     camera.shot("settings-sync-failed", "Settings, whole page: sync failed");
+    // Through the server, with an invite for one more device and a Remove waiting for its
+    // second click.
+    app.set_sync_detail("".into());
+    app.set_sync_state(1);
+    app.set_sync_waiting(0);
+    app.set_sync_kind(2);
+    app.set_sync_folder("https://vault.example-net.ts.net".into());
+    let link = "vaultsync:1?server=https://vault.example-net.ts.net&vault=0123456789abcdef0123456789abcdef&invite=fedcba9876543210fedcba9876543210";
+    app.set_sync_invite(link.into());
+    app.set_sync_invite_qr(demo_qr(link));
+    app.set_sync_removing(1);
+    camera.shot(
+        "settings-sync-server",
+        "Settings, whole page: sync through the server, adding a device",
+    );
+    app.set_sync_invite("".into());
+    app.set_sync_removing(-1);
+    app.set_sync_kind(0);
     app.set_sync_folder("".into());
     app.set_sync_state(0);
     app.set_sync_detail("".into());
@@ -860,3 +904,24 @@ fn main() {
 
 #[allow(dead_code)]
 fn _assert_path(_: &Path) {}
+
+/// A QR code as the app draws it (black on white, a quiet zone).
+fn demo_qr(text: &str) -> slint::Image {
+    let code = qrcode::QrCode::new(text).unwrap();
+    let modules = code.width();
+    let colors = code.to_colors();
+    let (quiet, scale) = (4, 6);
+    let side = (modules + 2 * quiet) * scale;
+    let mut buffer = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(side as u32, side as u32);
+    for (i, pixel) in buffer.make_mut_slice().iter_mut().enumerate() {
+        let (x, y) = (i % side / scale, i / side / scale);
+        let dark = x >= quiet
+            && y >= quiet
+            && x - quiet < modules
+            && y - quiet < modules
+            && colors[(y - quiet) * modules + (x - quiet)] == qrcode::Color::Dark;
+        let v = if dark { 0 } else { 255 };
+        *pixel = slint::Rgb8Pixel { r: v, g: v, b: v };
+    }
+    slint::Image::from_rgb8(buffer)
+}
