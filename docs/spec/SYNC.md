@@ -4,8 +4,8 @@
 > (`crates/core/tests/sync.rs`); the folder, server and WebDAV targets in `vault-platform`
 > (`sync.rs`, `sync/`); `vault-server` (`crates/server`, tested end to end in
 > `crates/server/tests/sync.rs` and `crates/cli/tests/cli.rs`); the request protocol in
-> `crates/sync-wire`. Setting the server up: [../SERVER.md](../SERVER.md). The phone (M6.4)
-> is not built yet. Byte layouts are in [VAULT_FORMAT.md](VAULT_FORMAT.md) §3. This replaces
+> `crates/sync-wire`. Setting the server up: [../SERVER.md](../SERVER.md). The phone's sync
+> (M6.4) is in `crates/mobile/src/controller/syncing.rs`. Byte layouts are in [VAULT_FORMAT.md](VAULT_FORMAT.md) §3. This replaces
 > the earlier sketch in ARCHITECTURE.md §6.
 
 ## 1. What sync has to do
@@ -366,7 +366,11 @@ open one.
    `vault sync --server/--invite/--join/--webdav/--add-device/--devices/--remove`. The desktop
    waits on the server's long-poll while the vault is open, so a change on another device
    arrives within seconds.
-4. **M6.4 Phone**: M7.6 on top of M6.3, enrollment by QR.
+4. ✅ **M6.4 Phone** (the controller; running on a real phone is M7.1): Settings → Sync on the
+   phone joins with the `vaultsync:` line from Add a device on a computer, then rounds at
+   unlock, after saves, every 5 minutes, on the server's long-poll and on demand; Stop
+   syncing forgets its key. Not yet: scanning the QR code with the camera (M7), WebDAV on
+   the phone, syncing while the vault is locked (download only, then merge at unlock).
 5. **M6.5 Nearby** sync over the LAN.
 6. **M6.6 Cloud drive APIs** for the phone (§11): Google Drive and OneDrive app folders,
    Dropbox app folder.

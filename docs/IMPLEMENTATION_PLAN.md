@@ -279,7 +279,13 @@ Rules:
   writing another device's copy, other vaults' keys, used invites are refused
 - ⬜ M6.6 Cloud drive APIs for the phone (Google Drive and OneDrive app folders, Dropbox),
   once OAuth apps are registered ([viability](spec/SYNC.md#11-onedrive-google-drive-and-dropbox-on-the-phone))
-- ⬜ M6.4 Phone (M7.6), enrollment by QR; M6.5 nearby sync over the LAN
+- ✅ M6.4 Phone sync: Settings → Sync on the phone joins the server with the `vaultsync:`
+  line from Add a device, then syncs at unlock, after saves, every 5 minutes, on the
+  server's news and on demand; tested headless against a running server (a computer's item
+  comes in, the phone's goes out). The phone window keeps its own device state in
+  `<app dir>/phone`, so it syncs as a device of its own
+- ⬜ Scanning the invite's QR code with the camera (M7); WebDAV on the phone
+- ⬜ M6.5 nearby sync over the LAN
 - **Done when:** two devices converge; ZK-AE-Tester style malicious-server tests pass.
 
 ### M7 — Android 🚧
