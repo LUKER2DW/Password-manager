@@ -37,9 +37,13 @@ struct VaultState {
     /// Where the vault's keyfile was last found (a location, never the key).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     keyfile_path: Option<String>,
-    /// Sync: the folder chosen for this vault on this device, if any.
+    /// Sync: the folder chosen for this vault on this device (written by earlier versions;
+    /// read as `sync_to` = a folder).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sync_folder: Option<String>,
+    /// Sync: where this vault syncs on this device, if anywhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sync_to: Option<SyncTo>,
     /// Sync: the copies already seen from each other device (rollback and fork checks).
     #[serde(default, skip_serializing_if = "is_empty_seen")]
     sync_seen: SeenRevisions,
@@ -54,10 +58,33 @@ fn is_empty_seen(seen: &SeenRevisions) -> bool {
     *seen == SeenRevisions::default()
 }
 
+/// Where a vault syncs. Nothing secret: the WebDAV password and the server key are in the
+/// OS credential store (`secret_store`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum SyncTo {
+    /// A folder another program keeps the same everywhere.
+    Folder { path: std::path::PathBuf },
+    /// Our own `vault-server`, at this address.
+    Server { url: String },
+    /// A WebDAV collection (Nextcloud, a NAS), with this user name.
+    Webdav { url: String, user: String },
+}
+
+impl SyncTo {
+    /// What to show the person: the folder or the address.
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Folder { path } => path.display().to_string(),
+            Self::Server { url } | Self::Webdav { url, .. } => url.clone(),
+        }
+    }
+}
+
 /// What this device keeps about syncing one vault.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyncPlace {
-    pub folder: std::path::PathBuf,
+    pub to: SyncTo,
     pub seen: SeenRevisions,
     /// Unix seconds of the last finished round; 0 = never.
     pub at: i64,
@@ -300,20 +327,41 @@ impl DeviceState {
     /// Where and how vault `vault_id` syncs on this device; `None` when it doesn't.
     pub fn sync_place(&self, vault_id: &str) -> Option<SyncPlace> {
         let state = self.vaults.get(vault_id)?;
+        let to = state.sync_to.clone().or_else(|| {
+            state.sync_folder.as_deref().map(|path| SyncTo::Folder {
+                path: std::path::PathBuf::from(path),
+            })
+        })?;
         Some(SyncPlace {
-            folder: std::path::PathBuf::from(state.sync_folder.as_deref()?),
+            to,
             seen: state.sync_seen.clone(),
             at: state.sync_at,
             published: state.sync_published,
         })
     }
 
-    /// Starts syncing vault `vault_id` through `folder`, or (with `None`) stops. Stopping
-    /// forgets what was seen: syncing again later starts afresh.
+    /// Starts syncing vault `vault_id` through `folder`, or (with `None`) stops.
     pub fn set_sync_folder(&mut self, vault_id: &str, folder: Option<&std::path::Path>) {
+        self.set_sync_to(
+            vault_id,
+            folder.map(|path| SyncTo::Folder {
+                path: path.to_owned(),
+            }),
+        );
+    }
+
+    /// Starts syncing vault `vault_id` through `to`, or (with `None`) stops. Stopping forgets
+    /// what was seen: syncing again later starts afresh. Moving to another place keeps it, so
+    /// an older copy put back is still refused there.
+    pub fn set_sync_to(&mut self, vault_id: &str, to: Option<SyncTo>) {
         let entry = self.vaults.entry(vault_id.to_owned()).or_default();
-        entry.sync_folder = folder.map(|p| p.to_string_lossy().into_owned());
-        if folder.is_none() {
+        entry.sync_folder = None;
+        let stopped = to.is_none();
+        if entry.sync_to != to {
+            entry.sync_published = 0;
+        }
+        entry.sync_to = to;
+        if stopped {
             entry.sync_seen = SeenRevisions::default();
             entry.sync_at = 0;
             entry.sync_published = 0;

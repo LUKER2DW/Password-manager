@@ -1,0 +1,217 @@
+//! Our own sync server (`vault-server`, SYNC.md §5.3). Every request is signed with this
+//! device's key; the server only ever holds sealed copies and public keys.
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use anyhow::{Context, Result, anyhow, bail};
+use ureq::http::{Method, Request, Response, StatusCode};
+use vault_core::sync::DeviceId;
+use vault_sync_wire::{self as wire, Changes, Copies, DeviceKey, EnrolledDevice, Invite, Refusal};
+
+use super::{Listed, Target, http};
+
+/// A vault on a sync server, as this device.
+#[derive(Debug)]
+pub struct ServerTarget {
+    base: String,
+    vault: String,
+    device: DeviceId,
+    key: DeviceKey,
+    agent: ureq::Agent,
+}
+
+impl ServerTarget {
+    pub fn new(address: &str, vault_id: &str, device: DeviceId, key: DeviceKey) -> Result<Self> {
+        if !wire::is_id(vault_id) {
+            bail!("not a vault id");
+        }
+        Ok(Self {
+            base: http::check_address(address)?,
+            vault: vault_id.to_owned(),
+            device,
+            key,
+            agent: http::agent(false),
+        })
+    }
+
+    /// Joins vault `vault_id` on the server at `address` with a one-time `invite`: makes this
+    /// device's key, enrolls it and returns the target (save [`ServerTarget::key_seed`] in
+    /// the credential store before using it).
+    pub fn join(
+        address: &str,
+        vault_id: &str,
+        device: DeviceId,
+        name: &str,
+        invite: &str,
+    ) -> Result<Self> {
+        let target = Self::new(address, vault_id, device, DeviceKey::generate())?;
+        let name: String = name
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(wire::MAX_NAME_CHARS)
+            .collect();
+        let name = if wire::is_device_name(&name) {
+            name
+        } else {
+            "Device".to_owned()
+        };
+        let invite = invite.trim().to_ascii_lowercase();
+        if !wire::is_id(&invite) {
+            bail!("that isn't an invite: it is 32 letters and digits");
+        }
+        let enroll = target
+            .key
+            .enroll(&invite, vault_id, &device.to_hex(), &name, unix_now());
+        let body = serde_json::to_vec(&enroll)?;
+        let request = Request::post(format!("{}/v1/enroll", target.base))
+            .header("content-type", "application/json")
+            .body(body)?;
+        let mut response = target.agent.run(request).map_err(unreachable)?;
+        check(&mut response)?;
+        Ok(target)
+    }
+
+    /// This device's secret key seed, for the credential store.
+    pub fn key_seed(&self) -> zeroize::Zeroizing<[u8; 32]> {
+        self.key.seed()
+    }
+
+    fn path(&self, rest: &str) -> String {
+        format!("/v1/vaults/{}{rest}", self.vault)
+    }
+
+    fn send(&self, method: Method, path: &str, body: Vec<u8>) -> Result<Response<ureq::Body>> {
+        let signed = self.key.sign_request(
+            &self.device.to_hex(),
+            method.as_str(),
+            path,
+            &body,
+            unix_now(),
+        );
+        let mut request = Request::builder()
+            .method(method)
+            .uri(format!("{}{path}", self.base));
+        for (name, value) in signed.headers() {
+            request = request.header(name, value);
+        }
+        let request = request.body(body)?;
+        self.agent.run(request).map_err(unreachable)
+    }
+
+    fn json<T: serde::de::DeserializeOwned>(&self, method: Method, path: &str) -> Result<T> {
+        let mut response = self.send(method, path, Vec::new())?;
+        check(&mut response)?;
+        let bytes = http::read_body(&mut response, 1024 * 1024)?;
+        serde_json::from_slice(&bytes).context("the server's answer can't be read")
+    }
+
+    /// The devices enrolled for this vault on the server.
+    pub fn enrolled(&self) -> Result<Vec<EnrolledDevice>> {
+        self.json(Method::GET, &self.path("/enrolled"))
+    }
+
+    /// A one-time invite for one more device (good for an hour).
+    pub fn invite(&self) -> Result<Invite> {
+        self.json(Method::POST, &self.path("/invites"))
+    }
+
+    /// The text (and QR code) another device joins with.
+    pub fn invite_link(&self, invite: &Invite) -> wire::InviteLink {
+        wire::InviteLink {
+            server: self.base.clone(),
+            vault: self.vault.clone(),
+            invite: invite.invite.clone(),
+        }
+    }
+}
+
+impl Target for ServerTarget {
+    fn list(&self) -> Result<Vec<Listed>> {
+        let copies: Copies = self.json(Method::GET, &self.path("/devices"))?;
+        let mut listed = Vec::new();
+        for copy in copies.copies {
+            if let Some(device) = DeviceId::from_hex(&copy.device) {
+                listed.push(Listed {
+                    device,
+                    tag: Some(copy.tag),
+                });
+            }
+        }
+        listed.sort_by_key(|l| l.device);
+        Ok(listed)
+    }
+
+    fn get(&self, device: DeviceId) -> Result<Vec<u8>> {
+        let path = self.path(&format!("/devices/{}", device.to_hex()));
+        let mut response = self.send(Method::GET, &path, Vec::new())?;
+        check(&mut response)?;
+        http::read_body(&mut response, wire::MAX_COPY_BYTES)
+    }
+
+    fn put(&self, own: DeviceId, bytes: &[u8]) -> Result<()> {
+        if bytes.len() > wire::MAX_COPY_BYTES {
+            bail!("this vault is too big to sync");
+        }
+        let path = self.path(&format!("/devices/{}", own.to_hex()));
+        let mut response = self.send(Method::PUT, &path, bytes.to_vec())?;
+        check(&mut response)
+    }
+
+    fn remove(&self, device: DeviceId) -> Result<()> {
+        let path = self.path(&format!("/devices/{}", device.to_hex()));
+        let mut response = self.send(Method::DELETE, &path, Vec::new())?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(());
+        }
+        check(&mut response)
+    }
+
+    fn wait(&self, after: u64, seconds: u64) -> Option<Result<u64>> {
+        let seconds = seconds.min(wire::MAX_WAIT_SECONDS);
+        let path = self.path(&format!("/changes?after={after}&wait={seconds}"));
+        Some(
+            self.json::<Changes>(Method::GET, &path)
+                .map(|changes| changes.seq),
+        )
+    }
+}
+
+fn unreachable(err: ureq::Error) -> anyhow::Error {
+    anyhow!(err).context("the sync server can't be reached")
+}
+
+/// Turns a refusal into an error that says what to do.
+fn check(response: &mut Response<ureq::Body>) -> Result<()> {
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let reason = http::read_body(response, 4096)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Refusal>(&b).ok())
+        .map(|r| r.error)
+        .unwrap_or_default();
+    Err(match (status.as_u16(), reason.as_str()) {
+        (401, "invite") => anyhow!("the invite is wrong, used or expired: make a new one"),
+        (401, "clock") => anyhow!("this device's clock is off by more than 5 minutes"),
+        (401, "unknown_device") => {
+            anyhow!("this device isn't allowed in on the server any more: join it again")
+        }
+        (401, _) => anyhow!("the server refused this device's signature"),
+        (403, _) => anyhow!("the server refused: a device writes only its own copy"),
+        (404, _) => anyhow!("not on the server"),
+        (413, _) => anyhow!("too big for the server"),
+        (429, _) => anyhow!("the server asks to slow down: try again in a minute"),
+        (507, "too_many_devices") => anyhow!("the server allows no more devices for this vault"),
+        (507, _) => anyhow!("too many invites are waiting: use one first"),
+        (300..=399, _) => anyhow!("the server sent us to another address (not followed)"),
+        _ => anyhow!("the sync server answered {status}"),
+    })
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}

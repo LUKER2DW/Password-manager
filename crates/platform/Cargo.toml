@@ -19,6 +19,11 @@ undocumented_unsafe_blocks = "warn"
 [dependencies]
 vault-core = { path = "../core" }
 anyhow = "1"
+# Sync over HTTPS (own server, WebDAV).
+vault-sync-wire = { path = "../sync-wire" }
+base64 = "0.22"
+quick-xml = "0.38"
+ureq = { version = "3.5", default-features = false, features = ["rustls"] }
 arboard = "3.7"
 dirs = "7"
 keyring = "4"

@@ -37,3 +37,62 @@ pub fn forget(vault_id: &str) -> Result<bool> {
         Err(error) => Err(anyhow!(error).context("deleting from the OS credential store")),
     }
 }
+
+fn text_entry(account: &str) -> Result<keyring::Entry> {
+    keyring::Entry::new(SERVICE, account).context("opening the OS credential store")
+}
+
+fn store_text(account: &str, text: &str) -> Result<()> {
+    text_entry(account)?
+        .set_password(text)
+        .context("saving in the OS credential store")
+}
+
+fn load_text(account: &str) -> Result<Option<Zeroizing<String>>> {
+    match text_entry(account)?.get_password() {
+        Ok(text) => Ok(Some(Zeroizing::new(text))),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(anyhow!(error).context("reading the OS credential store")),
+    }
+}
+
+fn forget_text(account: &str) -> Result<bool> {
+    match text_entry(account)?.delete_credential() {
+        Ok(()) => Ok(true),
+        Err(keyring::Error::NoEntry) => Ok(false),
+        Err(error) => Err(anyhow!(error).context("deleting from the OS credential store")),
+    }
+}
+
+/// The key device `device` (hex) signs its requests to a sync server with (its secret
+/// seed), per vault. Never in the vault file or in device state.
+pub fn store_sync_key(vault_id: &str, device: &str, seed: &[u8; 32]) -> Result<()> {
+    let text = Zeroizing::new(vault_sync_wire::hex(seed));
+    store_text(&format!("sync-key:{vault_id}:{device}"), &text)
+}
+
+pub fn load_sync_key(vault_id: &str, device: &str) -> Result<Option<Zeroizing<[u8; 32]>>> {
+    let Some(text) = load_text(&format!("sync-key:{vault_id}:{device}"))? else {
+        return Ok(None);
+    };
+    let seed = vault_sync_wire::unhex::<32>(&text)
+        .ok_or_else(|| anyhow!("the sync key in the OS credential store is damaged"))?;
+    Ok(Some(Zeroizing::new(seed)))
+}
+
+pub fn forget_sync_key(vault_id: &str, device: &str) -> Result<bool> {
+    forget_text(&format!("sync-key:{vault_id}:{device}"))
+}
+
+/// The WebDAV password for a vault's sync.
+pub fn store_webdav_password(vault_id: &str, password: &str) -> Result<()> {
+    store_text(&format!("webdav:{vault_id}"), password)
+}
+
+pub fn load_webdav_password(vault_id: &str) -> Result<Option<Zeroizing<String>>> {
+    load_text(&format!("webdav:{vault_id}"))
+}
+
+pub fn forget_webdav_password(vault_id: &str) -> Result<bool> {
+    forget_text(&format!("webdav:{vault_id}"))
+}
