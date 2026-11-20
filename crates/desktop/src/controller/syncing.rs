@@ -26,8 +26,8 @@ use super::{CURRENT, Controller, Runner, field, notice};
 
 /// After a save, how long to wait for more saves before one round.
 const AFTER_SAVE: Duration = Duration::from_secs(3);
-/// While the vault is open, a round this often (a folder's copies arrive by themselves; a
-/// server also says so at once).
+/// While the vault is open, a round this often, besides the ones a server's news or a change
+/// in the folder start at once.
 const EVERY: Duration = Duration::from_secs(5 * 60);
 /// How long one long-poll waits on the server.
 const WAIT_SECONDS: u64 = 50;
@@ -172,17 +172,35 @@ impl Controller {
         }
     }
 
-    /// With a server: a thread that waits for its news (a long-poll) and asks for a round as
-    /// soon as another device published. Not in the headless tests.
+    /// A thread that asks for a round as soon as another device published: with a server it
+    /// waits for the server's news (a long-poll), with a folder it watches the folder. Not in
+    /// the headless tests; WebDAV has only the regular rounds.
     fn start_watch(&self, place: &Place) {
-        if self.state.borrow().runner == Runner::Inline
-            || !matches!(place.place.to, SyncTo::Server { .. })
-        {
+        if self.state.borrow().runner == Runner::Inline {
             return;
         }
+        let ask_for_round = || {
+            let _ = slint::invoke_from_event_loop(|| {
+                if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
+                    controller.sync_round();
+                }
+            });
+        };
         let stop = Arc::new(AtomicBool::new(false));
-        self.state.borrow_mut().sync.watch = Some(stop.clone());
         let (vault_id, device, to) = (place.vault_id.clone(), place.device, place.place.to.clone());
+        match &to {
+            SyncTo::Server { .. } => {}
+            SyncTo::Folder { path } => {
+                self.state.borrow_mut().sync.watch = Some(stop.clone());
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    sync::watch_folder(&path, &vault_id, device, &stop, ask_for_round);
+                });
+                return;
+            }
+            SyncTo::Webdav { .. } => return,
+        }
+        self.state.borrow_mut().sync.watch = Some(stop.clone());
         std::thread::spawn(move || {
             let Ok(target) = sync::open_target(&vault_id, device, &to) else {
                 return;
@@ -194,11 +212,7 @@ impl Controller {
                     Some(Ok(seq)) => {
                         pause = Duration::from_secs(5);
                         if after != 0 && seq != after && !stop.load(Ordering::Relaxed) {
-                            let _ = slint::invoke_from_event_loop(|| {
-                                if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
-                                    controller.sync_round();
-                                }
-                            });
+                            ask_for_round();
                         }
                         after = seq;
                     }
