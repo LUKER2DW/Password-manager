@@ -102,7 +102,7 @@ thumb (bottom of the form, not the top bar), nothing that needs hover.
 | # | Milestone | Done when |
 |---|---|---|
 | M7.0 | **Base** — crate, screens, controller, off-screen screenshots, headless test | ✅ this document's first commit |
-| M7.1 | **Runs on a phone** — NDK and Gradle build, Slint Android backend, bundled fonts (§6.2), back button, the secret input view (§6.1) | An APK opens a test vault on a device |
+| M7.1 | **Runs on a phone** — NDK build (cargo-apk, §7.2), Slint Android backend, the app's own keyboard for secret fields (§6.1), bundled fonts (§6.2), back button | An APK opens a test vault on a device |
 | M7.2 | **Phone storage** — Keystore-backed Secret Key, app-private vault path, the system file picker and "open with" for `.vault` files (§6.3), `FLAG_SECURE`, sensitive clipboard | A vault made on Windows opens on the phone |
 | M7.3 | **Biometrics** — Class 3 prompt, key invalidated when biometrics change | Unlock with a fingerprint after one password unlock |
 | M7.4 | **Autofill** — `AutofillService` with app and origin matching, save prompt | A login fills into a browser and an app |
@@ -129,7 +129,9 @@ not a `TextInput`, so as it stands no keyboard opens for it at all.
 | B. **Our own input view** in the Kotlin shell (chosen) | One character at a time, never the whole secret | Yes | Small |
 | C. A keyboard drawn by the app | No | No | Large; accessibility and languages suffer |
 
-**Chosen: B, with C for the item PIN.**
+**Chosen: B, with C for the item PIN.** **Built first: C for every secret field** (M7.1,
+§7.2): it needs no Java shell and no keyboard app sees anything. B can still come with the
+shell, as a choice, for people who would rather use their own keyboard.
 
 - **The view.** The shell adds `SecretInputView`, a plain `View` whose
   `onCreateInputConnection` returns a connection that holds no text:
@@ -256,3 +258,40 @@ Key and the clipboard live in the page's memory (the page's Copy button puts the
 password there, so Ctrl+V works in the app), and device state only remembers revisions. The
 vault code is the same: the core uses the browser's clock (`web-time`) and its random numbers
 (`crypto.getRandomValues`), and Argon2 runs on one thread.
+
+### 7.2 On Android
+
+`crates/mobile-android` is the APK's native library: `android_main` points the app folder
+at the app's private storage, starts Slint's Android backend (`NativeActivity`, no Java or
+Kotlin yet) and opens the same screens and controller. `cargo-apk` packages it.
+
+```powershell
+# Once: the NDK and platform 35 (sdkmanager), Rust's Android targets, cargo-apk.
+sdkmanager "ndk;28.2.13676358" "platforms;android-35"
+rustup target add aarch64-linux-android x86_64-linux-android
+cargo install cargo-apk --locked
+
+./crates/mobile-android/build.ps1          # target/release/apk/vault-mobile-android.apk
+adb install -r target/release/apk/vault-mobile-android.apk
+```
+
+The APK is signed with the Android debug key: for trying it, never for publishing it.
+
+What is in this first build (M7.1):
+- **The app's own keyboard for secret fields** (§6.1, option C now rather than later): the
+  master password, the Secret Key, item PINs and passwords are typed on keys the app draws,
+  straight into the secure buffers. No keyboard app sees them. Ordinary fields (search,
+  names, the invite line) use the system keyboard.
+- **Setting up from the server:** the start screen takes the `vaultsync:` line from a
+  computer's Add a device, joins the server, fetches a copy and opens it with the master
+  password and Secret Key. The system file picker comes with the shell (M7.2), so "Choose
+  the vault file" is hidden on Android for now.
+- **The credential store** is SharedPreferences encrypted with a key in the Android Keystore
+  (`android-native-keyring-store`); **the clipboard** is the system's `ClipboardManager`
+  over JNI, with copied secrets marked sensitive.
+- `INTERNET` is the only permission. Android lets plain http through only so a Tailscale
+  address works; the app itself refuses `http://` to anything else.
+
+Not yet: the Kotlin shell (file picker, `FLAG_SECURE`, back button, biometrics, autofill),
+the bundled fonts (Roboto stands in), and checking it on a device: built here, not run on a
+phone yet.

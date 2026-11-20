@@ -305,8 +305,10 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   keys and is no older than what the phone saw; "Bring a newer copy" in Settings
 - ✅ The phone app in a browser (`crates/mobile-web`, WebAssembly): the real screens and
   controller on a canvas with a demo vault, to try it on a computer (MOBILE.md §7.1)
-- ⬜ M7.1 Runs on a phone (NDK build, Slint Android backend, Barlow and Cascadia Mono
-  bundled, a secret input view that keeps no text, a drawn PIN pad): MOBILE.md §6.1–6.2
+- 🚧 M7.1 Runs on a phone: ✅ an APK (`crates/mobile-android`, `cargo-apk`, NDK 28, Slint's
+  Android backend) with the app's own keyboard for secret fields, setup from the sync
+  server on the start screen, the Keystore-backed credential store and the system
+  clipboard over JNI (MOBILE.md §7.2); ⬜ tried on a device, bundled fonts, back button
 - ⬜ M7.2 Phone storage (Keystore Secret Key, the system file picker and "open with",
   `FLAG_SECURE`, sensitive clipboard): MOBILE.md §6.3
 - ⬜ M7.3 BiometricPrompt Class 3 quick unlock (StrongBox)

@@ -34,6 +34,7 @@ crates/
   desktop/              vault-desktop: the Slint desktop app
   mobile/               vault-mobile: the phone app's screens and controller (Android first)
   mobile-web/           vault-mobile-web: the phone app in a browser page (WebAssembly), demo vault
+  mobile-android/       vault-mobile-android: the phone app's Android entry point (APK via cargo-apk)
   sync-wire/            vault-sync-wire: what devices and the sync server say (signed requests)
   server/               vault-server: the self-hosted sync server (AGPL-3.0), Docker files
 extension/              the Chrome/Edge extension (Manifest V3, plain JavaScript)
