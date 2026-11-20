@@ -11,8 +11,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-# `parallel`: Argon2 lanes run on separate threads (faster unlock at the same attacker cost).
-argon2 = { version = "0.6", features = ["zeroize", "parallel"] }
+argon2 = { version = "0.6", features = ["zeroize"] }
 # `zeroize` features: wipe internal key state of the cipher and of HMAC (used by HKDF) on drop.
 chacha20poly1305 = { version = "0.11", features = ["zeroize"] }
 # The browser drop box (spec/CRYPTO.md §3.5): libsodium's sealed box (X25519, XSalsa20-Poly1305).
@@ -31,6 +30,17 @@ thiserror = "2.0"
 unicode-normalization = "0.1"
 zeroize = { version = "1.9", features = ["derive"] }
 zxcvbn = "3.1.1"
+# Clocks that also work in a browser (WebAssembly); on other targets these are std's own.
+web-time = "1.1"
+
+# `parallel`: Argon2 lanes run on separate threads (faster unlock at the same attacker cost).
+# Not in a browser build, which has no threads.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+argon2 = { version = "0.6", features = ["parallel"] }
+
+# A browser build takes its randomness from the browser (crypto.getRandomValues).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
 
 [dev-dependencies]
 proptest = "1.12"

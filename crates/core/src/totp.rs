@@ -1,9 +1,9 @@
 //! Time-based one-time passwords (RFC 6238) for items that store a TOTP secret.
 
-use std::{
-    fmt,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::fmt;
+
+// The std clock on a computer or phone; the browser's in a web build (std's panics there).
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use hmac::{Hmac, KeyInit, Mac};
 use zeroize::Zeroizing;

@@ -1,9 +1,9 @@
 //! Vault item model (spec: VAULT_FORMAT.md §4).
 
-use std::{
-    fmt,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::fmt;
+
+// The std clock on a computer or phone; the browser's in a web build (std's panics there).
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};

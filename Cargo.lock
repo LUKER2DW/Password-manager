@@ -2326,8 +2326,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "wasi",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -6846,6 +6848,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "unicode-normalization",
+ "web-time",
  "zeroize",
  "zxcvbn",
 ]
@@ -6915,6 +6918,7 @@ dependencies = [
 name = "vault-mobile"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "i-slint-backend-testing",
  "image",
  "rfd",
@@ -6924,7 +6928,19 @@ dependencies = [
  "tempfile",
  "vault-core",
  "vault-platform",
+ "web-time",
  "zeroize",
+]
+
+[[package]]
+name = "vault-mobile-web"
+version = "0.0.0"
+dependencies = [
+ "getrandom 0.2.17",
+ "slint",
+ "vault-core",
+ "vault-mobile",
+ "wasm-bindgen",
 ]
 
 [[package]]

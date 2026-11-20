@@ -1,6 +1,9 @@
 //! Password hashing with Argon2id (spec: CRYPTO.md §2.1 and §4).
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+// The std clock on a computer or phone; the browser's in a web build (std's panics there).
+use web_time::Instant;
 
 use argon2::{Algorithm, Argon2, Params, Version};
 use serde::{Deserialize, Serialize};
