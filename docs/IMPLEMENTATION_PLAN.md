@@ -293,6 +293,8 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
 - ✅ The phone opens a vault made on the computer and never makes one: a chosen file
   (`Controller::bring_vault`) replaces the phone's copy only after it opens with the person's
   keys and is no older than what the phone saw; "Bring a newer copy" in Settings
+- ✅ The phone app in a browser (`crates/mobile-web`, WebAssembly): the real screens and
+  controller on a canvas with a demo vault, to try it on a computer (MOBILE.md §7.1)
 - ⬜ M7.1 Runs on a phone (NDK build, Slint Android backend, Barlow and Cascadia Mono
   bundled, a secret input view that keeps no text, a drawn PIN pad): MOBILE.md §6.1–6.2
 - ⬜ M7.2 Phone storage (Keystore Secret Key, the system file picker and "open with",

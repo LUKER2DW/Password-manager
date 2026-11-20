@@ -236,3 +236,23 @@ cargo run -p vault-mobile --example phone_screens -- target/phone-screens
 
 cargo test -p vault-mobile
 ```
+
+### 7.1 In a browser
+
+`crates/mobile-web` compiles the same app to WebAssembly and draws it on a canvas in a web
+page, with a demo vault made in the page (fake data, master password shown beside the phone).
+It is for trying the app with a mouse and keyboard; nothing leaves the page and nothing is
+kept.
+
+```powershell
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.130 --locked
+./crates/mobile-web/build.ps1
+python -m http.server 8080 --bind 127.0.0.1 --directory target/mobile-web   # then open http://127.0.0.1:8080
+```
+
+What a browser can't give, `src/platform/web.rs` stands in for: files, the remembered Secret
+Key and the clipboard live in the page's memory (the page's Copy button puts the demo
+password there, so Ctrl+V works in the app), and device state only remembers revisions. The
+vault code is the same: the core uses the browser's clock (`web-time`) and its random numbers
+(`crypto.getRandomValues`), and Argon2 runs on one thread.

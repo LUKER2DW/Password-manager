@@ -33,6 +33,7 @@ crates/
   browser/              vault-browser: what the extension may ask and get, and its native host
   desktop/              vault-desktop: the Slint desktop app
   mobile/               vault-mobile: the phone app's screens and controller (Android first)
+  mobile-web/           vault-mobile-web: the phone app in a browser page (WebAssembly), demo vault
   sync-wire/            vault-sync-wire: what devices and the sync server say (signed requests)
   server/               vault-server: the self-hosted sync server (AGPL-3.0), Docker files
 extension/              the Chrome/Edge extension (Manifest V3, plain JavaScript)
@@ -168,7 +169,9 @@ phone's layout and imports the desktop's `theme.slint`, `widgets.slint` and `ico
 vault with the same rules as the desktop (secure fields, item lock, `changed_outside`-style
 save check, clipboard cleared). `src/tests.rs` runs it headless;
 `examples/phone_screens.rs` renders every screen to PNG. A change to a shared widget must
-look right in both apps' screenshots.
+look right in both apps' screenshots. The controller reaches the system only through
+`src/platform.rs` (the platform crate, or `src/platform/web.rs` in a browser), so the same
+code also runs as the web preview in `crates/mobile-web` (build: `crates/mobile-web/build.ps1`).
 
 ### 2.7 `crates/sync-wire` and `crates/server`
 
