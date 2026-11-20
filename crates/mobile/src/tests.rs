@@ -1,5 +1,6 @@
 //! The phone app end to end, headless: a vault made on the computer is brought in, then
-//! items, the item page, codes, generator, lock, unlock and a newer copy. Slow work runs
+//! items, the item page, codes, generator, lock, unlock, a newer copy, and sync through a
+//! running server. Slow work runs
 //! inline; test values only.
 
 use std::path::Path;
@@ -7,12 +8,64 @@ use std::path::Path;
 use slint::{ComponentHandle, Model};
 use vault_core::{GuardCheck, ItemData, ItemKind, KdfParams, SecretKey, Unlock, Vault};
 
+use vault_platform::sync::{self, ServerTarget, Target as _};
+
 use crate::{
     Controller,
     ui::{Page, PhoneWindow, Place, Screen, Secrets},
 };
 
 const PASSWORD: &str = "phone test master passphrase";
+
+/// A vault-server on a free local port, for as long as it lives.
+struct TestServer {
+    url: String,
+    data: tempfile::TempDir,
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl TestServer {
+    fn start() -> Self {
+        let data = tempfile::tempdir().unwrap();
+        let root = data.path().to_owned();
+        let (ready, address) = std::sync::mpsc::channel();
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let thread = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                ready.send(listener.local_addr().unwrap()).unwrap();
+                vault_server::serve(&root, listener, async {
+                    let _ = stopped.await;
+                })
+                .await
+                .unwrap();
+            });
+        });
+        let address: std::net::SocketAddr = address.recv().unwrap();
+        Self {
+            url: format!("http://{address}"),
+            data,
+            stop: Some(stop),
+            thread: Some(thread),
+        }
+    }
+}
+
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
 
 fn type_secret(app: &PhoneWindow, field: i32, text: &str) {
     app.global::<Secrets>().invoke_clear(field);
@@ -368,6 +421,80 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         "the new copy is the one this phone saves to"
     );
     app.invoke_close_item();
+
+    // ---- sync through a server: the computer invites the phone ----
+    let server = TestServer::start();
+    let pc_id = vault_core::sync::DeviceId::generate().unwrap();
+    let pc_server = ServerTarget::join(
+        &server.url,
+        &vault_id,
+        pc_id,
+        "PC",
+        &vault_server::admin_invite(server.data.path(), 1).unwrap().0,
+    )
+    .unwrap();
+    let mut pc = open_file(&path, &secret_key);
+    let mut pc_seen = vault_core::sync::SeenRevisions::new();
+    sync::join(&mut pc, pc_id, "PC").unwrap();
+    pc.add_item(&ItemData::new(ItemKind::SecureNote, "From the computer"))
+        .unwrap();
+    pc_server.put(pc_id, &pc.to_bytes().unwrap()).unwrap();
+    let link = pc_server
+        .invite_link(&pc_server.invite().unwrap())
+        .to_text()
+        .to_string();
+
+    assert_eq!(app.get_sync_state(), 0, "off until joined");
+    assert_eq!(app.get_sync_place(), "");
+    app.set_sync_invite_typed("not an invite".into());
+    app.invoke_sync_join();
+    assert_eq!(app.get_sync_state(), 3);
+    assert!(app.get_sync_detail().contains("vaultsync"));
+    app.set_sync_invite_typed(link.as_str().into());
+    app.invoke_sync_join();
+    assert_eq!(
+        (app.get_sync_state(), app.get_sync_detail().as_str()),
+        (1, ""),
+        "joined and synced"
+    );
+    assert_eq!(app.get_sync_place(), server.url.as_str());
+    assert_eq!(app.get_total(), 3, "the computer's note came in");
+    assert_eq!(app.get_notice_code(), 9);
+    assert_eq!(
+        app.get_sync_invite_typed(),
+        "",
+        "the invite line is cleared"
+    );
+
+    // An item made on the phone reaches the computer.
+    app.invoke_new_item();
+    app.set_ed_title("From the phone".into());
+    app.set_ed_username("phone-user".into());
+    type_secret(&app, 3, "phone-test-password");
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    app.invoke_close_item();
+    controller.sync_round();
+    assert_eq!(app.get_sync_state(), 1, "{}", app.get_sync_detail());
+    let fetched = sync::fetch(&pc_server, pc_id, &sync::Tags::new()).unwrap();
+    let round = sync::merge_all(&mut pc, &fetched, &mut pc_seen);
+    assert!(round.changed());
+    let titles: Vec<String> = pc
+        .summaries()
+        .unwrap()
+        .iter()
+        .map(|s| s.title.clone())
+        .collect();
+    assert!(titles.iter().any(|t| t == "From the phone"), "{titles:?}");
+
+    // Stop: the phone forgets its server key; the copies stay on the server.
+    app.invoke_sync_stop();
+    assert_eq!(
+        (app.get_sync_state(), app.get_sync_place().as_str()),
+        (0, "")
+    );
+    assert_eq!(pc_server.list().unwrap().len(), 2);
+    drop(server);
 
     // ---- another phone: the Secret Key is typed once ----
     app.invoke_lock_now();

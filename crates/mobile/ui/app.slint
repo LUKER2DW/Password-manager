@@ -61,6 +61,7 @@ export global Words {
         if (code == 6) { return @tr("Website copied."); }
         if (code == 7) { return @tr("Copied. The clipboard is cleared in {} seconds.", arg); }
         if (code == 8) { return @tr("This phone's record of the vault's newest version couldn't be read, so it started again. The old file was kept."); }
+        if (code == 9) { return @tr("Synced: {} changes came from your other devices.", arg); }
         return "";
     }
 }
@@ -376,6 +377,19 @@ export component PhoneWindow inherits Window {
     in property <string> app-version;
     callback theme-changed(bool);
     callback lock-choice-changed(int);
+    // Sync: whether this build can (not in the browser preview), the server ("" = off), what
+    // happened last (0 off, 1 synced, 2 syncing, 3 failed), minutes since the last round, why
+    // it failed, the invite line pasted from the computer.
+    in property <bool> sync-available;
+    in property <string> sync-place;
+    in property <int> sync-state;
+    in property <int> sync-minutes: -1;
+    in property <string> sync-detail;
+    in property <bool> sync-busy;
+    in-out property <string> sync-invite-typed;
+    callback sync-join();
+    callback sync-now();
+    callback sync-stop();
     callback lock-now();
 
     property <length> gutter: 20px;
@@ -897,12 +911,76 @@ export component PhoneWindow inherits Window {
                                 icon: "folder";
                                 value: root.vault-path;
                             }
+                            if root.sync-available: VerticalLayout {
+                                padding-top: 12px;
+                                padding-bottom: 6px;
+                                spacing: 8px;
+                                Text { text: @tr("Sync"); font-size: Theme.small; color: Theme.graphite; }
+                                if root.sync-place == "": VerticalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: @tr("Keep this phone and your computers the same through your vault server. On the computer: Settings, Sync, Add a device. Then paste the line it shows here.");
+                                        font-size: Theme.small;
+                                        color: Theme.ink;
+                                        wrap: word-wrap;
+                                    }
+                                    LineField {
+                                        placeholder: "vaultsync:1?server=…";
+                                        mono: true;
+                                        text <=> root.sync-invite-typed;
+                                        accepted => { root.sync-join(); }
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        QuietButton {
+                                            text: root.sync-busy ? @tr("Joining…") : @tr("Join");
+                                            outlined: true;
+                                            enabled: !root.sync-busy;
+                                            clicked => { root.sync-join(); }
+                                        }
+                                    }
+                                }
+                                if root.sync-place != "": VerticalLayout {
+                                    spacing: 8px;
+                                    Fact {
+                                        label: @tr("Server");
+                                        icon: "globe";
+                                        value: root.sync-place;
+                                    }
+                                    Fact {
+                                        label: @tr("Last synced");
+                                        icon: "clock";
+                                        value: root.sync-state == 2 ? @tr("Syncing…")
+                                            : root.sync-state == 3 ? @tr("Failed")
+                                            : root.sync-minutes < 0 ? @tr("Not yet")
+                                            : root.sync-minutes == 0 ? @tr("Just now")
+                                            : @tr("{n} minute ago" | "{n} minutes ago" % root.sync-minutes);
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 10px;
+                                        QuietButton {
+                                            text: @tr("Sync now");
+                                            outlined: true;
+                                            enabled: root.sync-state != 2;
+                                            clicked => { root.sync-now(); }
+                                        }
+                                        QuietButton {
+                                            text: @tr("Stop syncing");
+                                            clicked => { root.sync-stop(); }
+                                        }
+                                    }
+                                }
+                                if root.sync-state == 3 && root.sync-detail != "": ErrorLine {
+                                    text: root.sync-detail;
+                                }
+                            }
                             VerticalLayout {
                                 padding-top: 12px;
                                 padding-bottom: 6px;
                                 spacing: 8px;
                                 Text {
-                                    text: @tr("Changed the vault on the computer? Bring its newest file here. Until sync exists, what you change on the phone stays in the phone's copy.");
+                                    text: root.sync-place == "" ? @tr("Changed the vault on the computer? Bring its newest file here, or join your vault server above.") : @tr("A copy from elsewhere (a backup, another computer) can still be brought in by hand.");
                                     font-size: Theme.small;
                                     color: Theme.graphite;
                                     wrap: word-wrap;
@@ -928,7 +1006,7 @@ export component PhoneWindow inherits Window {
                             }
                             Rectangle { height: 10px; }
                             Text {
-                                text: @tr("Still to come on the phone: fingerprint unlock, filling into other apps, and sync with your computer.");
+                                text: @tr("Still to come on the phone: fingerprint unlock, filling into other apps, and scanning the invite's QR code.");
                                 font-size: Theme.small;
                                 color: Theme.graphite;
                                 wrap: word-wrap;

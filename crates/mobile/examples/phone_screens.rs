@@ -274,7 +274,21 @@ fn main() {
     camera.shot("generator-words", "The generator: words");
     app.set_gen_mode(0);
     app.set_place(Place::Settings);
-    camera.shot("settings", "Settings");
+    camera.shot("settings", "Settings: sync off, an invite line to paste");
+    // Joined (demo values only: no server is reached here).
+    app.set_sync_place("https://vault.example-net.ts.net".into());
+    app.set_sync_minutes(2);
+    app.set_sync_state(1);
+    camera.shot("settings-synced", "Settings: syncing through the server");
+    app.set_sync_state(3);
+    app.set_sync_detail("the sync server can't be reached".into());
+    camera.shot(
+        "settings-sync-failed",
+        "Settings: the server can't be reached",
+    );
+    app.set_sync_place("".into());
+    app.set_sync_state(0);
+    app.set_sync_detail("".into());
 
     app.global::<Theme>().set_dark(false);
     app.set_place(Place::Items);

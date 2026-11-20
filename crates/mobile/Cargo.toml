@@ -43,6 +43,8 @@ zeroize = "1.9"
 # takes its place (src/platform/web.rs).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 vault-platform = { path = "../platform" }
+# Sync: the invite line a computer shows.
+vault-sync-wire = { path = "../sync-wire" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 anyhow = "1"
@@ -58,3 +60,6 @@ slint-build = "1.18"
 i-slint-backend-testing = "1.18"
 image = { version = "0.25", default-features = false, features = ["png"] }
 tempfile = "3.27"
+# Phone sync against a real server on a local port.
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync"] }
+vault-server = { path = "../server" }

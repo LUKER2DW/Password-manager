@@ -6926,8 +6926,11 @@ dependencies = [
  "slint",
  "slint-build",
  "tempfile",
+ "tokio",
  "vault-core",
  "vault-platform",
+ "vault-server",
+ "vault-sync-wire",
  "web-time",
  "zeroize",
 ]

@@ -62,6 +62,8 @@ mod error {
     pub const NO_CHARACTERS: i32 = 11;
 }
 
+mod syncing;
+
 /// Notice codes (texts live in app.slint → Words.notice).
 mod notice {
     pub const PASSWORD_COPIED: i32 = 1;
@@ -72,6 +74,8 @@ mod notice {
     pub const WEBSITE_COPIED: i32 = 6;
     pub const COPIED: i32 = 7;
     pub const STATE_RESET: i32 = 8;
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const SYNCED: i32 = 9;
 }
 
 /// A copied secret leaves the clipboard after this long.
@@ -170,6 +174,8 @@ struct State {
     notice_until: Option<Instant>,
     last_touch: Instant,
     lock_after: Duration,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    sync: syncing::SyncStatus,
 }
 
 thread_local! {
@@ -181,6 +187,11 @@ pub struct Controller {
     app: slint::Weak<PhoneWindow>,
     state: RefCell<State>,
     tick: Timer,
+    /// Sync: a round a moment after a save, and one every few minutes (not in a browser).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    sync_soon: Timer,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    sync_every: Timer,
 }
 
 impl std::fmt::Debug for Controller {
@@ -225,9 +236,12 @@ impl Controller {
                 copied: None,
                 notice_until: None,
                 last_touch: Instant::now(),
+                sync: syncing::SyncStatus::default(),
                 lock_after: LOCK_CHOICES[1],
             }),
             tick: Timer::default(),
+            sync_soon: Timer::default(),
+            sync_every: Timer::default(),
         });
         CURRENT.with(|current| *current.borrow_mut() = Rc::downgrade(&controller));
         app.global::<Theme>().set_touch(true);
@@ -270,6 +284,9 @@ impl Controller {
             c.show_entry();
         });
         on!(on_unlock, |c| c.unlock());
+        on!(on_sync_join, |c| c.sync_join());
+        on!(on_sync_now, |c| c.sync_round());
+        on!(on_sync_stop, |c| c.sync_stop());
         on!(on_search_changed, |c, _text| c.refresh_list());
         on!(on_filter_changed, |c, _index| c.refresh_list());
         on!(on_open_item, |c, index| c.open_item(index));
@@ -623,10 +640,33 @@ impl Controller {
         app.set_page(Page::None);
         app.set_screen(Screen::Vault);
         self.refresh_list();
+        self.start_sync();
+    }
+
+    /// Items came from another device: the list, and the open item if it is still there.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    fn after_sync_changes(&self) {
+        self.refresh_list();
+        if self.app().get_page() != Page::Item {
+            return;
+        }
+        let still_there = {
+            let state = self.state.borrow();
+            match (state.vault.as_ref(), state.selected.as_ref()) {
+                (Some(vault), Some(id)) => vault.get_item(id).is_ok(),
+                _ => false,
+            }
+        };
+        if still_there {
+            self.show_item();
+        } else {
+            self.close_item();
+        }
     }
 
     /// Locks: the vault and everything read from it leave memory and the screen.
     pub fn lock(&self) {
+        self.stop_sync();
         {
             let mut state = self.state.borrow_mut();
             state.vault = None;
@@ -656,6 +696,15 @@ impl Controller {
     /// Writes the vault file. Refused when something else changed the file since this app
     /// read or wrote it: the person's other device (or a sync tool) wins, nothing is lost.
     fn save(&self) -> bool {
+        let saved = self.save_quietly();
+        if saved {
+            self.sync_after_save();
+        }
+        saved
+    }
+
+    /// [`Controller::save`] without asking for a sync round (a round's own save).
+    fn save_quietly(&self) -> bool {
         let outcome = (|| -> Result<(), String> {
             let mut state = self.state.borrow_mut();
             let state = &mut *state;
