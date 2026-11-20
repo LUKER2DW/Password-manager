@@ -1,8 +1,12 @@
 # Sync — design
 
-> Status: **M6.1 built** (format v7 and `Vault::merge` in `vault-core`, tested in
-> `crates/core/tests/sync.rs`); the targets (§5) are not. Byte layouts are in
-> [VAULT_FORMAT.md](VAULT_FORMAT.md) §3. This replaces the earlier sketch in ARCHITECTURE.md §6.
+> Status: **M6.1–M6.3 built**: format v7 and `Vault::merge` in `vault-core`
+> (`crates/core/tests/sync.rs`); the folder, server and WebDAV targets in `vault-platform`
+> (`sync.rs`, `sync/`); `vault-server` (`crates/server`, tested end to end in
+> `crates/server/tests/sync.rs` and `crates/cli/tests/cli.rs`); the request protocol in
+> `crates/sync-wire`. Setting the server up: [../SERVER.md](../SERVER.md). The phone (M6.4)
+> is not built yet. Byte layouts are in [VAULT_FORMAT.md](VAULT_FORMAT.md) §3. This replaces
+> the earlier sketch in ARCHITECTURE.md §6.
 
 ## 1. What sync has to do
 
@@ -197,25 +201,29 @@ successful sync, so an "it's been days" is visible.
 Each target implements:
 
 ```rust
-trait Target {
-    fn list(&self) -> Result<Vec<(DeviceId, Tag)>>;       // which device files exist, with an ETag/mtime
+trait Target: Send + Sync {
+    fn list(&self) -> Result<Vec<Listed>>;                // each copy, with a tag that changes with it
     fn get(&self, device: DeviceId) -> Result<Vec<u8>>;
-    fn put(&self, own: DeviceId, bytes: &[u8], expected: Option<Tag>) -> Result<Tag>;
-    fn remove(&self, device: DeviceId) -> Result<()>;     // a removed device's file
+    fn put(&self, own: DeviceId, bytes: &[u8]) -> Result<()>;  // whole, never half-visible
+    fn remove(&self, device: DeviceId) -> Result<()>;     // a removed device's copy
+    fn wait(&self, after: u64, seconds: u64) -> Option<Result<u64>>;  // long-poll, server only
 }
 ```
 
-A sync round: `list` → `get` the files whose tag changed → `merge` each one → `save` locally
-(the usual atomic write and `changed_outside` check) → `put` our own file if our revision
-moved. Rounds run at unlock, after each save (debounced a few seconds), every few minutes while
+A sync round: `list` → `get` the copies whose tag changed since the last merge in this
+session (`fetch` with the known tags; the first round after an unlock reads them all) →
+`merge` each one → `save` locally (the usual atomic write and `changed_outside` check) →
+`put` our own copy if our revision moved. Rounds run at unlock, after each save (debounced a few seconds), every few minutes while
 unlocked, and on demand. With the vault locked nothing is merged: merging needs the vault key.
 
 - **Folder**: a directory the person picks. `put` writes `.tmp` and renames it. The app
   watches the directory for changes. Desktop only (Android: only with Syncthing's real folder,
   through the system file picker's directory access).
-- **WebDAV**: `PROPFIND` (depth 1) for `list`, `GET`, `PUT` with `If-Match`, `DELETE`. Basic
-  auth over HTTPS only. The password is stored in the OS credential store, never in the vault
-  file.
+- **WebDAV** (`sync/webdav.rs`): `PROPFIND` (depth 1) for `list` (ETags as tags), `GET`,
+  `PUT` to a temporary name then `MOVE` over the copy (a plain `PUT` where `MOVE` isn't
+  supported), `MKCOL` for the folders, `DELETE`. Basic auth over HTTPS only. The password is
+  stored in the OS credential store, never in the vault file or in device state; Settings
+  checks it answers before keeping it.
 - **Own server** (`crates/server`, `vault-server`, AGPL-3.0, axum, one SQLite file or plain
   files on disk, Docker image + Compose):
   - the same four calls over HTTPS (`GET /v1/vaults/{id}/devices`, `GET|PUT|DELETE
@@ -237,6 +245,49 @@ unlocked, and on demand. With the vault locked nothing is merged: merging needs 
   device id); the phone scans it, both run a Noise `NNpsk0` handshake keyed by the QR, then a
   sync round with the PC acting as the target. Needs the phone's `INTERNET` permission and a
   Windows firewall prompt the first time.
+
+### 5.3 The server protocol (`vault-sync-wire`, `vault-server`)
+
+Every route but `GET /v1/health` and `POST /v1/enroll` takes a signed request:
+
+```text
+x-vault-device: <device id, 32 hex>
+x-vault-time: <Unix seconds>
+x-vault-nonce: <128 random bits, 32 hex>
+x-vault-signature: Ed25519 over
+    "vault-sync-v1/request\n" METHOD "\n" PATH?QUERY "\n" DEVICE "\n" TIME "\n" NONCE "\n" hex(SHA-256(body))
+```
+
+The server refuses a request when the device isn't enrolled for that vault, the signature
+doesn't verify (strict verification, no weak keys), the time is more than 5 minutes off, or
+the nonce was already seen (nonces are kept for longer than the allowed skew, and only after
+the signature verified, so strangers can't fill the cache).
+
+| Route | What |
+|---|---|
+| `POST /v1/enroll` | `{invite, vault, device, key, name, time, signature}`: the new device signs `"vault-sync-v1/enroll\n" vault device key name time hex(digest(invite))` with the key it enrolls, proving it holds it. The invite is used up. |
+| `GET /v1/vaults/{v}/devices` | `{copies: [{device, tag, size}], seq}` |
+| `GET /v1/vaults/{v}/devices/{d}` | the copy (`ETag`, `If-None-Match` → 304) |
+| `PUT /v1/vaults/{v}/devices/{d}` | only `d` = the signer; optional `If-Match` |
+| `DELETE /v1/vaults/{v}/devices/{d}` | takes device `d` out: its key and its copy |
+| `GET /v1/vaults/{v}/enrolled` | the devices allowed in, with when each was last heard from |
+| `POST /v1/vaults/{v}/invites` | a one-time invite for one more device, good for an hour |
+| `GET /v1/vaults/{v}/changes?after=N&wait=S` | answers as soon as the change counter isn't `N`, or after `S` ≤ 60 seconds |
+
+Invites are 128 random bits; the server stores only `SHA-256("vault-sync-v1/invite\n" ‖
+invite)` and compares in constant time. An admin invite (`vault-server invite`) works for
+any vault: it is how the first device of a vault, or one that lost its key, gets in. The
+text another device joins with is `vaultsync:1?server=<url>&vault=<id>&invite=<invite>`
+(also shown as a QR code); nothing in it opens the vault.
+
+The change counter starts at the server's start time in milliseconds and only grows, so a
+restart never makes it go back and devices keep nothing about the server between sessions.
+
+The device's Ed25519 key is made on the device and kept in the OS credential store (per vault
+and device); the server only gets the public half. Limits (per device, per failing address,
+sizes, devices, invites) are listed in [../SERVER.md](../SERVER.md). The client refuses
+redirects, `http://` except to this computer or a Tailscale address, and answers bigger than
+a copy can be.
 
 ## 6. Format v7
 
@@ -309,7 +360,42 @@ open one.
 2. ✅ **M6.2 Folder target** in the desktop app and CLI (`vault sync <dir>`), Settings → Sync.
    Not yet: removing a device from the app, and watching the folder (the app looks every 5
    minutes, a few seconds after each save, and at unlock).
-3. **M6.3 `vault-server`** (axum, Docker, signed requests, long-poll) and its client in
-   `vault-platform`; WebDAV client.
+3. ✅ **M6.3 `vault-server`** (axum, Docker, signed requests, long-poll) and its client in
+   `vault-platform`; WebDAV client. Settings → Sync: Use a server… (join with an invite or a
+   `vaultsync:` line), Use WebDAV…, Add a device (QR code), Remove a device; the CLI's
+   `vault sync --server/--invite/--join/--webdav/--add-device/--devices/--remove`. The desktop
+   waits on the server's long-poll while the vault is open, so a change on another device
+   arrives within seconds.
 4. **M6.4 Phone**: M7.6 on top of M6.3, enrollment by QR.
 5. **M6.5 Nearby** sync over the LAN.
+6. **M6.6 Cloud drive APIs** for the phone (§11): Google Drive and OneDrive app folders,
+   Dropbox app folder.
+
+## 11. OneDrive, Google Drive and Dropbox on the phone
+
+On a computer these already work: their desktop programs keep a real folder in step, and
+the folder target uses it (§5). On Android they don't: the Drive and OneDrive apps open files
+on demand and offer no folder that stays in step, so the phone has to talk to the drive's own
+web API. That is viable, with these choices:
+
+| | Google Drive | OneDrive (personal) | Dropbox |
+|---|---|---|---|
+| Where the copies go | the app's hidden `appDataFolder` | the app folder (`/drive/special/approot`, "Apps/<app>") | the app folder ("Apps/<app>") |
+| Permission asked | `drive.appdata` only: the app sees nothing else of the drive | `Files.ReadWrite.AppFolder` only | "App folder" access type |
+| Review by the provider | non-sensitive scope: basic app verification, no security assessment | app registration in Microsoft Entra | production approval once past the development-mode user cap |
+| Sign-in | OAuth with PKCE (no client secret on the device); on the PC the loopback redirect, on Android the system browser or Google's sign-in | OAuth with PKCE | OAuth with PKCE |
+| Seeing changes | `changes.list` with a page token (one cheap call) | `delta` | `list_folder/longpoll` (a real long-poll) |
+| Limits | per-minute quotas per user and project, far above this use (see the Cloud console) | throttled with `429` + `Retry-After` | per app and user, `429` + `Retry-After` |
+
+Each would be one more `Target` in `vault-platform` (list, get, put, remove, and `wait` for
+Dropbox), with the refresh token in the credential store (Android Keystore on the phone),
+never in the vault. The drive holds exactly what a folder holds: sealed copies, one per
+device. A sync round is one listing call plus one download per changed copy and one upload,
+so the limits are far away (a busy day is tens of calls); every `429` is retried after the
+`Retry-After` the provider asks for.
+
+What it needs that code can't do: an OAuth app registered with each provider (a Google Cloud
+project, a Microsoft Entra app, a Dropbox app), whose client ids ship with the app, and the
+providers' review before the app is offered to many people. A self-built copy can use the
+person's own registration. Until then the phone syncs through the own server or WebDAV, and
+computers can already use any drive through its folder.

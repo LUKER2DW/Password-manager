@@ -17,6 +17,10 @@
 
 All labels below are ASCII byte strings and are used verbatim (no terminator).
 
+Sync server requests (spec/SYNC.md §5.3) are signed with **Ed25519** (`ed25519-dalek`, strict
+verification, weak keys refused); the key is per device and vault, kept in the OS credential
+store, and never touches the vault's own keys.
+
 ## 2. Secrets the user holds
 
 ### 2.1 Master password

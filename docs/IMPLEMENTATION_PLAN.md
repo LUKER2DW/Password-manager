@@ -264,8 +264,21 @@ Rules:
   at unlock, a few seconds after each save, every 5 minutes and when the item lock opens
   with edits waiting for it; notices for changes, conflicts, edits waiting for the lock, a
   new master password, refused copies and this computer removed
-- ⬜ Removing a device from the app; watching the folder instead of looking every 5 minutes
-- ⬜ M6.3 `vault-server` (axum, Docker, Tailscale, signed requests, long-poll) and WebDAV
+- ✅ Removing a device from the app (Settings → Sync → Remove) and the CLI (`--remove`)
+- ⬜ Watching the folder instead of looking every 5 minutes
+- ✅ M6.3 `vault-server` (`crates/server`: axum, files on disk, Docker image and Compose,
+  Tailscale HTTPS in front, [setup](SERVER.md)): Ed25519-signed requests with time and nonce
+  (no password at the server), one-time invites stored as digests, enrollment that proves the
+  key, a device writes only its own copy, long-poll for changes, limits per device and per
+  failing address. The protocol in `crates/sync-wire`. Clients in `vault-platform`: server
+  and WebDAV targets, tags so unchanged copies aren't read again, `http://` only to this
+  computer or Tailscale. Desktop: Use a server… / Use WebDAV…, Add a device (QR code and
+  `vaultsync:` line), Remove, the server's long-poll while open. CLI: `vault sync --server
+  --invite`, `--join`, `--webdav --user`, `--add-device`, `--devices`, `--remove`. End-to-end
+  tests: two devices converge through a running server; strangers, replays, altered bodies,
+  writing another device's copy, other vaults' keys, used invites are refused
+- ⬜ M6.6 Cloud drive APIs for the phone (Google Drive and OneDrive app folders, Dropbox),
+  once OAuth apps are registered ([viability](spec/SYNC.md#11-onedrive-google-drive-and-dropbox-on-the-phone))
 - ⬜ M6.4 Phone (M7.6), enrollment by QR; M6.5 nearby sync over the LAN
 - **Done when:** two devices converge; ZK-AE-Tester style malicious-server tests pass.
 
