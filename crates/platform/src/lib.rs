@@ -17,6 +17,7 @@ pub mod files;
 pub mod keyfile;
 pub mod kit_pdf;
 pub mod locale;
+pub mod part_picture;
 pub mod paths;
 pub mod quick_unlock;
 pub mod screen;

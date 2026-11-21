@@ -29,6 +29,11 @@ ureq = { version = "3.5", default-features = false, features = ["rustls"] }
 # A pinned sync server's certificate authority: its SHA-256 is checked in constant time.
 sha2 = "0.11"
 subtle = "2.6"
+# Recovery part C kept inside a picture: the person's own photo read in any common format,
+# saved as a PNG with the part in its pixels (or a landscape drawn with some randomness).
+png = "0.18"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
+getrandom = "0.4"
 dirs = "7"
 raw-window-handle = "0.6"
 serde = { version = "1.0", features = ["derive"] }

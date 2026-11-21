@@ -1,8 +1,9 @@
-//! The emergency kit as a one-page, printable PDF.
+//! The emergency kit as a printable PDF: a page with the Secret Key and room to write the
+//! master password, then one page for each recovery part, so the parts can be kept apart.
 //!
-//! Written by hand on purpose: the file holds the Secret Key and the Recovery Key, so it is built
-//! from a few hundred auditable lines instead of a PDF library. It uses only the 14 standard PDF
-//! fonts (no embedding, no images, no scripts, no compression), A4 portrait.
+//! Written by hand on purpose: the file holds the Secret Key and the recovery parts, so it is
+//! built from a few hundred auditable lines instead of a PDF library. It uses only the 14
+//! standard PDF fonts (no embedding, no images, no scripts, no compression), A4 portrait.
 
 use std::fmt::Write as _;
 
@@ -12,8 +13,9 @@ use zeroize::Zeroizing;
 #[derive(Debug, Clone, Copy)]
 pub struct KitContents<'a> {
     pub secret_key: &'a str,
-    /// `None` when it can't be shown (it is not stored anywhere after it is issued).
-    pub recovery_key: Option<&'a str>,
+    /// Parts A, B and C, right after they are issued; `None` once they can't be shown (they
+    /// are not stored anywhere), and the kit is its first page only.
+    pub parts: Option<[&'a str; 3]>,
     pub vault_id: &'a str,
     /// Unix seconds, printed as a date.
     pub created_at: u64,
@@ -374,12 +376,12 @@ impl Page {
     }
 }
 
-/// The Recovery Key's printed shape (`R0` + groups of characters).
-pub const RECOVERY_GROUPS: usize = vault_core::RecoveryKey::GROUPS;
-pub const RECOVERY_GROUP_LEN: usize = vault_core::RecoveryKey::GROUP_LEN;
+/// A recovery part's printed shape (`A0` + groups of characters).
+pub const PART_GROUPS: usize = vault_core::RecoveryPart::GROUPS;
+pub const PART_GROUP_LEN: usize = vault_core::RecoveryPart::GROUP_LEN;
 
 /// Days since 1970-01-01 → (year, month, day), proleptic Gregorian (Howard Hinnant's algorithm).
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
+pub(crate) fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -411,35 +413,76 @@ fn date_text(unix: u64) -> String {
     format!("{day} {} {year}", MONTHS[(month - 1) as usize])
 }
 
+impl Page {
+    /// The dark band across the top, so the pages are easy to spot among papers, and a title.
+    fn heading(&mut self, title: &str, aside: &str) {
+        let _ = writeln!(
+            self.ops,
+            "0.12 g 0 {:.1} {PAGE_W:.1} 10 re f",
+            PAGE_H - 10.0
+        );
+        self.gap(6.0);
+        self.text_at(MARGIN, self.y, Font::Bold, 24.0, 0.1, title);
+        self.text_at(
+            PAGE_W - MARGIN - Font::Regular.text_width(aside, 11.0),
+            self.y + 4.0,
+            Font::Regular,
+            11.0,
+            0.45,
+            aside,
+        );
+        self.gap(10.0);
+    }
+
+    fn subheading(&mut self, text: &str) {
+        self.text_at(MARGIN, self.y - 12.0, Font::Bold, 11.0, 0.1, text);
+        self.gap(14.0);
+    }
+
+    fn bullets(&mut self, steps: &[&str]) {
+        for step in steps {
+            self.paragraph(Font::Regular, 9.5, 0.25, &format!("\u{2022}  {step}"));
+            self.gap(3.0);
+        }
+    }
+
+    /// The small print at the foot: what to do with the file, and which vault this is.
+    fn footer(&mut self, vault_id: &str) {
+        self.y = MARGIN - 22.0;
+        self.text_at(
+            MARGIN,
+            self.y,
+            Font::Regular,
+            8.0,
+            0.5,
+            "Made offline by Vault. If this page was saved as a file, delete the file after printing.",
+        );
+        let id = format!("Vault {vault_id}");
+        self.text_at(
+            PAGE_W - MARGIN - Font::Mono.text_width(&id, 7.0),
+            self.y,
+            Font::Mono,
+            7.0,
+            0.55,
+            &id,
+        );
+    }
+}
+
 /// Renders the kit. The bytes contain the keys: they are wiped from memory when dropped.
 pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
+    let date = date_text(kit.created_at);
+    let mut pages = Vec::with_capacity(4);
     let mut page = Page::new();
-
-    // A dark band across the top: the page is easy to spot among papers.
-    let _ = writeln!(
-        page.ops,
-        "0.12 g 0 {:.1} {PAGE_W:.1} 10 re f",
-        PAGE_H - 10.0
-    );
-    page.gap(6.0);
-    page.text_at(MARGIN, page.y, Font::Bold, 24.0, 0.1, "Emergency kit");
-    page.text_at(
-        PAGE_W - MARGIN - Font::Regular.text_width("Vault", 11.0),
-        page.y + 4.0,
-        Font::Regular,
-        11.0,
-        0.45,
-        "Vault",
-    );
-    page.gap(10.0);
+    page.heading("Emergency kit", "Vault");
     page.paragraph(
         Font::Regular,
         10.5,
         0.3,
         &format!(
-            "Made on {}. Keep it somewhere safe, away from your computer. It gets you back into \
-             your vault if you lose this computer or forget your master password.",
-            date_text(kit.created_at)
+            "Made on {date}. Keep it somewhere safe, away from your computer. It gets you back into \
+             your vault on a new computer, or if you lose the Secret Key or forget your master \
+             password."
         ),
     );
     page.gap(14.0);
@@ -453,107 +496,140 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
         "Combined with your master password to open the vault. Each computer asks for it once. \
          On its own it opens nothing.",
     );
-    page.gap(14.0);
-    // The Recovery Key always has the same shape, so it goes into boxes: printed when the app
-    // has it, empty for copying it by hand from the first kit otherwise.
-    match kit.recovery_key {
-        Some(recovery_key) => page.key_grid(
-            "RECOVERY KEY",
-            vault_core::RecoveryKey::PREFIX,
-            RECOVERY_GROUPS,
-            RECOVERY_GROUP_LEN,
-            5,
-            Some(recovery_key),
-            "Opens the vault on its own, for when you forget the master password. Anyone holding \
-             it can open your vault: keep this page private.",
-        ),
-        None => page.key_grid(
-            "RECOVERY KEY",
-            vault_core::RecoveryKey::PREFIX,
-            RECOVERY_GROUPS,
-            RECOVERY_GROUP_LEN,
-            5,
-            None,
-            "Not printed: the app doesn't keep it. Copy it here from your first kit, one \
-             character per box (there is no I, L, O or U), or issue a new one in the app.",
-        ),
-    }
     page.gap(22.0);
     page.write_box("MASTER PASSWORD", 44.0);
+    page.gap(8.0);
+    page.paragraph(
+        Font::Regular,
+        9.0,
+        0.35,
+        "Write it by hand only if this page will be kept somewhere only you can reach: with the \
+         Secret Key above, it opens your vault.",
+    );
 
-    page.gap(26.0);
+    page.gap(20.0);
     page.rule(0.8, 0.6);
     page.gap(10.0);
-    page.text_at(
-        MARGIN,
-        page.y - 12.0,
-        Font::Bold,
-        11.0,
-        0.1,
-        "How to use it",
+    page.subheading("Recovery parts");
+    page.paragraph(
+        Font::Regular,
+        9.5,
+        0.25,
+        if kit.parts.is_some() {
+            "The next three pages hold parts A, B and C. Keep each one in a different place, apart \
+             from this page and from your computer. Any two parts bring back your Secret Key; all \
+             three let you choose a new master password. One part alone opens nothing."
+        } else {
+            "Your parts A, B and C were printed with the kit that issued them: the app doesn't keep \
+             them, so they are not on this copy. Lost one? Issue new parts in the app; the old \
+             ones stop working."
+        },
     );
-    page.gap(14.0);
-    for step in [
+
+    page.gap(16.0);
+    page.subheading("How to use it");
+    page.bullets(&[
         "New computer: install the app, open your vault file, type the Secret Key above once, \
          then your master password.",
+        "Lost the Secret Key: on the lock screen, choose to use two recovery parts instead, then \
+         type your master password.",
         "Forgot the master password: on the lock screen choose \"Forgot it? Use your emergency \
-         kit\", type the Recovery Key and choose a new password. You'll get a new Secret Key; \
-         print a new kit.",
-    ] {
-        page.paragraph(Font::Regular, 9.5, 0.25, &format!("\u{2022}  {step}"));
-        page.gap(3.0);
+         kit\", type all three parts and choose a new password. You'll get a new Secret Key; \
+         print this page again.",
+    ]);
+    page.footer(kit.vault_id);
+    pages.push(page.ops);
+
+    if let Some(parts) = kit.parts {
+        for (label, value) in vault_core::PartLabel::ALL.into_iter().zip(parts) {
+            let letter = label.letter();
+            let mut page = Page::new();
+            page.heading(
+                &format!("Recovery part {letter}"),
+                &format!("{} of 3", label as u8 + 1),
+            );
+            page.paragraph(
+                Font::Regular,
+                10.5,
+                0.3,
+                &format!(
+                    "One of three recovery parts for your vault, made on {date}. Keep it apart from \
+                     the other two, from the page with your Secret Key and from your computer."
+                ),
+            );
+            page.gap(14.0);
+            page.rule(0.8, 0.6);
+            page.gap(18.0);
+            page.key_grid(
+                &format!("PART {letter}"),
+                label.prefix(),
+                PART_GROUPS,
+                PART_GROUP_LEN,
+                PART_GROUPS,
+                Some(value),
+                "Type it exactly as printed, dashes or not; a typo is caught before anything \
+                 happens. There is no I, L, O or U in it.",
+            );
+            page.gap(20.0);
+            page.subheading("What it does");
+            let mut steps = vec![
+                "With any other part: brings back your Secret Key. You still need your master \
+                 password.",
+                "With both other parts: lets you choose a new master password.",
+                "On its own: opens nothing, so losing one part, or having it found, is not the end. \
+                 Issue new parts in the app if that happens.",
+            ];
+            if label == vault_core::PartLabel::C {
+                steps.push(
+                    "This part can also live inside a photo of yours: in the app, Emergency kit, \
+                     Hide part C in a picture. Keep that file as it is: a resized or converted \
+                     copy loses the part.",
+                );
+            }
+            page.bullets(&steps);
+            page.footer(kit.vault_id);
+            pages.push(page.ops);
+        }
     }
 
-    page.y = MARGIN - 22.0;
-    page.text_at(
-        MARGIN,
-        page.y,
-        Font::Regular,
-        8.0,
-        0.5,
-        "Made offline by Vault. If this page was saved as a file, delete the file after printing.",
-    );
-    // Which vault this kit opens: small, out of the way.
-    let id = format!("Vault {}", kit.vault_id);
-    page.text_at(
-        PAGE_W - MARGIN - Font::Mono.text_width(&id, 7.0),
-        page.y,
-        Font::Mono,
-        7.0,
-        0.55,
-        &id,
-    );
-
-    assemble(&page.ops)
+    assemble(&mut pages)
 }
 
-/// Wraps a content stream into a complete single-page PDF file.
-fn assemble(content: &str) -> Zeroizing<Vec<u8>> {
-    let fonts = [
-        (5, "Helvetica"),
-        (6, "Helvetica-Bold"),
-        (7, "Courier"),
-        (8, "Courier-Bold"),
-    ];
+/// Wraps content streams into a complete PDF file, one page each.
+fn assemble(pages: &mut [String]) -> Zeroizing<Vec<u8>> {
+    let fonts = ["Helvetica", "Helvetica-Bold", "Courier", "Courier-Bold"];
+    // 1 catalog, 2 page tree, 3–6 fonts, then a page and its content for each page.
+    let first_page = 3 + fonts.len();
+    let kids: Vec<String> = (0..pages.len())
+        .map(|index| format!("{} 0 R", first_page + 2 * index))
+        .collect();
     let mut objects: Vec<String> = vec![
         "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
         format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PAGE_W} {PAGE_H}] /Contents 4 0 R \
-             /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R /F4 8 0 R >> >> >>"
-        ),
-        format!(
-            "<< /Length {} >>\nstream\n{content}endstream",
-            content.len()
+            "<< /Type /Pages /Kids [{}] /Count {} >>",
+            kids.join(" "),
+            pages.len()
         ),
     ];
-    for (_, base) in fonts {
+    for base in fonts {
         objects.push(format!(
             "<< /Type /Font /Subtype /Type1 /BaseFont /{base} /Encoding /WinAnsiEncoding >>"
         ));
     }
+    for (index, content) in pages.iter().enumerate() {
+        let content_id = first_page + 2 * index + 1;
+        objects.push(format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PAGE_W} {PAGE_H}] /Contents {content_id} 0 R \
+             /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> >> >>"
+        ));
+        objects.push(format!(
+            "<< /Length {} >>\nstream\n{content}endstream",
+            content.len()
+        ));
+    }
 
-    let mut out = Zeroizing::new(Vec::with_capacity(content.len() + 2048));
+    let total: usize = objects.iter().map(String::len).sum();
+    let mut out = Zeroizing::new(Vec::with_capacity(total + 1024));
     out.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
     let mut offsets = Vec::with_capacity(objects.len());
     for (index, body) in objects.iter().enumerate() {
@@ -571,9 +647,10 @@ fn assemble(content: &str) -> Zeroizing<Vec<u8>> {
         objects.len() + 1
     );
     out.extend_from_slice(table.as_bytes());
-    // The content stream held the keys in a String: wipe it too.
-    let mut content = content.to_owned();
-    zeroize::Zeroize::zeroize(&mut content);
+    // The content streams held the keys in Strings: wipe them too.
+    for text in objects.iter_mut().chain(pages.iter_mut()) {
+        zeroize::Zeroize::zeroize(text);
+    }
     out
 }
 
@@ -581,32 +658,23 @@ fn assemble(content: &str) -> Zeroizing<Vec<u8>> {
 mod tests {
     use super::*;
 
-    fn kit(recovery: Option<&str>) -> Zeroizing<Vec<u8>> {
+    const PARTS: [&str; 3] = [
+        "A0-AAAAAAA-BBBBBBB-CCCCCCC-DDDDDDD",
+        "B0-EEEEEEE-FFFFFFF-GGGGGGG-HHHHHHH",
+        "C0-JJJJJJJ-KKKKKKK-MMMMMMM-NNNNNNN",
+    ];
+
+    fn kit(parts: Option<[&str; 3]>) -> Zeroizing<Vec<u8>> {
         render(&KitContents {
             secret_key: "S0-ABCDEFG-HJKMNPQ-RSTVWXY-Z012345",
-            recovery_key: recovery,
+            parts,
             vault_id: "0123456789abcdef0123456789abcdef",
             created_at: 1_794_441_600, // 12 November 2026
         })
     }
 
-    #[test]
-    fn is_a_well_formed_single_page_pdf() {
-        let bytes = kit(Some(
-            "R0-AAAAAA-BBBBBB-CCCCCC-DDDDDD-EEEEEE-FFFFFF-GGGGGG-HHHHHH-JJJJJJ",
-        ));
-        let text = String::from_utf8_lossy(&bytes);
-        assert!(text.starts_with("%PDF-1.4"));
-        assert!(text.trim_end().ends_with("%%EOF"));
-        assert!(text.contains("/Count 1"));
-        assert!(text.contains("S0-ABCDEFG-HJKMNPQ-RSTVWXY-Z012345"));
-        assert!(text.contains("12 November 2026"));
-        // The vault id is printed, small; where the vault lives is not.
-        assert!(text.contains("Vault 0123456789abcdef0123456789abcdef"));
-        assert!(!text.contains("AppData"));
-
-        // Every xref offset (in bytes) points at the start of its object.
-        let raw: &[u8] = &bytes;
+    /// Every xref offset (in bytes) points at the start of its object.
+    fn check_xref(raw: &[u8]) {
         let tail = String::from_utf8(raw[raw.len() - 64..].to_vec()).unwrap();
         let xref_at: usize = tail
             .rsplit("startxref\n")
@@ -616,7 +684,8 @@ mod tests {
             .unwrap();
         let table = String::from_utf8(raw[xref_at..].to_vec()).unwrap();
         assert!(table.starts_with("xref\n"));
-        for (index, line) in table.lines().skip(3).take(8).enumerate() {
+        let count: usize = table.lines().nth(1).unwrap()[2..].parse().unwrap();
+        for (index, line) in table.lines().skip(3).take(count - 1).enumerate() {
             let offset: usize = line[..10].parse().unwrap();
             assert!(
                 raw[offset..].starts_with(format!("{} 0 obj", index + 1).as_bytes()),
@@ -627,13 +696,42 @@ mod tests {
     }
 
     #[test]
-    fn missing_recovery_key_leaves_boxes_to_fill_in() {
-        let text = String::from_utf8_lossy(&kit(None)).into_owned();
-        assert!(text.contains("Not printed"));
-        assert!(!text.contains("R0-"));
-        // One box per character: 9 groups of 6.
-        assert_eq!(RECOVERY_GROUPS * RECOVERY_GROUP_LEN, 54);
-        assert_eq!(boxes(&text), 54);
+    fn a_kit_with_parts_has_a_page_for_each_part() {
+        let bytes = kit(Some(PARTS));
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.starts_with("%PDF-1.4"));
+        assert!(text.trim_end().ends_with("%%EOF"));
+        assert!(text.contains("/Count 4"));
+        assert_eq!(text.matches("/Type /Page ").count(), 4);
+        assert!(text.contains("S0-ABCDEFG-HJKMNPQ-RSTVWXY-Z012345"));
+        assert!(text.contains("12 November 2026"));
+        assert!(text.contains("MASTER PASSWORD"));
+        for (letter, part) in ["A", "B", "C"].iter().zip(PARTS) {
+            assert!(text.contains(&format!("(Recovery part {letter}) Tj")));
+            // Each part copies as one piece: from the boxes (ActualText) and the line under them.
+            assert!(text.contains(&format!("/ActualText ({part})")));
+            assert!(text.contains(&format!("({part}) Tj")));
+        }
+        assert_eq!(text.matches(" BDC").count(), text.matches("EMC").count());
+        // One box per character: 3 parts of 4 groups of 7.
+        assert_eq!(PART_GROUPS * PART_GROUP_LEN, 28);
+        assert_eq!(boxes(&text), 3 * 28);
+        assert!(text.contains("Hide part C in a picture"));
+        // The vault id is printed, small; where the vault lives is not.
+        assert!(text.contains("Vault 0123456789abcdef0123456789abcdef"));
+        assert!(!text.contains("AppData"));
+        check_xref(&bytes);
+    }
+
+    #[test]
+    fn without_parts_the_kit_is_one_page() {
+        let bytes = kit(None);
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        assert!(text.contains("/Count 1"));
+        assert!(text.contains("the app doesn't keep"));
+        assert!(!text.contains("A0-") && !text.contains("R0-"));
+        assert_eq!(boxes(&text), 0);
+        check_xref(&bytes);
     }
 
     /// Handwriting boxes are the only white-filled rectangles.
@@ -641,22 +739,6 @@ mod tests {
         text.lines()
             .filter(|l| l.starts_with("1 g ") && l.ends_with("re B"))
             .count()
-    }
-
-    #[test]
-    fn printed_recovery_key_fills_the_boxes() {
-        let text = String::from_utf8_lossy(&kit(Some(
-            "R0-AAAAAA-BBBBBB-CCCCCC-DDDDDD-EEEEEE-FFFFFF-GGGGGG-HHHHHH-JJJJJJ",
-        )))
-        .into_owned();
-        assert_eq!(boxes(&text), 54);
-        assert_eq!(text.matches("(J) Tj").count(), 6);
-        assert_eq!(text.matches("(R0) Tj").count(), 1);
-        // It copies as one piece: from the boxes (ActualText) and from the line under them.
-        let whole = "R0-AAAAAA-BBBBBB-CCCCCC-DDDDDD-EEEEEE-FFFFFF-GGGGGG-HHHHHH-JJJJJJ";
-        assert!(text.contains(&format!("/ActualText ({whole})")));
-        assert!(text.contains(&format!("({whole}) Tj")));
-        assert_eq!(text.matches(" BDC").count(), text.matches("EMC").count());
     }
 
     #[test]
