@@ -40,6 +40,9 @@ debug = false
 
 [profile.dev]
 debug = "line-tables-only"
+# No incremental cache: it grows by gigabytes per session and is never cleaned up; a rebuild
+# of our own crates after a change takes a little longer instead.
+incremental = false
 
 # The vault itself is small and its serialization code is generic (compiled here, not in the
 # dependencies): optimized, lists and saves stay quick in debug runs too.
