@@ -103,8 +103,9 @@ fn full_lifecycle() {
         &[MASTER],
     );
     let secret_key = kit_value(&kit, "Secret Key:");
-    let recovery_key = kit_value(&kit, "Recovery Key:");
-    assert!(secret_key.starts_with("S0-") && recovery_key.starts_with("R0-"));
+    let parts = ["Part A:", "Part B:", "Part C:"].map(|label| kit_value(&kit, label));
+    assert!(secret_key.starts_with("S0-") && parts[0].starts_with("A0-"));
+    assert!(parts[1].starts_with("B0-") && parts[2].starts_with("C0-"));
     env.fails(&["init"], &[MASTER]); // never overwrites
 
     let short = env.run(
@@ -195,8 +196,16 @@ fn full_lifecycle() {
     );
     assert!(env.ok(&["info"], &[]).contains("has the Secret Key"));
 
-    // lost everything: recover with the Recovery Key → new password + new Secret Key
-    let new_kit = env.ok(&["recover"], &[&recovery_key, NEW_MASTER]);
+    // new device without the Secret Key: two recovery parts bring it back
+    env.ok(&["forget"], &[]);
+    assert!(
+        env.ok(&["list"], &[&parts[2], &parts[0], MASTER])
+            .contains("2 item(s)")
+    );
+    assert!(env.ok(&["info"], &[]).contains("has the Secret Key"));
+
+    // forgot the password: recover with all three parts → new password + new Secret Key
+    let new_kit = env.ok(&["recover"], &[&parts[1], &parts[2], &parts[0], NEW_MASTER]);
     let new_secret_key = kit_value(&new_kit, "Secret Key:");
     assert_ne!(new_secret_key, secret_key);
     env.fails(&["list"], &[MASTER]);

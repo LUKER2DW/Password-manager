@@ -77,13 +77,22 @@ enum Command {
     },
     /// Change the master password.
     Passwd,
-    /// Lost your master password or Secret Key? Unlock with the Recovery Key and set new ones.
+    /// Forgot your master password? Unlock with all three recovery parts (or the Recovery Key
+    /// of an older kit) and set a new password and Secret Key.
     Recover,
-    /// Print the emergency kit again (Secret Key); optionally issue a new Recovery Key.
+    /// Print the emergency kit again (Secret Key); optionally issue new recovery parts.
     Kit {
-        /// Replace the Recovery Key with a new one and print it.
-        #[arg(long)]
-        new_recovery_key: bool,
+        /// Issue new recovery parts (the old ones, or an older kit's Recovery Key, stop working)
+        /// and print them.
+        #[arg(long, alias = "new-recovery-key")]
+        new_parts: bool,
+    },
+    /// Hide a recovery part inside a picture of your own, saved as a PNG that looks the same.
+    PartPicture {
+        /// The picture to hide it in (PNG, JPEG, WebP, BMP or GIF).
+        cover: PathBuf,
+        /// Where to save the PNG.
+        out: PathBuf,
     },
     /// Remove this vault's Secret Key from this device's credential store.
     Forget,
@@ -174,8 +183,8 @@ struct ImportArgs {
 
 #[derive(Debug, Args)]
 struct InitArgs {
-    /// Do not create a Recovery Key (losing the password or Secret Key then means losing the vault).
-    #[arg(long)]
+    /// Do not create recovery parts (losing the password then means losing the vault).
+    #[arg(long = "no-recovery", alias = "no-recovery-key")]
     no_recovery_key: bool,
     /// Target unlock time used to calibrate Argon2id.
     #[arg(long, default_value_t = 1000, value_name = "MS")]
@@ -428,7 +437,11 @@ fn run() -> Result<()> {
         Command::Totp { item, copy } => commands::totp(&ctx, &mut prompter, &item, copy),
         Command::Passwd => commands::passwd(&ctx, &mut prompter),
         Command::Recover => commands::recover(&ctx, &mut prompter),
-        Command::Kit { new_recovery_key } => commands::kit(&ctx, &mut prompter, new_recovery_key),
+        Command::Kit { new_parts } => commands::kit(&ctx, &mut prompter, new_parts),
+        Command::PartPicture { cover, out } => {
+            let part = prompter.secret("Recovery part to hide (A0-, B0- or C0-…)")?;
+            commands::part_picture(&part, &cover, &out)
+        }
         Command::Forget => commands::forget(&ctx),
         Command::Keyfile { action } => commands::keyfile(
             &ctx,

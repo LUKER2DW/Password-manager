@@ -4,8 +4,8 @@ use std::{path::PathBuf, time::Duration};
 
 use anyhow::{Context as _, Result, bail};
 use vault_core::{
-    ItemData, ItemId, ItemKind, KdfMethod, KdfParams, KdfStrength, PasswordKdf, RecoveryKey,
-    SecretKey, Unlock, Vault,
+    ItemData, ItemId, ItemKind, KdfMethod, KdfParams, KdfStrength, PartLabel, PasswordKdf,
+    RecoveryKey, RecoveryPart, RecoveryParts, SecretKey, Unlock, Vault,
     generator::{self, PassphraseOptions, PasswordOptions},
     storage,
     totp::Totp,
@@ -144,13 +144,17 @@ pub fn init(
     };
 
     let secret_key = SecretKey::generate().map_err(explain)?;
-    let recovery_key = if no_recovery_key {
+    let parts = if no_recovery_key {
         None
     } else {
-        Some(RecoveryKey::generate().map_err(explain)?)
+        Some(RecoveryParts::generate().map_err(explain)?)
     };
-    let mut vault =
-        Vault::create(&password, &secret_key, recovery_key.as_ref(), kdf).map_err(explain)?;
+    let mut vault = Vault::create(&password, &secret_key, None, kdf).map_err(explain)?;
+    if let Some(parts) = &parts {
+        vault
+            .set_recovery_parts(parts, &secret_key)
+            .map_err(explain)?;
+    }
 
     if let Some(parent) = ctx.path.parent() {
         std::fs::create_dir_all(parent)
@@ -166,12 +170,7 @@ pub fn init(
         ctx.path.display(),
         describe_kdf(vault.kdf_params())
     );
-    print_kit(
-        &vault.id_hex(),
-        &ctx.path,
-        &secret_key,
-        recovery_key.as_ref(),
-    );
+    print_kit(&vault.id_hex(), &ctx.path, &secret_key, parts.as_ref());
     Ok(())
 }
 
@@ -200,8 +199,14 @@ pub fn info(ctx: &Context) -> Result<()> {
     println!("Vault ID:       {}", info.id_hex);
     println!("Password hash:  {}", describe_kdf(&info.kdf));
     println!(
-        "Recovery Key:   {}",
-        if info.has_recovery_key { "yes" } else { "no" }
+        "Recovery:       {}",
+        if info.has_recovery_parts {
+            "three recovery parts"
+        } else if info.has_recovery_key {
+            "Recovery Key of an older kit (`vault kit --new-parts` replaces it)"
+        } else {
+            "none"
+        }
     );
     println!(
         "Keyfile:        {}",
@@ -458,10 +463,22 @@ pub fn passwd(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
 
 pub fn recover(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
     let bytes = session::read_vault_file(&ctx.path)?;
-    let text = prompter.secret("Recovery Key (R0-…)")?;
-    let recovery_key = RecoveryKey::parse(&text).map_err(explain)?;
-    let mut vault = Vault::open(&bytes, Unlock::Recovery(&recovery_key)).map_err(explain)?;
-    eprintln!("Unlocked with the Recovery Key. Choose a new master password.");
+    let info = Vault::inspect(&bytes).map_err(explain)?;
+    let mut vault = if info.has_recovery_key {
+        let text = prompter.secret("Recovery Key (R0-…)")?;
+        let recovery_key = RecoveryKey::parse(&text).map_err(explain)?;
+        Vault::open(&bytes, Unlock::Recovery(&recovery_key)).map_err(explain)?
+    } else {
+        let mut parts = Vec::with_capacity(3);
+        for which in ["first", "second", "third"] {
+            let text = prompter.secret(&format!(
+                "Recovery part, {which} of three (A0-, B0- or C0-…)"
+            ))?;
+            parts.push(RecoveryPart::parse(&text).map_err(explain)?);
+        }
+        Vault::open(&bytes, Unlock::Parts([&parts[0], &parts[1], &parts[2]])).map_err(explain)?
+    };
+    eprintln!("Unlocked with the emergency kit. Choose a new master password.");
 
     let password = new_master_password(prompter)?;
     // The old Secret Key may be lost or exposed, so always issue a new one.
@@ -478,7 +495,15 @@ pub fn recover(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
     session::store_secret_key(&vault.id_hex(), &secret_key)?;
     session::record_new_vault(&vault)?;
 
-    println!("New master password and Secret Key set. Your Recovery Key still works.");
+    println!(
+        "New master password and Secret Key set. Your {} still work{}.",
+        if info.has_recovery_key {
+            "Recovery Key"
+        } else {
+            "recovery parts"
+        },
+        if info.has_recovery_key { "s" } else { "" }
+    );
     if had_keyfile {
         let _ = vault_platform::keyfile::remember_path(&vault.id_hex(), None);
         println!("The keyfile is no longer needed; add one again with `vault keyfile create`.");
@@ -487,17 +512,18 @@ pub fn recover(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
     Ok(())
 }
 
-pub fn kit(ctx: &Context, prompter: &mut Prompter, new_recovery_key: bool) -> Result<()> {
+pub fn kit(ctx: &Context, prompter: &mut Prompter, new_parts: bool) -> Result<()> {
     let mut session = ctx.unlock(prompter)?;
-    let recovery_key = if new_recovery_key {
-        let key = RecoveryKey::generate().map_err(explain)?;
+    let parts = if new_parts {
+        let parts = RecoveryParts::generate().map_err(explain)?;
+        let secret_key = &session.secret_key;
         session
             .vault
-            .set_recovery_key(Some(&key))
+            .set_recovery_parts(&parts, secret_key)
             .map_err(explain)?;
         session.save()?;
-        eprintln!("A new Recovery Key was issued; the old one no longer works.");
-        Some(key)
+        eprintln!("New recovery parts were issued; the old ones (or Recovery Key) no longer work.");
+        Some(parts)
     } else {
         None
     };
@@ -505,13 +531,43 @@ pub fn kit(ctx: &Context, prompter: &mut Prompter, new_recovery_key: bool) -> Re
         &session.vault.id_hex(),
         &session.path,
         &session.secret_key,
-        recovery_key.as_ref(),
+        parts.as_ref(),
     );
-    if !new_recovery_key && session.vault.has_recovery_key() {
-        println!(
-            "(The Recovery Key is never stored, so it cannot be shown again. Use --new-recovery-key to replace it.)"
-        );
+    if !new_parts {
+        if session.vault.has_recovery_parts() {
+            println!(
+                "(Recovery parts are never stored, so they cannot be shown again. Use --new-parts to replace them.)"
+            );
+        } else if session.vault.has_recovery_key() {
+            println!(
+                "(This vault still uses the Recovery Key of an older kit. Use --new-parts to replace it with recovery parts.)"
+            );
+        }
     }
+    Ok(())
+}
+
+/// Saves a recovery part inside a picture of the person's own (`cover`) as a PNG at `out`,
+/// then reads the file back to check it.
+pub fn part_picture(part_text: &str, cover: &std::path::Path, out: &std::path::Path) -> Result<()> {
+    let part = RecoveryPart::parse(part_text).map_err(explain)?;
+    let cover_bytes =
+        std::fs::read(cover).with_context(|| format!("reading {}", cover.display()))?;
+    let picture = vault_platform::part_picture::make(&part, Some(&cover_bytes))?;
+    if out.exists() {
+        bail!("{} already exists; refusing to overwrite it", out.display());
+    }
+    std::fs::write(out, &*picture).with_context(|| format!("writing {}", out.display()))?;
+    let back = vault_platform::part_picture::read(&std::fs::read(out)?)?;
+    if back != part {
+        let _ = std::fs::remove_file(out);
+        bail!("the saved picture gives back another part");
+    }
+    println!(
+        "Part {} is in {}. Keep that file as it is: a resized or converted copy loses the part.",
+        part.label().letter(),
+        out.display()
+    );
     Ok(())
 }
 
@@ -1008,7 +1064,7 @@ fn print_kit(
     vault_id: &str,
     path: &std::path::Path,
     secret_key: &SecretKey,
-    recovery_key: Option<&RecoveryKey>,
+    parts: Option<&RecoveryParts>,
 ) {
     println!();
     println!("================ EMERGENCY KIT ================");
@@ -1020,12 +1076,17 @@ fn print_kit(
         "  Secret Key:    {}",
         secret_key.to_display_string().as_str()
     );
-    if let Some(key) = recovery_key {
-        println!("  Recovery Key:  {}", key.to_display_string().as_str());
+    if let Some(parts) = parts {
+        for label in PartLabel::ALL {
+            println!(
+                "  Part {}:        {}",
+                label.letter(),
+                parts.part(label).to_display_string().as_str()
+            );
+        }
         println!();
-        println!(
-            "  The Recovery Key opens the vault ON ITS OWN. Store it apart from your devices."
-        );
+        println!("  Keep each part in a different place, apart from your devices. Any two bring");
+        println!("  back the Secret Key; all three let you set a new master password.");
     }
     println!("  Master password: ____________________________ (write by hand)");
     println!("===============================================");

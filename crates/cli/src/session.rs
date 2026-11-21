@@ -84,8 +84,21 @@ impl Session {
             Some(key) => (key, false),
             None => {
                 eprintln!("This device does not know the Secret Key for this vault yet.");
-                let text = prompter.secret("Secret Key (from your emergency kit)")?;
-                (SecretKey::parse(&text).map_err(explain)?, true)
+                let text = prompter
+                    .secret("Secret Key (from your emergency kit), or one of two recovery parts")?;
+                match vault_core::RecoveryPart::parse(&text) {
+                    // Two recovery parts bring the Secret Key back.
+                    Ok(first) => {
+                        let second = vault_core::RecoveryPart::parse(
+                            &prompter.secret("Another recovery part")?,
+                        )
+                        .map_err(explain)?;
+                        let key =
+                            Vault::recover_secret_key(&bytes, &first, &second).map_err(explain)?;
+                        (key, true)
+                    }
+                    Err(_) => (SecretKey::parse(&text).map_err(explain)?, true),
+                }
             }
         };
         let password = prompter.secret("Master password")?;
