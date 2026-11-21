@@ -37,6 +37,11 @@ impl WebDavTarget {
             bail!("the user name can't contain ':'");
         }
         let base = http::check_address(address)?;
+        if http::split_pin(&base).1.is_some() {
+            bail!(
+                "a pinned certificate is for the vault server; use the WebDAV server's https:// address"
+            );
+        }
         let credentials = Zeroizing::new(format!("{user}:{password}"));
         let authorization = Zeroizing::new(format!(
             "Basic {}",

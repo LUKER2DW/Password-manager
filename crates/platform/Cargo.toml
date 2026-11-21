@@ -26,6 +26,9 @@ quick-xml = "0.38"
 # Sync: hearing at once when another device's copy lands in the sync folder.
 notify = { version = "8", default-features = false }
 ureq = { version = "3.5", default-features = false, features = ["rustls"] }
+# A pinned sync server's certificate authority: its SHA-256 is checked in constant time.
+sha2 = "0.11"
+subtle = "2.6"
 dirs = "7"
 raw-window-handle = "0.6"
 serde = { version = "1.0", features = ["derive"] }

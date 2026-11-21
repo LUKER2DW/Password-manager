@@ -13,11 +13,16 @@ use super::{Listed, Target, http};
 /// A vault on a sync server, as this device.
 #[derive(Debug)]
 pub struct ServerTarget {
+    /// The address as given (with its `#pin=` if any), for invites.
+    address: String,
+    /// Where requests go.
     base: String,
     vault: String,
     device: DeviceId,
     key: DeviceKey,
-    agent: ureq::Agent,
+    /// Made at the first request: a pinned server's certificate is fetched then, off the
+    /// UI thread.
+    agent: std::sync::Mutex<Option<ureq::Agent>>,
 }
 
 impl ServerTarget {
@@ -25,12 +30,14 @@ impl ServerTarget {
         if !wire::is_id(vault_id) {
             bail!("not a vault id");
         }
+        let address = http::check_address(address)?;
         Ok(Self {
-            base: http::check_address(address)?,
+            base: http::split_pin(&address).0.to_owned(),
+            address,
             vault: vault_id.to_owned(),
             device,
             key,
-            agent: http::agent(false),
+            agent: std::sync::Mutex::default(),
         })
     }
 
@@ -67,7 +74,7 @@ impl ServerTarget {
         let request = Request::post(format!("{}/v1/enroll", target.base))
             .header("content-type", "application/json")
             .body(body)?;
-        let mut response = target.agent.run(request).map_err(unreachable)?;
+        let mut response = target.agent()?.run(request).map_err(unreachable)?;
         check(&mut response)?;
         Ok(target)
     }
@@ -96,7 +103,7 @@ impl ServerTarget {
             request = request.header(name, value);
         }
         let request = request.body(body)?;
-        self.agent.run(request).map_err(unreachable)
+        self.agent()?.run(request).map_err(unreachable)
     }
 
     fn json<T: serde::de::DeserializeOwned>(&self, method: Method, path: &str) -> Result<T> {
@@ -116,10 +123,20 @@ impl ServerTarget {
         self.json(Method::POST, &self.path("/invites"))
     }
 
+    fn agent(&self) -> Result<ureq::Agent> {
+        let mut agent = self.agent.lock().unwrap();
+        if let Some(agent) = agent.as_ref() {
+            return Ok(agent.clone());
+        }
+        let made = http::agent_for(&self.address, false)?;
+        *agent = Some(made.clone());
+        Ok(made)
+    }
+
     /// The text (and QR code) another device joins with.
     pub fn invite_link(&self, invite: &Invite) -> wire::InviteLink {
         wire::InviteLink {
-            server: self.base.clone(),
+            server: self.address.clone(),
             vault: self.vault.clone(),
             invite: invite.invite.clone(),
         }
