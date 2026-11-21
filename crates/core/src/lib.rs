@@ -5,11 +5,11 @@
 //! `docs/spec/VAULT_FORMAT.md`.
 //!
 //! ```no_run
-//! use vault_core::{ItemData, KdfParams, RecoveryKey, SecretKey, Unlock, Vault};
+//! use vault_core::{ItemData, KdfParams, RecoveryParts, SecretKey, Unlock, Vault};
 //!
 //! let secret_key = SecretKey::generate()?;
-//! let recovery_key = RecoveryKey::generate()?;
-//! let mut vault = Vault::create("correct horse", &secret_key, Some(&recovery_key), KdfParams::recommended()?)?;
+//! let mut vault = Vault::create("correct horse", &secret_key, None, KdfParams::recommended()?)?;
+//! vault.set_recovery_parts(&RecoveryParts::generate()?, &secret_key)?;
 //! let id = vault.add_item(&ItemData::login("GitHub", "me", "s3cret", "https://github.com"))?;
 //! let bytes = vault.to_bytes()?;
 //!
@@ -47,7 +47,7 @@ pub use item::{
     RecoveryCode, SealedSecrets, VaultSettings,
 };
 pub use kdf::{KdfMethod, KdfParams, KdfStrength, PasswordKdf};
-pub use keys::{Keyfile, RecoveryKey, SecretKey};
+pub use keys::{Keyfile, PartLabel, RecoveryKey, RecoveryPart, RecoveryParts, SecretKey};
 pub use vault::{Unlock, Vault, VaultInfo};
 
 /// Convenience alias used throughout the crate.

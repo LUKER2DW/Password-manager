@@ -168,6 +168,39 @@ fn the_fixture_merges_with_a_copy_from_its_other_device() {
     assert_eq!(seen.revision(&DeviceId::from_bytes(PHONE)), Some(2));
 }
 
+#[test]
+fn a_v7_vault_is_upgraded_on_save() {
+    let bytes = std::fs::read(fixture_dir().join("vault-v7.bin")).unwrap();
+    let (secret_key, recovery_key) = credentials();
+    let unlock = || Unlock::Password {
+        password: PASSWORD,
+        secret_key: &secret_key,
+    };
+    let mut vault = Vault::open(&bytes, unlock()).unwrap();
+    // A v7 vault keeps its Recovery Key until a new kit is made.
+    assert!(vault.has_recovery_key() && !vault.has_recovery_parts());
+    let upgraded = vault.to_bytes().unwrap();
+    assert_eq!(
+        &upgraded[8..10],
+        &8u16.to_le_bytes(),
+        "written as format v8"
+    );
+    let mut reopened = Vault::open(&upgraded, Unlock::Recovery(&recovery_key)).unwrap();
+    assert_eq!(reopened.revision(), 2);
+    assert_eq!(reopened.sync_devices(), devices().as_slice());
+    assert!(reopened.unlock_secrets(GUARD_PIN).unwrap());
+    let folder = reopened.folders()[0].id;
+    assert_eq!(read(&reopened), expected_items(Some(folder)));
+
+    // A new kit turns it into recovery parts; the old Recovery Key stops working.
+    let parts = vault_core::RecoveryParts::generate().unwrap();
+    reopened.set_recovery_parts(&parts, &secret_key).unwrap();
+    let migrated = reopened.to_bytes().unwrap();
+    assert!(Vault::open(&migrated, Unlock::Recovery(&recovery_key)).is_err());
+    let all = vault_core::PartLabel::ALL.map(|label| parts.part(label));
+    assert!(Vault::open(&migrated, Unlock::Parts(all)).is_ok());
+}
+
 /// Regenerates the fixture. Run only when intentionally creating a new format version:
 /// `cargo test -p vault-core --test format_v7 -- --ignored`
 #[test]

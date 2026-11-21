@@ -22,10 +22,14 @@ pub(crate) const MAGIC: &[u8; 8] = b"PMVAULT\0";
 /// item guard wraps a key under its PIN or password, and guarded items keep their secrets
 /// sealed under that key;
 /// v7 = what sync needs (SYNC.md): the device that wrote the copy, tombstones, when folders and
-/// settings changed, unlock and item lock revisions, the devices that sync the vault.
-pub(crate) const FORMAT_VERSION: u16 = 7;
+/// settings changed, unlock and item lock revisions, the devices that sync the vault;
+/// v8 = three recovery parts in the header (any two bring back the Secret Key, all three open
+/// the vault) in place of the Recovery Key, which older kits still use.
+pub(crate) const FORMAT_VERSION: u16 = 8;
 /// Last version whose header has Argon2id parameters only.
 const LAST_ARGON2_ONLY_VERSION: u16 = 5;
+/// Last version whose header has no recovery parts.
+const LAST_HEADER_WITHOUT_PARTS: u16 = 7;
 /// Last version that changed the item layout: items of older files are re-encrypted on open.
 pub(crate) const ITEM_LAYOUT_VERSION: u16 = 6;
 /// Oldest version this build still reads (and upgrades on the next save).
@@ -64,6 +68,44 @@ pub(crate) struct VaultHeader {
     pub(crate) vault_id: [u8; 16],
     pub(crate) kdf: PasswordKdf,
     pub(crate) slots: Vec<KeySlot>,
+    /// The recovery parts of the current kit (format v8, CRYPTO.md §3.6).
+    pub(crate) parts: Option<PartsSlot>,
+}
+
+/// What the three recovery parts open (format v8). `pairs` are the wraps of a random pair key
+/// under each pair of parts (AB, AC, BC); the pair key seals the Secret Key, and the vault
+/// keeps its own copy of the pair key so a new Secret Key can be sealed again.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PartsSlot {
+    /// Random per kit: a new kit makes every wrap of the old one useless.
+    pub(crate) kit_id: [u8; 16],
+    /// seal(KEK_parts, vault_key)
+    pub(crate) vault_key: Vec<u8>,
+    /// seal(KEK_pair, pair_key) for AB, AC and BC
+    pub(crate) pairs: [Vec<u8>; 3],
+    /// seal(subkey("parts"), pair_key)
+    pub(crate) pair_key: Vec<u8>,
+    /// seal(K_secret_key(pair_key), secret_key)
+    pub(crate) secret_key: Vec<u8>,
+}
+
+/// Header layout of formats v6–v7 (no recovery parts).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct VaultHeaderV7 {
+    pub(crate) vault_id: [u8; 16],
+    pub(crate) kdf: PasswordKdf,
+    pub(crate) slots: Vec<KeySlot>,
+}
+
+impl VaultHeaderV7 {
+    fn upgrade(self) -> VaultHeader {
+        VaultHeader {
+            vault_id: self.vault_id,
+            kdf: self.kdf,
+            slots: self.slots,
+            parts: None,
+        }
+    }
 }
 
 /// Header layout of formats v0–v5 (always Argon2id).
@@ -80,6 +122,7 @@ impl VaultHeaderV5 {
             vault_id: self.vault_id,
             kdf: PasswordKdf::Argon2id(self.kdf),
             slots: self.slots,
+            parts: None,
         }
     }
 }
@@ -95,13 +138,13 @@ impl VaultHeader {
             .or_else(|| self.slot(SlotKind::PasswordKeyfile))
     }
 
-    /// Exactly one password slot (plain or with a keyfile), at most one recovery slot, valid
-    /// KDF parameters.
+    /// Exactly one password slot (plain or with a keyfile), at most one way to recover (a
+    /// Recovery Key slot or recovery parts), valid KDF parameters.
     pub(crate) fn validate(&self) -> Result<()> {
         self.kdf.validate()?;
         let count = |kind| self.slots.iter().filter(|s| s.kind == kind).count();
         if count(SlotKind::Password) + count(SlotKind::PasswordKeyfile) != 1
-            || count(SlotKind::Recovery) > 1
+            || count(SlotKind::Recovery) + usize::from(self.parts.is_some()) > 1
         {
             return Err(Error::Malformed);
         }
@@ -218,6 +261,8 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<ParsedFile<'_>> {
         .ok_or(Error::Malformed)?;
     let header: VaultHeader = if version <= LAST_ARGON2_ONLY_VERSION {
         decode_exact::<VaultHeaderV5>(encoded)?.upgrade()
+    } else if version <= LAST_HEADER_WITHOUT_PARTS {
+        decode_exact::<VaultHeaderV7>(encoded)?.upgrade()
     } else {
         decode_exact(encoded)?
     };

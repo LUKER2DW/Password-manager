@@ -1,4 +1,4 @@
-//! User-held keys (Secret Key, Recovery Key) and the internal key hierarchy
+//! User-held keys (Secret Key, recovery parts, Recovery Key) and the internal key hierarchy
 //! (spec: CRYPTO.md §2–§3).
 
 use std::fmt;
@@ -15,6 +15,8 @@ const RECOVERY_KEY_LEN: usize = 32;
 const SECRET_KEY_PREFIX: &str = "S0";
 const RECOVERY_KEY_PREFIX: &str = "R0";
 const SECRET_KEY_GROUP: usize = 7;
+const PART_LEN: usize = 16;
+const PART_GROUP: usize = 7;
 const RECOVERY_KEY_GROUP: usize = 6;
 const CHECKSUM_CHARS: usize = 2;
 
@@ -22,7 +24,8 @@ const CHECKSUM_CHARS: usize = 2;
 /// key-encryption key. Without it, the master password alone cannot open the vault.
 pub struct SecretKey(Zeroizing<[u8; SECRET_KEY_LEN]>);
 
-/// 256-bit Recovery Key printed in the emergency kit. Opens the vault on its own.
+/// 256-bit Recovery Key printed in emergency kits made before format v8. Opens the vault on
+/// its own. New kits use [`RecoveryParts`] instead.
 pub struct RecoveryKey(Zeroizing<[u8; RECOVERY_KEY_LEN]>);
 
 macro_rules! user_key_impl {
@@ -90,6 +93,180 @@ impl RecoveryKey {
     /// …of this many characters, so it can be written into boxes on paper.
     pub const GROUP_LEN: usize = RECOVERY_KEY_GROUP;
     pub const PREFIX: &'static str = RECOVERY_KEY_PREFIX;
+}
+
+impl SecretKey {
+    pub(crate) fn from_slice(bytes: &[u8]) -> Result<Self> {
+        let mut key = Zeroizing::new([0u8; SECRET_KEY_LEN]);
+        if bytes.len() != SECRET_KEY_LEN {
+            return Err(Error::Malformed);
+        }
+        key.copy_from_slice(bytes);
+        Ok(Self(key))
+    }
+}
+
+/// Which of the three recovery parts (CRYPTO.md §2.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PartLabel {
+    A,
+    B,
+    C,
+}
+
+impl PartLabel {
+    pub const ALL: [PartLabel; 3] = [PartLabel::A, PartLabel::B, PartLabel::C];
+
+    /// The printed prefix: the part's letter and the scheme's version, e.g. `A0`.
+    pub fn prefix(self) -> &'static str {
+        match self {
+            PartLabel::A => "A0",
+            PartLabel::B => "B0",
+            PartLabel::C => "C0",
+        }
+    }
+
+    pub fn letter(self) -> char {
+        match self {
+            PartLabel::A => 'A',
+            PartLabel::B => 'B',
+            PartLabel::C => 'C',
+        }
+    }
+}
+
+/// One of the three recovery parts of an emergency kit (format v8): 128 random bits. One part
+/// alone reveals nothing; any two bring back the Secret Key; all three open the vault, so a
+/// forgotten master password can be replaced.
+pub struct RecoveryPart {
+    label: PartLabel,
+    key: Zeroizing<[u8; PART_LEN]>,
+}
+
+impl RecoveryPart {
+    /// The printed form is the prefix followed by this many groups…
+    pub const GROUPS: usize = (encoding::encoded_len(PART_LEN) + CHECKSUM_CHARS) / PART_GROUP;
+    /// …of this many characters.
+    pub const GROUP_LEN: usize = PART_GROUP;
+    /// Bytes of a part, as kept in a file of its own (the picture).
+    pub const LEN: usize = PART_LEN;
+
+    fn generate(label: PartLabel) -> Result<Self> {
+        Ok(Self {
+            label,
+            key: random::secret_array::<PART_LEN>()?,
+        })
+    }
+
+    /// Parses the printed form (`A0-…`, `B0-…` or `C0-…`). Case-insensitive; spaces and
+    /// dashes are ignored; a typo is caught by the checksum.
+    pub fn parse(text: &str) -> Result<Self> {
+        let first = text
+            .bytes()
+            .find(|b| *b != b'-' && !b.is_ascii_whitespace())
+            .map(|b| b.to_ascii_uppercase());
+        let label = match first {
+            Some(b'A') => PartLabel::A,
+            Some(b'B') => PartLabel::B,
+            Some(b'C') => PartLabel::C,
+            _ => return Err(Error::InvalidKeyFormat),
+        };
+        parse_user_key::<PART_LEN>(text, label.prefix()).map(|key| Self { label, key })
+    }
+
+    /// The printable form, e.g. for the emergency kit. Wiped on drop.
+    pub fn to_display_string(&self) -> Zeroizing<String> {
+        format_user_key(self.key.as_ref(), self.label.prefix(), PART_GROUP)
+    }
+
+    pub fn label(&self) -> PartLabel {
+        self.label
+    }
+
+    /// The part's bytes, to keep it in a file of its own. Wiped on drop.
+    pub fn to_bytes(&self) -> Zeroizing<[u8; PART_LEN]> {
+        self.key.clone()
+    }
+
+    /// A part read back from a file of its own.
+    pub fn from_bytes(label: PartLabel, bytes: &[u8]) -> Result<Self> {
+        let mut key = Zeroizing::new([0u8; PART_LEN]);
+        if bytes.len() != PART_LEN {
+            return Err(Error::InvalidKeyFormat);
+        }
+        key.copy_from_slice(bytes);
+        Ok(Self { label, key })
+    }
+
+    fn as_bytes(&self) -> &[u8; PART_LEN] {
+        &self.key
+    }
+}
+
+impl fmt::Debug for RecoveryPart {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RecoveryPart({}, <redacted>)", self.label.letter())
+    }
+}
+
+impl PartialEq for RecoveryPart {
+    fn eq(&self, other: &Self) -> bool {
+        self.label == other.label && bool::from(self.key.as_slice().ct_eq(other.key.as_slice()))
+    }
+}
+
+impl Eq for RecoveryPart {}
+
+/// The three recovery parts of one kit, A, B and C.
+#[derive(Debug)]
+pub struct RecoveryParts([RecoveryPart; 3]);
+
+impl RecoveryParts {
+    pub fn generate() -> Result<Self> {
+        Ok(Self([
+            RecoveryPart::generate(PartLabel::A)?,
+            RecoveryPart::generate(PartLabel::B)?,
+            RecoveryPart::generate(PartLabel::C)?,
+        ]))
+    }
+
+    pub fn part(&self, label: PartLabel) -> &RecoveryPart {
+        &self.0[label as usize]
+    }
+
+    pub(crate) fn all(&self) -> [&RecoveryPart; 3] {
+        [&self.0[0], &self.0[1], &self.0[2]]
+    }
+}
+
+/// The three parts in order A, B, C; refused unless there is exactly one of each.
+pub(crate) fn ordered_parts(parts: [&RecoveryPart; 3]) -> Result<[&RecoveryPart; 3]> {
+    let mut sorted = parts;
+    sorted.sort_by_key(|part| part.label);
+    if sorted.iter().map(|part| part.label).ne(PartLabel::ALL) {
+        return Err(Error::InvalidKeyFormat);
+    }
+    Ok(sorted)
+}
+
+/// Which pair two parts are, as an index into the header's pair wraps (AB 0, AC 1, BC 2), and
+/// the two in order; refused when both are the same part.
+pub(crate) fn ordered_pair<'a>(
+    first: &'a RecoveryPart,
+    second: &'a RecoveryPart,
+) -> Result<(usize, &'a RecoveryPart, &'a RecoveryPart)> {
+    let (x, y) = if first.label <= second.label {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    let index = match (x.label, y.label) {
+        (PartLabel::A, PartLabel::B) => 0,
+        (PartLabel::A, PartLabel::C) => 1,
+        (PartLabel::B, PartLabel::C) => 2,
+        _ => return Err(Error::InvalidKeyFormat),
+    };
+    Ok((index, x, y))
 }
 
 /// Top 10 bits of SHA-256("vault-v0/key-checksum" ‖ prefix ‖ key).
@@ -250,6 +427,51 @@ pub(crate) fn recovery_kek(
     )
 }
 
+/// KEK for the vault key from all three recovery parts (A ‖ B ‖ C, 384 random bits, so no
+/// Argon2), bound to this vault and this kit.
+pub(crate) fn parts_kek(
+    parts: [&RecoveryPart; 3],
+    vault_id: &[u8; 16],
+    kit_id: &[u8; 16],
+) -> Zeroizing<aead::Key> {
+    let mut ikm = Zeroizing::new([0u8; 3 * PART_LEN]);
+    for (index, part) in parts.iter().enumerate() {
+        ikm[index * PART_LEN..(index + 1) * PART_LEN].copy_from_slice(part.as_bytes());
+    }
+    hkdf32(ikm.as_ref(), vault_id, &[b"vault-v0/kek/parts", kit_id])
+}
+
+/// KEK that one pair of parts opens (`first` before `second`, as [`ordered_pair`] gives them).
+pub(crate) fn pair_kek(
+    first: &RecoveryPart,
+    second: &RecoveryPart,
+    vault_id: &[u8; 16],
+    kit_id: &[u8; 16],
+) -> Zeroizing<aead::Key> {
+    let mut ikm = Zeroizing::new([0u8; 2 * PART_LEN]);
+    ikm[..PART_LEN].copy_from_slice(first.as_bytes());
+    ikm[PART_LEN..].copy_from_slice(second.as_bytes());
+    let pair = [first.label.letter() as u8, second.label.letter() as u8];
+    hkdf32(
+        ikm.as_ref(),
+        vault_id,
+        &[b"vault-v0/kek/parts-pair/", &pair, kit_id],
+    )
+}
+
+/// Key that seals the Secret Key in the header, from the random pair key every pair opens.
+pub(crate) fn parts_secret_key_key(
+    pair_key: &[u8],
+    vault_id: &[u8; 16],
+    kit_id: &[u8; 16],
+) -> Zeroizing<aead::Key> {
+    hkdf32(
+        pair_key,
+        vault_id,
+        &[b"vault-v0/key/parts-secret-key", kit_id],
+    )
+}
+
 /// KEK that wraps the item guard key. `stretched` is Argon2id of the PIN, guard password or
 /// master password, with the wrapped key's own salt.
 pub(crate) fn guard_kek(stretched: &[u8; 32], vault_id: &[u8; 16]) -> Zeroizing<aead::Key> {
@@ -368,6 +590,47 @@ mod tests {
         // "R0" + 9 groups of (dash + 6 chars)
         assert_eq!(text.len(), 2 + 9 * 7);
         assert_eq!(RecoveryKey::parse(&text).unwrap(), key);
+    }
+
+    #[test]
+    fn recovery_parts_text_round_trip() {
+        let parts = RecoveryParts::generate().unwrap();
+        for label in PartLabel::ALL {
+            let part = parts.part(label);
+            let text = part.to_display_string();
+            assert!(text.starts_with(&format!("{}-", label.prefix())));
+            // prefix + 4 groups of (dash + 7 chars), like the Secret Key
+            assert_eq!(text.len(), 2 + 4 * 8);
+            assert_eq!(RecoveryPart::GROUPS, 4);
+            let parsed = RecoveryPart::parse(&text.to_lowercase()).unwrap();
+            assert_eq!(&parsed, part);
+            assert_eq!(parsed.label(), label);
+            let back = RecoveryPart::from_bytes(label, part.to_bytes().as_ref()).unwrap();
+            assert_eq!(&back, part);
+        }
+        assert_ne!(parts.part(PartLabel::A), parts.part(PartLabel::B));
+        // A part relabelled as another fails its checksum.
+        let a = parts.part(PartLabel::A).to_display_string();
+        assert!(RecoveryPart::parse(&a.replacen('A', "B", 1)).is_err());
+        assert!(matches!(
+            RecoveryPart::parse("S0-ABC"),
+            Err(Error::InvalidKeyFormat)
+        ));
+        assert_eq!(
+            format!("{:?}", parts.part(PartLabel::C)),
+            "RecoveryPart(C, <redacted>)"
+        );
+    }
+
+    #[test]
+    fn parts_are_taken_in_any_order_but_once_each() {
+        let parts = RecoveryParts::generate().unwrap();
+        let [a, b, c] = parts.all();
+        assert_eq!(ordered_parts([c, a, b]).unwrap(), [a, b, c]);
+        assert!(ordered_parts([a, a, b]).is_err());
+        assert_eq!(ordered_pair(c, a).unwrap().0, 1);
+        assert_eq!(ordered_pair(b, c).unwrap().0, 2);
+        assert!(ordered_pair(b, b).is_err());
     }
 
     #[test]

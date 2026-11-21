@@ -6,10 +6,10 @@ use zeroize::Zeroizing;
 
 use crate::{
     Error, Folder, FolderId, GuardCheck, ItemData, ItemGuard, ItemId, ItemSummary, PasswordKdf,
-    RecoveryKey, Result, SecretKey, VaultSettings, aead,
+    RecoveryKey, RecoveryPart, RecoveryParts, Result, SecretKey, VaultSettings, aead,
     format::{
-        self, ItemRecord, KeySlot, SlotKind, VaultBody, VaultBodyV0, VaultBodyV1, VaultBodyV2,
-        VaultBodyV3, VaultBodyV4, VaultBodyV5, VaultBodyV6, VaultHeader,
+        self, ItemRecord, KeySlot, PartsSlot, SlotKind, VaultBody, VaultBodyV0, VaultBodyV1,
+        VaultBodyV2, VaultBodyV3, VaultBodyV4, VaultBodyV5, VaultBodyV6, VaultHeader,
     },
     guard::{GuardKeySlots, GuardSlot, WrappedGuardKey},
     item::{
@@ -31,6 +31,16 @@ fn later(previous: i64) -> i64 {
 
 const SUBKEY_BODY: &[u8] = b"body";
 const SUBKEY_ITEM_WRAP: &[u8] = b"item-wrap";
+const SUBKEY_PARTS: &[u8] = b"parts";
+
+/// What each sealed value of the recovery parts is (the last byte of its AAD).
+mod part_role {
+    pub(super) const VAULT_KEY: u8 = 0x01;
+    /// Pair wraps: AB, AC, BC follow it.
+    pub(super) const PAIR: u8 = 0x02;
+    pub(super) const PAIR_KEY: u8 = 0x05;
+    pub(super) const SECRET_KEY: u8 = 0x06;
+}
 
 /// How to unlock a vault.
 pub enum Unlock<'a> {
@@ -45,8 +55,12 @@ pub enum Unlock<'a> {
         secret_key: &'a SecretKey,
         keyfile: &'a Keyfile,
     },
-    /// Recovery Key from the emergency kit. Opens the vault on its own, keyfile or not.
+    /// Recovery Key from an emergency kit made before format v8. Opens the vault on its own,
+    /// keyfile or not.
     Recovery(&'a RecoveryKey),
+    /// All three recovery parts of the current kit, in any order. Open the vault on their own,
+    /// keyfile or not, so a forgotten master password can be replaced.
+    Parts([&'a RecoveryPart; 3]),
 }
 
 impl fmt::Debug for Unlock<'_> {
@@ -57,6 +71,7 @@ impl fmt::Debug for Unlock<'_> {
                 f.write_str("Unlock::PasswordAndKeyfile(<redacted>)")
             }
             Unlock::Recovery(_) => f.write_str("Unlock::Recovery(<redacted>)"),
+            Unlock::Parts(_) => f.write_str("Unlock::Parts(<redacted>)"),
         }
     }
 }
@@ -66,7 +81,10 @@ impl fmt::Debug for Unlock<'_> {
 pub struct VaultInfo {
     pub id_hex: String,
     pub kdf: PasswordKdf,
+    /// A Recovery Key from a kit made before format v8 opens it.
     pub has_recovery_key: bool,
+    /// Recovery parts open it (format v8).
+    pub has_recovery_parts: bool,
     /// The master password alone doesn't open it: a keyfile is needed too.
     pub needs_keyfile: bool,
 }
@@ -114,6 +132,7 @@ impl Vault {
                 vault_id,
                 kdf,
                 slots: Vec::new(),
+                parts: None,
             },
             vault_key,
             revision: 0,
@@ -178,6 +197,17 @@ impl Vault {
                 SlotKind::Recovery,
                 keys::recovery_kek(recovery_key, &header.vault_id),
             ),
+            Unlock::Parts(parts) => {
+                let parts = keys::ordered_parts(parts)?;
+                let slot = header.parts.as_ref().ok_or(Error::NoMatchingSlot)?;
+                let kek = keys::parts_kek(parts, &header.vault_id, &slot.kit_id);
+                let key_bytes = aead::open(
+                    &kek,
+                    &slot.vault_key,
+                    &parts_aad(&header.vault_id, &slot.kit_id, part_role::VAULT_KEY),
+                )?;
+                return Self::from_parsed(parsed, VaultKey::from_slice(&key_bytes)?);
+            }
         };
         let slot = header.slot(kind).ok_or(Error::NoMatchingSlot)?;
         let key_bytes = aead::open(
@@ -186,6 +216,30 @@ impl Vault {
             &slot_aad(&header.vault_id, kind),
         )?;
         Self::from_parsed(parsed, VaultKey::from_slice(&key_bytes)?)
+    }
+
+    /// The Secret Key, from any two of the three recovery parts (format v8). The master
+    /// password is still needed to open the vault with it.
+    pub fn recover_secret_key(
+        bytes: &[u8],
+        first: &RecoveryPart,
+        second: &RecoveryPart,
+    ) -> Result<SecretKey> {
+        let parsed = format::parse(bytes)?;
+        let header = &parsed.header;
+        let slot = header.parts.as_ref().ok_or(Error::NoMatchingSlot)?;
+        let (index, x, y) = keys::ordered_pair(first, second)?;
+        let kek = keys::pair_kek(x, y, &header.vault_id, &slot.kit_id);
+        let pair_key = aead::open(
+            &kek,
+            &slot.pairs[index],
+            &parts_aad(
+                &header.vault_id,
+                &slot.kit_id,
+                part_role::PAIR + index as u8,
+            ),
+        )?;
+        open_parts_secret_key(&pair_key, header, slot)
     }
 
     /// Opens the vault with a device unlock made by [`Vault::seal_for_device`] on this device.
@@ -713,6 +767,7 @@ impl Vault {
         Ok(VaultInfo {
             id_hex: hex(&parsed.header.vault_id),
             has_recovery_key: parsed.header.slot(SlotKind::Recovery).is_some(),
+            has_recovery_parts: parsed.header.parts.is_some(),
             needs_keyfile: parsed.header.slot(SlotKind::PasswordKeyfile).is_some(),
             kdf: parsed.header.kdf,
         })
@@ -772,8 +827,14 @@ impl Vault {
         &self.header.kdf
     }
 
+    /// A Recovery Key from a kit made before format v8 opens this vault.
     pub fn has_recovery_key(&self) -> bool {
         self.header.slot(SlotKind::Recovery).is_some()
+    }
+
+    /// Recovery parts open this vault (format v8).
+    pub fn has_recovery_parts(&self) -> bool {
+        self.header.parts.is_some()
     }
 
     pub fn len(&self) -> usize {
@@ -1020,6 +1081,8 @@ impl Vault {
     ) -> Result<()> {
         let kdf = kdf.into().with_fresh_salt()?;
         let slot = self.password_slot(new_password, secret_key, keyfile, &kdf)?;
+        // The recovery parts keep bringing back the Secret Key, even a new one.
+        let parts_secret_key = self.seal_parts_secret_key(secret_key)?;
         if let Some(slots) = &mut self.guard.key {
             slots.master = match &self.guard_key {
                 Some(key) => Some(WrappedGuardKey::wrap(
@@ -1037,6 +1100,9 @@ impl Vault {
             .slots
             .retain(|s| !matches!(s.kind, SlotKind::Password | SlotKind::PasswordKeyfile));
         self.header.slots.insert(0, slot);
+        if let (Some(parts), Some(sealed)) = (&mut self.header.parts, parts_secret_key) {
+            parts.secret_key = sealed;
+        }
         self.sync.unlock_revision = self.sync.unlock_revision.saturating_add(1);
         Ok(())
     }
@@ -1046,17 +1112,84 @@ impl Vault {
         self.header.slot(SlotKind::PasswordKeyfile).is_some()
     }
 
-    /// Adds, replaces or (with `None`) removes the recovery slot.
+    /// Makes one Recovery Key the vault's way to recover, as kits made before format v8 had,
+    /// or (with `None`) leaves it with none. Either way, recovery parts stop opening it. New
+    /// kits use [`Vault::set_recovery_parts`].
     pub fn set_recovery_key(&mut self, recovery_key: Option<&RecoveryKey>) -> Result<()> {
         let slot = recovery_key
             .map(|key| self.recovery_slot(key))
             .transpose()?;
         self.header.slots.retain(|s| s.kind != SlotKind::Recovery);
+        self.header.parts = None;
         if let Some(slot) = slot {
             self.header.slots.push(slot);
         }
         self.sync.unlock_revision = self.sync.unlock_revision.saturating_add(1);
         Ok(())
+    }
+
+    /// Makes `parts` the vault's way to recover (a new kit): any two of them bring back
+    /// `secret_key`, the vault's current Secret Key, and all three open the vault. The Recovery
+    /// Key or parts it had before stop opening it. Changing the master password or the Secret
+    /// Key later keeps them working.
+    pub fn set_recovery_parts(
+        &mut self,
+        parts: &RecoveryParts,
+        secret_key: &SecretKey,
+    ) -> Result<()> {
+        let vault_id = self.header.vault_id;
+        let kit_id: [u8; 16] = crate::random::array()?;
+        let pair_key = crate::random::secret_array::<{ aead::KEY_LEN }>()?;
+        let aad = |role| parts_aad(&vault_id, &kit_id, role);
+
+        let kek = keys::parts_kek(parts.all(), &vault_id, &kit_id);
+        let vault_key = aead::seal(&kek, self.vault_key.as_bytes(), &aad(part_role::VAULT_KEY))?;
+        let mut pairs: [Vec<u8>; 3] = Default::default();
+        let [a, b, c] = parts.all();
+        for (index, (x, y)) in [(a, b), (a, c), (b, c)].into_iter().enumerate() {
+            let kek = keys::pair_kek(x, y, &vault_id, &kit_id);
+            pairs[index] =
+                aead::seal(&kek, pair_key.as_ref(), &aad(part_role::PAIR + index as u8))?;
+        }
+        let for_vault = aead::seal(
+            &self.vault_key.subkey(SUBKEY_PARTS, &vault_id),
+            pair_key.as_ref(),
+            &aad(part_role::PAIR_KEY),
+        )?;
+        let secret_key = aead::seal(
+            &keys::parts_secret_key_key(pair_key.as_ref(), &vault_id, &kit_id),
+            secret_key.as_bytes(),
+            &aad(part_role::SECRET_KEY),
+        )?;
+        self.header.slots.retain(|s| s.kind != SlotKind::Recovery);
+        self.header.parts = Some(PartsSlot {
+            kit_id,
+            vault_key,
+            pairs,
+            pair_key: for_vault,
+            secret_key,
+        });
+        self.sync.unlock_revision = self.sync.unlock_revision.saturating_add(1);
+        Ok(())
+    }
+
+    /// The Secret Key sealed again for the current recovery parts (`None` without parts).
+    fn seal_parts_secret_key(&self, secret_key: &SecretKey) -> Result<Option<Vec<u8>>> {
+        let Some(slot) = &self.header.parts else {
+            return Ok(None);
+        };
+        let vault_id = &self.header.vault_id;
+        let pair_key = aead::open(
+            &self.vault_key.subkey(SUBKEY_PARTS, vault_id),
+            &slot.pair_key,
+            &parts_aad(vault_id, &slot.kit_id, part_role::PAIR_KEY),
+        )?;
+        aead::seal(
+            &keys::parts_secret_key_key(&pair_key, vault_id, &slot.kit_id),
+            secret_key.as_bytes(),
+            &parts_aad(vault_id, &slot.kit_id, part_role::SECRET_KEY),
+        )
+        .map(Some)
     }
 
     // ---- devices (sync) ----
@@ -1240,6 +1373,25 @@ impl Vault {
 
 fn slot_aad(vault_id: &[u8; 16], kind: SlotKind) -> Vec<u8> {
     [b"vault-v0/slot".as_slice(), vault_id, &[kind.aad_byte()]].concat()
+}
+
+fn parts_aad(vault_id: &[u8; 16], kit_id: &[u8; 16], role: u8) -> Vec<u8> {
+    [b"vault-v0/parts".as_slice(), vault_id, kit_id, &[role]].concat()
+}
+
+/// The Secret Key the recovery parts keep, opened with the pair key.
+fn open_parts_secret_key(
+    pair_key: &[u8],
+    header: &VaultHeader,
+    slot: &PartsSlot,
+) -> Result<SecretKey> {
+    let key = keys::parts_secret_key_key(pair_key, &header.vault_id, &slot.kit_id);
+    let bytes = aead::open(
+        &key,
+        &slot.secret_key,
+        &parts_aad(&header.vault_id, &slot.kit_id, part_role::SECRET_KEY),
+    )?;
+    SecretKey::from_slice(&bytes)
 }
 
 fn body_aad(header_bytes: &[u8]) -> Vec<u8> {
