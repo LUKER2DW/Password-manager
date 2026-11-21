@@ -68,7 +68,7 @@ them when an item is open.
 
 | Screen | What it does | State |
 |---|---|---|
-| Start | No vault on this phone: how to copy the file over, and "Choose the vault file" | ✅ (picker: computer's dialog now, Android's in M7.2) |
+| Start | No vault on this phone: choose its file, or set it up from the server | ✅ (the system's file picker on Android) |
 | Unlock | Master password (and the Secret Key the first time on this phone); a chosen file waits here until it opens | ✅; ⬜ biometrics |
 | Vault | Search, filters (all, favourites, logins, cards, notes), the list | ✅ |
 | Item | Every field with Copy; password and code hidden until asked; item lock | ✅ |
@@ -262,8 +262,16 @@ vault code is the same: the core uses the browser's clock (`web-time`) and its r
 ### 7.2 On Android
 
 `crates/mobile-android` is the APK's native library: `android_main` points the app folder
-at the app's private storage, starts Slint's Android backend (`NativeActivity`, no Java or
-Kotlin yet) and opens the same screens and controller. `cargo-apk` packages it.
+at the app's private storage, starts Slint's Android backend and opens the same screens and
+controller. `cargo-apk` packages it. The activity is `VaultActivity`
+(`crates/mobile-android/java/`), Android's `NativeActivity` plus the system's file picker:
+it opens a document (`ACTION_OPEN_DOCUMENT`) or asks where to save one
+(`ACTION_CREATE_DOCUMENT`), reads and writes it through the content resolver off the main
+thread, and hands the bytes to the native library (`src/shell.rs`, JNI). `build.ps1`
+compiles it with the JDK's `javac` and the SDK's `d8`, adds `classes.dex` to the APK
+cargo-apk made, then aligns and signs it again. The launcher icon (`res/`) is the desktop's
+safe, as an adaptive icon. It is plain Java, not Kotlin: one small class needs no Kotlin
+compiler or Gradle in the build.
 
 ```powershell
 # Once: the NDK and platform 35 (sdkmanager), Rust's Android targets, cargo-apk.
@@ -282,16 +290,20 @@ What is in this first build (M7.1):
   master password, the Secret Key, item PINs and passwords are typed on keys the app draws,
   straight into the secure buffers. No keyboard app sees them. Ordinary fields (search,
   names, the invite line) use the system keyboard.
-- **Setting up from the server:** the start screen takes the `vaultsync:` line from a
-  computer's Add a device, joins the server, fetches a copy and opens it with the master
-  password and Secret Key. The system file picker comes with the shell (M7.2), so "Choose
-  the vault file" is hidden on Android for now.
+- **The start screen offers both ways:** choose the `.vault` file (the system's picker; it
+  then works offline, and sync can be turned on later in Settings, server or WebDAV), or
+  paste the `vaultsync:` line from a computer's Add a device to set it up from the server.
+  "Bring a newer copy" takes a file too.
+- **Settings:** change the master password (the current one is checked against the file;
+  saved and synced), and save a copy of the vault: the copy is read back, compared byte for
+  byte and opened with the vault's key before it is called a backup; one that fails is
+  deleted.
 - **The credential store** is SharedPreferences encrypted with a key in the Android Keystore
   (`android-native-keyring-store`); **the clipboard** is the system's `ClipboardManager`
   over JNI, with copied secrets marked sensitive.
 - `INTERNET` is the only permission. Android lets plain http through only so a Tailscale
   address works; the app itself refuses `http://` to anything else.
 
-Not yet: the Kotlin shell (file picker, `FLAG_SECURE`, back button, biometrics, autofill),
+Not yet: `FLAG_SECURE`, the back button, biometrics and autofill in the shell,
 the bundled fonts (Roboto stands in), and checking it on a device: built here, not run on a
 phone yet.

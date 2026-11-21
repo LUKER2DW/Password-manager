@@ -322,8 +322,16 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   Android backend) with the app's own keyboard for secret fields, setup from the sync
   server on the start screen, the Keystore-backed credential store and the system
   clipboard over JNI (MOBILE.md §7.2); ⬜ tried on a device, bundled fonts, back button
-- ⬜ M7.2 Phone storage (Keystore Secret Key, the system file picker and "open with",
-  `FLAG_SECURE`, sensitive clipboard): MOBILE.md §6.3
+- 🚧 M7.2 Phone storage: ✅ the activity's Java side (`VaultActivity`, built into the APK
+  by `build.ps1` with javac and d8) with the system's file picker: the start screen opens a
+  `.vault` file (offline; sync turned on later) or sets up from the server, "Bring a newer
+  copy" takes a file, "Save a copy" saves a backup that is read back and checked; the
+  launcher icon; ✅ Keystore-backed credential store, sensitive clipboard; ⬜ "open with"
+  for `.vault` files, `FLAG_SECURE`: MOBILE.md §6.3
+- ✅ Changing the master password on the phone (checked against the file, saved, synced)
+- ✅ Confirmed backups on the desktop and the phone: written, read back, compared with the
+  vault file and opened with the vault's key (`Vault::check_copy`), deleted when they
+  fail
 - ⬜ M7.3 BiometricPrompt Class 3 quick unlock (StrongBox)
 - ⬜ M7.4 Kotlin Autofill Service; M7.5 Credential Manager provider (passwords, passkeys)
 - ⬜ M7.6 Sync; M7.7 cards, custom fields, folders, health, import, translations
