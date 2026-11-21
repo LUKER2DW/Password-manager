@@ -29,10 +29,13 @@ fn android_main(app: slint::android::AndroidApp) {
     let Ok(window) = PhoneWindow::new() else {
         return;
     };
-    // No keyboard app sees a secret: the app draws its own for secret fields. The system's
-    // file picker comes with the Android shell (M7.2); until then the vault comes from the
-    // sync server.
-    window.set_drawn_keyboard(true);
+    // Secret fields take the system keyboard asked for a password: keyboards learn nothing
+    // from it and suggest nothing, and the field itself only ever holds placeholders. The
+    // system's file picker comes with the Android shell (M7.2); until then the vault comes
+    // from the sync server.
+    window
+        .global::<vault_mobile::ui::Secrets>()
+        .set_system_keyboard(true);
     window.set_can_pick_file(false);
     let _controller = Controller::start(&window, home.join("vault.vault"), false);
     let _ = window.run();

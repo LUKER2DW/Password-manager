@@ -6,6 +6,7 @@
 import { Theme, Sketch, Secrets } from "../../desktop/ui/theme.slint";
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Slider, Choice, ItemIcon, MarkStroke, Logo, Rule } from "../../desktop/ui/widgets.slint";
 import { Glyph } from "../../desktop/ui/icons.slint";
+import { StrengthMeter } from "../../desktop/ui/strength.slint";
 
 export { Theme, Sketch, Secrets }
 
@@ -409,9 +410,10 @@ export component PhoneWindow inherits Window {
     default-font-family: Theme.ui-font;
     default-font-size: Theme.body;
 
-    // Room the system keeps for itself (status bar, gesture bar), set by the shell.
-    in property <length> inset-top: 0px;
-    in property <length> inset-bottom: 0px;
+    // Room the system keeps for itself: the status bar, the navigation or gesture bar (an
+    // app is drawn under them from Android 15 on) and the system keyboard while it's up.
+    in property <length> inset-top: root.safe-area-insets.top;
+    in property <length> inset-bottom: Math.max(root.safe-area-insets.bottom, root.virtual-keyboard-size.height);
 
     in-out property <Screen> screen: Screen.start;
     in-out property <Place> place: Place.items;
@@ -497,6 +499,10 @@ export component PhoneWindow inherits Window {
     // Generator
     in property <string> gen-password;
     in property <int> gen-bits;
+    // How long it would take to crack (the desktop's estimate, view.rs).
+    in property <int> gen-crack-unit;
+    in property <int> gen-crack-amount;
+    in property <int> gen-crack-comparison;
     in-out property <int> gen-mode;     // 0 characters, 1 words
     in-out property <int> gen-length: 20;
     in-out property <int> gen-words: 6;
@@ -630,21 +636,9 @@ export component PhoneWindow inherits Window {
         }
 
         // ---------------------------------------------------------------- unlock
+        // A plain page: the desktop's lock scene is drawn around a sign-in card, which a phone
+        // doesn't have, so it showed as an empty blurred panel here.
         if root.screen == Screen.unlock: Rectangle {
-            Image {
-                width: parent.width;
-                height: parent.height * 0.46;
-                y: 0;
-                source: Theme.dark ? @image-url("../../desktop/ui/brand/lock-scene.svg") : @image-url("../../desktop/ui/brand/lock-scene-light.svg");
-                image-fit: cover;
-                opacity: 0.55;
-            }
-            // The wall fades into the page.
-            Rectangle {
-                width: parent.width;
-                height: parent.height * 0.46;
-                background: @linear-gradient(180deg, Theme.canvas.transparentize(1) 0%, Theme.canvas.transparentize(0.35) 55%, Theme.canvas 100%);
-            }
             VerticalLayout {
                 padding: root.gutter;
                 spacing: 14px;
@@ -949,39 +943,23 @@ export component PhoneWindow inherits Window {
                                 background: Theme.field;
                                 border-width: 1px;
                                 border-color: Theme.rule;
-                                height: Math.max(88px, made.preferred-height + 32px);
+                                height: Math.max(52px, made.preferred-height + 22px);
                                 made := Text {
-                                    x: 16px;
-                                    width: parent.width - 32px;
+                                    x: 14px;
+                                    width: parent.width - 28px;
                                     text: root.gen-password;
                                     font-family: Theme.mono-font;
-                                    font-size: Theme.title;
+                                    font-size: Theme.body;
                                     color: Theme.ink;
                                     wrap: char-wrap;
                                     vertical-alignment: center;
                                 }
                             }
-                            VerticalLayout {
-                                spacing: 6px;
-                                Rectangle {
-                                    height: 4px;
-                                    border-radius: 2px;
-                                    background: Theme.rule;
-                                    Rectangle {
-                                        x: 0;
-                                        width: parent.width * Math.min(1, root.gen-bits / 128);
-                                        border-radius: 2px;
-                                        background: root.gen-bits < 50 ? Theme.seal : root.gen-bits < 70 ? Theme.marker : Theme.good;
-                                        animate width { duration: Theme.sweep; }
-                                    }
-                                }
-                                Text {
-                                    text: root.gen-bits < 50 ? @tr("Weak: {} bits. Make it longer.", root.gen-bits)
-                                        : root.gen-bits < 70 ? @tr("Fair: {} bits.", root.gen-bits)
-                                        : @tr("Strong: {} bits.", root.gen-bits);
-                                    font-size: Theme.small;
-                                    color: Theme.graphite;
-                                }
+                            StrengthMeter {
+                                bits: root.gen-bits;
+                                crack-unit: root.gen-crack-unit;
+                                crack-amount: root.gen-crack-amount;
+                                crack-comparison: root.gen-crack-comparison;
                             }
                             Choice {
                                 options: [@tr("Characters"), @tr("Words")];
@@ -997,7 +975,7 @@ export component PhoneWindow inherits Window {
                                 Slider {
                                     label: @tr("Length");
                                     minimum: 8;
-                                    maximum: 64;
+                                    maximum: 128;
                                     value <=> root.gen-length;
                                     changed => { root.gen-changed(); }
                                 }

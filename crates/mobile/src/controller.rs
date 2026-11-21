@@ -35,6 +35,7 @@ use crate::{
     },
     sketch,
     ui::{CodeRow, ItemRow, Page, PhoneWindow, Place, Screen, Secrets, Sketch, Theme},
+    view,
 };
 
 /// Secure field ids (the `field` of each `SecretField` in app.slint).
@@ -85,6 +86,9 @@ mod notice {
 
 /// A copied secret leaves the clipboard after this long.
 const CLIPBOARD_SECONDS: u64 = 30;
+/// What a secret field's hidden input holds for each character (system keyboard): a
+/// private-use code point, which secret buffers never take.
+const PLACEHOLDER: char = '\u{E000}';
 const NOTICE_FOR: Duration = Duration::from_secs(3);
 const LOCK_CHOICES: [Duration; 3] = [
     Duration::from_secs(60),
@@ -354,6 +358,30 @@ impl Controller {
                 c.with_secret(id, SecretBuffer::clear);
             }
         });
+        // The system keyboard (Android): each edit of the hidden input. Placeholders stand
+        // for what the field already holds; fewer of them is that many deleted, anything else
+        // is what was typed. The input gets placeholders back at once.
+        let weak = Rc::downgrade(self);
+        secrets.on_typed(move |id, text| {
+            let Some(c) = weak.upgrade() else {
+                return SharedString::new();
+            };
+            let kept = text.chars().filter(|ch| *ch == PLACEHOLDER).count();
+            c.with_secret(id, |buffer| {
+                for _ in kept..buffer.char_count() {
+                    buffer.backspace();
+                }
+                // Placeholders are private-use characters, which the buffer drops.
+                buffer.push_str(&text);
+            });
+            c.placeholders(id)
+        });
+        let weak = Rc::downgrade(self);
+        secrets.on_placeholders(move |id| {
+            weak.upgrade()
+                .map(|c| c.placeholders(id))
+                .unwrap_or_default()
+        });
         let weak = Rc::downgrade(self);
         secrets.on_paste(move |id, replace| {
             if let Some(c) = weak.upgrade() {
@@ -398,6 +426,21 @@ impl Controller {
             self.show_editor_password(true);
         }
         self.publish_lengths();
+    }
+
+    /// As many placeholders as field `id` holds characters.
+    fn placeholders(&self, id: i32) -> SharedString {
+        let count = usize::try_from(id)
+            .ok()
+            .and_then(|i| {
+                self.state
+                    .borrow()
+                    .secrets
+                    .get(i)
+                    .map(SecretBuffer::char_count)
+            })
+            .unwrap_or(0);
+        SharedString::from(PLACEHOLDER.to_string().repeat(count).as_str())
     }
 
     fn publish_lengths(&self) {
@@ -1399,6 +1442,10 @@ impl Controller {
                 self.set_error(error::NONE, "");
                 app.set_gen_password(password.as_str().into());
                 app.set_gen_bits(bits.round() as i32);
+                let (unit, amount) = view::crack_time(bits);
+                app.set_gen_crack_unit(unit);
+                app.set_gen_crack_amount(amount);
+                app.set_gen_crack_comparison(view::crack_comparison(bits));
                 self.state.borrow_mut().generated = password;
             }
             Err(_) => {

@@ -117,6 +117,31 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     let path = dir.path().join("phone").join("vault.vault");
     let controller = Controller::start(&app, path.clone(), true);
 
+    // ---- the system keyboard (Android): the hidden input only ever holds placeholders ----
+    {
+        let secrets = app.global::<Secrets>();
+        let p = '\u{E000}';
+        assert_eq!(secrets.invoke_placeholders(0), "");
+        assert_eq!(secrets.invoke_typed(0, "ab".into()), format!("{p}{p}"));
+        assert_eq!(length(&app, 0), 2);
+        // One more letter after the placeholders.
+        assert_eq!(
+            secrets.invoke_typed(0, format!("{p}{p}c").into()),
+            format!("{p}{p}{p}")
+        );
+        // Backspace: one placeholder gone.
+        assert_eq!(
+            secrets.invoke_typed(0, format!("{p}{p}").into()),
+            format!("{p}{p}")
+        );
+        assert_eq!(length(&app, 0), 2);
+        // All selected and typed over: none left, the new letter in.
+        assert_eq!(secrets.invoke_typed(0, "x".into()), format!("{p}"));
+        assert_eq!(secrets.invoke_placeholders(0), format!("{p}"));
+        secrets.invoke_clear(0);
+        assert_eq!(length(&app, 0), 0);
+    }
+
     // ---- no vault on the phone: one is brought in, never made ----
     assert_eq!(app.get_screen(), Screen::Start);
     controller.bring_vault(b"not a vault at all".to_vec());
@@ -530,7 +555,11 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         );
         assert!(fresh.get_incoming(), "the copy waits to prove itself");
         // Trying again with the same (now used) line goes on with the key the phone got.
-        assert_eq!(fresh.get_setup_invite(), "", "the line is cleared once used");
+        assert_eq!(
+            fresh.get_setup_invite(),
+            "",
+            "the line is cleared once used"
+        );
         fresh.set_setup_invite(link.as_str().into());
         fresh.invoke_setup_from_server();
         assert_eq!(

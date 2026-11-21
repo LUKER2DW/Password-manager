@@ -21,5 +21,9 @@ pub mod platform;
 mod sketch;
 #[cfg(test)]
 mod tests;
+// The crack-time estimate is the desktop's, so both apps say the same.
+#[path = "../../desktop/src/view.rs"]
+#[allow(dead_code)]
+mod view;
 
 pub use controller::Controller;
