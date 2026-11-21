@@ -326,6 +326,9 @@ pub struct InviteLink {
     pub server: String,
     pub vault: String,
     pub invite: String,
+    /// A backup server and an invite for it (`&backup=<url>&backup_invite=<invite>`), when
+    /// the vault syncs through two. Older apps skip these and join the main one only.
+    pub backup: Option<(String, String)>,
 }
 
 impl std::fmt::Debug for InviteLink {
@@ -341,24 +344,34 @@ impl InviteLink {
     const PREFIX: &'static str = "vaultsync:1?";
 
     pub fn to_text(&self) -> Zeroizing<String> {
-        Zeroizing::new(format!(
+        let mut text = Zeroizing::new(format!(
             "{}server={}&vault={}&invite={}",
             Self::PREFIX,
             escape(&self.server),
             self.vault,
             self.invite
-        ))
+        ));
+        if let Some((server, invite)) = &self.backup {
+            text.push_str(&format!(
+                "&backup={}&backup_invite={invite}",
+                escape(server)
+            ));
+        }
+        text
     }
 
     pub fn parse(text: &str) -> Option<Self> {
         let query = text.trim().strip_prefix(Self::PREFIX)?;
         let (mut server, mut vault, mut invite) = (None, None, None);
+        let (mut backup, mut backup_invite) = (None, None);
         for pair in query.split('&') {
             let (name, value) = pair.split_once('=')?;
             let slot = match name {
                 "server" => &mut server,
                 "vault" => &mut vault,
                 "invite" => &mut invite,
+                "backup" => &mut backup,
+                "backup_invite" => &mut backup_invite,
                 _ => continue,
             };
             if slot.is_some() {
@@ -366,10 +379,22 @@ impl InviteLink {
             }
             *slot = Some(unescape(value)?);
         }
+        let backup = match (backup, backup_invite) {
+            (Some(server), Some(invite)) => {
+                let invite = invite.to_ascii_lowercase();
+                if !is_id(&invite) {
+                    return None;
+                }
+                Some((server, invite))
+            }
+            (None, None) => None,
+            _ => return None,
+        };
         let link = Self {
             server: server?,
             vault: vault?.to_ascii_lowercase(),
             invite: invite?.to_ascii_lowercase(),
+            backup,
         };
         (is_id(&link.vault) && is_id(&link.invite)).then_some(link)
     }
@@ -502,6 +527,7 @@ mod tests {
             server: "https://vault.example-tailnet.ts.net:8443/sync".into(),
             vault: "0123456789abcdef0123456789abcdef".into(),
             invite: "fedcba9876543210fedcba9876543210".into(),
+            backup: None,
         };
         let text = link.to_text();
         assert_eq!(InviteLink::parse(&text), Some(link.clone()));
@@ -517,6 +543,27 @@ mod tests {
             None
         );
         assert!(!format!("{link:?}").contains(&link.invite));
+
+        // With a backup server: both come back; an app that doesn't know them joins the
+        // main one; half of a backup is refused.
+        let both = InviteLink {
+            backup: Some((
+                "https://192.168.0.9:8750#pin=00ff".into(),
+                "00112233445566778899aabbccddeeff".into(),
+            )),
+            ..link.clone()
+        };
+        let text = both.to_text();
+        assert!(text.contains("&backup=https://192.168.0.9:8750%23pin%3D00ff&backup_invite="));
+        assert_eq!(InviteLink::parse(&text), Some(both));
+        assert_eq!(
+            InviteLink::parse(&text.replace("&backup_invite=00112233445566778899aabbccddeeff", "")),
+            None
+        );
+        assert_eq!(
+            InviteLink::parse(&text.replace("backup_invite=0011", "backup_invite=zz11")),
+            None
+        );
     }
 
     #[test]

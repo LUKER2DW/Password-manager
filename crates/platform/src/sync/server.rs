@@ -138,6 +138,7 @@ impl ServerTarget {
         wire::InviteLink {
             server: self.address.clone(),
             vault: self.vault.clone(),
+            backup: None,
             invite: invite.invite.clone(),
         }
     }

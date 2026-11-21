@@ -26,7 +26,7 @@ pub use http::{check_address, split_pin};
 pub use server::ServerTarget;
 pub use webdav::WebDavTarget;
 
-use crate::{SyncTo, secret_store};
+use crate::{SyncPlace, SyncTo, secret_store};
 
 /// Copies bigger than this are not read: a vault is kilobytes to a few MB (pictures stay in
 /// each device's cache), and a target is not trusted to hand over something sane.
@@ -252,13 +252,57 @@ pub fn fetch(target: &dyn Target, own: DeviceId, known: &Tags) -> Result<Fetched
     Ok(fetched)
 }
 
+/// Which of a vault's sync places.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Role {
+    /// Where the vault syncs.
+    Main,
+    /// A second place (a backup server) synced every round too: the vault keeps syncing
+    /// through it while the main place can't be reached, and the main place catches up as
+    /// soon as it answers again.
+    Backup,
+}
+
+impl Role {
+    /// Added to the names its credentials are kept under; the main place's keep the names
+    /// they always had.
+    fn suffix(self) -> &'static str {
+        match self {
+            Role::Main => "",
+            Role::Backup => ":backup",
+        }
+    }
+}
+
+/// The name `device`'s key for the server in `role` is kept under (the `device` of
+/// `secret_store::*_sync_key`).
+pub fn sync_key_name(device: DeviceId, role: Role) -> String {
+    format!("{}{}", device.to_hex(), role.suffix())
+}
+
+/// The name the WebDAV password for the place in `role` is kept under (the `vault_id` of
+/// `secret_store::*_webdav_password`).
+pub fn webdav_password_name(vault_id: &str, role: Role) -> String {
+    format!("{vault_id}{}", role.suffix())
+}
+
 /// The target for vault `vault_id` synced by `device` through `to`, with what it needs from
 /// the OS credential store.
 pub fn open_target(vault_id: &str, device: DeviceId, to: &SyncTo) -> Result<Box<dyn Target>> {
+    open_target_as(vault_id, device, to, Role::Main)
+}
+
+/// [`open_target`] for the place in `role`.
+pub fn open_target_as(
+    vault_id: &str,
+    device: DeviceId,
+    to: &SyncTo,
+    role: Role,
+) -> Result<Box<dyn Target>> {
     Ok(match to {
         SyncTo::Folder { path } => Box::new(FolderTarget::new(path, vault_id)?),
         SyncTo::Server { url } => {
-            let seed = secret_store::load_sync_key(vault_id, &device.to_hex())?
+            let seed = secret_store::load_sync_key(vault_id, &sync_key_name(device, role))?
                 .context("this device has no key for the sync server: join it again")?;
             Box::new(ServerTarget::new(
                 url,
@@ -268,11 +312,174 @@ pub fn open_target(vault_id: &str, device: DeviceId, to: &SyncTo) -> Result<Box<
             )?)
         }
         SyncTo::Webdav { url, user } => {
-            let password = secret_store::load_webdav_password(vault_id)?
-                .context("the WebDAV password isn't saved on this device: set it again")?;
+            let password =
+                secret_store::load_webdav_password(&webdav_password_name(vault_id, role))?
+                    .context("the WebDAV password isn't saved on this device: set it again")?;
             Box::new(WebDavTarget::new(url, vault_id, user, &password)?)
         }
     })
+}
+
+/// The tags of the copies already merged, per place.
+#[derive(Debug, Default, Clone)]
+pub struct KnownTags {
+    pub main: Tags,
+    pub backup: Tags,
+}
+
+/// One round's reading from every place the vault syncs through.
+#[derive(Debug)]
+pub struct Reading {
+    pub main: Result<Fetched, String>,
+    /// `None` when there is no backup place.
+    pub backup: Option<Result<Fetched, String>>,
+}
+
+impl Reading {
+    /// At least one place answered: the round goes on with what it read.
+    pub fn reached(&self) -> bool {
+        self.main.is_ok() || matches!(self.backup, Some(Ok(_)))
+    }
+
+    /// Why the main place couldn't be read, when it couldn't.
+    pub fn main_down(&self) -> Option<&str> {
+        self.main.as_ref().err().map(String::as_str)
+    }
+
+    /// Why the backup place couldn't be read, when there is one and it couldn't.
+    pub fn backup_down(&self) -> Option<&str> {
+        match &self.backup {
+            Some(Err(why)) => Some(why),
+            _ => None,
+        }
+    }
+
+    /// The tags to pass as `known` next round, once what was read is merged: a place that
+    /// didn't answer keeps what was known of it.
+    pub fn tags(&self, before: &KnownTags) -> KnownTags {
+        KnownTags {
+            main: self
+                .main
+                .as_ref()
+                .map_or_else(|_| before.main.clone(), |f| f.tags.clone()),
+            backup: match &self.backup {
+                Some(Ok(fetched)) => fetched.tags.clone(),
+                _ => before.backup.clone(),
+            },
+        }
+    }
+
+    /// The places that answered, by role.
+    fn answered(&self) -> impl Iterator<Item = (Role, &Fetched)> {
+        let main = self.main.as_ref().ok().map(|f| (Role::Main, f));
+        let backup = match &self.backup {
+            Some(Ok(fetched)) => Some((Role::Backup, fetched)),
+            _ => None,
+        };
+        main.into_iter().chain(backup)
+    }
+}
+
+/// Reads every other device's copy from the main place and the backup place, if any, at the
+/// same time (off the UI thread). A place that can't be reached is reported in the result;
+/// the round goes on with the other.
+pub fn read_all(vault_id: &str, device: DeviceId, place: &SyncPlace, known: &KnownTags) -> Reading {
+    let read = |to: &SyncTo, role: Role, known: &Tags| {
+        open_target_as(vault_id, device, to, role)
+            .and_then(|target| fetch(&*target, device, known))
+            .map_err(|err| format!("{err:#}"))
+    };
+    std::thread::scope(|scope| {
+        let backup = place
+            .backup
+            .as_ref()
+            .map(|to| scope.spawn(|| read(to, Role::Backup, &known.backup)));
+        let main = read(&place.to, Role::Main, &known.main);
+        Reading {
+            main,
+            backup: backup.map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|_| Err("reading the backup place failed".to_owned()))
+            }),
+        }
+    })
+}
+
+/// Folds what a round read into `vault`. With one place this is [`merge_all`]. With a backup
+/// place, each other device's newest copy is taken from whichever place has it; a copy older
+/// than one already merged from that device is left out without a warning, since a place
+/// that was down holds older copies until it catches up (it is never merged either way).
+pub fn merge_reading(vault: &mut Vault, reading: &Reading, seen: &mut SeenRevisions) -> Round {
+    if reading.backup.is_none() {
+        return match &reading.main {
+            Ok(fetched) => merge_all(vault, fetched, seen),
+            Err(_) => Round::default(),
+        };
+    }
+    let mut chosen: Vec<(DeviceId, &[u8], Option<u64>)> = Vec::new();
+    for (_, fetched) in reading.answered() {
+        for (device, bytes) in &fetched.copies {
+            let revision = vault.check_copy(bytes).ok();
+            if let (Some(revision), Some(known)) = (revision, seen.revision(device))
+                && revision < known
+            {
+                continue;
+            }
+            match chosen.iter_mut().find(|(id, _, _)| id == device) {
+                None => chosen.push((*device, bytes, revision)),
+                Some(slot) if revision > slot.2 => *slot = (*device, bytes, revision),
+                Some(_) => {}
+            }
+        }
+    }
+    let fetched = Fetched {
+        copies: chosen
+            .into_iter()
+            .map(|(device, bytes, _)| (device, bytes.to_vec()))
+            .collect(),
+        ..Fetched::default()
+    };
+    merge_all(vault, &fetched, seen)
+}
+
+/// The places this device's copy goes to after a round: those that answered and don't have
+/// `revision` yet (all that answered when the round `changed` the vault).
+pub fn to_publish(place: &SyncPlace, reading: &Reading, revision: u64, changed: bool) -> Vec<Role> {
+    let mut roles = Vec::new();
+    if reading.main.is_ok() && (changed || revision > place.published) {
+        roles.push(Role::Main);
+    }
+    if matches!(reading.backup, Some(Ok(_))) && (changed || revision > place.published_backup) {
+        roles.push(Role::Backup);
+    }
+    roles
+}
+
+/// What each place answered when this device's copy was put there.
+pub type Published = Vec<(Role, Result<(), String>)>;
+
+/// Puts this device's copy on each place in `roles` (off the UI thread); what each answered.
+pub fn publish_all(
+    vault_id: &str,
+    device: DeviceId,
+    place: &SyncPlace,
+    bytes: &[u8],
+    roles: &[Role],
+) -> Published {
+    roles
+        .iter()
+        .filter_map(|role| {
+            let to = match role {
+                Role::Main => &place.to,
+                Role::Backup => place.backup.as_ref()?,
+            };
+            let put = open_target_as(vault_id, device, to, *role)
+                .and_then(|target| target.put(device, bytes))
+                .map_err(|err| format!("{err:#}"));
+            Some((*role, put))
+        })
+        .collect()
 }
 
 /// What folding the fetched copies did.

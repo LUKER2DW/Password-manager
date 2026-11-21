@@ -44,6 +44,13 @@ struct VaultState {
     /// Sync: where this vault syncs on this device, if anywhere.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sync_to: Option<SyncTo>,
+    /// Sync: a backup place, synced too, through which the vault keeps syncing while the
+    /// main one can't be reached.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sync_backup: Option<SyncTo>,
+    /// Sync: the vault revision whose copy was last put on the backup place.
+    #[serde(default)]
+    sync_published_backup: u64,
     /// Sync: the copies already seen from each other device (rollback and fork checks).
     #[serde(default, skip_serializing_if = "is_empty_seen")]
     sync_seen: SeenRevisions,
@@ -94,11 +101,15 @@ impl SyncTo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyncPlace {
     pub to: SyncTo,
+    /// A second place synced too (a backup server), if any.
+    pub backup: Option<SyncTo>,
     pub seen: SeenRevisions,
     /// Unix seconds of the last finished round; 0 = never.
     pub at: i64,
     /// The vault revision whose copy was last put in the folder.
     pub published: u64,
+    /// The same, for the backup place.
+    pub published_backup: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -343,9 +354,11 @@ impl DeviceState {
         })?;
         Some(SyncPlace {
             to,
+            backup: state.sync_backup.clone(),
             seen: state.sync_seen.clone(),
             at: state.sync_at,
             published: state.sync_published,
+            published_backup: state.sync_published_backup,
         })
     }
 
@@ -374,7 +387,29 @@ impl DeviceState {
             entry.sync_seen = SeenRevisions::default();
             entry.sync_at = 0;
             entry.sync_published = 0;
+            entry.sync_backup = None;
+            entry.sync_published_backup = 0;
         }
+    }
+
+    /// Adds (or with `None` removes) a backup place for vault `vault_id`: synced every round
+    /// too, so the vault keeps syncing while the main place can't be reached.
+    pub fn set_sync_backup(&mut self, vault_id: &str, backup: Option<SyncTo>) {
+        let entry = self.vaults.entry(vault_id.to_owned()).or_default();
+        if entry.sync_backup != backup {
+            entry.sync_published_backup = 0;
+        }
+        entry.sync_backup = backup;
+    }
+
+    /// Records that `revision`'s copy is on the place in `role`.
+    pub fn record_published(&mut self, vault_id: &str, role: crate::sync::Role, revision: u64) {
+        let entry = self.vaults.entry(vault_id.to_owned()).or_default();
+        let published = match role {
+            crate::sync::Role::Main => &mut entry.sync_published,
+            crate::sync::Role::Backup => &mut entry.sync_published_backup,
+        };
+        *published = (*published).max(revision);
     }
 
     /// Records a finished round.
