@@ -1,0 +1,69 @@
+// The strength meter, shared by the desktop's generator and editor and the phone's generator.
+
+import { Theme } from "theme.slint";
+import { Messages } from "model.slint";
+import { Hint } from "widgets.slint";
+
+// Strength of a password: a thin meter that fills up to 128 bits, the time to crack it and a
+// light comparison. Used by the generator and the editor.
+export component StrengthMeter inherits VerticalLayout {
+    in property <int> bits;
+    in property <int> crack-unit;
+    in property <int> crack-amount;
+    in property <int> crack-comparison;
+    // A short reason the password is easy to guess (see Messages.weakness), 0 for none.
+    in property <int> weakness;
+    in property <bool> compact: false;
+    spacing: 8px;
+    property <color> level: root.bits >= 70 ? Theme.good : root.bits >= 50 ? Theme.marker : Theme.seal;
+    Rectangle {
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.rule;
+        Rectangle {
+            x: 0;
+            width: parent.width * Math.min(1, root.bits / 128);
+            border-radius: 2px;
+            background: root.level;
+            animate width { duration: 160ms; easing: ease-out; }
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Text {
+            text: Messages.crack-time(root.crack-unit, root.crack-amount);
+            font-size: root.compact ? Theme.small : Theme.body;
+            font-weight: 600;
+            color: root.bits >= 70 ? Theme.good : root.bits >= 50 ? Theme.ink : Theme.seal;
+            vertical-alignment: center;
+            // Long ones ("a 1 followed by 47 zeros times…") wrap instead of widening the page.
+            wrap: word-wrap;
+            min-width: 0;
+        }
+        Text {
+            text: @tr("· {} bits", root.bits);
+            font-size: Theme.small;
+            color: Theme.faint;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            alignment: center;
+            Hint {
+                text: @tr("Worst realistic case: a site you use is breached and its password list leaks with fast (MD5) hashes. An attacker runs hashcat on six RTX 4090 graphics cards, about a trillion guesses per second, and on average finds the password halfway through. Sites that store passwords properly (bcrypt, Argon2) make this millions of times slower. Each extra bit doubles the time.");
+            }
+        }
+    }
+    if root.weakness != 0: Text {
+        text: Messages.weakness(root.weakness);
+        font-size: Theme.small;
+        color: Theme.seal;
+        wrap: word-wrap;
+    }
+    if !root.compact: Text {
+        text: Messages.crack-comparison(root.crack-comparison);
+        font-size: Theme.small;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+}

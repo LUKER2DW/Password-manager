@@ -85,4 +85,11 @@ export global Secrets {
     in-out property <int> focused: -1;
     in-out property <int> done-field: -1;
     in-out property <int> done-count: 0;
+    // On a phone: secret fields take the system keyboard, asked for a password (keyboards
+    // then learn nothing and suggest nothing). The hidden text input behind the field only
+    // ever holds placeholders: `typed` gets each edit, puts what was typed in the buffer and
+    // gives back placeholders as long as the secret; `placeholders` gives them for a field.
+    in property <bool> system-keyboard: false;
+    callback typed(int, string) -> string;
+    pure callback placeholders(int) -> string;
 }

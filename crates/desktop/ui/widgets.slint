@@ -580,10 +580,12 @@ export component SecretField inherits VerticalLayout {
     property <int> length: Secrets.lengths[root.field];
     // Ctrl+A or a double click selects everything; the next key replaces or deletes it.
     property <bool> all-selected: false;
+    // The keys come to the focus scope, or on a phone to the system keyboard's hidden input.
+    property <bool> has-focus: scope.has-focus || system.has-focus;
     // Done on the phone's own keyboard.
     property <int> done-count: Secrets.done-count;
     changed done-count => {
-        if (Secrets.done-field == root.field && scope.has-focus) { root.accepted(); }
+        if (Secrets.done-field == root.field && root.has-focus) { root.accepted(); }
     }
     forward-focus: scope;
     spacing: 6px;
@@ -591,7 +593,7 @@ export component SecretField inherits VerticalLayout {
     if root.label != "": FieldLabel { text: root.label; hint: root.hint; icon: root.icon; required: root.required; }
     Well {
         height: Theme.control-height;
-        focused: scope.has-focus;
+        focused: root.has-focus;
         error: root.error;
         accessible-role: text-input;
         accessible-label: root.label;
@@ -609,9 +611,39 @@ export component SecretField inherits VerticalLayout {
                 root.all-selected = root.length > 0;
             }
         }
+        // The system keyboard on a phone (Secrets.system-keyboard): asked for a password, so it
+        // keeps nothing; what it types comes back through Secrets.typed and the input is set
+        // back to placeholders at once.
+        system := TextInput {
+            x: 0px;
+            y: 0px;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            enabled: Secrets.system-keyboard;
+            input-type: InputType.password;
+            single-line: true;
+            edited => {
+                self.text = Secrets.typed(root.field, self.text);
+            }
+            accepted => { root.accepted(); }
+            changed has-focus => {
+                if (self.has-focus) {
+                    Secrets.focused = root.field;
+                } else if (Secrets.focused == root.field && !scope.has-focus) {
+                    Secrets.focused = -1;
+                }
+            }
+        }
         scope := FocusScope {
             focus-on-click: false;
             focus-changed-event => {
+                if (self.has-focus && Secrets.system-keyboard) {
+                    // Hand the keys to the system keyboard's input.
+                    system.text = Secrets.placeholders(root.field);
+                    system.focus();
+                    return;
+                }
                 if (self.has-focus) {
                     Secrets.focused = root.field;
                 } else {
@@ -700,7 +732,7 @@ export component SecretField inherits VerticalLayout {
                 min-width: 0px;
                 horizontal-stretch: 1;
             }
-            if root.revealed == "" && root.length == 0 && !scope.has-focus: Text {
+            if root.revealed == "" && root.length == 0 && !root.has-focus: Text {
                 text: root.placeholder;
                 font-size: Theme.body;
                 color: Theme.faint;
@@ -730,7 +762,7 @@ export component SecretField inherits VerticalLayout {
                     }
                 }
             }
-            if scope.has-focus && !root.all-selected: VerticalLayout {
+            if root.has-focus && !root.all-selected: VerticalLayout {
                 alignment: center;
                 Rectangle {
                     width: 1.5px;
