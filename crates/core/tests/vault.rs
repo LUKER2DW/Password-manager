@@ -915,3 +915,32 @@ fn debug_output_never_contains_secrets() {
     assert!(!rendered.contains("TopSecretPassword"));
     assert!(!rendered.contains(f.secret_key.to_display_string().as_str()));
 }
+
+#[test]
+fn a_copy_is_checked_with_the_key_in_memory() {
+    let mut f = fixture();
+    f.vault
+        .add_item(&ItemData::login(
+            "Backup",
+            "me",
+            "pw",
+            "https://backup.example",
+        ))
+        .unwrap();
+    let bytes = f.vault.to_bytes().unwrap();
+    assert_eq!(f.vault.check_copy(&bytes).unwrap(), f.vault.revision());
+    // Cut short, or one byte changed anywhere: refused.
+    assert!(f.vault.check_copy(&bytes[..bytes.len() - 1]).is_err());
+    for index in [20, bytes.len() / 2, bytes.len() - 1] {
+        let mut changed = bytes.clone();
+        changed[index] ^= 0x01;
+        assert!(f.vault.check_copy(&changed).is_err(), "byte {index}");
+    }
+    // Another vault's file is not a copy of this one.
+    let other = SecretKey::generate().unwrap();
+    let mut stranger = Vault::create("pw", &other, None, KdfParams::minimum().unwrap()).unwrap();
+    assert!(matches!(
+        f.vault.check_copy(&stranger.to_bytes().unwrap()),
+        Err(Error::OtherVault)
+    ));
+}

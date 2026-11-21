@@ -773,6 +773,22 @@ impl Vault {
         })
     }
 
+    /// Checks that `bytes` is a whole, readable copy of this vault, with the key already in
+    /// memory (no password asked again): the same vault, a header that parses, a body whose
+    /// every byte is authenticated (the header is its AAD) and whose items and folders read
+    /// back. Used to confirm a backup after it is written. Returns the copy's revision.
+    pub fn check_copy(&self, bytes: &[u8]) -> Result<u64> {
+        let parsed = format::parse(bytes)?;
+        if parsed.header.vault_id != self.header.vault_id {
+            return Err(Error::OtherVault);
+        }
+        let copy = Self::from_parsed(parsed, self.vault_key.duplicate())?;
+        for record in &copy.items {
+            copy.decrypt_item(record)?;
+        }
+        Ok(copy.revision)
+    }
+
     /// Serializes the vault into file bytes. Increments the vault revision.
     pub fn to_bytes(&mut self) -> Result<Vec<u8>> {
         let next_revision = self.revision.checked_add(1).ok_or(Error::Malformed)?;
