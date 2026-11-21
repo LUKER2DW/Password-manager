@@ -636,9 +636,23 @@ export component PhoneWindow inherits Window {
         }
 
         // ---------------------------------------------------------------- unlock
-        // A plain page: the desktop's lock scene is drawn around a sign-in card, which a phone
-        // doesn't have, so it showed as an empty blurred panel here.
+        // The desktop's wall of safe-deposit boxes behind the form. The phone's copy of the
+        // scene leaves out the dark glow the desktop keeps behind its sign-in card, which
+        // showed here as an empty blurred panel; the wall fades into the page instead, where
+        // the form is.
         if root.screen == Screen.unlock: Rectangle {
+            Image {
+                width: parent.width;
+                height: parent.height;
+                source: Theme.dark ? @image-url("brand/lock-scene-phone.svg") : @image-url("brand/lock-scene-phone-light.svg");
+                image-fit: cover;
+                opacity: 0.8;
+            }
+            Rectangle {
+                width: parent.width;
+                height: parent.height;
+                background: @linear-gradient(180deg, Theme.canvas.transparentize(1) 0%, Theme.canvas.transparentize(0.75) 30%, Theme.canvas.transparentize(0.1) 52%, Theme.canvas 64%);
+            }
             VerticalLayout {
                 padding: root.gutter;
                 spacing: 14px;
