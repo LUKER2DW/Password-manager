@@ -249,6 +249,11 @@ export global Messages {
         if (code == 8) { return @tr("New recovery parts issued. The old ones no longer work: print the new kit now."); }
         if (code == 60) { return @tr("Part C is hidden in {}. It was read back to check. Keep that file as it is: a resized or converted copy loses the part.", arg); }
         if (code == 61) { return @tr("Part {} read from the picture.", arg); }
+        if (code == 62) { return @tr("The main sync server isn't answering ({}). The vault keeps syncing through the backup server.", arg); }
+        if (code == 63) { return @tr("The main sync server answers again and has caught up."); }
+        if (code == 64) { return @tr("The backup sync server isn't answering ({}). The vault keeps syncing through the main one.", arg); }
+        if (code == 65) { return @tr("The backup sync server answers again and has caught up."); }
+        if (code == 66) { return @tr("This computer joined the backup server. The vault syncs through both from now on."); }
         if (code == 9) { return @tr("Settings saved."); }
         if (code == 10) { return @tr("Copied. The clipboard clears in {} seconds.", arg); }
         if (code == 11) { return @tr("Generated password copied. The clipboard clears in {} seconds.", arg); }

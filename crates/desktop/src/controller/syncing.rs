@@ -17,7 +17,7 @@ use slint::{ModelRc, SharedPixelBuffer, SharedString, TimerMode, VecModel};
 use vault_core::{storage, sync::DeviceId};
 use vault_platform::{
     DeviceState, SyncPlace, SyncTo, secret_store,
-    sync::{self, ServerTarget, Tags, Target},
+    sync::{self, KnownTags, Role, ServerTarget, Target},
 };
 use vault_sync_wire::{DeviceKey, InviteLink};
 use zeroize::Zeroizing;
@@ -31,6 +31,9 @@ const AFTER_SAVE: Duration = Duration::from_secs(3);
 const EVERY: Duration = Duration::from_secs(5 * 60);
 /// How long one long-poll waits on the server.
 const WAIT_SECONDS: u64 = 50;
+/// While one of the places doesn't answer, a round this often, so it catches up as soon as
+/// it is back.
+const RETRY: Duration = Duration::from_secs(60);
 
 /// What the Sync card shows (`sync-state` in the UI).
 pub(super) mod state {
@@ -66,8 +69,13 @@ pub(super) struct SyncStatus {
     again: bool,
     /// Items the last round left waiting for the item lock.
     waiting: usize,
-    /// Tags of the copies already merged in this session: unchanged ones aren't read again.
-    tags: Tags,
+    /// Tags of the copies already merged in this session, per place: unchanged ones aren't
+    /// read again.
+    tags: KnownTags,
+    /// Why the main place, or the backup place, didn't answer in the last round (`None`: it
+    /// did), to say so once when it goes down and once when it is back.
+    main_down: Option<String>,
+    backup_down: Option<String>,
     /// Set to stop the thread that waits for the server's news.
     watch: Option<Arc<AtomicBool>>,
     /// The other devices, in the order the card lists them (for "Remove").
@@ -135,7 +143,7 @@ impl Controller {
     /// runs; then one every few minutes, and whenever the server has news.
     pub(super) fn start_sync(&self) {
         self.stop_watch();
-        self.state.borrow_mut().sync.tags.clear();
+        self.state.borrow_mut().sync.tags = KnownTags::default();
         let Some(place) = self.sync_place() else {
             self.show_sync_settings();
             return;
@@ -158,12 +166,13 @@ impl Controller {
     /// Stops the timers and the server watch (the vault was locked).
     pub(super) fn stop_sync(&self) {
         self.timers.sync_every.stop();
+        self.timers.sync_retry.stop();
         self.timers.sync_soon.stop();
         self.stop_watch();
         let app = self.app();
         app.set_sync_invite(SharedString::new());
         app.set_sync_invite_qr(slint::Image::default());
-        self.state.borrow_mut().sync.tags.clear();
+        self.state.borrow_mut().sync.tags = KnownTags::default();
     }
 
     fn stop_watch(&self) {
@@ -254,7 +263,7 @@ impl Controller {
     /// The item lock was opened: edits that waited for it can be folded now.
     pub(super) fn sync_after_unlocking_items(&self) {
         if self.state.borrow().sync.waiting > 0 {
-            self.state.borrow_mut().sync.tags.clear();
+            self.state.borrow_mut().sync.tags = KnownTags::default();
             self.sync_round();
         }
     }
@@ -406,9 +415,18 @@ impl Controller {
         let _ = device_state.save();
         if let Some(device) = self.sync_device_id() {
             let _ = secret_store::forget_sync_key(&vault_id, &device.to_hex());
+            let _ = secret_store::forget_sync_key(
+                &vault_id,
+                &sync::sync_key_name(device, Role::Backup),
+            );
         }
         let _ = secret_store::forget_webdav_password(&vault_id);
-        self.state.borrow_mut().sync.waiting = 0;
+        {
+            let mut state = self.state.borrow_mut();
+            state.sync.waiting = 0;
+            state.sync.main_down = None;
+            state.sync.backup_down = None;
+        }
         self.app().set_sync_state(state::OFF);
         self.show_sync_settings();
     }
@@ -421,21 +439,43 @@ impl Controller {
         let SyncTo::Server { url } = place.place.to.clone() else {
             return;
         };
+        let backup = match place.place.backup.clone() {
+            Some(SyncTo::Server { url }) => Some(url),
+            _ => None,
+        };
         self.sync_busy(true);
         let runner = self.state.borrow().runner;
         let job = move || -> Result<(Zeroizing<String>, i64), String> {
-            let seed = secret_store::load_sync_key(&place.vault_id, &place.device.to_hex())
+            let server_for = |url: &str, role: Role| -> Result<ServerTarget, String> {
+                let seed = secret_store::load_sync_key(
+                    &place.vault_id,
+                    &sync::sync_key_name(place.device, role),
+                )
                 .map_err(|err| format!("{err:#}"))?
                 .ok_or("this computer has no key for the server: stop syncing and join again")?;
-            let server = ServerTarget::new(
-                &url,
-                &place.vault_id,
-                place.device,
-                DeviceKey::from_seed(&seed),
-            )
-            .map_err(|err| format!("{err:#}"))?;
+                ServerTarget::new(
+                    url,
+                    &place.vault_id,
+                    place.device,
+                    DeviceKey::from_seed(&seed),
+                )
+                .map_err(|err| format!("{err:#}"))
+            };
+            let server = server_for(&url, Role::Main)?;
             let invite = server.invite().map_err(|err| format!("{err:#}"))?;
-            Ok((server.invite_link(&invite).to_text(), invite.expires_at))
+            let mut link = server.invite_link(&invite);
+            // The backup server's invite rides along when it answers; without it the other
+            // device joins the main server only, and can add the backup later.
+            if let Some(backup) = &backup
+                && let Ok(target) = server_for(backup, Role::Backup)
+                && let Ok(backup_invite) = target.invite()
+            {
+                link.backup = Some((
+                    target.invite_link(&backup_invite).server,
+                    backup_invite.invite,
+                ));
+            }
+            Ok((link.to_text(), invite.expires_at))
         };
         off_thread(runner, job, |controller, result| {
             controller.sync_busy(false);
@@ -494,7 +534,8 @@ impl Controller {
         self.sync_round();
     }
 
-    /// One round: read the other copies (worker thread), merge them here, save, publish.
+    /// One round: read the other copies from every place (worker thread), merge them here,
+    /// save, publish.
     pub(crate) fn sync_round(&self) {
         if self.state.borrow().sync.running {
             self.state.borrow_mut().sync.again = true;
@@ -505,24 +546,25 @@ impl Controller {
         };
         self.state.borrow_mut().sync.running = true;
         self.app().set_sync_state(state::SYNCING);
-        let (vault_id, device, to) = (place.vault_id.clone(), place.device, place.place.to.clone());
+        let (vault_id, device, sync_place) =
+            (place.vault_id.clone(), place.device, place.place.clone());
         let known = self.state.borrow().sync.tags.clone();
         let runner = self.state.borrow().runner;
-        let job = move || {
-            sync::open_target(&vault_id, device, &to)
-                .and_then(|target| sync::fetch(&*target, device, &known))
-                .map_err(|err| format!("{err:#}"))
-        };
-        off_thread(runner, job, move |controller, fetched| {
-            controller.sync_fetched(place, fetched);
+        let job = move || sync::read_all(&vault_id, device, &sync_place, &known);
+        off_thread(runner, job, move |controller, reading| {
+            controller.sync_fetched(place, reading);
         });
     }
 
-    fn sync_fetched(&self, mut place: Place, fetched: Result<sync::Fetched, String>) {
-        let fetched = match fetched {
-            Ok(fetched) => fetched,
-            Err(why) => return self.sync_failed(&why),
-        };
+    fn sync_fetched(&self, mut place: Place, reading: sync::Reading) {
+        self.sync_health(
+            reading.main_down(),
+            reading.backup_down(),
+            place.place.backup.is_some(),
+        );
+        if !reading.reached() {
+            return self.sync_failed(reading.main_down().unwrap_or_default());
+        }
         // Locked, or another vault opened, while the copies were read.
         let same_vault = self.open_vault_id().as_deref() == Some(place.vault_id.as_str());
         if !same_vault {
@@ -533,7 +575,7 @@ impl Controller {
             let vault = &mut state.session.as_mut().expect("checked above").vault;
             let joined = sync::join(vault, place.device, &sync::device_name()).unwrap_or(false);
             (
-                sync::merge_all(vault, &fetched, &mut place.place.seen),
+                sync::merge_reading(vault, &reading, &mut place.place.seen),
                 joined,
             )
         };
@@ -549,9 +591,9 @@ impl Controller {
         {
             let mut state = self.state.borrow_mut();
             if round.waiting_for_lock() == 0 {
-                state.sync.tags = fetched.tags.clone();
+                state.sync.tags = reading.tags(&state.sync.tags);
             } else {
-                state.sync.tags.clear();
+                state.sync.tags = KnownTags::default();
             }
         }
         let changed = round.changed() || joined;
@@ -597,38 +639,108 @@ impl Controller {
             self.notify(notice::SYNC_CHANGED, &came.to_string());
         }
 
-        if changed || revision > place.place.published {
-            self.sync_publish(place, revision);
-        } else {
+        let roles = sync::to_publish(&place.place, &reading, revision, changed);
+        if roles.is_empty() {
             self.sync_finished();
+        } else {
+            self.sync_publish(place, revision, roles);
         }
     }
 
-    /// Puts this device's copy (the vault file as saved) on the target.
-    fn sync_publish(&self, place: Place, revision: u64) {
+    /// Puts this device's copy (the vault file as saved) on the places in `roles`.
+    fn sync_publish(&self, place: Place, revision: u64, roles: Vec<Role>) {
         let path = self.state.borrow().path.clone();
-        let (vault_id, device, to) = (place.vault_id.clone(), place.device, place.place.to);
+        let (vault_id, device, sync_place) = (place.vault_id.clone(), place.device, place.place);
         let runner = self.state.borrow().runner;
         let job = {
             let vault_id = vault_id.clone();
-            move || -> Result<(), String> {
+            move || -> Result<sync::Published, String> {
                 let bytes = storage::read(&path).map_err(|err| err.to_string())?;
-                let target =
-                    sync::open_target(&vault_id, device, &to).map_err(|err| format!("{err:#}"))?;
-                target.put(device, &bytes).map_err(|err| format!("{err:#}"))
+                Ok(sync::publish_all(
+                    &vault_id,
+                    device,
+                    &sync_place,
+                    &bytes,
+                    &roles,
+                ))
             }
         };
-        off_thread(runner, job, move |controller, result| match result {
-            Ok(()) => {
-                let mut device_state = DeviceState::load().unwrap_or_default();
-                if let Some(place) = device_state.sync_place(&vault_id) {
-                    device_state.record_sync(&vault_id, &place.seen, place.at, revision);
-                    let _ = device_state.save();
+        off_thread(runner, job, move |controller, result| {
+            let results = match result {
+                Ok(results) => results,
+                Err(why) => return controller.sync_failed(&why),
+            };
+            let mut device_state = DeviceState::load().unwrap_or_default();
+            let mut failed = None;
+            for (role, put) in &results {
+                match put {
+                    Ok(()) => device_state.record_published(&vault_id, *role, revision),
+                    Err(why) => failed = Some((*role, why.clone())),
                 }
-                controller.sync_finished();
             }
-            Err(why) => controller.sync_failed(&why),
+            let _ = device_state.save();
+            match failed {
+                // Every place it went to refused it.
+                Some((_, why)) if results.iter().all(|(_, put)| put.is_err()) => {
+                    controller.sync_failed(&why);
+                }
+                Some((role, why)) => {
+                    let has_backup = true;
+                    match role {
+                        Role::Main => controller.sync_health(Some(&why), None, has_backup),
+                        Role::Backup => controller.sync_health(None, Some(&why), has_backup),
+                    }
+                    controller.sync_finished();
+                }
+                None => controller.sync_finished(),
+            }
         });
+    }
+
+    /// Keeps track of which place answers. A place going down or coming back is said once;
+    /// while one is down, a round runs every minute so it catches up as soon as it is back.
+    fn sync_health(&self, main: Option<&str>, backup: Option<&str>, has_backup: bool) {
+        let (was_main, was_backup) = {
+            let state = self.state.borrow();
+            (
+                state.sync.main_down.is_some(),
+                state.sync.backup_down.is_some(),
+            )
+        };
+        {
+            let mut state = self.state.borrow_mut();
+            state.sync.main_down = main.map(str::to_owned);
+            state.sync.backup_down = backup.map(str::to_owned);
+        }
+        let app = self.app();
+        app.set_sync_main_down(SharedString::from(main.unwrap_or_default()));
+        app.set_sync_backup_down(SharedString::from(backup.unwrap_or_default()));
+        if has_backup {
+            match (main.is_some(), was_main) {
+                (true, false) => self.notify_long(notice::SYNC_MAIN_DOWN, main.unwrap_or_default()),
+                (false, true) => self.notify(notice::SYNC_MAIN_BACK, ""),
+                _ => {}
+            }
+            match (backup.is_some(), was_backup) {
+                (true, false) if main.is_none() => {
+                    self.notify_long(notice::SYNC_BACKUP_DOWN, backup.unwrap_or_default());
+                }
+                (false, true) => self.notify(notice::SYNC_BACKUP_BACK, ""),
+                _ => {}
+            }
+        }
+        if (main.is_some() || backup.is_some()) && self.state.borrow().runner != Runner::Inline {
+            let weak = self.weak();
+            self.timers
+                .sync_retry
+                .start(TimerMode::SingleShot, RETRY, move || {
+                    if let Some(controller) = weak.upgrade() {
+                        controller.sync_round();
+                    }
+                });
+        } else {
+            self.timers.sync_retry.stop();
+        }
     }
 
     fn sync_failed(&self, why: &str) {
@@ -647,6 +759,95 @@ impl Controller {
         if again {
             self.sync_round();
         }
+    }
+
+    /// "Add a backup server": joins a second server with an invite from it (made with
+    /// `vault-server invite` there, or a `vaultsync:` line that names it), keeps this
+    /// device's key for it, and syncs through both from now on.
+    pub(super) fn sync_join_backup(&self) {
+        let app = self.app();
+        let (Some(vault_id), Some(device)) = (self.open_vault_id(), self.sync_device_id()) else {
+            return;
+        };
+        let typed = app.get_sync_backup_invite().trim().to_owned();
+        let (address, invite) = match InviteLink::parse(&typed) {
+            Some(link) if link.vault != vault_id => {
+                return self.sync_setup_failed("that invite is for another vault");
+            }
+            Some(link) => (link.server, link.invite),
+            None => (app.get_sync_backup_address().trim().to_owned(), typed),
+        };
+        let address = match sync::check_address(&address) {
+            Ok(address) => address,
+            Err(err) => return self.sync_setup_failed(&format!("{err:#}")),
+        };
+        let main = DeviceState::load()
+            .ok()
+            .and_then(|state| state.sync_place(&vault_id))
+            .map(|place| place.to);
+        if let Some(SyncTo::Server { url }) = &main
+            && sync::split_pin(url).0 == sync::split_pin(&address).0
+        {
+            return self.sync_setup_failed("that is the main server: a backup is another one");
+        }
+        self.sync_busy(true);
+        let runner = self.state.borrow().runner;
+        let job = {
+            let (vault_id, address) = (vault_id.clone(), address.clone());
+            move || -> Result<(), String> {
+                let server =
+                    ServerTarget::join(&address, &vault_id, device, &sync::device_name(), &invite)
+                        .map_err(|err| format!("{err:#}"))?;
+                secret_store::store_sync_key(
+                    &vault_id,
+                    &sync::sync_key_name(device, Role::Backup),
+                    &server.key_seed(),
+                )
+                .map_err(|err| format!("{err:#}"))
+            }
+        };
+        off_thread(runner, job, move |controller, result| {
+            controller.sync_busy(false);
+            match result {
+                Ok(()) => {
+                    let mut device_state = DeviceState::load().unwrap_or_default();
+                    device_state.set_sync_backup(&vault_id, Some(SyncTo::Server { url: address }));
+                    if let Err(err) = device_state.save() {
+                        controller.notify_long(notice::DEVICE_STATE_NOT_SAVED, &err.to_string());
+                        return;
+                    }
+                    let app = controller.app();
+                    app.set_sync_backup_form(false);
+                    app.set_sync_backup_invite(SharedString::new());
+                    app.set_sync_backup_address(SharedString::new());
+                    controller.state.borrow_mut().sync.tags = KnownTags::default();
+                    controller.notify(notice::SYNC_BACKUP_JOINED, "");
+                    controller.show_sync_settings();
+                    controller.sync_round();
+                }
+                Err(why) => controller.sync_setup_failed(&why),
+            }
+        });
+    }
+
+    /// "Remove the backup": this device stops syncing through the second server (its copy
+    /// there is left) and forgets its key for it.
+    pub(super) fn sync_remove_backup(&self) {
+        let Some(vault_id) = self.open_vault_id() else {
+            return;
+        };
+        let mut device_state = DeviceState::load().unwrap_or_default();
+        device_state.set_sync_backup(&vault_id, None);
+        let _ = device_state.save();
+        if let Some(device) = self.sync_device_id() {
+            let _ = secret_store::forget_sync_key(
+                &vault_id,
+                &sync::sync_key_name(device, Role::Backup),
+            );
+        }
+        self.state.borrow_mut().sync.backup_down = None;
+        self.app().set_sync_backup_down(SharedString::new());
+        self.show_sync_settings();
     }
 
     /// The Sync card: the place, when it last synced, the devices.
@@ -672,6 +873,9 @@ impl Controller {
         let Some(place) = place else {
             app.set_sync_kind(kind::OFF);
             app.set_sync_folder(SharedString::new());
+            app.set_sync_backup(SharedString::new());
+            app.set_sync_main_down(SharedString::new());
+            app.set_sync_backup_down(SharedString::new());
             app.set_sync_state(state::OFF);
             app.set_sync_devices(SharedString::new());
             app.set_sync_others(ModelRc::default());
@@ -685,6 +889,13 @@ impl Controller {
             SyncTo::Webdav { .. } => kind::WEBDAV,
         });
         app.set_sync_folder(SharedString::from(place.to.describe()));
+        app.set_sync_backup(SharedString::from(
+            place
+                .backup
+                .as_ref()
+                .map(SyncTo::describe)
+                .unwrap_or_default(),
+        ));
         let minutes = if place.at > 0 {
             i32::try_from((crate::view::now_unix() - place.at).max(0) / 60).unwrap_or(i32::MAX)
         } else {

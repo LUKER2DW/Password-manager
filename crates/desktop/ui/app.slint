@@ -208,6 +208,15 @@ export component AppWindow inherits Window {
     in-out property <int> sync-removing: -1;
     in property <string> sync-invite;
     in property <image> sync-invite-qr;
+    // A backup server synced too (see SettingsPage).
+    in property <string> sync-backup;
+    in property <string> sync-main-down;
+    in property <string> sync-backup-down;
+    in-out property <bool> sync-backup-form;
+    in-out property <string> sync-backup-address;
+    in-out property <string> sync-backup-invite;
+    callback sync-join-backup();
+    callback sync-remove-backup();
     callback sync-choose();
     callback sync-now();
     callback sync-stop();
@@ -842,6 +851,14 @@ export component AppWindow inherits Window {
                 sync-removing <=> root.sync-removing;
                 sync-invite: root.sync-invite;
                 sync-invite-qr: root.sync-invite-qr;
+                sync-backup: root.sync-backup;
+                sync-main-down: root.sync-main-down;
+                sync-backup-down: root.sync-backup-down;
+                sync-backup-form <=> root.sync-backup-form;
+                sync-backup-address <=> root.sync-backup-address;
+                sync-backup-invite <=> root.sync-backup-invite;
+                sync-join-backup => { root.sync-join-backup(); }
+                sync-remove-backup => { root.sync-remove-backup(); }
                 sync-choose => { root.sync-choose(); }
                 sync-now => { root.sync-now(); }
                 sync-stop => { root.sync-stop(); }

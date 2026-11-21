@@ -206,6 +206,11 @@ mod notice {
     pub const SYNC_REMOVED: i32 = 57;
     pub const SYNC_JOINED: i32 = 58;
     pub const SYNC_DEVICE_REMOVED: i32 = 59;
+    pub const SYNC_MAIN_DOWN: i32 = 62;
+    pub const SYNC_MAIN_BACK: i32 = 63;
+    pub const SYNC_BACKUP_DOWN: i32 = 64;
+    pub const SYNC_BACKUP_BACK: i32 = 65;
+    pub const SYNC_BACKUP_JOINED: i32 = 66;
     pub const PICTURE_SAVED: i32 = 60;
     pub const PART_READ: i32 = 61;
 }
@@ -440,6 +445,8 @@ struct Timers {
     /// Sync: a round a moment after a save, and one every few minutes.
     sync_soon: Timer,
     sync_every: Timer,
+    /// Sync: a round a minute after one where a place didn't answer.
+    sync_retry: Timer,
 }
 
 pub struct Controller {
@@ -729,6 +736,8 @@ impl Controller {
         on!(on_sync_join_server, |c| c.sync_join_server());
         on!(on_sync_use_webdav, |c| c.sync_use_webdav());
         on!(on_sync_add_device, |c| c.sync_add_device());
+        on!(on_sync_join_backup, |c| c.sync_join_backup());
+        on!(on_sync_remove_backup, |c| c.sync_remove_backup());
         on!(on_sync_hide_invite, |c| c.sync_hide_invite());
         on!(on_sync_remove, |c, index| c.sync_remove_device(index));
         on!(on_lock_secrets, |c| {

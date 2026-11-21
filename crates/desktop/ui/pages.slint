@@ -1759,6 +1759,16 @@ export component SettingsPage inherits Rectangle {
     in-out property <int> sync-removing: -1;
     in property <string> sync-invite;
     in property <image> sync-invite-qr;
+    // A backup server synced too: where it is, why the main place or the backup didn't
+    // answer in the last round ("" = it did), and the form that adds one.
+    in property <string> sync-backup;
+    in property <string> sync-main-down;
+    in property <string> sync-backup-down;
+    in-out property <bool> sync-backup-form;
+    in-out property <string> sync-backup-address;
+    in-out property <string> sync-backup-invite;
+    callback sync-join-backup();
+    callback sync-remove-backup();
     callback sync-choose();
     callback sync-now();
     callback sync-stop();
@@ -1933,7 +1943,7 @@ export component SettingsPage inherits Rectangle {
             SettingsCard {
                 icon: "key";
                 title: @tr("Master password");
-                summary: @tr("Your items, Secret Key and Recovery Key stay the same.");
+                summary: @tr("Your items, Secret Key and recovery parts stay the same.");
                 hint: @tr("Changing it re-checks your current master password against the vault file, so someone using a computer you left unlocked can't do it.");
                 SecretField {
                     field: 5;
@@ -2127,6 +2137,38 @@ hint: @tr("The extension keeps no passwords. The first time, it asks to be conne
                         label: root.sync-kind == 1 ? @tr("Folder") : root.sync-kind == 2 ? @tr("Server") : @tr("WebDAV");
                         value: root.sync-folder;
                     }
+                    if root.sync-backup != "": Fact {
+                        label: @tr("Backup server");
+                        value: root.sync-backup;
+                    }
+                    if root.sync-backup != "" && (root.sync-main-down != "" || root.sync-backup-down != ""): Rectangle {
+                        border-radius: Theme.radius;
+                        border-width: 1px;
+                        border-color: Theme.seal;
+                        background: Theme.panel;
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 4px;
+                            Text {
+                                text: root.sync-main-down != "" && root.sync-backup != "" && root.sync-backup-down == ""
+                                        ? @tr("The main place isn't answering. The vault keeps syncing through the backup server, and the main one catches up as soon as it answers (it is tried every minute).")
+                                    : root.sync-main-down != "" && root.sync-backup-down != ""
+                                        ? @tr("Neither the main place nor the backup server is answering. Changes stay on this computer and go out as soon as one answers.")
+                                    : root.sync-main-down != ""
+                                        ? @tr("The main place isn't answering. Changes stay on this computer and go out as soon as it answers (it is tried every minute).")
+                                        : @tr("The backup server isn't answering. The vault keeps syncing through the main place, and the backup catches up as soon as it answers.");
+                                font-size: Theme.body;
+                                color: Theme.ink;
+                                wrap: word-wrap;
+                            }
+                            Text {
+                                text: root.sync-main-down != "" ? root.sync-main-down : root.sync-backup-down;
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
                     Fact {
                         label: @tr("Last synced");
                         value: root.sync-state == 2 ? @tr("Syncing…")
@@ -2210,6 +2252,41 @@ hint: @tr("The extension keeps no passwords. The first time, it asks to be conne
                             }
                         }
                     }
+                    if root.sync-backup-form: VerticalLayout {
+                        spacing: 12px;
+                        Text {
+                            text: @tr("A second server keeps a copy too. While the main one is down the vault syncs through it, and the main one catches up as soon as it is back. On the backup server run vault-server invite, then give its address and the invite here.");
+                            font-size: Theme.body;
+                            color: Theme.ink;
+                            wrap: word-wrap;
+                        }
+                        LineField {
+                            label: @tr("Backup server address");
+                            placeholder: "https://backup.your-network.ts.net";
+                            text <=> root.sync-backup-address;
+                            hint: @tr("Where the second vault-server answers: https://, http:// with a Tailscale address (100.x.y.z), or the address vault-server serve --tls printed, with its #pin= part.");
+                        }
+                        LineField {
+                            label: @tr("Invite");
+                            mono: true;
+                            text <=> root.sync-backup-invite;
+                            hint: @tr("The 32 letters and digits from vault-server invite on the backup server, or a vaultsync: line from it. It works once, and it doesn't open the vault.");
+                            accepted => { root.sync-join-backup(); }
+                        }
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 12px;
+                            Button {
+                                text: root.sync-busy ? @tr("Joining…") : @tr("Join the backup server");
+                                enabled: !root.sync-busy;
+                                clicked => { root.sync-join-backup(); }
+                            }
+                            QuietButton {
+                                text: @tr("Cancel");
+                                clicked => { root.sync-backup-form = false; }
+                            }
+                        }
+                    }
                     if root.sync-setup-error != "": Text {
                         text: root.sync-setup-error;
                         font-size: Theme.body;
@@ -2231,6 +2308,14 @@ hint: @tr("The extension keeps no passwords. The first time, it asks to be conne
                             enabled: !root.sync-busy;
                             clicked => { root.sync-add-device(); }
                         }
+                        if root.sync-backup == "" && !root.sync-backup-form: QuietButton {
+                            text: @tr("Add a backup server");
+                            clicked => { root.sync-backup-form = true; }
+                        }
+                        if root.sync-backup != "": QuietButton {
+                            text: @tr("Remove the backup");
+                            clicked => { root.sync-remove-backup(); }
+                        }
                         QuietButton {
                             text: @tr("Stop syncing");
                             clicked => { root.sync-stop(); }
@@ -2250,8 +2335,8 @@ hint: @tr("The extension keeps no passwords. The first time, it asks to be conne
                 }
                 Text {
                     text: root.guard-check == 0 ? @tr("A check only: nothing extra is encrypted.")
-                        : root.guard-check == 1 ? @tr("Locked secrets are encrypted, and only the PIN opens them. If you forget both the PIN and your master password, they can't be recovered, not even with the Recovery Key.")
-                        : @tr("Locked secrets are encrypted, and only this password opens them. If you forget both it and your master password, they can't be recovered, not even with the Recovery Key.");
+                        : root.guard-check == 1 ? @tr("Locked secrets are encrypted, and only the PIN opens them. If you forget both the PIN and your master password, they can't be recovered, not even with your emergency kit.")
+                        : @tr("Locked secrets are encrypted, and only this password opens them. If you forget both it and your master password, they can't be recovered, not even with your emergency kit.");
                     font-size: Theme.small;
                     color: Theme.graphite;
                     wrap: word-wrap;

@@ -610,6 +610,21 @@ fn main() {
     );
     app.set_sync_invite("".into());
     app.set_sync_removing(-1);
+    // A backup server, while the main one isn't answering.
+    app.set_sync_backup("https://192.168.0.9:8750 (pinned certificate)".into());
+    app.set_sync_main_down("the sync server can't be reached: connection refused".into());
+    camera.shot(
+        "settings-sync-backup",
+        "Settings, whole page: the main server is down, syncing through the backup",
+    );
+    app.set_sync_backup("".into());
+    app.set_sync_main_down("".into());
+    app.set_sync_backup_form(true);
+    camera.shot(
+        "settings-sync-backup-form",
+        "Settings, whole page: adding a backup server",
+    );
+    app.set_sync_backup_form(false);
     app.set_sync_kind(0);
     app.set_sync_folder("".into());
     app.set_sync_state(0);
