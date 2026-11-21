@@ -25,7 +25,18 @@ struct Running {
 
 impl Running {
     fn start(data: &Path) -> Self {
+        Self::start_with(data, false)
+    }
+
+    /// With the server's own HTTPS; `url` then carries the pin.
+    fn start_tls(data: &Path) -> Self {
+        Self::start_with(data, true)
+    }
+
+    fn start_with(data: &Path, tls: bool) -> Self {
         let data = data.to_owned();
+        let tls = tls.then(|| vault_server::Tls::load_or_make(&data, &[]).unwrap());
+        let pin = tls.as_ref().map(|tls| tls.pin.clone());
         let (ready, address) = mpsc::channel::<SocketAddr>();
         let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
         let thread = thread::spawn(move || {
@@ -36,16 +47,25 @@ impl Running {
             runtime.block_on(async move {
                 let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
                 ready.send(listener.local_addr().unwrap()).unwrap();
-                vault_server::serve(&data, listener, async {
+                let stopped = async {
                     let _ = stopped.await;
-                })
-                .await
+                };
+                match tls {
+                    Some(tls) => {
+                        vault_server::serve_tls(&data, listener, std::sync::Arc::new(tls), stopped)
+                            .await
+                    }
+                    None => vault_server::serve(&data, listener, stopped).await,
+                }
                 .unwrap();
             });
         });
         let address = address.recv().unwrap();
         Self {
-            url: format!("http://{address}"),
+            url: match pin {
+                Some(pin) => format!("https://{address}#pin={pin}"),
+                None => format!("http://{address}"),
+            },
             stop: Some(stop),
             thread: Some(thread),
         }
@@ -126,6 +146,55 @@ impl Device {
 
 fn admin_invite(data: &Path) -> String {
     vault_server::admin_invite(data, 1).unwrap().0
+}
+
+#[test]
+fn a_pinned_server_is_reached_over_its_own_https() {
+    let data = tempfile::tempdir().unwrap();
+    let running = Running::start_tls(data.path());
+    let (bytes, _) = new_vault();
+    let vault_id = Vault::inspect(&bytes).unwrap().id_hex;
+    let (base, pin) = running.url.split_once("#pin=").unwrap();
+    let (base, pin) = (base.to_owned(), pin.to_owned());
+
+    // Without the pin the certificate is a stranger's; with another pin it's refused before
+    // anything but the certificate's path is sent.
+    for wrong in [base.to_owned(), format!("{base}#pin={}", "0".repeat(64))] {
+        let refused = ServerTarget::join(
+            &wrong,
+            &vault_id,
+            DeviceId::generate().unwrap(),
+            "PC",
+            &admin_invite(data.path()),
+        );
+        assert!(refused.is_err(), "{wrong}");
+    }
+
+    // With it: the computer joins, invites the phone (the pin travels in the invite), the
+    // phone fetches the computer's copy.
+    let pc_id = DeviceId::generate().unwrap();
+    let pc = ServerTarget::join(
+        &running.url,
+        &vault_id,
+        pc_id,
+        "PC",
+        &admin_invite(data.path()),
+    )
+    .unwrap();
+    pc.put(pc_id, &bytes).unwrap();
+    let link = InviteLink::parse(&pc.invite_link(&pc.invite().unwrap()).to_text()).unwrap();
+    assert!(link.server.ends_with(&format!("#pin={pin}")));
+    let phone_id = DeviceId::generate().unwrap();
+    let phone =
+        ServerTarget::join(&link.server, &link.vault, phone_id, "Phone", &link.invite).unwrap();
+    let fetched = sync::fetch(&phone, phone_id, &Tags::new()).unwrap();
+    assert_eq!(fetched.copies.len(), 1);
+    assert_eq!(fetched.copies[0].1, bytes);
+
+    // The same authority (so the same pin) after a restart.
+    drop(running);
+    let again = vault_server::Tls::load_or_make(data.path(), &[]).unwrap();
+    assert_eq!(again.pin, pin);
 }
 
 #[test]

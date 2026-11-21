@@ -18,6 +18,13 @@ clap = { version = "4.6", features = ["derive", "env"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+# HTTPS of its own (`serve --tls`): a certificate authority made on first start, pinned by
+# the devices (its SHA-256 travels in the address), so a home network needs no domain name.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+if-addrs = "0.13"
+sha2 = "0.11"
 
 [dev-dependencies]
 tempfile = "3.27"

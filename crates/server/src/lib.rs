@@ -8,6 +8,7 @@
 
 pub mod api;
 pub mod store;
+pub mod tls;
 
 use std::{net::SocketAddr, path::Path};
 
@@ -15,6 +16,7 @@ use anyhow::{Context, Result};
 
 pub use api::{Server, router};
 pub use store::Store;
+pub use tls::Tls;
 
 /// Serves the API on `listener` until `shutdown` resolves.
 pub async fn serve(
@@ -26,6 +28,37 @@ pub async fn serve(
     axum::serve(
         listener,
         router(server).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await
+    .context("serving")
+}
+
+/// Serves the API over the server's own HTTPS (`tls`) on `listener` until `shutdown`
+/// resolves. `/v1/certificate` hands out the authority devices pin.
+pub async fn serve_tls(
+    data: &Path,
+    listener: tokio::net::TcpListener,
+    tls: std::sync::Arc<Tls>,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+) -> Result<()> {
+    use axum::serve::ListenerExt as _;
+    let server = Server::new(Store::open(data)?);
+    let authority = axum::body::Bytes::from(tls.authority.clone());
+    let app = router(server).route(
+        "/v1/certificate",
+        axum::routing::get(move || {
+            let authority = authority.clone();
+            async move { ([("content-type", "application/pkix-cert")], authority) }
+        }),
+    );
+    let listener = tls::TlsListener::new(listener, tls)
+        .context("listening")?
+        // `tap_io` gives axum the client's address for the rate limits.
+        .tap_io(|_| {});
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown)
     .await
