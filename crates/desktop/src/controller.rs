@@ -143,6 +143,7 @@ mod error {
     pub const PART_PICTURE: i32 = 47;
     pub const NO_PARTS: i32 = 48;
     pub const COVER: i32 = 49;
+    pub const BACKUP_CHECK: i32 = 50;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -3783,20 +3784,57 @@ impl Controller {
         if self.state.borrow().runner == Runner::Inline {
             return;
         }
-        let source = self.state.borrow().path.clone();
+        let name = format!("vault-backup-{}.vault", view::date(view::now_unix()));
         let Some(target) = rfd::FileDialog::new()
             .set_title("Save a backup copy of the vault")
-            .set_file_name("vault-backup.vault")
+            .set_file_name(&name)
             .add_filter("Vault", &["vault"])
             .save_file()
         else {
             return;
         };
-        match storage::read(&source).and_then(|bytes| storage::write_atomic(&target, &bytes)) {
-            Ok(()) => self.notify(notice::BACKUP_SAVED, &target.display().to_string()),
+        self.save_confirmed_backup(&target);
+    }
+
+    /// Writes the copy, reads it back, and calls it done only when it is the vault file byte
+    /// for byte and opens with this vault's key (every byte authenticated, no password asked
+    /// again). A copy that fails is deleted.
+    fn save_confirmed_backup(&self, target: &std::path::Path) {
+        let source = self.state.borrow().path.clone();
+        let bytes = match storage::read(&source) {
+            Ok(bytes) => bytes,
             Err(err) => {
                 let (code, detail) = self.core_error(&err);
                 self.set_error(code, &detail);
+                return;
+            }
+        };
+        if let Err(err) = storage::write_atomic(target, &bytes) {
+            let (code, detail) = self.core_error(&err);
+            self.set_error(code, &detail);
+            return;
+        }
+        let checked = (|| -> Result<(), String> {
+            let back = storage::read(target).map_err(|e| e.to_string())?;
+            if storage::fingerprint(&back) != storage::fingerprint(&bytes) {
+                return Err("the copy read back differs from the vault file".into());
+            }
+            let state = self.state.borrow();
+            let session = state.session.as_ref().ok_or("the vault is locked")?;
+            session
+                .vault
+                .check_copy(&back)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })();
+        match checked {
+            Ok(()) => self.notify_long(
+                notice::BACKUP_SAVED,
+                &backup_summary(target, bytes.len(), view::now_unix()),
+            ),
+            Err(detail) => {
+                let _ = std::fs::remove_file(target);
+                self.set_error(error::BACKUP_CHECK, &detail);
             }
         }
     }
@@ -4508,6 +4546,23 @@ impl Controller {
             }
         });
     }
+}
+
+/// Where a confirmed backup went, how big it is and when: `path (24 KB, 2026-11-21 14:03 UTC)`.
+fn backup_summary(path: &std::path::Path, len: usize, unix: i64) -> String {
+    let size = if len < 1024 * 1024 {
+        format!("{} KB", len.div_ceil(1024))
+    } else {
+        format!("{:.1} MB", len as f64 / (1024.0 * 1024.0))
+    };
+    let minutes = unix.rem_euclid(86_400) / 60;
+    format!(
+        "{} ({size}, {} {:02}:{:02} UTC)",
+        path.display(),
+        view::date(unix),
+        minutes / 60,
+        minutes % 60
+    )
 }
 
 /// Shows the three parts of a kit just issued (the only time they can be shown).

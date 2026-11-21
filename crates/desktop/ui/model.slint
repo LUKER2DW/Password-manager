@@ -152,6 +152,7 @@ export global Messages {
         if (code == 47) { return @tr("That picture doesn't give a recovery part: {}", detail); }
         if (code == 48) { return @tr("This vault has no recovery parts: its kit has a Secret Key to type, or the Recovery Key of an older kit."); }
         if (code == 49) { return @tr("Part C couldn't be hidden in that picture: {}", detail); }
+        if (code == 50) { return @tr("The backup didn't pass its check, so it was deleted ({}). Try another place: a full or failing drive may be the cause.", detail); }
         if (code == 9) { return @tr("Give the item a title."); }
         if (code == 10) { return @tr("The one-time code secret isn't valid. Paste the otpauth:// link or the key shown by the website."); }
         if (code == 11) { return @tr("The current master password is wrong."); }
@@ -257,7 +258,7 @@ export global Messages {
         if (code == 15) { return @tr("Master password changed. Windows Hello was turned off; turn it on again below."); }
         if (code == 16) { return @tr("Kit opened for printing. The file is wiped when the vault locks."); }
         if (code == 19) { return @tr("Imported {} items.", arg); }
-        if (code == 20) { return @tr("Backup saved to {}.", arg); }
+        if (code == 20) { return @tr("Backup confirmed: {}. It was read back, matches the vault file and opens with this vault's key.", arg); }
         if (code == 21) { return @tr("Exported to {}. It isn't encrypted: delete it once it's imported elsewhere.", arg); }
         if (code == 22) { return @tr("The export file was overwritten and deleted."); }
         if (code == 23) { return arg == "" ? @tr("Not saved: the vault file was changed outside this window. Lock and unlock to load the newest version.") : @tr("Not saved: {}", arg); }

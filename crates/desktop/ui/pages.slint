@@ -3105,7 +3105,7 @@ export component TransferPage inherits Rectangle {
             Rule { }
             SectionTitle {
                 text: @tr("Export");
-                hint: @tr("An encrypted backup is a copy of your vault file: it opens only with your master password and Secret Key, or the Recovery Key. “Protected by a password” is one file with every item, encrypted with a password you choose for it: good for carrying your items to another computer, where Import reads it; it has that one password only, so make it long. JSON and CSV are NOT encrypted: anyone who gets the file can read every password, and malware looks for exactly these files. Use them only to move to another password manager, then delete the file.");
+                hint: @tr("An encrypted backup is a copy of your vault file: it opens only with your master password and Secret Key, or with your emergency kit. The copy is read back and checked before the app calls it done. “Protected by a password” is one file with every item, encrypted with a password you choose for it: good for carrying your items to another computer, where Import reads it; it has that one password only, so make it long. JSON and CSV are NOT encrypted: anyone who gets the file can read every password, and malware looks for exactly these files. Use them only to move to another password manager, then delete the file.");
             }
             HorizontalLayout {
                 spacing: 16px;
