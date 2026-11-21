@@ -57,7 +57,7 @@ mod native {
         DeviceState, SyncPlace, SyncTo, secret_store,
         sync::{self, ServerTarget, Tags},
     };
-    use vault_sync_wire::InviteLink;
+    use vault_sync_wire::{DeviceKey, InviteLink};
 
     use zeroize::Zeroizing;
 
@@ -65,6 +65,29 @@ mod native {
         super::{CURRENT, field},
         Controller, state,
     };
+
+    /// Joins the server with the invite, or, when this phone already joined that vault there
+    /// (a setup that failed after joining, tried again), goes on with the key it has: an
+    /// invite works once, so trying again must not need a new one.
+    fn join_or_resume(
+        address: &str,
+        vault_id: &str,
+        device: DeviceId,
+        invite: &str,
+    ) -> Result<ServerTarget, String> {
+        if let Ok(Some(seed)) = secret_store::load_sync_key(vault_id, &device.to_hex())
+            && let Ok(server) =
+                ServerTarget::new(address, vault_id, device, DeviceKey::from_seed(&seed))
+            && server.enrolled().is_ok()
+        {
+            return Ok(server);
+        }
+        let server = ServerTarget::join(address, vault_id, device, DEVICE_NAME, invite)
+            .map_err(|err| format!("{err:#}"))?;
+        secret_store::store_sync_key(vault_id, &device.to_hex(), &server.key_seed())
+            .map_err(|err| format!("{err:#}"))?;
+        Ok(server)
+    }
 
     /// After a save, how long to wait for more saves before one round.
     const AFTER_SAVE: Duration = Duration::from_secs(3);
@@ -258,11 +281,7 @@ mod native {
             let job = {
                 let (vault_id, address) = (vault_id.clone(), address.clone());
                 move || -> Result<(), String> {
-                    let server =
-                        ServerTarget::join(&address, &vault_id, device, DEVICE_NAME, &link.invite)
-                            .map_err(|err| format!("{err:#}"))?;
-                    secret_store::store_sync_key(&vault_id, &device.to_hex(), &server.key_seed())
-                        .map_err(|err| format!("{err:#}"))
+                    join_or_resume(&address, &vault_id, device, &link.invite).map(|_| ())
                 }
             };
             self.off_thread(job, move |controller, result| {
@@ -366,11 +385,7 @@ mod native {
             let job = {
                 let (vault_id, address) = (vault_id.clone(), address.clone());
                 move || -> Result<Vec<u8>, String> {
-                    let server =
-                        ServerTarget::join(&address, &vault_id, device, DEVICE_NAME, &link.invite)
-                            .map_err(|err| format!("{err:#}"))?;
-                    secret_store::store_sync_key(&vault_id, &device.to_hex(), &server.key_seed())
-                        .map_err(|err| format!("{err:#}"))?;
+                    let server = join_or_resume(&address, &vault_id, device, &link.invite)?;
                     let fetched = sync::fetch(&server, device, &Tags::new())
                         .map_err(|err| format!("{err:#}"))?;
                     // The biggest copy is the most likely to be the fullest; the first sync

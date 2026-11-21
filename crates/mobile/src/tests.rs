@@ -529,6 +529,16 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
             fresh.get_error_detail()
         );
         assert!(fresh.get_incoming(), "the copy waits to prove itself");
+        // Trying again with the same (now used) line goes on with the key the phone got.
+        assert_eq!(fresh.get_setup_invite(), "", "the line is cleared once used");
+        fresh.set_setup_invite(link.as_str().into());
+        fresh.invoke_setup_from_server();
+        assert_eq!(
+            (fresh.get_error_code(), fresh.get_screen()),
+            (0, Screen::Unlock),
+            "{}",
+            fresh.get_error_detail()
+        );
         type_secret(&fresh, 0, PASSWORD);
         fresh.invoke_unlock();
         assert_eq!(
