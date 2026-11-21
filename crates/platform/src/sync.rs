@@ -22,7 +22,7 @@ use vault_core::{
     sync::{DeviceId, MergeReport, SeenRevisions},
 };
 
-pub use http::check_address;
+pub use http::{check_address, split_pin};
 pub use server::ServerTarget;
 pub use webdav::WebDavTarget;
 

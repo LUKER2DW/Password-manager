@@ -258,10 +258,31 @@ impl Page {
         let char_size = (box_w * 0.82).min(12.0);
         let rows = groups.div_ceil(per_row);
         let note_lines = wrap(note, Font::Regular, 9.0, WIDTH - 28.0);
+        let chars: Vec<char> = value
+            .map(|v| {
+                v.strip_prefix(prefix)
+                    .unwrap_or(v)
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric())
+                    .collect()
+            })
+            .unwrap_or_default();
+        // The key as one piece of text, `R0-XXXXXX-…`: what copying the boxes gives, and a
+        // line under them to copy from in viewers that don't honour that.
+        let as_text = (!chars.is_empty()).then(|| {
+            let mut text = prefix.to_owned();
+            for group in chars.chunks(group_len) {
+                text.push('-');
+                text.extend(group);
+            }
+            Zeroizing::new(text)
+        });
+        let text_line = if as_text.is_some() { 9.0 * 1.6 } else { 0.0 };
         let height = 14.0
             + 9.0
             + 14.0
             + rows as f32 * (box_h + ROW_GAP)
+            + text_line
             + 4.0
             + note_lines.len() as f32 * 9.0 * 1.35
             + 12.0;
@@ -272,16 +293,15 @@ impl Page {
         self.text_at(x0, y, Font::Bold, 9.0, 0.35, label);
         y -= 14.0;
 
-        let chars: Vec<char> = value
-            .map(|v| {
-                v.strip_prefix(prefix)
-                    .unwrap_or(v)
-                    .chars()
-                    .filter(|c| c.is_ascii_alphanumeric())
-                    .collect()
-            })
-            .unwrap_or_default();
         let baseline = (box_h - char_size * 0.62) / 2.0;
+        // Copying the boxes gives the key itself, not its letters spread out with spaces.
+        if let Some(text) = &as_text {
+            let _ = writeln!(
+                self.ops,
+                "/Span << /ActualText ({}) >> BDC",
+                pdf_string(text)
+            );
+        }
         for row in 0..rows {
             let box_y = y - box_h;
             if row == 0 {
@@ -326,6 +346,12 @@ impl Page {
                 x += GROUP_GAP;
             }
             y = box_y - ROW_GAP;
+        }
+        if let Some(text) = &as_text {
+            let _ = writeln!(self.ops, "EMC");
+            y -= 9.0 * 1.2;
+            self.text_at(x0, y, Font::Mono, 9.0, 0.2, text);
+            y -= 9.0 * 0.4;
         }
         y -= 4.0;
         for line in &note_lines {
@@ -626,6 +652,11 @@ mod tests {
         assert_eq!(boxes(&text), 54);
         assert_eq!(text.matches("(J) Tj").count(), 6);
         assert_eq!(text.matches("(R0) Tj").count(), 1);
+        // It copies as one piece: from the boxes (ActualText) and from the line under them.
+        let whole = "R0-AAAAAA-BBBBBB-CCCCCC-DDDDDD-EEEEEE-FFFFFF-GGGGGG-HHHHHH-JJJJJJ";
+        assert!(text.contains(&format!("/ActualText ({whole})")));
+        assert!(text.contains(&format!("({whole}) Tj")));
+        assert_eq!(text.matches(" BDC").count(), text.matches("EMC").count());
     }
 
     #[test]

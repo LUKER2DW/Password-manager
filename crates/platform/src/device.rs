@@ -73,10 +73,19 @@ pub enum SyncTo {
 
 impl SyncTo {
     /// What to show the person: the folder or the address.
+    /// What to show for it: the folder, or the address without a certificate pin (a long hex
+    /// string that means nothing to read and is kept for the connection only).
     pub fn describe(&self) -> String {
         match self {
             Self::Folder { path } => path.display().to_string(),
-            Self::Server { url } | Self::Webdav { url, .. } => url.clone(),
+            Self::Server { url } | Self::Webdav { url, .. } => {
+                let (address, pinned) = crate::sync::split_pin(url);
+                if pinned.is_some() {
+                    format!("{address} (pinned certificate)")
+                } else {
+                    address.to_owned()
+                }
+            }
         }
     }
 }
