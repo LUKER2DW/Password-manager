@@ -548,6 +548,11 @@ export component PhoneWindow inherits Window {
     callback sync-now();
     callback sync-stop();
     callback lock-now();
+    // Sync: a backup server synced too, and why the main place or the backup didn't answer
+    // in the last round ("" = it did).
+    in property <string> sync-backup;
+    in property <string> sync-main-down;
+    in property <string> sync-backup-down;
     // Settings → Master password.
     in-out property <bool> changing-password;
     callback change-password();
@@ -1170,6 +1175,21 @@ export component PhoneWindow inherits Window {
                                         label: root.sync-webdav ? @tr("WebDAV") : @tr("Server");
                                         icon: "globe";
                                         value: root.sync-place;
+                                    }
+                                    if root.sync-backup != "": Fact {
+                                        label: @tr("Backup server");
+                                        icon: "globe";
+                                        value: root.sync-backup;
+                                    }
+                                    if root.sync-backup != "" && (root.sync-main-down != "" || root.sync-backup-down != ""): Text {
+                                        text: root.sync-main-down != "" && root.sync-backup-down == ""
+                                                ? @tr("The main server isn't answering: the vault syncs through the backup server, and the main one catches up as soon as it answers.")
+                                            : root.sync-main-down != ""
+                                                ? @tr("Neither server is answering. Changes stay on this phone and go out as soon as one answers.")
+                                                : @tr("The backup server isn't answering: the vault syncs through the main one, and the backup catches up as soon as it answers.");
+                                        font-size: Theme.small;
+                                        color: Theme.seal;
+                                        wrap: word-wrap;
                                     }
                                     Fact {
                                         label: @tr("Last synced");
