@@ -107,6 +107,20 @@ the app has to be changed by hand then.
 The computer's firewall asks once whether the server may take connections: allow it on
 private networks only. Keep the port closed on the router: this is for your own network.
 
+## A second server as a backup
+
+A vault can sync through two servers: if the main one is down (the computer it runs on is
+off, the network is out), every device keeps syncing through the other, and the main one
+catches up in the first round after it answers again. Run a second `vault-server` anywhere
+(another computer, a NAS, a cheap VPS behind Tailscale), make an invite there with
+`vault-server invite`, then on a computer that already syncs: **Settings → Sync → Add a
+backup server**, with its address and that invite. From then on **Add a device** puts an
+invite for both servers in the line it shows, and a phone set up with it joins both.
+
+Each server keeps its own list of devices and its own copies; removing a device from the
+vault (Settings → Sync → Remove) makes every device refuse its copies wherever they come
+from.
+
 ## Look after it
 
 - **List devices:** `vault-server list` (in Docker: `docker compose … exec vault-server

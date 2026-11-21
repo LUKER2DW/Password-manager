@@ -297,6 +297,28 @@ the answer with the pin in constant time and refuses on a mismatch; then every r
 trusts that authority as its only root, with the usual name and address checks. The pin
 travels inside the server address of `vaultsync:` invites.
 
+### 5.4 A backup place
+
+A device can sync through two places: the main one and a backup (in the apps, a second
+vault-server). Both are ordinary targets with their own enrollment (the device has a key for
+each, `sync-key:<vault>:<device>` and `…:backup` in the credential store). Each round:
+
+1. Both places are read at the same time. A place that doesn't answer is reported; the round
+   goes on with the other. Only when neither answers does the round fail.
+2. For each other device, the newest copy from either place is merged. A copy older than one
+   already merged from that device is passed over without a warning: a place that was down
+   holds older copies until it catches up. (It is never merged either way; with one place,
+   such a copy is still reported as a rollback.)
+3. This device's copy goes to every place that answered and doesn't have the current revision
+   yet (`published` and `published_backup` in the device state), so a place that comes back
+   gets it in its first round.
+
+While a place doesn't answer, a round runs every minute instead of every five. The apps say
+once when a place stops answering and once when it is back, and the Sync settings show
+which one is down. Add a device puts an invite for the backup into the same `vaultsync:`
+line (`&backup=<url>&backup_invite=<invite>`), so a new device joins both; apps that don't
+know these parameters join the main one.
+
 ## 6. Format v7
 
 The body gains one `SyncState` (VAULT_FORMAT.md §3): the writer, tombstones, when each folder,

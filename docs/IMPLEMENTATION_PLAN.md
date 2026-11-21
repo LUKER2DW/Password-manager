@@ -329,6 +329,13 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   launcher icon; ✅ Keystore-backed credential store, sensitive clipboard; ⬜ "open with"
   for `.vault` files, `FLAG_SECURE`: MOBILE.md §6.3
 - ✅ Changing the master password on the phone (checked against the file, saved, synced)
+- ✅ A backup sync place (SYNC.md §5.4): read and written every round with the main one; while
+  one is down the round goes on through the other and is tried every minute; the newest copy
+  of each device is taken from either, older ones passed over without a false rollback
+  warning; the place that comes back gets this device's copy at once. Desktop: Settings →
+  Sync → Add a backup server / Remove the backup, warnings when one is down and notices when
+  it is back; invites carry the backup's too (`&backup=…&backup_invite=…`), and the phone
+  joins both. Tested with two places, one taken down and brought back
 - ✅ Confirmed backups on the desktop and the phone: written, read back, compared with the
   vault file and opened with the vault's key (`Vault::check_copy`), deleted when they
   fail
