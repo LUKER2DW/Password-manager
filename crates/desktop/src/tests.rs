@@ -143,9 +143,17 @@ fn whole_app_flow_headless() {
     );
     assert_eq!(app.get_onboarding_step(), 3);
     let secret_key = app.get_kit_secret_key().to_string();
-    let recovery_key = app.get_kit_recovery_key().to_string();
+    let parts = [
+        app.get_kit_part_a(),
+        app.get_kit_part_b(),
+        app.get_kit_part_c(),
+    ]
+    .map(|part| part.to_string());
     let _cleanup = ForgetOnDrop(app.get_vault_id().to_string());
-    assert!(secret_key.starts_with("S0-") && recovery_key.starts_with("R0-"));
+    assert!(secret_key.starts_with("S0-"));
+    for (part, prefix) in parts.iter().zip(["A0-", "B0-", "C0-"]) {
+        assert!(part.starts_with(prefix));
+    }
     assert_eq!(length(&app, 0), 0, "typed password wiped after use");
     assert!(path.exists());
 
@@ -902,6 +910,29 @@ fn whole_app_flow_headless() {
     );
     assert_eq!(app.get_notice_code(), 16);
 
+    // ---- a new kit: new recovery parts, and the old ones stop working ----
+    assert_eq!(app.get_vault_recovery(), 2);
+    assert_eq!(app.get_kit_part_a(), "", "parts can't be shown again");
+    type_into(&app, 5, NEW_PASSWORD);
+    app.invoke_new_parts();
+    assert_eq!(
+        app.get_notice_code(),
+        8,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    let old_parts = parts;
+    let parts = [
+        app.get_kit_part_a(),
+        app.get_kit_part_b(),
+        app.get_kit_part_c(),
+    ]
+    .map(|part| part.to_string());
+    assert!(parts[0].starts_with("A0-") && parts[0] != old_parts[0]);
+    assert_eq!(app.get_kit_secret_key(), secret_key.as_str());
+    app.invoke_hide_kit();
+    assert_eq!(app.get_kit_part_c(), "");
+
     // ---- lock and unlock ----
     app.invoke_lock();
     assert_eq!(app.get_screen(), Screen::Unlock);
@@ -1424,16 +1455,55 @@ fn whole_app_flow_headless() {
     );
     assert!(!app.get_needs_secret_key());
 
+    // ---- a new device without the Secret Key: two recovery parts stand in for it ----
+    app.invoke_lock();
+    secret_store::forget(&app.get_vault_id()).unwrap();
+    type_into(&app, 0, NEW_PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_error_code(), 3, "Secret Key required");
+    assert!(app.get_can_use_parts());
+    app.set_use_parts(true);
+    type_into(&app, 16, &parts[0]);
+    type_into(&app, 17, &parts[0]);
+    app.invoke_unlock();
+    assert_eq!(app.get_error_code(), 46, "the same part twice");
+    type_into(&app, 17, &old_parts[2]);
+    app.invoke_unlock();
+    assert_eq!(app.get_error_code(), 44, "a part of the old kit");
+    type_into(&app, 17, "C0-1234567");
+    app.invoke_unlock();
+    assert_eq!(app.get_error_code(), 45, "not a whole part");
+    type_into(&app, 17, &parts[2].to_lowercase().replace('-', " "));
+    app.invoke_unlock();
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert!(!app.get_needs_secret_key() && !app.get_use_parts());
+    assert_eq!((length(&app, 16), length(&app, 17)), (0, 0), "parts wiped");
+    assert!(
+        secret_store::load(&app.get_vault_id()).unwrap().is_some(),
+        "the Secret Key the parts brought back is remembered"
+    );
+
     // ---- recovery with the emergency kit ----
     app.invoke_lock();
     app.invoke_show_recovery();
     assert_eq!(app.get_screen(), Screen::Recover);
-    type_into(&app, 3, "R0-not-a-key");
+    assert!(app.get_recover_with_parts());
+    type_into(&app, 16, &parts[0]);
+    type_into(&app, 17, "B0-not-a-part");
+    type_into(&app, 18, &parts[2]);
     type_into(&app, 0, PASSWORD);
     type_into(&app, 1, PASSWORD);
     app.invoke_recover();
-    assert_eq!(app.get_error_code(), 8);
-    type_into(&app, 3, &recovery_key);
+    assert_eq!(app.get_error_code(), 45);
+    type_into(&app, 17, &old_parts[1]);
+    app.invoke_recover();
+    assert_eq!(app.get_error_code(), 44, "parts of two kits");
+    type_into(&app, 17, &parts[1]);
     type_into(&app, 0, PASSWORD);
     type_into(&app, 1, PASSWORD);
     app.invoke_recover();
@@ -1449,10 +1519,13 @@ fn whole_app_flow_headless() {
     let new_secret_key = app.get_kit_secret_key().to_string();
     assert!(new_secret_key.starts_with("S0-") && new_secret_key != secret_key);
     assert_eq!(
-        app.get_kit_recovery_key(),
+        app.get_kit_part_a(),
         "",
-        "the Recovery Key itself did not change"
+        "the recovery parts themselves did not change"
     );
+    for part in [16, 17, 18] {
+        assert_eq!(length(&app, part), 0, "parts wiped after use");
+    }
     app.set_kit_saved(true);
     app.invoke_finish_onboarding();
     assert_eq!(app.get_screen(), Screen::Vault);

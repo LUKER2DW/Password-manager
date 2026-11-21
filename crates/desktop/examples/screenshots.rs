@@ -728,6 +728,12 @@ fn main() {
     type_into(&app, 5, PASSWORD);
     app.invoke_show_kit();
     camera.shot("kit", "Emergency kit page: print or save as PDF");
+    type_into(&app, 5, PASSWORD);
+    app.invoke_new_parts();
+    camera.shot(
+        "kit-new-parts",
+        "Emergency kit page: new recovery parts, shown this once",
+    );
     // Keep a copy of the printable PDF next to the screenshots (fake keys only).
     app.invoke_print_kit();
     if let Ok(entries) = std::fs::read_dir(temp.path().join("home").join("print")) {
@@ -877,6 +883,13 @@ fn main() {
         "unlock-new-device",
         "A computer that hasn't seen this vault",
     );
+    app.set_can_use_parts(true);
+    app.set_use_parts(true);
+    camera.shot(
+        "unlock-parts",
+        "No Secret Key at hand: two recovery parts stand in for it",
+    );
+    app.set_use_parts(false);
     app.invoke_show_recovery();
     camera.shot("recover", "Recovery with the emergency kit");
 

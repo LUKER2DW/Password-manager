@@ -115,7 +115,10 @@ export component AppWindow inherits Window {
     in property <bool> recovered;
     in property <string> suggestion;
     in property <string> kit-secret-key;
-    in property <string> kit-recovery-key;
+    // Recovery parts A, B and C, only right after they are issued.
+    in property <string> kit-part-a;
+    in property <string> kit-part-b;
+    in property <string> kit-part-c;
     in-out property <bool> kit-saved;
     callback create-vault();
     callback finish-onboarding-import();
@@ -134,6 +137,12 @@ export component AppWindow inherits Window {
 
     // ---- unlock / recover ----
     in property <bool> needs-secret-key;
+    // Two recovery parts may stand in for the Secret Key on the unlock screen.
+    in property <bool> can-use-parts;
+    in-out property <bool> use-parts;
+    // The recovery screen asks for parts (or, for a vault with an older kit, the Recovery Key).
+    in property <bool> recover-with-parts: true;
+    callback choose-part-picture();
     in property <bool> needs-keyfile;
     // Where the vault's keyfile is (unlock screen and settings).
     in-out property <string> keyfile-path;
@@ -436,7 +445,7 @@ export component AppWindow inherits Window {
     // Argon2id cost of the vault: memory in MiB and passes.
     in property <int> kdf-memory;
     in property <int> kdf-passes;
-    in property <bool> vault-has-recovery;
+    in property <int> vault-recovery;
     callback vault-settings-changed();
     callback settings-changed();
     callback appearance-changed(bool);
@@ -453,7 +462,8 @@ export component AppWindow inherits Window {
     callback change-kdf();
     callback show-kit();
     callback hide-kit();
-    callback new-recovery-key();
+    callback new-parts();
+    callback save-part-picture();
     callback open-kit();
     callback print-kit();
     // ---- import & export ----
@@ -501,7 +511,9 @@ export component AppWindow inherits Window {
         recovered: root.recovered;
         kit-vault-id: root.vault-id;
         kit-secret-key: root.kit-secret-key;
-        kit-recovery-key: root.kit-recovery-key;
+        kit-part-a: root.kit-part-a;
+        kit-part-b: root.kit-part-b;
+        kit-part-c: root.kit-part-c;
         kit-path: root.vault-path;
         kit-saved <=> root.kit-saved;
         guard <=> root.onboarding-guard;
@@ -530,6 +542,9 @@ export component AppWindow inherits Window {
         error-code: root.error-code;
         error-detail: root.error-detail;
         needs-secret-key: root.needs-secret-key;
+        can-use-parts: root.can-use-parts;
+        use-parts <=> root.use-parts;
+        choose-part-picture => { root.choose-part-picture(); }
         needs-keyfile: root.needs-keyfile;
         keyfile-path: root.keyfile-path;
         choose-keyfile => { root.choose-keyfile(); }
@@ -553,6 +568,8 @@ export component AppWindow inherits Window {
         busy: root.busy;
         error-code: root.error-code;
         error-detail: root.error-detail;
+        with-parts: root.recover-with-parts;
+        choose-part-picture => { root.choose-part-picture(); }
         recover => { root.recover(); }
         back => { root.back-to-unlock(); }
     }
@@ -841,7 +858,7 @@ export component AppWindow inherits Window {
                 vault-folders: root.vault-folders;
                 kdf-memory: root.kdf-memory;
                 kdf-passes: root.kdf-passes;
-                vault-has-recovery: root.vault-has-recovery;
+                vault-recovery: root.vault-recovery;
                 vault-settings-changed => { root.vault-settings-changed(); }
                 quick-unlock-available: root.quick-unlock-available;
                 quick-unlock-on <=> root.quick-unlock-on;
@@ -945,10 +962,14 @@ export component AppWindow inherits Window {
                 vault-path: root.vault-path;
                 vault-id: root.vault-id;
                 kit-secret-key: root.kit-secret-key;
-                kit-recovery-key: root.kit-recovery-key;
+                kit-part-a: root.kit-part-a;
+                kit-part-b: root.kit-part-b;
+                kit-part-c: root.kit-part-c;
+                vault-recovery: root.vault-recovery;
                 show-kit => { root.show-kit(); }
                 hide-kit => { root.hide-kit(); }
-                new-recovery-key => { root.new-recovery-key(); }
+                new-parts => { root.new-parts(); }
+                save-part-picture => { root.save-part-picture(); }
                 print-kit => { root.print-kit(); }
                 save-kit => { root.save-kit(); }
             }

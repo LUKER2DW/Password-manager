@@ -407,7 +407,9 @@ export component OnboardingScreen inherits Rectangle {
     in property <bool> recovered: false;
     in property <string> kit-vault-id;
     in property <string> kit-secret-key;
-    in property <string> kit-recovery-key;
+    in property <string> kit-part-a;
+    in property <string> kit-part-b;
+    in property <string> kit-part-c;
     in property <string> kit-path;
     in-out property <bool> kit-saved;
     // Item lock, chosen before the vault is created: 0 PIN, 1 another password, 2 master
@@ -668,13 +670,15 @@ export component OnboardingScreen inherits Rectangle {
                 Heading { text: @tr("Save your emergency kit"); }
                 Prose {
                     text: root.recovered
-                        ? @tr("Your Secret Key changed. Replace the old one in your emergency kit, or write a new kit. Your Recovery Key still works.")
-                        : @tr("If you lose this computer or forget your master password, these keys are the only way back in. Write them down or print them, and keep the paper somewhere safe.");
+                        ? @tr("Your Secret Key changed: print the first page of your kit again, or write the new one on it. What you recovered with keeps working.")
+                        : @tr("If you lose this computer or forget your master password, these keys are the only way back in. Print the kit, and keep the Secret Key and each recovery part in different safe places.");
                 }
                 KitSlip {
                     vault-id: root.kit-vault-id;
                     secret-key: root.kit-secret-key;
-                    recovery-key: root.kit-recovery-key;
+                    part-a: root.kit-part-a;
+                    part-b: root.kit-part-b;
+                    part-c: root.kit-part-c;
                     vault-path: root.kit-path;
                 }
                 HorizontalLayout {
@@ -753,6 +757,10 @@ export component UnlockScreen inherits Rectangle {
     in property <int> error-code;
     in property <string> error-detail;
     in property <bool> needs-secret-key;
+    // The vault has recovery parts: two of them can stand in for the Secret Key.
+    in property <bool> can-use-parts;
+    in-out property <bool> use-parts;
+    callback choose-part-picture();
     // The vault uses a keyfile; `keyfile-path` is where it is (remembered, or just chosen).
     in property <bool> needs-keyfile;
     in property <string> keyfile-path;
@@ -916,7 +924,7 @@ export component UnlockScreen inherits Rectangle {
                         }
                     }
                 }
-                if root.needs-secret-key: VerticalLayout {
+                if root.needs-secret-key && !root.use-parts: VerticalLayout {
                     spacing: 12px;
                     Prose {
                         text: @tr("This computer hasn't opened this vault before. Type the Secret Key from your emergency kit once; it will be remembered here.");
@@ -929,6 +937,50 @@ export component UnlockScreen inherits Rectangle {
                         placeholder: "S0-";
                         error: root.error-code == 2 || root.error-code == 3;
                         accepted => { password.focus(); }
+                    }
+                    if root.can-use-parts: HorizontalLayout {
+                        alignment: start;
+                        LinkButton {
+                            icon: "lifebuoy";
+                            text: @tr("Lost the Secret Key? Use two recovery parts");
+                            clicked => { root.use-parts = true; }
+                        }
+                    }
+                }
+                if root.needs-secret-key && root.use-parts: VerticalLayout {
+                    spacing: 12px;
+                    Prose {
+                        text: @tr("Type any two of your three recovery parts. They bring back the Secret Key, which this computer then remembers. Your master password is still needed.");
+                    }
+                    SecretField {
+                        field: 16;
+                        label: @tr("A recovery part");
+                        required: true;
+                        hint: @tr("Copy it from its page of your emergency kit: A0-, B0- or C0- followed by four groups of seven characters. Which two, their order, dashes, spaces and capitals don't matter.");
+                        placeholder: "A0-";
+                        error: root.error-code == 44 || root.error-code == 45 || root.error-code == 46 || root.error-code == 48;
+                    }
+                    SecretField {
+                        field: 17;
+                        label: @tr("Another part");
+                        required: true;
+                        placeholder: "B0-";
+                        error: root.error-code == 44 || root.error-code == 45 || root.error-code == 46 || root.error-code == 48;
+                        accepted => { password.focus(); }
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 4px;
+                        LinkButton {
+                            icon: "folder";
+                            text: @tr("Read a part from its picture…");
+                            clicked => { root.choose-part-picture(); }
+                        }
+                        LinkButton {
+                            icon: "key";
+                            text: @tr("Type the Secret Key instead");
+                            clicked => { root.use-parts = false; }
+                        }
                     }
                 }
                 password := SecretField {
@@ -1017,6 +1069,9 @@ export component RecoverScreen inherits Rectangle {
     in property <bool> busy;
     in property <int> error-code;
     in property <string> error-detail;
+    // Three recovery parts; false for a vault that still has the Recovery Key of an older kit.
+    in property <bool> with-parts: true;
+    callback choose-part-picture();
     callback recover();
     callback back();
 
@@ -1033,7 +1088,7 @@ export component RecoverScreen inherits Rectangle {
                 color: Theme.ink;
             }
             Rectangle { height: 20px; }
-            StepMark { number: 1; text: @tr("Recovery Key"); active: true; }
+            StepMark { number: 1; text: root.with-parts ? @tr("Recovery parts") : @tr("Recovery Key"); active: true; }
             StepMark { number: 2; text: @tr("New master password"); }
             StepMark { number: 3; text: @tr("New emergency kit"); }
             Spacer { }
@@ -1042,7 +1097,7 @@ export component RecoverScreen inherits Rectangle {
                 vertical-stretch: 0;
                 Fact { text: @tr("Your items stay exactly as they are."); }
                 Fact { text: @tr("You get a new Secret Key; the old one stops working."); }
-                Fact { text: @tr("Your Recovery Key keeps working."); }
+                Fact { text: root.with-parts ? @tr("Your recovery parts keep working, and bring back the new Secret Key.") : @tr("Your Recovery Key keeps working."); }
             }
         }
         Rectangle { width: 1px; background: Theme.rule; }
@@ -1055,9 +1110,44 @@ export component RecoverScreen inherits Rectangle {
 
                 Heading { text: @tr("Use your emergency kit"); }
                 Prose {
-                    text: @tr("Type the Recovery Key from your emergency kit, then choose a new master password.");
+                    text: root.with-parts
+                        ? @tr("Type all three recovery parts from your emergency kit, then choose a new master password.")
+                        : @tr("Type the Recovery Key from your emergency kit, then choose a new master password.");
                 }
-                SecretField {
+                if root.with-parts: VerticalLayout {
+                    spacing: 12px;
+                    SecretField {
+                        field: 16;
+                        label: @tr("Part A");
+                        required: true;
+                        hint: @tr("Copy each part from its page of your emergency kit: A0-, B0- and C0- followed by four groups of seven characters. Their order, dashes, spaces and capitals don't matter.");
+                        placeholder: "A0-";
+                        error: root.error-code == 44 || root.error-code == 45 || root.error-code == 46 || root.error-code == 48;
+                    }
+                    SecretField {
+                        field: 17;
+                        label: @tr("Part B");
+                        required: true;
+                        placeholder: "B0-";
+                        error: root.error-code == 44 || root.error-code == 45 || root.error-code == 46 || root.error-code == 48;
+                    }
+                    SecretField {
+                        field: 18;
+                        label: @tr("Part C");
+                        required: true;
+                        placeholder: "C0-";
+                        error: root.error-code == 44 || root.error-code == 45 || root.error-code == 46 || root.error-code == 48 || root.error-code == 47;
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        LinkButton {
+                            icon: "folder";
+                            text: @tr("Read part C from its picture…");
+                            clicked => { root.choose-part-picture(); }
+                        }
+                    }
+                }
+                if !root.with-parts: SecretField {
                     field: 3;
                     label: @tr("Recovery Key");
                     required: true;

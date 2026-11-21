@@ -1700,7 +1700,9 @@ export component SettingsPage inherits Rectangle {
     property <string> vault-kdf: root.kdf-current-method == 1 ? @tr("scrypt · {} MiB", root.kdf-memory)
         : root.kdf-current-method == 2 ? @tr("PBKDF2-SHA-256 · {} rounds", root.kdf-passes)
         : @tr("Argon2id · {} MiB · {} passes", root.kdf-memory, root.kdf-passes);
-    in property <bool> vault-has-recovery;
+    // How a forgotten master password is recovered: 0 not at all, 1 the Recovery Key of an
+    // older kit, 2 recovery parts.
+    in property <int> vault-recovery;
     in-out property <int> auto-lock-minutes;
     in-out property <int> clipboard-seconds;
     in-out property <bool> website-icons;
@@ -1829,8 +1831,10 @@ export component SettingsPage inherits Rectangle {
                     Fact { label: @tr("Items"); value: @tr("{} items in {} folders", root.vault-items, root.vault-folders); }
                     Fact { label: @tr("Encryption"); value: "XChaCha20-Poly1305 · " + root.vault-kdf; }
                     Fact {
-                        label: @tr("Recovery Key");
-                        value: root.vault-has-recovery ? @tr("Set: the emergency kit can open this vault") : @tr("None: a forgotten master password can't be recovered");
+                        label: @tr("Recovery");
+                        value: root.vault-recovery == 2 ? @tr("Three recovery parts: any two bring back the Secret Key, all three a new master password")
+                            : root.vault-recovery == 1 ? @tr("The Recovery Key of an older kit: make a new kit to get recovery parts")
+                            : @tr("None: a forgotten master password can't be recovered");
                     }
                     Fact { label: @tr("File"); value: root.vault-path; }
                     Fact { label: @tr("Vault ID"); value: root.vault-id; mono: true; }
@@ -3437,15 +3441,19 @@ export component KitPage inherits Rectangle {
     in property <string> vault-path;
     in property <string> vault-id;
     in property <string> kit-secret-key;
-    in property <string> kit-recovery-key;
+    in property <string> kit-part-a;
+    in property <string> kit-part-b;
+    in property <string> kit-part-c;
+    in property <int> vault-recovery;
     callback show-kit();
     callback hide-kit();
-    callback new-recovery-key();
+    callback new-parts();
     callback print-kit();
     callback save-kit();
+    callback save-part-picture();
 
     property <bool> confirming-new-key;
-    changed kit-recovery-key => { root.confirming-new-key = false; }
+    changed kit-part-a => { root.confirming-new-key = false; }
 
     ScrollView {
         VerticalLayout {
@@ -3489,12 +3497,17 @@ export component KitPage inherits Rectangle {
                     max-width: 620px;
                     vault-id: root.vault-id;
                     secret-key: root.kit-secret-key;
-                    recovery-key: root.kit-recovery-key;
+                    part-a: root.kit-part-a;
+                    part-b: root.kit-part-b;
+                    part-c: root.kit-part-c;
                     vault-path: root.vault-path;
                 }
-                if root.kit-recovery-key == "": Prose {
+                if root.kit-part-a == "": Prose {
                     font-size: Theme.small;
-                    text: @tr("The Recovery Key isn't stored anywhere, so it can't be shown again: use the one on your first kit. Lost it? Issue a new one below; the old one stops working.");
+                    max-width: 620px;
+                    text: root.vault-recovery == 2 ? @tr("The recovery parts aren't stored anywhere, so they can't be shown again: use the ones from the kit that issued them. Lost one? Issue new parts below; the old ones stop working.")
+                        : root.vault-recovery == 1 ? @tr("This vault still uses the Recovery Key of an older kit, which opens it on its own. Issue recovery parts to replace it: three pieces kept apart, where any two bring back the Secret Key and all three a new master password.")
+                        : @tr("This vault has no way to recover a forgotten master password. Issue recovery parts to add one.");
                 }
                 HorizontalLayout {
                     alignment: start;
@@ -3510,10 +3523,17 @@ export component KitPage inherits Rectangle {
                             clicked => { root.save-kit(); }
                         }
                     }
+                    if root.kit-part-c != "": VerticalLayout {
+                        alignment: center;
+                        QuietButton {
+                            text: @tr("Hide part C in a picture…");
+                            clicked => { root.save-part-picture(); }
+                        }
+                    }
                     VerticalLayout {
                         alignment: center;
                         QuietButton {
-                            text: @tr("New Recovery Key");
+                            text: root.vault-recovery == 2 ? @tr("New recovery parts") : @tr("Issue recovery parts");
                             clicked => { root.confirming-new-key = true; }
                         }
                     }
@@ -3528,6 +3548,13 @@ export component KitPage inherits Rectangle {
                             }
                         }
                     }
+                }
+                if root.kit-part-c != "": Text {
+                    text: @tr("Part C can also live in a photo of yours: the app saves a copy of it as a PNG that looks the same and holds the part in its pixels. Keep that file as it is; a resized or converted copy (as chat apps send) loses the part.");
+                    font-size: Theme.small;
+                    color: Theme.faint;
+                    wrap: word-wrap;
+                    max-width: 620px;
                 }
                 Text {
                     text: @tr("Printing makes a temporary PDF that is wiped from this computer when the vault locks.");
@@ -3545,19 +3572,19 @@ export component KitPage inherits Rectangle {
                         padding: 18px;
                         spacing: 12px;
                         Text {
-                            text: @tr("Issue a new Recovery Key?");
+                            text: @tr("Issue new recovery parts?");
                             font-size: Theme.lead;
                             font-weight: 600;
                             color: Theme.ink;
                         }
                         Prose {
-                            text: @tr("The Recovery Key on your old kits will stop working. Print the new kit right after.");
+                            text: @tr("The recovery parts (or Recovery Key) of your old kits will stop working. Print the new kit right after, and keep each part in a different place.");
                         }
                         SecretField {
                             field: 5;
                             label: @tr("Master password");
                             error: root.error-code == 11;
-                            accepted => { root.new-recovery-key(); }
+                            accepted => { root.new-parts(); }
                         }
                         ErrorText {
                             code: root.error-code;
@@ -3567,12 +3594,12 @@ export component KitPage inherits Rectangle {
                             alignment: start;
                             spacing: 8px;
                             Button {
-                                text: @tr("Issue new Recovery Key");
+                                text: @tr("Issue new parts");
                                 danger: true;
                                 busy-text: @tr("Working…");
                                 busy: root.busy;
                                 clicked => {
-                                    root.new-recovery-key();
+                                    root.new-parts();
                                 }
                             }
                             VerticalLayout {

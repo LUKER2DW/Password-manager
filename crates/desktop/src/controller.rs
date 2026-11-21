@@ -18,7 +18,7 @@ use slint::{
 };
 use vault_core::{
     CustomField, Error as CoreError, FolderId, GuardCheck, ItemData, ItemGuard, ItemId, ItemKind,
-    KdfParams, RecoveryCode, RecoveryKey, SecretKey, Unlock, Vault,
+    KdfParams, RecoveryCode, RecoveryKey, RecoveryPart, RecoveryParts, SecretKey, Unlock, Vault,
     card::{self, CardDetails, CardProblem},
     generator::{self, PassphraseOptions},
     health::HealthReport,
@@ -28,6 +28,7 @@ use vault_core::{
 use vault_platform::{
     DeviceState, RollbackStatus, SecretBuffer, StateFile, clipboard, device, files,
     kit_pdf::{self, KitContents},
+    part_picture,
     quick_unlock::{self, DeviceVerifier, QuickUnlockError},
     secret_store,
 };
@@ -84,7 +85,12 @@ mod field {
     pub const PAIRING: usize = 14;
     /// The WebDAV password on the Sync card.
     pub const SYNC_PASSWORD: usize = 15;
-    pub const COUNT: usize = 16;
+    /// Recovery parts: all three on the recovery screen, or two of them on the unlock screen
+    /// in place of the Secret Key.
+    pub const PART_A: usize = 16;
+    pub const PART_B: usize = 17;
+    pub const PART_C: usize = 18;
+    pub const COUNT: usize = 19;
 }
 
 /// Error codes (texts live in model.slint → Messages.error).
@@ -131,6 +137,12 @@ mod error {
     pub const TOTP_REQUIRED: i32 = 41;
     pub const BROWSER_PIPE: i32 = 42;
     pub const PAIRING_CODE: i32 = 43;
+    pub const PARTS_WRONG: i32 = 44;
+    pub const PART_TYPO: i32 = 45;
+    pub const PARTS_SAME: i32 = 46;
+    pub const PART_PICTURE: i32 = 47;
+    pub const NO_PARTS: i32 = 48;
+    pub const COVER: i32 = 49;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -142,7 +154,7 @@ mod notice {
     pub const SAVED: i32 = 5;
     pub const DELETED: i32 = 6;
     pub const PASSWORD_CHANGED: i32 = 7;
-    pub const RECOVERY_ISSUED: i32 = 8;
+    pub const PARTS_ISSUED: i32 = 8;
     pub const FIELD_COPIED: i32 = 10;
     pub const GENERATED_COPIED: i32 = 11;
     pub const HELLO_ON: i32 = 12;
@@ -193,6 +205,8 @@ mod notice {
     pub const SYNC_REMOVED: i32 = 57;
     pub const SYNC_JOINED: i32 = 58;
     pub const SYNC_DEVICE_REMOVED: i32 = 59;
+    pub const PICTURE_SAVED: i32 = 60;
+    pub const PART_READ: i32 = 61;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -232,7 +246,7 @@ struct Session {
 enum JobResult {
     Created {
         session: Session,
-        recovery_key: RecoveryKey,
+        parts: RecoveryParts,
     },
     Unlocked {
         session: Session,
@@ -308,9 +322,9 @@ enum JobResult {
         session: Session,
         notice: i32,
     },
-    RecoveryIssued {
+    PartsIssued {
         session: Session,
-        recovery_key: RecoveryKey,
+        parts: RecoveryParts,
     },
     /// `session` is handed back when the job borrowed an open vault.
     Failed {
@@ -654,7 +668,8 @@ impl Controller {
         on!(on_unlock, |c| c.unlock());
         on!(on_quick_unlock, |c| c.quick_unlock());
         on!(on_quick_unlock_toggled, |c, on| c.set_quick_unlock(on));
-        on!(on_show_recovery, |c| c.show_screen(Screen::Recover));
+        on!(on_show_recovery, |c| c.show_recovery());
+        on!(on_choose_part_picture, |c| c.choose_part_picture());
         on!(on_back_to_unlock, |c| c.show_screen(Screen::Unlock));
         on!(on_recover, |c| c.recover());
 
@@ -814,10 +829,10 @@ impl Controller {
         on!(on_hide_kit, |c| {
             let app = c.app();
             app.set_kit_secret_key(SharedString::new());
-            app.set_kit_recovery_key(SharedString::new());
+            clear_kit_parts(&app);
         });
-        on!(on_new_recovery_key, |c| c
-            .verify_then(KitAction::NewRecoveryKey));
+        on!(on_new_parts, |c| c.verify_then(KitAction::NewParts));
+        on!(on_save_part_picture, |c| c.save_part_picture());
     }
 
     fn edit_secret(&self, field: i32, edit: impl FnOnce(&mut SecretBuffer)) {
@@ -881,6 +896,8 @@ impl Controller {
                 ));
                 app.set_vault_id(SharedString::from(info.id_hex));
                 app.set_needs_secret_key(!known);
+                app.set_can_use_parts(info.has_recovery_parts);
+                app.set_use_parts(false);
                 self.show_screen(Screen::Unlock);
             }
             None if path.exists() => {
@@ -979,10 +996,7 @@ impl Controller {
         app.set_busy(false);
         app.set_quick_waiting(false);
         match result {
-            JobResult::Created {
-                session,
-                recovery_key,
-            } => {
+            JobResult::Created { session, parts } => {
                 self.clear_secret(field::MASTER);
                 self.clear_secret(field::CONFIRM);
                 self.state.borrow_mut().suggestion = None;
@@ -991,9 +1005,7 @@ impl Controller {
                 app.set_kit_secret_key(SharedString::from(
                     session.secret_key.to_display_string().as_str(),
                 ));
-                app.set_kit_recovery_key(SharedString::from(
-                    recovery_key.to_display_string().as_str(),
-                ));
+                show_kit_parts(&app, &parts);
                 app.set_recovered(false);
                 app.set_kit_saved(false);
                 self.clear_secret(field::GUARD_NEW);
@@ -1005,10 +1017,13 @@ impl Controller {
                 self.clear_secret(field::MASTER);
                 self.clear_secret(field::CONFIRM);
                 self.clear_secret(field::RECOVERY_KEY);
+                for part in [field::PART_A, field::PART_B, field::PART_C] {
+                    self.clear_secret(part);
+                }
                 app.set_kit_secret_key(SharedString::from(
                     session.secret_key.to_display_string().as_str(),
                 ));
-                app.set_kit_recovery_key(SharedString::new());
+                clear_kit_parts(&app);
                 app.set_recovered(true);
                 app.set_kit_saved(false);
                 app.set_onboarding_step(3);
@@ -1056,6 +1071,9 @@ impl Controller {
                 let pairing_by_password = seconds.is_some();
                 self.clear_secret(field::MASTER);
                 self.clear_secret(field::SECRET_KEY);
+                self.clear_secret(field::PART_A);
+                self.clear_secret(field::PART_B);
+                app.set_use_parts(false);
                 self.enter_vault(session);
                 self.offer_pending_pairing(!pairing_by_password);
             }
@@ -1209,23 +1227,19 @@ impl Controller {
                 app.set_kit_secret_key(SharedString::from(
                     session.secret_key.to_display_string().as_str(),
                 ));
-                app.set_kit_recovery_key(SharedString::new());
+                clear_kit_parts(&app);
                 self.state.borrow_mut().session = Some(session);
             }
-            JobResult::RecoveryIssued {
-                session,
-                recovery_key,
-            } => {
+            JobResult::PartsIssued { session, parts } => {
                 self.clear_secret(field::CURRENT);
                 app.set_kit_secret_key(SharedString::from(
                     session.secret_key.to_display_string().as_str(),
                 ));
-                app.set_kit_recovery_key(SharedString::from(
-                    recovery_key.to_display_string().as_str(),
-                ));
+                show_kit_parts(&app, &parts);
+                app.set_vault_recovery(2);
                 self.state.borrow_mut().session = Some(session);
                 self.remember_file();
-                self.notify(notice::RECOVERY_ISSUED, "");
+                self.notify(notice::PARTS_ISSUED, "");
             }
             JobResult::Failed {
                 code,
@@ -1316,9 +1330,11 @@ impl Controller {
                 .map_err(|e| (error::OTHER, e.to_string()))?;
                 let secret_key =
                     SecretKey::generate().map_err(|e| (error::OTHER, e.to_string()))?;
-                let recovery_key =
-                    RecoveryKey::generate().map_err(|e| (error::OTHER, e.to_string()))?;
-                let mut vault = Vault::create(&password, &secret_key, Some(&recovery_key), kdf)
+                let parts = RecoveryParts::generate().map_err(|e| (error::OTHER, e.to_string()))?;
+                let mut vault = Vault::create(&password, &secret_key, None, kdf)
+                    .map_err(|e| (error::OTHER, e.to_string()))?;
+                vault
+                    .set_recovery_parts(&parts, &secret_key)
                     .map_err(|e| (error::OTHER, e.to_string()))?;
                 if let Some(check) = lock {
                     let secret = (check != GuardCheck::Master).then(|| guard_secret.as_str());
@@ -1354,7 +1370,7 @@ impl Controller {
                         secret_key,
                         keyfile: None,
                     },
-                    recovery_key,
+                    parts,
                 })
             })();
             result.unwrap_or_else(|(code, detail)| JobResult::Failed {
@@ -1395,7 +1411,7 @@ impl Controller {
         };
         let app = self.app();
         app.set_kit_secret_key(SharedString::new());
-        app.set_kit_recovery_key(SharedString::new());
+        clear_kit_parts(&app);
         app.set_kit_saved(false);
         app.set_needs_secret_key(false);
         self.enter_vault(session);
@@ -1418,8 +1434,18 @@ impl Controller {
                 return;
             }
         };
+        self.app().set_can_use_parts(info.has_recovery_parts);
         let (secret_key, typed) = match secret_store::load(&info.id_hex) {
             Ok(Some(key)) => (key, false),
+            Ok(None) if self.app().get_use_parts() => {
+                match self.secret_key_from_parts(&bytes, info.has_recovery_parts) {
+                    Ok(key) => (key, true),
+                    Err(code) => {
+                        self.set_error(code, "");
+                        return;
+                    }
+                }
+            }
             Ok(None) => {
                 let parsed =
                     SecretKey::parse(self.state.borrow().secrets[field::SECRET_KEY].as_str());
@@ -1507,15 +1533,73 @@ impl Controller {
         });
     }
 
+    /// The recovery screen: with three parts, or with the Recovery Key of an older kit when
+    /// the vault still has one.
+    fn show_recovery(&self) {
+        let path = self.state.borrow().path.clone();
+        let older_key = storage::read(&path)
+            .ok()
+            .and_then(|bytes| Vault::inspect(&bytes).ok())
+            .is_some_and(|info| info.has_recovery_key);
+        self.app().set_recover_with_parts(!older_key);
+        self.show_screen(Screen::Recover);
+    }
+
+    /// The recovery parts typed into `fields`, each a different one. `Err` is the error code
+    /// for the screen.
+    fn typed_parts<const N: usize>(&self, fields: [usize; N]) -> Result<[RecoveryPart; N], i32> {
+        let state = self.state.borrow();
+        let mut parts = Vec::with_capacity(N);
+        for index in fields {
+            let part =
+                RecoveryPart::parse(state.secrets[index].as_str()).map_err(|_| error::PART_TYPO)?;
+            if parts
+                .iter()
+                .any(|other: &RecoveryPart| other.label() == part.label())
+            {
+                return Err(error::PARTS_SAME);
+            }
+            parts.push(part);
+        }
+        parts.try_into().map_err(|_| error::OTHER)
+    }
+
+    /// The Secret Key from the two parts typed on the unlock screen (quick: no password
+    /// hashing). The master password is still checked when the vault opens with it.
+    fn secret_key_from_parts(&self, bytes: &[u8], has_parts: bool) -> Result<SecretKey, i32> {
+        if !has_parts {
+            return Err(error::NO_PARTS);
+        }
+        let [first, second] = self.typed_parts([field::PART_A, field::PART_B])?;
+        Vault::recover_secret_key(bytes, &first, &second).map_err(|err| match err {
+            CoreError::NoMatchingSlot => error::NO_PARTS,
+            CoreError::DecryptionFailed => error::PARTS_WRONG,
+            _ => error::OTHER,
+        })
+    }
+
     fn recover(&self) {
-        let recovery_key =
+        enum With {
+            Parts([RecoveryPart; 3]),
+            Key(RecoveryKey),
+        }
+        let with = if self.app().get_recover_with_parts() {
+            match self.typed_parts([field::PART_A, field::PART_B, field::PART_C]) {
+                Ok(parts) => With::Parts(parts),
+                Err(code) => {
+                    self.set_error(code, "");
+                    return;
+                }
+            }
+        } else {
             match RecoveryKey::parse(self.state.borrow().secrets[field::RECOVERY_KEY].as_str()) {
-                Ok(key) => key,
+                Ok(key) => With::Key(key),
                 Err(_) => {
                     self.set_error(error::RECOVERY_KEY, "");
                     return;
                 }
-            };
+            }
+        };
         let Some(password) = self.new_password_from(field::MASTER, field::CONFIRM) else {
             return;
         };
@@ -1523,14 +1607,20 @@ impl Controller {
         self.run_job(move || {
             let result = (|| -> Result<JobResult, (i32, String)> {
                 let bytes = storage::read(&path).map_err(|e| (error::FILE, e.to_string()))?;
-                let mut vault =
-                    Vault::open(&bytes, Unlock::Recovery(&recovery_key)).map_err(|e| match e {
-                        CoreError::DecryptionFailed | CoreError::NoMatchingSlot => {
-                            (error::RECOVERY_KEY, String::new())
-                        }
-                        other => (error::OTHER, other.to_string()),
-                    })?;
-                // The old Secret Key may be lost or exposed: always issue a new one.
+                let (unlock, wrong) = match &with {
+                    With::Parts([a, b, c]) => (Unlock::Parts([a, b, c]), error::PARTS_WRONG),
+                    With::Key(key) => (Unlock::Recovery(key), error::RECOVERY_KEY),
+                };
+                let mut vault = Vault::open(&bytes, unlock).map_err(|e| match e {
+                    CoreError::DecryptionFailed => (wrong, String::new()),
+                    CoreError::NoMatchingSlot if wrong == error::PARTS_WRONG => {
+                        (error::NO_PARTS, String::new())
+                    }
+                    CoreError::NoMatchingSlot => (error::RECOVERY_KEY, String::new()),
+                    other => (error::OTHER, other.to_string()),
+                })?;
+                // The old Secret Key may be lost or exposed: always issue a new one. The
+                // recovery parts keep working and bring back the new one.
                 let secret_key =
                     SecretKey::generate().map_err(|e| (error::OTHER, e.to_string()))?;
                 let kdf = vault.kdf_params().clone();
@@ -1938,7 +2028,7 @@ impl Controller {
         app.set_gen_result(SharedString::new());
         app.set_editor_password_shown(SharedString::new());
         app.set_kit_secret_key(SharedString::new());
-        app.set_kit_recovery_key(SharedString::new());
+        clear_kit_parts(&app);
         app.set_ed_title(SharedString::new());
         app.set_ed_username(SharedString::new());
         app.set_ed_url(SharedString::new());
@@ -2706,7 +2796,7 @@ impl Controller {
         app.set_choosing_vault(false);
         app.set_suggestion(SharedString::new());
         app.set_kit_secret_key(SharedString::new());
-        app.set_kit_recovery_key(SharedString::new());
+        clear_kit_parts(&app);
         app.set_recovered(false);
         self.show_start_screen();
     }
@@ -3496,7 +3586,7 @@ impl Controller {
         app.set_browser_paired(self.browser_is_paired());
         self.show_vault_settings();
         app.set_kit_secret_key(SharedString::new());
-        app.set_kit_recovery_key(SharedString::new());
+        clear_kit_parts(&app);
         app.set_panel(Panel::Settings);
         self.set_error(error::NONE, "");
     }
@@ -3814,7 +3904,7 @@ impl Controller {
     fn open_kit(&self) {
         let app = self.app();
         app.set_kit_secret_key(SharedString::new());
-        app.set_kit_recovery_key(SharedString::new());
+        clear_kit_parts(&app);
         self.clear_secret(field::CURRENT);
         app.set_panel(Panel::Kit);
         self.set_error(error::NONE, "");
@@ -3827,14 +3917,19 @@ impl Controller {
         if secret_key.is_empty() {
             return None;
         }
-        let recovery_key = app.get_kit_recovery_key();
+        let parts = [
+            app.get_kit_part_a(),
+            app.get_kit_part_b(),
+            app.get_kit_part_c(),
+        ];
         let vault_id = app.get_vault_id();
         let created_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
         let bytes = kit_pdf::render(&KitContents {
             secret_key: &secret_key,
-            recovery_key: (!recovery_key.is_empty()).then_some(recovery_key.as_str()),
+            parts: (!parts[0].is_empty())
+                .then(|| [parts[0].as_str(), parts[1].as_str(), parts[2].as_str()]),
             vault_id: &vault_id,
             created_at,
         });
@@ -3882,6 +3977,120 @@ impl Controller {
             Ok(()) => self.notify(notice::KIT_SAVED, &path.display().to_string()),
             Err(err) => self.set_error(error::FILE, &err.to_string()),
         }
+    }
+
+    /// Emergency kit → hide part C in a picture of the person's own: chosen, saved as a PNG
+    /// with the part in its pixels, and read back before it is called done.
+    fn save_part_picture(&self) {
+        let app = self.app();
+        let Ok(part) = RecoveryPart::parse(&app.get_kit_part_c()) else {
+            return;
+        };
+        if self.state.borrow().runner == Runner::Inline {
+            return; // no dialogs in headless tests
+        }
+        let Some(cover_path) = rfd::FileDialog::new()
+            .set_title("Choose a picture to hide part C in")
+            .add_filter("Pictures", &["png", "jpg", "jpeg", "webp", "bmp", "gif"])
+            .pick_file()
+        else {
+            return;
+        };
+        let picture = match std::fs::read(&cover_path)
+            .map_err(anyhow::Error::from)
+            .and_then(|cover| part_picture::make(&part, Some(&cover)))
+        {
+            Ok(picture) => picture,
+            Err(err) => {
+                self.set_error(error::COVER, &format!("{err:#}"));
+                return;
+            }
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let name = part_picture::suggested_name(
+            cover_path.file_name().and_then(|name| name.to_str()),
+            now,
+        );
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Save the picture")
+            .set_file_name(&name)
+            .add_filter("PNG", &["png"]);
+        if let Some(folder) = cover_path.parent() {
+            dialog = dialog.set_directory(folder);
+        }
+        let Some(target) = dialog.save_file() else {
+            return;
+        };
+        self.write_part_picture(&target, &picture, &part);
+    }
+
+    /// Writes the picture, then reads the file back: done only when it gives the part again.
+    fn write_part_picture(&self, target: &std::path::Path, picture: &[u8], part: &RecoveryPart) {
+        let checked = std::fs::write(target, picture)
+            .map_err(anyhow::Error::from)
+            .and_then(|()| part_picture::read(&std::fs::read(target)?))
+            .and_then(|back| {
+                if &back == part {
+                    Ok(())
+                } else {
+                    anyhow::bail!("the saved file gives back another part")
+                }
+            });
+        match checked {
+            Ok(()) => self.notify(notice::PICTURE_SAVED, &target.display().to_string()),
+            Err(err) => {
+                let _ = std::fs::remove_file(target);
+                self.set_error(error::COVER, &format!("{err:#}"));
+            }
+        }
+    }
+
+    /// Recovery screen or unlock screen → read a part from the picture that holds it.
+    fn choose_part_picture(&self) {
+        if self.state.borrow().runner == Runner::Inline {
+            return; // no dialogs in headless tests
+        }
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Choose the picture that holds a recovery part")
+            .add_filter("PNG", &["png"])
+            .pick_file()
+        {
+            self.read_part_picture(&path);
+        }
+    }
+
+    /// Puts the part a picture holds into the right field: its own on the recovery screen,
+    /// the first empty one on the unlock screen. The field shows only its length.
+    fn read_part_picture(&self, path: &std::path::Path) {
+        let part = match std::fs::read(path)
+            .map_err(anyhow::Error::from)
+            .and_then(|file| part_picture::read(&file))
+        {
+            Ok(part) => part,
+            Err(err) => {
+                self.set_error(error::PART_PICTURE, &format!("{err:#}"));
+                return;
+            }
+        };
+        let index = if self.app().get_screen() == Screen::Recover {
+            match part.label() {
+                vault_core::PartLabel::A => field::PART_A,
+                vault_core::PartLabel::B => field::PART_B,
+                vault_core::PartLabel::C => field::PART_C,
+            }
+        } else if self.state.borrow().secrets[field::PART_A].char_count() == 0 {
+            field::PART_A
+        } else {
+            field::PART_B
+        };
+        let text = part.to_display_string();
+        self.edit_secret(index as i32, |buffer| {
+            buffer.set(&text);
+        });
+        self.set_error(error::NONE, "");
+        self.notify(notice::PART_READ, &part.label().letter().to_string());
     }
 
     fn set_appearance(&self, dark: bool) {
@@ -4264,7 +4473,7 @@ impl Controller {
                     let _ = session.vault.unlock_secrets_with_master(&current);
                     JobResult::ExportVerified { session }
                 }
-                KitAction::NewRecoveryKey => {
+                KitAction::NewParts => {
                     if !file_unchanged(&path, expected) {
                         return JobResult::Failed {
                             code: error::CHANGED_OUTSIDE,
@@ -4272,24 +4481,22 @@ impl Controller {
                             session: Some(session),
                         };
                     }
-                    // A failed write keeps the Recovery Key the file still has.
+                    // A failed write keeps the parts (or Recovery Key) the file still has.
+                    let secret_key = &session.secret_key;
                     let outcome = session.vault.change_unlock(|vault| {
-                        let key = RecoveryKey::generate()?;
-                        vault.set_recovery_key(Some(&key))?;
+                        let parts = RecoveryParts::generate()?;
+                        vault.set_recovery_parts(&parts, secret_key)?;
                         let bytes = vault.to_bytes()?;
                         storage::write_atomic(&path, &bytes)?;
-                        Ok(key)
+                        Ok(parts)
                     });
                     match outcome {
-                        Ok(recovery_key) => {
+                        Ok(parts) => {
                             let _ = device::record_revision(
                                 &session.vault.id_hex(),
                                 session.vault.revision(),
                             );
-                            JobResult::RecoveryIssued {
-                                session,
-                                recovery_key,
-                            }
+                            JobResult::PartsIssued { session, parts }
                         }
                         Err(err) => JobResult::Failed {
                             code: error::FILE,
@@ -4301,6 +4508,20 @@ impl Controller {
             }
         });
     }
+}
+
+/// Shows the three parts of a kit just issued (the only time they can be shown).
+fn show_kit_parts(app: &AppWindow, parts: &RecoveryParts) {
+    let text = |label| SharedString::from(parts.part(label).to_display_string().as_str());
+    app.set_kit_part_a(text(vault_core::PartLabel::A));
+    app.set_kit_part_b(text(vault_core::PartLabel::B));
+    app.set_kit_part_c(text(vault_core::PartLabel::C));
+}
+
+fn clear_kit_parts(app: &AppWindow) {
+    app.set_kit_part_a(SharedString::new());
+    app.set_kit_part_b(SharedString::new());
+    app.set_kit_part_c(SharedString::new());
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -4324,7 +4545,8 @@ enum AfterUnlock {
 #[derive(Debug, Clone, Copy)]
 enum KitAction {
     Show,
-    NewRecoveryKey,
+    /// A new kit: new recovery parts, the old ones (or the Recovery Key) stop working.
+    NewParts,
     /// Unencrypted export (the file is chosen after the password check).
     Export,
 }

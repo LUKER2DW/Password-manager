@@ -146,6 +146,12 @@ export global Messages {
         if (code == 6) { return @tr("This vault file is older than one this computer has already opened ({}). Someone may have swapped it for an old copy. Restore the newest file before continuing.", detail); }
         if (code == 7) { return @tr("The vault file couldn't be read or written: {}", detail); }
         if (code == 8) { return @tr("That Recovery Key doesn't open this vault. It starts with R0- and has nine groups."); }
+        if (code == 44) { return @tr("These parts don't open this vault. Check each one, and that they all come from your latest kit."); }
+        if (code == 45) { return @tr("One part has a typo, or isn't a recovery part: each starts with A0-, B0- or C0- followed by four groups of seven characters."); }
+        if (code == 46) { return @tr("Two of these are the same part. Use different ones: A, B or C."); }
+        if (code == 47) { return @tr("That picture doesn't give a recovery part: {}", detail); }
+        if (code == 48) { return @tr("This vault has no recovery parts: its kit has a Secret Key to type, or the Recovery Key of an older kit."); }
+        if (code == 49) { return @tr("Part C couldn't be hidden in that picture: {}", detail); }
         if (code == 9) { return @tr("Give the item a title."); }
         if (code == 10) { return @tr("The one-time code secret isn't valid. Paste the otpauth:// link or the key shown by the website."); }
         if (code == 11) { return @tr("The current master password is wrong."); }
@@ -239,7 +245,9 @@ export global Messages {
         if (code == 5) { return @tr("Saved."); }
         if (code == 6) { return @tr("Deleted {}.", arg); }
         if (code == 7) { return @tr("Master password changed."); }
-        if (code == 8) { return @tr("New Recovery Key issued. The old one no longer works."); }
+        if (code == 8) { return @tr("New recovery parts issued. The old ones no longer work: print the new kit now."); }
+        if (code == 60) { return @tr("Part C is hidden in {}. It was read back to check. Keep that file as it is: a resized or converted copy loses the part.", arg); }
+        if (code == 61) { return @tr("Part {} read from the picture.", arg); }
         if (code == 9) { return @tr("Settings saved."); }
         if (code == 10) { return @tr("Copied. The clipboard clears in {} seconds.", arg); }
         if (code == 11) { return @tr("Generated password copied. The clipboard clears in {} seconds.", arg); }

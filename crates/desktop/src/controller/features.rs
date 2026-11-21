@@ -1211,7 +1211,11 @@ impl Controller {
                 .map(|s| format!("{s:.1}"))
                 .unwrap_or_default(),
         ));
-        app.set_vault_has_recovery(session.vault.has_recovery_key());
+        app.set_vault_recovery(if session.vault.has_recovery_parts() {
+            2
+        } else {
+            i32::from(session.vault.has_recovery_key())
+        });
         let guard = session.vault.item_guard();
         let check = super::protection::check_code(guard.check);
         app.set_guard_current_check(check);

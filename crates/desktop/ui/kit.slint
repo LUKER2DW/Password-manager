@@ -35,7 +35,10 @@ component KitLine inherits VerticalLayout {
 export component KitSlip inherits Rectangle {
     in property <string> vault-id;
     in property <string> secret-key;
-    in property <string> recovery-key;
+    // Parts A, B and C, only right after they are issued.
+    in property <string> part-a;
+    in property <string> part-b;
+    in property <string> part-c;
     in property <string> vault-path;
 
     background: #F7F5EE;
@@ -73,10 +76,28 @@ export component KitSlip inherits Rectangle {
             value: root.secret-key;
             large: true;
         }
-        if root.recovery-key != "": KitLine {
-            label: @tr("Recovery Key");
-            hint: @tr("Opens the vault on its own, for when you forget the master password or lose the Secret Key. Anyone holding it can open your vault, so keep it apart from your devices.");
-            value: root.recovery-key;
+        if root.part-a != "": VerticalLayout {
+            spacing: 5px;
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                Text {
+                    text: @tr("Recovery parts");
+                    font-size: Theme.small;
+                    color: #5F6B7D;
+                    vertical-alignment: center;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Hint { text: @tr("Three parts to keep in three different places, apart from this kit and your devices. Any two bring back the Secret Key (the master password is still needed); all three let you choose a new master password. One part alone opens nothing. They aren't stored anywhere, so this is the only time they are shown."); }
+                }
+            }
+            for part in [root.part-a, root.part-b, root.part-c]: Text {
+                text: part;
+                font-family: Theme.mono-font;
+                font-size: Theme.body;
+                color: #1F2A3D;
+            }
         }
         KitLine {
             label: @tr("Vault ID");
