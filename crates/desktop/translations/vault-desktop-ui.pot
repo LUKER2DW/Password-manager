@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: vault-desktop-ui VERSION\n"
-"POT-Creation-Date: 2026-11-20 16:32+0000\n"
+"POT-Creation-Date: 2026-11-21 17:57+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2534,8 +2534,9 @@ msgstr ""
 #: ui/pages.slint:2111
 msgctxt "SettingsPage"
 msgid ""
-"Where your vault-server answers: https://, or http:// with a Tailscale "
-"address (100.x.y.z)."
+"Where your vault-server answers: https://, http:// with a Tailscale address "
+"(100.x.y.z), or the address vault-server serve --tls printed, with its #pin= "
+"part."
 msgstr ""
 
 #: ui/pages.slint:2114

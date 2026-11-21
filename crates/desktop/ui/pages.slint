@@ -2108,7 +2108,7 @@ hint: @tr("The extension keeps no passwords. The first time, it asks to be conne
                         label: @tr("Server address");
                         placeholder: "https://vault.your-network.ts.net";
                         text <=> root.sync-address;
-                        hint: @tr("Where your vault-server answers: https://, or http:// with a Tailscale address (100.x.y.z).");
+                        hint: @tr("Where your vault-server answers: https://, http:// with a Tailscale address (100.x.y.z), or the address vault-server serve --tls printed, with its #pin= part.");
                     }
                     LineField {
                         label: @tr("Invite");
