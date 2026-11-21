@@ -278,6 +278,10 @@ Rules:
   --invite`, `--join`, `--webdav --user`, `--add-device`, `--devices`, `--remove`. End-to-end
   tests: two devices converge through a running server; strangers, replays, altered bodies,
   writing another device's copy, other vaults' keys, used invites are refused
+- ✅ M6.3.1 HTTPS of the server's own for a home network (`serve --tls`): a certificate
+  authority made on first start, pinned by its SHA-256 in the address (`#pin=`), fetched
+  from `/v1/certificate` and checked before anything else is sent; the pin travels in
+  `vaultsync:` invites. Tested: wrong or missing pin refused, the pin survives a restart
 - ⬜ M6.6 Cloud drive APIs for the phone (Google Drive and OneDrive app folders, Dropbox),
   once OAuth apps are registered ([viability](spec/SYNC.md#11-onedrive-google-drive-and-dropbox-on-the-phone))
 - ✅ M6.4 Phone sync: Settings → Sync on the phone joins the server with the `vaultsync:`

@@ -289,6 +289,14 @@ sizes, devices, invites) are listed in [../SERVER.md](../SERVER.md). The client 
 redirects, `http://` except to this computer or a Tailscale address, and answers bigger than
 a copy can be.
 
+A server with HTTPS of its own (`serve --tls`, for a home network without a domain name) is
+reached at `https://host:port#pin=<hex SHA-256 of its certificate authority, DER>`. The
+fragment never goes on the wire. The client first fetches `GET /v1/certificate` without
+checking the certificate (the request carries nothing but its path), compares the hash of
+the answer with the pin in constant time and refuses on a mismatch; then every request
+trusts that authority as its only root, with the usual name and address checks. The pin
+travels inside the server address of `vaultsync:` invites.
+
 ## 6. Format v7
 
 The body gains one `SyncState` (VAULT_FORMAT.md §3): the writer, tombstones, when each folder,

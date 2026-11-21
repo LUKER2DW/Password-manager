@@ -78,6 +78,35 @@ Plain `http://` is accepted by the apps only to this computer or to a Tailscale 
 (`100.64.0.0/10`), where WireGuard already encrypts the traffic. Anything else must be
 `https://`.
 
+## Or on your home network, with its own HTTPS
+
+No Tailscale and no domain name: the server can do HTTPS itself, with a certificate the
+devices pin.
+
+```powershell
+vault-server --data D:\vault-server serve --listen 0.0.0.0:8750 --tls
+```
+
+On first start it makes a small certificate authority in `<data>/tls/` (keep that folder:
+replacing it changes the pin, and every device must join again). It prints the addresses to
+give the app, one per network address of the computer:
+
+```
+  https://192.168.1.10:8750#pin=3f1c…e09a
+```
+
+Type the whole line, `#pin=` and all, as the server address in **Settings → Sync → Use a
+server…**; the `vaultsync:` line from **Add a device** carries it on to the phone. The pin is
+the SHA-256 of that authority. A device fetches the authority from `/v1/certificate`, refuses
+it unless its hash is the pin, and then trusts only it for this server: someone else on the
+network can't stand in for the server, and the system's certificate roots play no part. The
+server's own certificate is made again at each start for the computer's current addresses
+(`--tls-name` adds a name), so the pin stays when the address changes; the address typed in
+the app has to be changed by hand then.
+
+The computer's firewall asks once whether the server may take connections: allow it on
+private networks only. Keep the port closed on the router: this is for your own network.
+
 ## Look after it
 
 - **List devices:** `vault-server list` (in Docker: `docker compose … exec vault-server
