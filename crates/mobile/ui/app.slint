@@ -51,6 +51,10 @@ export global Words {
         if (code == 9) { return @tr("This vault also needs its keyfile, which the phone app can't use yet."); }
         if (code == 10) { return @tr("That isn't a setup key for one-time codes. Paste the key the site shows under “Can't scan it?”."); }
         if (code == 11) { return @tr("Pick at least one kind of character."); }
+        if (code == 13) { return @tr("That isn't the current master password."); }
+        if (code == 14) { return @tr("The two new passwords are different. Type them again."); }
+        if (code == 15) { return @tr("Use at least 12 characters. A few random words are easiest."); }
+        if (code == 16) { return @tr("The copy didn't pass its check, so it was deleted ({}). Try another place.", detail); }
         return detail;
     }
     pure public function notice(code: int, arg: string) -> string {
@@ -63,6 +67,8 @@ export global Words {
         if (code == 7) { return @tr("Copied. The clipboard is cleared in {} seconds.", arg); }
         if (code == 8) { return @tr("This phone's record of the vault's newest version couldn't be read, so it started again. The old file was kept."); }
         if (code == 9) { return @tr("Synced: {} changes came from your other devices.", arg); }
+        if (code == 10) { return @tr("Master password changed. Your other devices ask for the new one at their next unlock."); }
+        if (code == 11) { return @tr("Backup confirmed: {}. It was read back and opens with this vault's key.", arg); }
         return "";
     }
 }
@@ -430,7 +436,9 @@ export component PhoneWindow inherits Window {
     in property <bool> incoming;        // a chosen file waits to open
     in property <bool> has-copy;        // the phone already keeps a vault
     callback pick-vault();              // the shell shows the system's file picker
-    in property <bool> can-pick-file: true;  // not on Android until the shell has a picker
+    in property <bool> can-pick-file: true;  // false where there is no file picker (a browser)
+    callback save-copy();               // the shell asks where to save a copy of the vault
+    in property <string> backup-confirmed;  // the last copy saved and checked: where, size, when
     // Setting the phone up from the vault server with the invite line a computer shows.
     in-out property <string> setup-invite;
     callback setup-from-server();
@@ -540,6 +548,10 @@ export component PhoneWindow inherits Window {
     callback sync-now();
     callback sync-stop();
     callback lock-now();
+    // Settings → Master password.
+    in-out property <bool> changing-password;
+    callback change-password();
+    callback cancel-password-change();
 
     property <length> gutter: 20px;
     // What sits at the bottom of the open vault: the places, and a page's main button.
@@ -566,56 +578,68 @@ export component PhoneWindow inherits Window {
                 wrap: word-wrap;
             }
             Text {
-                text: @tr("The phone opens the vault you made on your computer, through your vault server or from its file.");
+                text: @tr("Open the vault you made on your computer: from its file, or through your vault server.");
                 font-size: Theme.body;
                 color: Theme.graphite;
                 wrap: word-wrap;
             }
-            Text {
-                text: @tr("On the computer: Settings, Sync, Add a device. Paste the line it shows here.");
-                font-size: Theme.small;
-                color: Theme.ink;
-                wrap: word-wrap;
-            }
-            LineField {
-                placeholder: "vaultsync:1?server=…";
-                mono: true;
-                text <=> root.setup-invite;
-                accepted => { root.setup-from-server(); }
-            }
-            Button {
-                text: root.sync-busy ? @tr("Fetching the vault…") : @tr("Set up from the server");
-                enabled: !root.sync-busy;
-                clicked => { root.setup-from-server(); }
-            }
-            // Or the file, in the order most people have it at hand.
-            if root.can-pick-file: VerticalLayout {
-                padding-top: 6px;
-                spacing: 10px;
-                Text {
-                    text: @tr("Or copy its .vault file to the phone and choose it below:");
-                    font-size: Theme.small;
-                    color: Theme.ink;
-                    wrap: word-wrap;
-                }
-                for way in [
-                    @tr("A USB cable: drop the file into the phone's Download folder."),
-                    @tr("Quick Share or Bluetooth from the computer."),
-                    @tr("A drive or folder you already sync between the two."),
-                ]: HorizontalLayout {
+            // From the file: it works offline; sync can be turned on later in Settings.
+            if root.can-pick-file: Rectangle {
+                vertical-stretch: 0;
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.rule;
+                background: Theme.panel;
+                VerticalLayout {
+                    padding: 14px;
                     spacing: 10px;
-                    VerticalLayout {
-                        padding-top: 7px;
-                        alignment: start;
-                        Rectangle { width: 6px; height: 6px; border-radius: 3px; background: Theme.graphite; }
-                    }
+                    Text { text: @tr("From its file"); font-size: Theme.lead; font-weight: 600; color: Theme.ink; }
                     Text {
-                        text: way;
-                        font-size: Theme.body;
-                        color: Theme.ink;
+                        text: @tr("Copy the .vault file to the phone (a USB cable, Quick Share, a folder you sync) and choose it. It works offline; sync can be turned on later in Settings.");
+                        font-size: Theme.small;
+                        color: Theme.graphite;
                         wrap: word-wrap;
-                        horizontal-stretch: 1;
-                        min-width: 0px;
+                    }
+                    Button {
+                        text: @tr("Choose the vault file");
+                        clicked => { root.pick-vault(); }
+                    }
+                }
+            }
+            Rectangle {
+                vertical-stretch: 0;
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.rule;
+                background: Theme.panel;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 10px;
+                    alignment: start;
+                    Text { text: @tr("From your vault server"); font-size: Theme.lead; font-weight: 600; color: Theme.ink; }
+                    Text {
+                        text: @tr("On the computer: Settings, Sync, Add a device. Paste the line it shows here.");
+                        font-size: Theme.small;
+                        color: Theme.graphite;
+                        wrap: word-wrap;
+                    }
+                    LineField {
+                        placeholder: "vaultsync:1?server=…";
+                        mono: true;
+                        text <=> root.setup-invite;
+                        accepted => { root.setup-from-server(); }
+                    }
+                    if root.can-pick-file: QuietButton {
+                        text: root.sync-busy ? @tr("Fetching the vault…") : @tr("Set up from the server");
+                        icon: "globe";
+                        outlined: true;
+                        enabled: !root.sync-busy;
+                        clicked => { root.setup-from-server(); }
+                    }
+                    if !root.can-pick-file: Button {
+                        text: root.sync-busy ? @tr("Fetching the vault…") : @tr("Set up from the server");
+                        enabled: !root.sync-busy;
+                        clicked => { root.setup-from-server(); }
                     }
                 }
             }
@@ -627,12 +651,6 @@ export component PhoneWindow inherits Window {
                 wrap: word-wrap;
             }
             if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
-            if root.can-pick-file: QuietButton {
-                text: @tr("Choose the vault file");
-                icon: "folder";
-                outlined: true;
-                clicked => { root.pick-vault(); }
-            }
         }
 
         // ---------------------------------------------------------------- unlock
@@ -1186,23 +1204,96 @@ export component PhoneWindow inherits Window {
                                 padding-bottom: 6px;
                                 spacing: 8px;
                                 Text {
-                                    text: root.sync-place == "" ? @tr("Changed the vault on the computer? Bring its newest file here, or join your vault server above.") : @tr("A copy from elsewhere (a backup, another computer) can still be brought in by hand.");
+                                    text: root.sync-place == "" ? @tr("This vault doesn't sync: it works offline. Changed it on the computer? Bring its newest file here, or join your vault server above.") : @tr("A copy from elsewhere (a backup, another computer) can still be brought in by hand.");
                                     font-size: Theme.small;
                                     color: Theme.graphite;
                                     wrap: word-wrap;
                                 }
-                                HorizontalLayout {
+                                if root.can-pick-file: HorizontalLayout {
                                     alignment: start;
+                                    spacing: 10px;
                                     QuietButton {
                                         text: @tr("Bring a newer copy");
                                         icon: "folder";
                                         outlined: true;
                                         clicked => { root.pick-vault(); }
                                     }
+                                    QuietButton {
+                                        text: @tr("Save a copy");
+                                        icon: "download";
+                                        clicked => { root.save-copy(); }
+                                    }
                                 }
-                                // Only what choosing a file can go wrong with.
-                                if root.error-code == 2 || root.error-code == 4 || root.error-code == 9: ErrorLine {
+                                Text {
+                                    text: root.backup-confirmed != ""
+                                        ? @tr("Last copy saved and checked: {}", root.backup-confirmed)
+                                        : @tr("A saved copy is read back and checked before the app calls it a backup. It opens only with your master password and Secret Key.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                                // Only what choosing or saving a file can go wrong with.
+                                if root.error-code == 2 || root.error-code == 4 || root.error-code == 9 || root.error-code == 16: ErrorLine {
                                     text: Words.error(root.error-code, root.error-detail);
+                                }
+                            }
+                            VerticalLayout {
+                                padding-top: 12px;
+                                padding-bottom: 6px;
+                                spacing: 8px;
+                                Text { text: @tr("Master password"); font-size: Theme.small; color: Theme.graphite; }
+                                if !root.changing-password: HorizontalLayout {
+                                    alignment: start;
+                                    QuietButton {
+                                        text: @tr("Change master password");
+                                        icon: "key";
+                                        outlined: true;
+                                        clicked => { root.changing-password = true; }
+                                    }
+                                }
+                                if root.changing-password: VerticalLayout {
+                                    spacing: 8px;
+                                    padding-bottom: 10px;
+                                    Text {
+                                        text: @tr("The Secret Key and your emergency kit's recovery parts stay the same. Devices that sync this vault ask for the new password at their next unlock.");
+                                        font-size: Theme.small;
+                                        color: Theme.ink;
+                                        wrap: word-wrap;
+                                    }
+                                    SecretField {
+                                        field: 5;
+                                        label: @tr("Current master password");
+                                        icon: "key";
+                                        error: root.error-code == 13;
+                                    }
+                                    SecretField {
+                                        field: 6;
+                                        label: @tr("New master password");
+                                        error: root.error-code == 14 || root.error-code == 15;
+                                    }
+                                    SecretField {
+                                        field: 7;
+                                        label: @tr("Type it again");
+                                        error: root.error-code == 14;
+                                        accepted => { root.change-password(); }
+                                    }
+                                    if root.error-code == 6 || root.error-code == 13 || root.error-code == 14 || root.error-code == 15: ErrorLine {
+                                        text: Words.error(root.error-code, root.error-detail);
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 10px;
+                                        QuietButton {
+                                            text: root.busy ? @tr("Changing…") : @tr("Change password");
+                                            outlined: true;
+                                            enabled: !root.busy;
+                                            clicked => { root.change-password(); }
+                                        }
+                                        QuietButton {
+                                            text: @tr("Cancel");
+                                            clicked => { root.cancel-password-change(); }
+                                        }
+                                    }
                                 }
                             }
                             Fact {

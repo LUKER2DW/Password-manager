@@ -394,6 +394,93 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     assert_eq!((app.get_total(), app.get_page()), (1, Page::None));
     assert_eq!(app.get_notice_code(), 4);
 
+    // ---- the master password changes on the phone (and back, for what follows) ----
+    const NEW_PASSWORD: &str = "phone new master passphrase";
+    app.set_place(Place::Settings);
+    app.set_changing_password(true);
+    type_secret(&app, 5, "not the password");
+    type_secret(&app, 6, NEW_PASSWORD);
+    type_secret(&app, 7, NEW_PASSWORD);
+    app.invoke_change_password();
+    assert_eq!(app.get_error_code(), 13, "{}", app.get_error_detail());
+    assert_eq!(length(&app, 5), 0, "a wrong current password is cleared");
+    type_secret(&app, 5, PASSWORD);
+    type_secret(&app, 7, "phone new master passphrasE");
+    app.invoke_change_password();
+    assert_eq!(app.get_error_code(), 14);
+    type_secret(&app, 6, "short");
+    type_secret(&app, 7, "short");
+    app.invoke_change_password();
+    assert_eq!(app.get_error_code(), 15);
+    type_secret(&app, 6, NEW_PASSWORD);
+    type_secret(&app, 7, NEW_PASSWORD);
+    app.invoke_change_password();
+    assert_eq!(app.get_notice_code(), 10, "{}", app.get_error_detail());
+    assert!(!app.get_changing_password());
+    assert_eq!(
+        (length(&app, 5), length(&app, 6), length(&app, 7)),
+        (0, 0, 0),
+        "wiped after use"
+    );
+    assert_eq!(app.get_screen(), Screen::Vault, "still open");
+    {
+        let key = SecretKey::parse(&secret_key).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let with = |password| {
+            Vault::open(
+                &bytes,
+                Unlock::Password {
+                    password,
+                    secret_key: &key,
+                },
+            )
+        };
+        assert!(with(NEW_PASSWORD).is_ok(), "written to the file");
+        assert!(with(PASSWORD).is_err(), "the old one no longer opens it");
+    }
+    app.set_changing_password(true);
+    type_secret(&app, 5, NEW_PASSWORD);
+    type_secret(&app, 6, PASSWORD);
+    type_secret(&app, 7, PASSWORD);
+    app.invoke_change_password();
+    assert_eq!(app.get_notice_code(), 10, "{}", app.get_error_detail());
+    app.set_place(Place::Items);
+
+    // ---- a copy of the vault: confirmed only after it is read back and checked ----
+    let (name, copy) = controller
+        .copy_to_save()
+        .expect("an open vault has a copy to save");
+    assert!(name.starts_with("vault-backup-") && name.ends_with(".vault"));
+    assert_eq!(
+        copy,
+        std::fs::read(&path).unwrap(),
+        "the phone's file as it is"
+    );
+    let mut damaged = copy.clone();
+    let middle = damaged.len() / 2;
+    damaged[middle] ^= 1;
+    assert!(!controller.copy_written("Downloads/backup.vault", Ok(damaged)));
+    assert_eq!(
+        app.get_error_code(),
+        16,
+        "a damaged copy is refused (and deleted)"
+    );
+    assert_eq!(app.get_backup_confirmed(), "");
+    let (_, copy) = controller.copy_to_save().unwrap();
+    assert!(!controller.copy_written("Downloads/backup.vault", Err("disk full".into())));
+    assert_eq!(app.get_error_detail(), "disk full");
+    assert!(
+        !controller.copy_written("Downloads/backup.vault", Ok(copy.clone())),
+        "a copy nobody asked for"
+    );
+    let (_, copy) = controller.copy_to_save().unwrap();
+    assert!(controller.copy_written("Downloads/backup.vault", Ok(copy)));
+    assert_eq!(app.get_notice_code(), 11);
+    assert!(
+        app.get_backup_confirmed()
+            .starts_with("Downloads/backup.vault · ")
+    );
+
     // ---- a copy older than the phone's: refused, the phone's copy stays ----
     let phone_copy = std::fs::read(&path).unwrap();
     controller.bring_vault_file(&from_computer);

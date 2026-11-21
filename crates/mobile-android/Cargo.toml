@@ -23,6 +23,9 @@ all = { level = "warn", priority = -1 }
 [target.'cfg(target_os = "android")'.dependencies]
 vault-mobile = { path = "../mobile" }
 slint = { version = "1.18", features = ["backend-android-activity-06"] }
+# The system's file picker, through the activity's Java side (java/…/VaultActivity.java).
+jni = "0.21"
+ndk-context = "0.1"
 
 # For cargo-apk: the APK's identity, what it may do, which phones it runs on.
 [package.metadata.android]
@@ -30,6 +33,8 @@ package = "org.passwordvault.phone"
 build_targets = ["aarch64-linux-android", "x86_64-linux-android"]
 # Sync with the person's own server or WebDAV folder.
 uses_permission = [{ name = "android.permission.INTERNET" }]
+# The launcher icon (res/: the desktop's safe, as an adaptive icon and plain PNGs).
+resources = "res"
 
 [package.metadata.android.sdk]
 min_sdk_version = 28
@@ -37,11 +42,16 @@ target_sdk_version = 35
 
 [package.metadata.android.application]
 label = "Vault"
+# The activity is NativeActivity plus the system's file picker (VaultActivity.java), compiled
+# into the APK by build.ps1.
+has_code = true
+icon = "@mipmap/ic_launcher"
 # Plain http is let through by Android only so a Tailscale address (100.x.y.z, encrypted by
 # WireGuard) works; the app itself refuses http:// to anywhere else (sync/http.rs).
 uses_cleartext_traffic = true
 
 [package.metadata.android.application.activity]
+name = "org.passwordvault.phone.VaultActivity"
 config_changes = "orientation|screenSize|keyboardHidden|keyboard|uiMode|density"
 launch_mode = "singleTask"
 orientation = "portrait"

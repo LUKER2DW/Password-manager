@@ -180,8 +180,8 @@ fn main() {
     );
     app.set_can_pick_file(false);
     camera.shot(
-        "start-android",
-        "On Android, until the file picker: the server's invite",
+        "start-browser",
+        "In a browser (no file picker): the server's invite",
     );
     app.set_can_pick_file(true);
     controller.bring_vault(b"a photo, not a vault".to_vec());
@@ -295,6 +295,23 @@ fn main() {
     app.set_gen_mode(0);
     app.set_place(Place::Settings);
     camera.shot("settings", "Settings: sync off, an invite line to paste");
+    // The whole page at once, in a window twice as tall: the master password being
+    // changed, and the last copy saved and checked.
+    app.set_changing_password(true);
+    app.set_backup_confirmed("vault-backup-2026-11-21.vault · 24 KB · 2026-11-21 14:03 UTC".into());
+    camera.window.set_size(PhysicalSize::new(
+        (WIDTH as f32 * scale) as u32,
+        (HEIGHT as f32 * scale * 2.0) as u32,
+    ));
+    camera.shot(
+        "settings-whole",
+        "Settings, whole page: the master password, a checked copy",
+    );
+    camera.window.set_size(PhysicalSize::new(
+        (WIDTH as f32 * scale) as u32,
+        (HEIGHT as f32 * scale) as u32,
+    ));
+    app.set_changing_password(false);
     // Joined (demo values only: no server is reached here).
     app.set_sync_place("https://vault.example-net.ts.net".into());
     app.set_sync_minutes(2);

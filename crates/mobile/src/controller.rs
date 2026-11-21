@@ -47,8 +47,15 @@ mod field {
     /// The WebDAV password in Settings → Sync.
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub const SYNC_PASSWORD: usize = 4;
-    pub const COUNT: usize = 5;
+    /// Settings → Master password: the current one, the new one and the new one again.
+    pub const CURRENT: usize = 5;
+    pub const NEW: usize = 6;
+    pub const NEW_AGAIN: usize = 7;
+    pub const COUNT: usize = 8;
 }
+
+/// The shortest master password the phone sets (the desktop's rule).
+const MIN_MASTER_PASSWORD_CHARS: usize = 12;
 
 /// Error codes (texts live in app.slint → Words.error).
 mod error {
@@ -66,6 +73,11 @@ mod error {
     pub const NO_CHARACTERS: i32 = 11;
     /// Setting the phone up from the server failed (the detail says why).
     pub const SYNC_SETUP: i32 = 12;
+    pub const WRONG_CURRENT: i32 = 13;
+    pub const MISMATCH: i32 = 14;
+    pub const TOO_SHORT: i32 = 15;
+    /// A copy of the vault didn't pass its check after it was saved (it was deleted).
+    pub const BACKUP_CHECK: i32 = 16;
 }
 
 mod syncing;
@@ -82,6 +94,8 @@ mod notice {
     pub const STATE_RESET: i32 = 8;
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub const SYNCED: i32 = 9;
+    pub const PASSWORD_CHANGED: i32 = 10;
+    pub const BACKUP_CONFIRMED: i32 = 11;
 }
 
 /// A copied secret leaves the clipboard after this long.
@@ -185,6 +199,8 @@ struct State {
     lock_after: Duration,
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     sync: syncing::SyncStatus,
+    /// SHA-256 of the vault file handed out to be saved as a copy, until it is read back.
+    backup_expected: Option<[u8; 32]>,
 }
 
 thread_local! {
@@ -246,6 +262,7 @@ impl Controller {
                 notice_until: None,
                 last_touch: Instant::now(),
                 sync: syncing::SyncStatus::default(),
+                backup_expected: None,
                 lock_after: LOCK_CHOICES[1],
             }),
             tick: Timer::default(),
@@ -335,6 +352,8 @@ impl Controller {
             c.state.borrow_mut().lock_after = after;
         });
         on!(on_lock_now, |c| c.lock());
+        on!(on_change_password, |c| c.change_password());
+        on!(on_cancel_password_change, |c| c.close_password_change());
 
         // Secure fields: each key goes straight into its locked buffer.
         let secrets = app.global::<Secrets>();
@@ -556,6 +575,88 @@ impl Controller {
         }
     }
 
+    /// The shell couldn't open the file picker, or read or write a file through it.
+    pub fn file_failed(&self, detail: &str) {
+        self.set_error(error::UNREADABLE, detail);
+    }
+
+    /// Settings → Save a copy of the vault: the phone's vault file as it is now, and a name
+    /// for it. The shell asks where to put it, writes it there, reads it back and hands what
+    /// it read to [`Controller::copy_written`]. `None` while locked, or when something else
+    /// changed the file (the error says so).
+    pub fn copy_to_save(&self) -> Option<(String, Vec<u8>)> {
+        let (bytes, expected) = {
+            let state = self.state.borrow();
+            state.vault.as_ref()?;
+            (files::read(&state.path), state.file_hash)
+        };
+        let bytes = match bytes {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                self.set_error(error::UNREADABLE, &err.to_string());
+                return None;
+            }
+        };
+        let hash = fingerprint(&bytes);
+        if expected.is_some_and(|known| known != hash) {
+            self.set_error(
+                error::BACKUP_CHECK,
+                "the vault file was changed by something else; lock and unlock first",
+            );
+            return None;
+        }
+        self.state.borrow_mut().backup_expected = Some(hash);
+        let name = format!("vault-backup-{}.vault", view::date(view::now_unix()));
+        Some((name, bytes))
+    }
+
+    /// The copy as read back from where it was saved (`place`, shown to the person), or why
+    /// it couldn't be. It is confirmed only when it is the vault file byte for byte and opens
+    /// with this vault's key (every byte authenticated; no password asked again). Returns
+    /// whether it was: the shell deletes a copy that wasn't.
+    pub fn copy_written(&self, place: &str, read_back: Result<Vec<u8>, String>) -> bool {
+        let expected = self.state.borrow_mut().backup_expected.take();
+        let checked = (|| -> Result<usize, String> {
+            let back = read_back?;
+            let expected = expected.ok_or("no copy was being saved")?;
+            if fingerprint(&back) != expected {
+                return Err("the copy read back differs from the vault file".into());
+            }
+            let state = self.state.borrow();
+            let vault = state
+                .vault
+                .as_ref()
+                .ok_or("the vault was locked meanwhile")?;
+            vault.check_copy(&back).map_err(|e| e.to_string())?;
+            Ok(back.len())
+        })();
+        match checked {
+            Ok(len) => {
+                let now = view::now_unix();
+                let minutes = now.rem_euclid(86_400) / 60;
+                let size = if len < 1024 * 1024 {
+                    format!("{} KB", len.div_ceil(1024))
+                } else {
+                    format!("{:.1} MB", len as f64 / (1024.0 * 1024.0))
+                };
+                let line = format!(
+                    "{place} · {size} · {} {:02}:{:02} UTC",
+                    view::date(now),
+                    minutes / 60,
+                    minutes % 60
+                );
+                self.set_error(error::NONE, "");
+                self.app().set_backup_confirmed(line.as_str().into());
+                self.notify(notice::BACKUP_CONFIRMED, &line);
+                true
+            }
+            Err(detail) => {
+                self.set_error(error::BACKUP_CHECK, &detail);
+                false
+            }
+        }
+    }
+
     /// [`Controller::bring_vault`] for a file on a path (the computer's file dialog).
     pub fn bring_vault_file(&self, file: &Path) {
         match files::read_any(file) {
@@ -730,6 +831,7 @@ impl Controller {
             state.generated = Zeroizing::new(String::new());
         }
         let app = self.app();
+        app.set_changing_password(false);
         app.set_items(ModelRc::default());
         app.set_codes(ModelRc::default());
         app.set_total(0);
@@ -781,6 +883,125 @@ impl Controller {
                 false
             }
         }
+    }
+
+    // ---- the master password ----
+
+    fn close_password_change(&self) {
+        for index in [field::CURRENT, field::NEW, field::NEW_AGAIN] {
+            self.state.borrow_mut().secrets[index].clear();
+        }
+        self.publish_lengths();
+        self.set_error(error::NONE, "");
+        self.app().set_changing_password(false);
+    }
+
+    /// Settings → Master password: checked against the file with the current password, then
+    /// the new one is set and written in one go (a failed write leaves the vault as it was),
+    /// then synced. Other devices ask for the new one at their next unlock. The Secret Key
+    /// and the recovery parts stay as they are.
+    fn change_password(&self) {
+        if self.app().get_busy() {
+            return;
+        }
+        let current = self.secret(field::CURRENT);
+        let new = self.secret(field::NEW);
+        if current.is_empty() {
+            return self.set_error(error::WRONG_CURRENT, "");
+        }
+        if new.chars().count() < MIN_MASTER_PASSWORD_CHARS {
+            return self.set_error(error::TOO_SHORT, "");
+        }
+        if *new != *self.secret(field::NEW_AGAIN) {
+            return self.set_error(error::MISMATCH, "");
+        }
+        self.set_error(error::NONE, "");
+        let (vault, secret_key, path, expected) = {
+            let mut state = self.state.borrow_mut();
+            let (Some(vault), Some(secret_key)) = (state.vault.take(), state.secret_key.take())
+            else {
+                return;
+            };
+            (vault, secret_key, state.path.clone(), state.file_hash)
+        };
+        struct Changed {
+            vault: Vault,
+            secret_key: SecretKey,
+            /// The new file's hash, or the error code and detail.
+            outcome: Result<[u8; 32], (i32, String)>,
+        }
+        self.run(
+            move || {
+                let mut vault = vault;
+                let were_open = vault.secrets_open();
+                let outcome = (|| {
+                    let bytes =
+                        files::read(&path).map_err(|e| (error::NOT_SAVED, e.to_string()))?;
+                    if expected.is_some_and(|hash| hash != fingerprint(&bytes)) {
+                        return Err((
+                            error::NOT_SAVED,
+                            "the file was changed by something else".to_owned(),
+                        ));
+                    }
+                    // The current password, checked against the file itself.
+                    Vault::open(
+                        &bytes,
+                        Unlock::Password {
+                            password: &current,
+                            secret_key: &secret_key,
+                        },
+                    )
+                    .map_err(|err| match err {
+                        CoreError::DecryptionFailed => (error::WRONG_CURRENT, String::new()),
+                        other => (error::NOT_SAVED, other.to_string()),
+                    })?;
+                    // The item lock's copy of its key for the master password follows it.
+                    let _ = vault.unlock_secrets_with_master(&current);
+                    vault
+                        .change_unlock(|vault| {
+                            let kdf = vault.kdf_params().clone();
+                            vault.change_password(&new, &secret_key, None, &kdf)?;
+                            let bytes = vault.to_bytes()?;
+                            files::write_atomic(&path, &bytes)?;
+                            Ok(fingerprint(&bytes))
+                        })
+                        .map_err(|err| (error::NOT_SAVED, err.to_string()))
+                })();
+                if !were_open {
+                    vault.lock_secrets();
+                }
+                Changed {
+                    vault,
+                    secret_key,
+                    outcome,
+                }
+            },
+            |c, changed| {
+                let revision = changed.vault.revision();
+                let id = changed.vault.id_hex();
+                {
+                    let mut state = c.state.borrow_mut();
+                    state.vault = Some(changed.vault);
+                    state.secret_key = Some(changed.secret_key);
+                }
+                match changed.outcome {
+                    Ok(hash) => {
+                        c.state.borrow_mut().file_hash = Some(hash);
+                        let _ = crate::platform::device::record_revision(&id, revision);
+                        c.close_password_change();
+                        c.notify(notice::PASSWORD_CHANGED, "");
+                        c.sync_after_save();
+                    }
+                    Err((code, detail)) => {
+                        if code == error::WRONG_CURRENT {
+                            c.state.borrow_mut().secrets[field::CURRENT].clear();
+                            c.publish_lengths();
+                        }
+                        c.set_error(code, &detail);
+                    }
+                }
+            },
+        );
     }
 
     // ---- the list ----

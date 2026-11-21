@@ -44,5 +44,28 @@ fn main() -> Result<(), slint::PlatformError> {
             controller.bring_vault_file(&file);
         }
     });
+    // Save a copy: written, read back, checked; a copy that fails is deleted.
+    let weak = Rc::downgrade(&controller);
+    app.on_save_copy(move || {
+        let Some(controller) = weak.upgrade() else {
+            return;
+        };
+        let Some((name, bytes)) = controller.copy_to_save() else {
+            return;
+        };
+        let Some(target) = rfd::FileDialog::new()
+            .set_file_name(&name)
+            .add_filter("Vault", &["vault"])
+            .save_file()
+        else {
+            return;
+        };
+        let read_back = vault_core::storage::write_atomic(&target, &bytes)
+            .and_then(|()| vault_core::storage::read(&target))
+            .map_err(|e| e.to_string());
+        if !controller.copy_written(&target.display().to_string(), read_back) {
+            let _ = std::fs::remove_file(&target);
+        }
+    });
     app.run()
 }
