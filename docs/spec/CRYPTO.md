@@ -36,11 +36,25 @@ store, and never touches the vault's own keys.
 - Parsing is case-insensitive, ignores spaces and dashes, and accepts Crockford aliases
   (`O`→`0`, `I`/`L`→`1`).
 
-### 2.3 Recovery Key (256 bits)
+### 2.3 Recovery Key (256 bits, kits made before format v8)
 - 32 random bytes, optional, printed in the emergency kit. Opens the vault on its own, so the kit
   must be stored offline and physically safe.
 - Text form: `R0-` + 9 groups of 6 characters (52 data chars + 2 checksum chars), checksum as
   above with prefix `"R0"`.
+- Still read: a vault that has one keeps it until a new kit is made, which replaces it with
+  recovery parts (§2.4). New vaults get parts.
+
+### 2.4 Recovery parts (3 × 128 bits, format v8)
+- Three parts, A, B and C, each 16 random bytes, printed on separate pages of the emergency kit
+  (part C may also be kept as a picture file). Keep them in three different places.
+- **One part** reveals nothing. **Any two** bring back the Secret Key; the master password is
+  still needed to open the vault. **All three** open the vault on their own, so a forgotten
+  master password can be replaced.
+- Text form: `A0-`, `B0-` or `C0-` + 4 groups of 7 characters (26 data chars + 2 checksum
+  chars), checksum as above with the part's prefix, so a part typed with the wrong letter is
+  caught.
+- Changing the master password or the Secret Key keeps the parts working. A new kit (new parts)
+  makes the old parts useless for the file from then on.
 
 ## 3. Key hierarchy
 
@@ -222,6 +236,38 @@ file        = postcard(pk, sealed_key, [entry…])
   as the user could swap it and read later entries; it would already see those passwords
   where they are typed (THREAT_MODEL.md).
 
+### 3.6 Recovery parts (format v8)
+
+```
+kit_id        = 16 random bytes per kit (public, in the header)
+KEK_parts     = HKDF-SHA-256(ikm  = A ‖ B ‖ C,
+                             salt = vault_id,
+                             info = "vault-v0/kek/parts" ‖ kit_id)             → 32 bytes
+KEK_pair(XY)  = HKDF-SHA-256(ikm  = X ‖ Y,                 XY ∈ { AB, AC, BC }
+                             salt = vault_id,
+                             info = "vault-v0/kek/parts-pair/" ‖ "XY" ‖ kit_id)
+pair_key      = 32 random bytes per kit
+K_secret_key  = HKDF-SHA-256(ikm = pair_key, salt = vault_id,
+                             info = "vault-v0/key/parts-secret-key" ‖ kit_id)
+
+parts.vault_key  = seal(KEK_parts, vault_key)
+parts.pairs[i]   = seal(KEK_pair(XY_i), pair_key)          i = 0 AB, 1 AC, 2 BC
+parts.pair_key   = seal(subkey("parts"), pair_key)
+parts.secret_key = seal(K_secret_key, secret_key)
+```
+
+- No Argon2: each pair has 256 random bits, all three 384. One part leaves 128 unknown bits
+  before anything opens, two parts leave 128 before the vault key opens: the same margin as
+  the Secret Key itself.
+- Two parts open `pair_key` and with it the Secret Key; then the master password opens the
+  vault as usual, which also checks the header (it is the body's AAD). `pair_key` stays
+  sealed under the vault key, so when the Secret Key changes the vault seals the new one
+  again without the parts. The master password is not stored anywhere.
+- A new kit draws a new `kit_id` and `pair_key`, so nothing the old parts open is left in the
+  file. The vault key itself is not changed: an old copy of the file still opens with that
+  copy's parts (as with a changed master password).
+- Only HKDF-SHA-256 and the AEAD of §5; there is no secret sharing scheme to get wrong.
+
 ## 4. Argon2id parameters
 
 | | memory (KiB) | iterations | parallelism |
@@ -295,6 +341,10 @@ Deriving a fresh `K_enc` per message also removes any risk from random-nonce col
 | Password slot | `KEK_password` | `"vault-v0/slot" ‖ vault_id ‖ 0x01` |
 | Recovery slot | `KEK_recovery` | `"vault-v0/slot" ‖ vault_id ‖ 0x02` |
 | Password + keyfile slot | `KEK_password` (§3.0) | `"vault-v0/slot" ‖ vault_id ‖ 0x03` |
+| Vault key under the three parts (§3.6) | `KEK_parts` | `"vault-v0/parts" ‖ vault_id ‖ kit_id ‖ 0x01` |
+| Pair key under a pair of parts | `KEK_pair` | `"vault-v0/parts" ‖ vault_id ‖ kit_id ‖ 0x02 + i` (AB 0x02, AC 0x03, BC 0x04) |
+| Pair key for the open vault | `subkey("parts")` | `"vault-v0/parts" ‖ vault_id ‖ kit_id ‖ 0x05` |
+| Secret Key for two parts | `K_secret_key` | `"vault-v0/parts" ‖ vault_id ‖ kit_id ‖ 0x06` |
 | Vault body | `subkey("body")` | `"vault-v0/body" ‖ header_bytes` |
 | Item key | `subkey("item-wrap")` | `"vault-v0/item-key" ‖ vault_id ‖ item_id` |
 | Item data | `item_key` | `"vault-v0/item" ‖ vault_id ‖ item_id ‖ revision (u64 LE)` |

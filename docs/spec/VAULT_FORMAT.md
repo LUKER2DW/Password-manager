@@ -1,6 +1,6 @@
-# Vault File Format — v7
+# Vault File Format — v8
 
-> Status: **draft v7**, not stable. v0–v6 files are still read and upgraded to v7 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
+> Status: **draft v8**, not stable. v0–v7 files are still read and upgraded to v8 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
 > Structures are serialized with [postcard](https://postcard.jamesmunns.com/wire-format) 1.x
 > (stable wire format). Integers in the file envelope are little-endian.
 
@@ -29,6 +29,15 @@ struct VaultHeader {
     vault_id: [u8; 16],      // random, never changes
     kdf: PasswordKdf,        // v6; a bare KdfParams (always Argon2id) in v0–v5
     slots: Vec<KeySlot>,     // exactly one Password or PasswordKeyfile slot, at most one Recovery slot
+    parts: Option<PartsSlot>,// v8; absent before. Never together with a Recovery slot
+}
+
+struct PartsSlot {           // v8: the three recovery parts (CRYPTO.md §3.6)
+    kit_id: [u8; 16],        // random per kit
+    vault_key: Vec<u8>,      // seal(KEK_parts, vault_key)
+    pairs: [Vec<u8>; 3],     // seal(KEK_pair, pair_key) for AB, AC, BC
+    pair_key: Vec<u8>,       // seal(subkey("parts"), pair_key)
+    secret_key: Vec<u8>,     // seal(K_secret_key, secret_key)
 }
 
 enum PasswordKdf {           // postcard enum; limits in CRYPTO.md §4
@@ -55,8 +64,8 @@ A `PasswordKeyfile` slot takes the place of the `Password` slot when the vault u
 its KEK also depends on the keyfile (CRYPTO.md §3), so the master password and Secret Key alone
 don't open it. A reader that sees it without a keyfile fails before any hashing.
 
-The header reveals only: that this is a vault, its random id, the KDF cost, whether a
-recovery slot exists and whether a keyfile is needed. It reveals nothing about the items.
+The header reveals only: that this is a vault, its random id, the KDF cost, whether it can be
+recovered (Recovery Key or parts) and whether a keyfile is needed. It reveals nothing about the items.
 
 ## 3. Body (sealed)
 
@@ -220,9 +229,11 @@ A v0 file has no `folders` in the body and its items end after `updated_at`; a v
 items after `password_changed_at`; a v3 file's folders end after `color`; v3 and v4 items end
 after `icon_url`. When an older file is opened, every item is decrypted with its old layout and
 re-encrypted with the current layout in memory (same ids and revisions, new item keys); the next
-save writes a v7 file. v5 items end after `reprompt`; a v0–v5 header holds a bare `KdfParams`.
+save writes a v8 file. v5 items end after `reprompt`; a v0–v5 header holds a bare `KdfParams`.
 A v0–v6 body has no `sync`; it is read as never synced (no writer, no tombstones, revisions
-at 0). The item layout is unchanged in v7.
+at 0). The item layout is unchanged in v7. A v0–v7 header ends after `slots` (no `parts`); the
+body and items are unchanged in v8. Such a vault keeps its Recovery Key until a new emergency
+kit is made, which replaces the Recovery slot with `parts`.
 
 v0–v4 bodies have no `guard` (it defaults to: only marked items, master password). A v5 guard
 ends after `verifier`.

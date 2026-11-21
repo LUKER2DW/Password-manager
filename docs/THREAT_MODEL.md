@@ -169,7 +169,9 @@ On top of that:
 5. **Untrusted server**: it only stores encrypted blobs and never dictates cryptographic parameters.
 6. **Biometrics never derive keys**: they only authorize the hardware (TPM/StrongBox) to release a key.
 7. **Confirmation out of the page's reach**: no clickable UI injected into the DOM.
-8. **Explicit recovery**: a printed emergency kit. No server-side backdoor.
+8. **Explicit recovery**: a printed emergency kit, its recovery split into three parts kept
+   apart (two bring back the Secret Key, three replace the master password, one opens
+   nothing). No server-side backdoor.
 9. **Network only when asked**: the app contacts nothing by default. Website icons and the leak
    check are opt-in, per action. The leak check is k-anonymous: only 5 hex characters of each
    password's SHA-1 are sent to Have I Been Pwned, with padded answers; matching happens on the

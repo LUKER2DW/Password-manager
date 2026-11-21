@@ -59,9 +59,11 @@ Keyfile [optional] ────────────────────�
   - Policy: the master password is asked every 14 days; changing it revokes every device unlock;
     failed attempts are rate-limited by Windows Hello / the TPM itself. Planned: optional
     "master password after every restart".
-- **Emergency kit**: printable PDF with the Secret Key, a QR code and instructions. Optionally a
-  separate **recovery key** that wraps the Vault Key, which can be split with Shamir's Secret
-  Sharing (e.g. 2 of 3 shares kept in different places).
+- **Emergency kit**: printable PDF with the Secret Key, room to write the master password, and
+  three **recovery parts** (A, B, C), one per page, to keep in different places: any two bring
+  back the Secret Key, all three open the vault so a new master password can be set, one alone
+  opens nothing. No secret sharing scheme: pairwise HKDF wraps in the header (CRYPTO.md §3.6).
+  Part C can also live inside a photo of the person's own (a PNG with it in its pixels).
 
 ## 3. Primitives (_Proposal_)
 

@@ -282,6 +282,15 @@ Rules:
   authority made on first start, pinned by its SHA-256 in the address (`#pin=`), fetched
   from `/v1/certificate` and checked before anything else is sent; the pin travels in
   `vaultsync:` invites. Tested: wrong or missing pin refused, the pin survives a restart
+- ✅ Format v8: three recovery parts in place of the Recovery Key (CRYPTO.md §2.4, §3.6).
+  Any two bring back the Secret Key, all three open the vault, one alone nothing; pairwise
+  HKDF wraps of a random pair key, no new primitive. A new password or Secret Key keeps them
+  working, a new kit makes the old ones useless; v0–v7 vaults keep their Recovery Key until
+  a new kit. Kit PDF: a page for the Secret Key and the handwritten password, then one page
+  per part (each copies whole). Part C can be hidden in a photo of one's own (PNG, the part
+  in its pixels, read back to check). Desktop: recovery with three parts, unlock on a new
+  computer with two parts in place of the Secret Key; CLI: `recover`, `kit --new-parts`,
+  `part-picture`, a part typed where the Secret Key is asked
 - ⬜ M6.6 Cloud drive APIs for the phone (Google Drive and OneDrive app folders, Dropbox),
   once OAuth apps are registered ([viability](spec/SYNC.md#11-onedrive-google-drive-and-dropbox-on-the-phone))
 - ✅ M6.4 Phone sync: Settings → Sync on the phone joins the server with the `vaultsync:`
