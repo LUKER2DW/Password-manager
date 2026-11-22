@@ -1,0 +1,2005 @@
+// The phone app's window: one column, one thing at a time.
+//
+// Tokens, widgets and icons are the desktop app's (apps/desktop/ui), with `Theme.touch` on:
+// the two apps share one design. What is here is the phone's own layout (see docs/MOBILE.md).
+
+import { Theme, Sketch, Secrets } from "../../desktop/ui/theme.slint";
+import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Slider, Choice, ItemIcon, MarkStroke, Logo, Rule, Backdrop } from "../../desktop/ui/widgets.slint";
+import { Glyph } from "../../desktop/ui/icons.slint";
+import { StrengthMeter } from "../../desktop/ui/strength.slint";
+
+export { Theme, Sketch, Secrets }
+
+// The phone opens a vault made on the computer; it never makes one.
+export enum Screen { start, unlock, vault }
+export enum Place { items, codes, generator, settings }
+export enum Page { none, item, editor }
+
+// One line of the list.
+export struct ItemRow {
+    icon: image,        // the website's icon, when website icons are on and one was found
+    has-icon: bool,
+    title: string,
+    detail: string,
+    initial: string,
+    tint: color,
+    kind: int,          // 0 login, 1 card, 2 note, 3 passkey
+    favorite: bool,
+    locked: bool,
+}
+
+// A file attached to an item: its name and size ("12 KB").
+export struct FileRow {
+    name: string,
+    size: string,
+}
+
+// One line of the Codes place.
+export struct CodeRow {
+    icon: image,
+    has-icon: bool,
+    title: string,
+    account: string,
+    code: string,       // "" while the item is locked
+    left: int,
+    period: int,
+    initial: string,
+    tint: color,
+}
+
+// Every sentence the phone app shows for a code sent by Rust.
+export global Words {
+    pure public function error(code: int, detail: string) -> string {
+        if (code == 1) { return @tr("That didn't open the vault. Check the master password (and the Secret Key, if you typed it)."); }
+        if (code == 2) { return @tr("That file isn't a vault. Choose the .vault file from your computer."); }
+        if (code == 3) { return @tr("That isn't a Secret Key. It starts with S0- and is printed on your emergency kit."); }
+        if (code == 4) { return @tr("The vault file can't be read ({}).", detail); }
+        if (code == 5) { return @tr("Give it a name first."); }
+        if (code == 6) { return @tr("Not saved ({}). Your change is still on screen: try again.", detail); }
+        if (code == 7) { return @tr("That isn't it. Try again."); }
+        if (code == 8) { return @tr("This vault file is older than the one this phone opened last. Bring the newest copy from your computer."); }
+        if (code == 9) { return @tr("This vault also needs its keyfile, which the phone app can't use yet."); }
+        if (code == 10) { return @tr("That isn't a setup key for one-time codes. Paste the key the site shows under “Can't scan it?”."); }
+        if (code == 11) { return @tr("Pick at least one kind of character."); }
+        if (code == 13) { return @tr("That isn't the current master password."); }
+        if (code == 14) { return @tr("The two new passwords are different. Type them again."); }
+        if (code == 15) { return @tr("Use at least 12 characters. A few random words are easiest."); }
+        if (code == 16) { return @tr("The copy didn't pass its check, so it was deleted ({}). Try another place.", detail); }
+        if (code == 17) { return @tr("That card number doesn't check out. Look at the digits again."); }
+        if (code == 18) { return @tr("Write the expiry as MM/YY, for example 08/29."); }
+        if (code == 19) { return @tr("The security code is the 3 or 4 digits on the card."); }
+        if (code == 20) { return @tr("A card PIN is 4 to 12 digits."); }
+        if (code == 21) { return @tr("Paste the setup key first: the codes are made from it."); }
+        if (code == 22) { return @tr("That isn't an SSH private key. Choose the key file itself (often id_ed25519 or id_rsa), not the .pub one."); }
+        if (code == 23) { return @tr("That file is too large: an item keeps files of up to 5 MB, and up to 10 of them."); }
+        return detail;
+    }
+    pure public function notice(code: int, arg: string) -> string {
+        if (code == 1) { return @tr("Password copied. The clipboard is cleared in {} seconds.", arg); }
+        if (code == 2) { return @tr("Username copied."); }
+        if (code == 3) { return @tr("Saved."); }
+        if (code == 4) { return @tr("“{}” deleted.", arg); }
+        if (code == 5) { return @tr("Code copied. The clipboard is cleared in {} seconds.", arg); }
+        if (code == 6) { return @tr("Website copied."); }
+        if (code == 7) { return @tr("Copied. The clipboard is cleared in {} seconds.", arg); }
+        if (code == 8) { return @tr("This phone's record of the vault's newest version couldn't be read, so it started again. The old file was kept."); }
+        if (code == 9) { return @tr("Synced: {} changes came from your other devices.", arg); }
+        if (code == 10) { return @tr("Master password changed. Your other devices ask for the new one at their next unlock."); }
+        if (code == 11) { return @tr("Backup confirmed: {}. It was read back and opens with this vault's key.", arg); }
+        if (code == 12) { return @tr("File saved."); }
+        if (code == 13) { return @tr("Copied."); }
+        return "";
+    }
+}
+
+// A line icon that isn't among the shared ones.
+component Stroke inherits Path {
+    in property <color> tint: Theme.graphite;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: root.tint;
+    stroke-width: 2px * self.width / 24px;
+    stroke-line-cap: round;
+    stroke-line-join: round;
+    fill: transparent;
+}
+
+// The bar on top of a page: where you are, a way back, one action at most.
+component TopBar inherits Rectangle {
+    in property <string> title;
+    in property <string> back;          // "" = no way back
+    in property <string> action;        // "" = none
+    in property <string> action-icon;
+    callback went-back;
+    callback acted;
+    height: 56px;
+    HorizontalLayout {
+        padding-left: root.back != "" ? 4px : 20px;
+        // The page's gutter, so the action lines up with the content under it.
+        padding-right: 20px;
+        spacing: 4px;
+        if root.back != "": Rectangle {
+            width: back-label.preferred-width + 44px;
+            border-radius: Theme.radius;
+            background: back-touch.pressed ? Theme.hover : transparent;
+            accessible-role: button;
+            accessible-label: root.back;
+            Stroke {
+                x: 10px;
+                width: 22px;
+                height: 22px;
+                y: (parent.height - self.height) / 2;
+                commands: "M15 5 L8 12 L15 19";
+                tint: Theme.ink;
+            }
+            back-label := Text {
+                x: 34px;
+                text: root.back;
+                font-size: Theme.body;
+                color: Theme.ink;
+                vertical-alignment: center;
+            }
+            back-touch := TouchArea { clicked => { root.went-back(); } }
+        }
+        Text {
+            text: root.title;
+            font-size: Theme.title;
+            font-weight: 300;
+            color: Theme.ink;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+            min-width: 0px;
+        }
+        if root.action != "": VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            QuietButton {
+                text: root.action;
+                icon: root.action-icon;
+                outlined: true;
+                clicked => { root.acted(); }
+            }
+        }
+    }
+}
+
+// One of the four places at the bottom.
+component PlaceTab inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> active;
+    in property <int> variant;
+    callback clicked;
+    horizontal-stretch: 1;
+    accessible-role: tab;
+    accessible-label: root.text;
+    VerticalLayout {
+        alignment: center;
+        spacing: 3px;
+        HorizontalLayout {
+            alignment: center;
+            Glyph {
+                width: 22px;
+                height: 22px;
+                name: root.icon;
+                tint: root.active ? Theme.ink : Theme.graphite;
+            }
+        }
+        label := Text {
+            text: root.text;
+            font-size: Theme.small;
+            font-weight: root.active ? 600 : 400;
+            color: root.active ? Theme.ink : Theme.graphite;
+            horizontal-alignment: center;
+        }
+    }
+    MarkStroke {
+        x: (parent.width - label.preferred-width) / 2 - 2px;
+        y: parent.height - 9px;
+        width: label.preferred-width + 4px;
+        variant: root.variant;
+        reveal: root.active ? 1 : 0;
+        animate reveal { duration: Theme.sweep; easing: ease-out; }
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+// A filter over the list: a word (the star for favourites) that gets a soft pill when chosen.
+// The filters share the row's width, so all of them show without scrolling sideways.
+component Filter inherits Rectangle {
+    in property <string> text;
+    in property <bool> star;
+    in property <bool> active;
+    callback clicked;
+    height: 36px;
+    horizontal-stretch: 1;
+    min-width: 0px;
+    border-radius: 18px;
+    background: root.active ? Theme.selected : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    if !root.star: Text {
+        x: 2px;
+        width: parent.width - 4px;
+        text: root.text;
+        font-size: Theme.body;
+        font-weight: root.active ? 600 : 400;
+        color: root.active ? Theme.ink : Theme.graphite;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    if root.star: Path {
+        width: 18px;
+        height: 18px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: Sketch.star;
+        stroke: root.active ? Theme.accent-stroke : Theme.graphite;
+        stroke-width: 1.7px;
+        fill: root.active ? Theme.marker.transparentize(0.75) : transparent;
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+// One fact of an item: its name, its value, and what a tap on the right does.
+component Fact inherits Rectangle {
+    in property <string> label;
+    in property <string> icon;
+    in property <string> value;
+    in property <bool> mono;
+    in property <bool> large;
+    in property <string> action;
+    callback acted;
+    VerticalLayout {
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 4px;
+        HorizontalLayout {
+            spacing: 7px;
+            alignment: start;
+            VerticalLayout {
+                alignment: center;
+                Glyph { width: 15px; height: 15px; name: root.icon; }
+            }
+            Text {
+                text: root.label;
+                font-size: Theme.small;
+                color: Theme.graphite;
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: root.value;
+                font-size: root.large ? Theme.headline : Theme.lead;
+                font-family: root.mono ? Theme.mono-font : Theme.ui-font;
+                color: Theme.ink;
+                vertical-alignment: center;
+                wrap: root.large ? no-wrap : word-wrap;
+                horizontal-stretch: 1;
+                min-width: 0px;
+            }
+            @children
+            if root.action != "": VerticalLayout {
+                alignment: center;
+                QuietButton { text: root.action; outlined: true; clicked => { root.acted(); } }
+            }
+        }
+    }
+    Rule { y: parent.height - 1px; }
+}
+
+// "At least N" with − and + (the generator's minimums), sized for a phone.
+component Minimum inherits HorizontalLayout {
+    in property <string> label;
+    in-out property <int> value;
+    callback changed();
+    spacing: 8px;
+    Text {
+        text: root.label;
+        font-size: Theme.body;
+        color: Theme.ink;
+        vertical-alignment: center;
+        horizontal-stretch: 1;
+        min-width: 0px;
+        overflow: elide;
+    }
+    QuietButton {
+        text: "−";
+        outlined: true;
+        enabled: root.value > 0;
+        clicked => {
+            root.value = Math.max(0, root.value - 1);
+            root.changed();
+        }
+    }
+    Text {
+        text: root.value;
+        font-size: Theme.lead;
+        font-weight: 600;
+        color: Theme.ink;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+        min-width: 36px;
+    }
+    QuietButton {
+        text: "+";
+        outlined: true;
+        enabled: root.value < 32;
+        clicked => {
+            root.value = Math.min(32, root.value + 1);
+            root.changed();
+        }
+    }
+}
+
+// A confirmation, just above the places.
+component Toast inherits Rectangle {
+    in property <string> text;
+    height: label.preferred-height + 22px;
+    border-radius: Theme.radius;
+    background: Theme.dark ? #2B3645 : #1F2A3D;
+    label := Text {
+        x: 16px;
+        width: parent.width - 32px;
+        text: root.text;
+        font-size: Theme.body;
+        color: #E3E8EF;
+        wrap: word-wrap;
+        vertical-alignment: center;
+    }
+}
+
+component ErrorLine inherits Text {
+    font-size: Theme.body;
+    color: Theme.seal;
+    wrap: word-wrap;
+}
+
+// One key of the app's own keyboard.
+component Key inherits Rectangle {
+    in property <string> label;
+    in property <bool> wide;
+    in property <bool> quiet;
+    callback tapped();
+    horizontal-stretch: root.wide ? 2 : 1;
+    min-width: 0px;
+    height: 46px;
+    border-radius: 6px;
+    background: touch.pressed ? Theme.selected : root.quiet ? Theme.hover : Theme.field;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.tapped(); }
+    Text {
+        text: root.label;
+        color: Theme.ink;
+        font-size: 18px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea { clicked => { root.tapped(); } }
+}
+
+// The app's own keyboard for secret fields (MOBILE.md §6.1): keys go straight to the secure
+// buffer, so no keyboard app ever sees a master password, a Secret Key or a PIN.
+component SecretKeyboard inherits Rectangle {
+    in property <int> field;
+    // 0 letters, 1 digits and symbols, 2 more symbols.
+    property <int> page: 0;
+    // 0 off, 1 the next letter, 2 locked.
+    property <int> shift: 0;
+    background: Theme.panel;
+    height: layout.preferred-height;
+
+    function put(text: string) {
+        Secrets.insert(root.field, root.page == 0 && root.shift > 0 ? text.to-uppercase() : text);
+        if (root.shift == 1) { root.shift = 0; }
+    }
+
+    layout := VerticalLayout {
+        padding: 6px;
+        padding-bottom: 10px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 4px;
+            for key in root.page == 0 ? ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"]
+                : root.page == 1 ? ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+                : ["~", "`", "^", "=", "<", ">", "[", "]", "{", "}"]: Key {
+                label: root.page == 0 && root.shift > 0 ? key.to-uppercase() : key;
+                tapped => { root.put(key); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            padding-left: root.page == 0 ? 16px : 0px;
+            padding-right: root.page == 0 ? 16px : 0px;
+            for key in root.page == 0 ? ["a", "s", "d", "f", "g", "h", "j", "k", "l"]
+                : root.page == 1 ? ["@", "#", "$", "%", "&", "*", "-", "+", "(", ")"]
+                : ["|", "\\", "€", "£", "¥", "§", "°", "•", "¿", "¡"]: Key {
+                label: root.page == 0 && root.shift > 0 ? key.to-uppercase() : key;
+                tapped => { root.put(key); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            Key {
+                wide: true;
+                quiet: true;
+                label: root.page == 0 ? (root.shift == 2 ? "⇪" : "⇧") : root.page == 1 ? "=\\<" : "?123";
+                tapped => {
+                    if (root.page == 0) {
+                        root.shift = root.shift == 0 ? 1 : root.shift == 1 ? 2 : 0;
+                    } else {
+                        root.page = root.page == 1 ? 2 : 1;
+                    }
+                }
+            }
+            for key in root.page == 0 ? ["z", "x", "c", "v", "b", "n", "m"]
+                : ["!", "?", ".", ",", ":", ";", "_", "/", "'", "\""]: Key {
+                label: root.page == 0 && root.shift > 0 ? key.to-uppercase() : key;
+                tapped => { root.put(key); }
+            }
+            Key {
+                wide: true;
+                quiet: true;
+                label: "←";
+                accessible-label: @tr("Delete");
+                tapped => { Secrets.backspace(root.field); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            Key {
+                wide: true;
+                quiet: true;
+                label: root.page == 0 ? "?123" : "ABC";
+                tapped => { root.page = root.page == 0 ? 1 : 0; }
+            }
+            Key {
+                wide: true;
+                quiet: true;
+                label: @tr("Paste");
+                tapped => { Secrets.paste(root.field, false); }
+            }
+            Key {
+                horizontal-stretch: 4;
+                label: " ";
+                accessible-label: @tr("Space");
+                tapped => { root.put(" "); }
+            }
+            Key {
+                wide: true;
+                quiet: true;
+                label: "↓";
+                accessible-label: @tr("Hide the keyboard");
+                tapped => { Secrets.focused = -1; }
+            }
+            Key {
+                wide: true;
+                label: @tr("Done");
+                tapped => {
+                    Secrets.done-field = root.field;
+                    Secrets.done-count += 1;
+                }
+            }
+        }
+    }
+}
+
+export component PhoneWindow inherits Window {
+    title: "Vault";
+    preferred-width: 390px;
+    preferred-height: 844px;
+    min-width: 320px;
+    background: Theme.canvas;
+    default-font-family: Theme.ui-font;
+    default-font-size: Theme.body;
+
+    // Room the system keeps for itself: the status bar, the navigation or gesture bar (an
+    // app is drawn under them from Android 15 on) and the system keyboard while it's up.
+    in property <length> inset-top: root.safe-area-insets.top;
+    in property <length> inset-bottom: Math.max(root.safe-area-insets.bottom, root.virtual-keyboard-size.height);
+
+    in-out property <Screen> screen: Screen.start;
+    in-out property <Place> place: Place.items;
+    in-out property <Page> page: Page.none;
+    in property <bool> busy;
+    in property <int> error-code;
+    in property <string> error-detail;
+    in property <int> notice-code;
+    in property <string> notice-arg;
+
+    // Bringing a vault in, and unlock
+    in property <string> vault-name;
+    in property <bool> needs-secret-key;
+    in property <bool> incoming;        // a chosen file waits to open
+    in property <bool> has-copy;        // the phone already keeps a vault
+    callback pick-vault();              // the shell shows the system's file picker
+    in property <bool> can-pick-file: true;  // false where there is no file picker (a browser)
+    callback save-copy();               // the shell asks where to save a copy of the vault
+    in property <string> backup-confirmed;  // the last copy saved and checked: where, size, when
+    // Setting the phone up from the vault server with the invite line a computer shows.
+    in-out property <string> setup-invite;
+    callback setup-from-server();
+    // The app's own keyboard for secret fields (on a phone; a computer has a real one).
+    in property <bool> drawn-keyboard;
+    callback cancel-incoming();
+    callback unlock();
+
+    // The list
+    in property <[ItemRow]> items;
+    in property <int> total;
+    in-out property <string> search;
+    in-out property <int> filter;       // 0 all, 1 favourites, 2 logins, 3 cards, 4 notes
+    property <[string]> filter-names: [@tr("All"), @tr("Favourites"), @tr("Logins"), @tr("Cards"), @tr("Notes"), @tr("SSH")];
+    callback search-changed(string);
+    callback filter-changed(int);
+    callback open-item(int);
+    callback new-item();
+
+    // One item
+    in property <string> d-title;
+    in property <string> d-initial;
+    in property <image> d-icon;
+    in property <bool> d-has-icon;
+    in property <color> d-tint;
+    in property <int> d-kind;
+    in property <bool> d-favorite;
+    in property <string> d-username;
+    in property <bool> d-has-password;
+    in property <string> d-password;    // shown only while asked for
+    in property <string> d-website;
+    in property <string> d-notes;
+    in property <string> d-card;
+    in property <string> d-card-expiry;
+    in property <string> d-ssh-public;
+    // Files attached to the item (none while it is locked); Save hands one to the system's
+    // "save as" (the shell).
+    in property <[FileRow]> d-files;
+    callback save-file(int);
+    in property <string> d-code;
+    in property <int> d-code-left;
+    in property <int> d-code-period;
+    in property <bool> d-has-code;
+    // The item lock stands in front of this item's secrets: 0 no, 1 master password, 2 PIN,
+    // 3 item password.
+    in property <int> d-check;
+    callback close-item();
+    callback edit-item();
+    callback toggle-favorite();
+    callback toggle-password();
+    callback copy(int);                 // 0 username, 1 password, 2 code, 3 website, 4 public key
+    callback unlock-item();
+
+    // The editor. Kinds as on the desktop: 0 login, 1 card, 2 note, 3 authenticator (a login
+    // kept for its one-time codes: a setup key and no password).
+    in property <bool> ed-new;
+    in-out property <int> ed-kind;
+    in-out property <string> ed-card-number;
+    in-out property <string> ed-card-expiry;
+    in-out property <string> ed-card-code;
+    in property <string> ed-card-brand;  // the network, read from the first digits
+    callback ed-card-number-edited(string);
+    // An SSH key (kind 4): its private key stays in Rust; the editor shows its public half.
+    in property <bool> ed-ssh-has-key;
+    in property <string> ed-ssh-public;
+    in property <string> ed-ssh-fingerprint;
+    callback ed-ssh-generate();
+    callback ed-ssh-paste();
+    // The item's files; `pick-file` asks the system's picker for one (1 a file to attach,
+    // 2 an SSH key file).
+    in property <[FileRow]> ed-files;
+    callback ed-file-remove(int);
+    callback pick-file(int);
+    in-out property <string> ed-title;
+    in-out property <string> ed-username;
+    in-out property <string> ed-website;
+    in-out property <string> ed-totp;
+    in-out property <string> ed-notes;
+    in-out property <bool> ed-favorite;
+    in property <string> ed-password;   // shown only while asked for
+    in property <bool> ed-confirm-delete;
+    callback ed-toggle-password();
+    callback ed-generate();
+    callback save-item();
+    callback cancel-edit();
+    callback delete-item();
+
+    // Codes
+    in property <[CodeRow]> codes;
+    callback copy-code(int);
+    callback new-code();                // the editor, on a new authenticator item
+
+    // Generator
+    in property <string> gen-password;
+    in property <int> gen-bits;
+    // How long it would take to crack (the desktop's estimate, view.rs).
+    in property <int> gen-crack-unit;
+    in property <int> gen-crack-amount;
+    in property <int> gen-crack-comparison;
+    in-out property <int> gen-mode;     // 0 characters, 1 words
+    in-out property <int> gen-length: 20;
+    in-out property <int> gen-words: 6;
+    in-out property <bool> gen-upper: true;
+    in-out property <bool> gen-lower: true;
+    in-out property <bool> gen-digits: true;
+    in-out property <bool> gen-symbols: true;
+    // Advanced options: at least this many of each kind, look-alikes, characters added or
+    // left out. Words: their case (0 lower, 1 Title, 2 UPPER, 3 mixed), what goes between
+    // them (0 -, 1 ., 2 _, 3 a space) and a digit added to one of them.
+    in-out property <bool> gen-advanced;
+    in-out property <int> gen-min-upper;
+    in-out property <int> gen-min-lower;
+    in-out property <int> gen-min-digits;
+    in-out property <int> gen-min-symbols;
+    in-out property <bool> gen-avoid-ambiguous;
+    in-out property <string> gen-also-use;
+    in-out property <string> gen-never-use;
+    in-out property <int> gen-word-case;
+    in-out property <int> gen-separator;
+    in-out property <bool> gen-add-digit;
+    callback gen-changed();
+    callback gen-copy();
+
+    // Settings
+    in-out property <int> lock-choice;  // 0: 1 minute, 1: 5 minutes, 2: 15 minutes
+    in-out property <int> clipboard-choice;  // 0: 15 s, 1: 30 s, 2: 60 s
+    in-out property <bool> website-icons;
+    callback clipboard-choice-changed(int);
+    callback backdrop-changed(bool);
+    callback website-icons-changed(bool);
+    in property <string> vault-path;
+    in property <string> app-version;
+    callback theme-changed(bool);
+    callback lock-choice-changed(int);
+    // Sync: whether this build can (not in the browser preview), the server ("" = off), what
+    // happened last (0 off, 1 synced, 2 syncing, 3 failed), minutes since the last round, why
+    // it failed, the invite line pasted from the computer.
+    in property <bool> sync-available;
+    in property <string> sync-place;
+    in property <int> sync-state;
+    in property <int> sync-minutes: -1;
+    in property <string> sync-detail;
+    in property <bool> sync-busy;
+    in-out property <string> sync-invite-typed;
+    // Joining through WebDAV instead (0 the invite, 1 the WebDAV form), and whether the place
+    // in use is WebDAV.
+    in-out property <int> sync-form;
+    in-out property <string> sync-address;
+    in-out property <string> sync-user;
+    in property <bool> sync-webdav;
+    callback sync-join();
+    callback sync-use-webdav();
+    callback sync-now();
+    callback sync-stop();
+    callback lock-now();
+    // Sync: a backup server synced too, and why the main place or the backup didn't answer
+    // in the last round ("" = it did).
+    in property <string> sync-backup;
+    in property <string> sync-main-down;
+    in property <string> sync-backup-down;
+    // Settings → Master password.
+    in-out property <bool> changing-password;
+    callback change-password();
+    callback cancel-password-change();
+
+    // Android's Back: one step back (a page, a settings section, another place); only at the
+    // top does the app go to the background (`leave`, the shell), never closed by mistake.
+    callback leave();
+    function go-back() {
+        if (root.drawn-keyboard && Secrets.focused >= 0) {
+            Secrets.focused = -1;
+            return;
+        }
+        if (root.screen == Screen.vault) {
+            if (root.page == Page.item) {
+                root.close-item();
+                return;
+            }
+            if (root.page == Page.editor) {
+                root.cancel-edit();
+                return;
+            }
+            if (root.place != Place.items) {
+                root.place = Place.items;
+                return;
+            }
+        }
+        if (root.screen == Screen.unlock && root.incoming) {
+            root.cancel-incoming();
+            return;
+        }
+        root.leave();
+    }
+    // Back comes to whatever has the focus; with nothing focused the system would close the
+    // app, so the window's scope takes the focus back whenever the screen changes.
+    init => { nav.focus(); }
+    changed screen => { nav.focus(); }
+    changed page => { nav.focus(); }
+    changed place => { nav.focus(); }
+
+    property <length> gutter: 20px;
+    // What sits at the bottom of the open vault: the places, and a page's main button.
+    property <length> bottom-bar: root.page == Page.editor ? 72px
+        : root.page == Page.item ? 0px
+        : 63px + (root.place == Place.generator || root.place == Place.settings ? 72px : 0px);
+
+    nav := FocusScope {
+    focus-on-click: false;
+    capture-key-pressed(event) => {
+        if (event.text == Key.Back) {
+            root.go-back();
+            return accept;
+        }
+        reject
+    }
+    VerticalLayout {
+        padding-top: root.inset-top;
+        padding-bottom: root.inset-bottom;
+
+        // ---------------------------------------------------------------- no vault yet
+        // The vault is made on the computer; the phone opens a copy of its file.
+        if root.screen == Screen.start: VerticalLayout {
+            padding: root.gutter;
+            padding-top: 72px;
+            spacing: 14px;
+            HorizontalLayout { alignment: start; Logo { width: 72px; height: 72px; } }
+            Text {
+                text: @tr("No vault on this phone yet");
+                font-size: Theme.headline;
+                font-weight: 300;
+                color: Theme.ink;
+                wrap: word-wrap;
+            }
+            Text {
+                text: @tr("Open the vault you made on your computer: from its file, or through your vault server.");
+                font-size: Theme.body;
+                color: Theme.graphite;
+                wrap: word-wrap;
+            }
+            // From the file: it works offline; sync can be turned on later in Settings.
+            if root.can-pick-file: Rectangle {
+                vertical-stretch: 0;
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.rule;
+                background: Theme.panel;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 10px;
+                    Text { text: @tr("From its file"); font-size: Theme.lead; font-weight: 600; color: Theme.ink; }
+                    Text {
+                        text: @tr("Copy the .vault file to the phone (a USB cable, Quick Share, a folder you sync) and choose it. It works offline; sync can be turned on later in Settings.");
+                        font-size: Theme.small;
+                        color: Theme.graphite;
+                        wrap: word-wrap;
+                    }
+                    Button {
+                        text: @tr("Choose the vault file");
+                        clicked => { root.pick-vault(); }
+                    }
+                }
+            }
+            Rectangle {
+                vertical-stretch: 0;
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.rule;
+                background: Theme.panel;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 10px;
+                    alignment: start;
+                    Text { text: @tr("From your vault server"); font-size: Theme.lead; font-weight: 600; color: Theme.ink; }
+                    Text {
+                        text: @tr("On the computer: Settings, Sync, Add a device. Paste the line it shows here.");
+                        font-size: Theme.small;
+                        color: Theme.graphite;
+                        wrap: word-wrap;
+                    }
+                    LineField {
+                        placeholder: "vaultsync:1?server=…";
+                        mono: true;
+                        text <=> root.setup-invite;
+                        accepted => { root.setup-from-server(); }
+                    }
+                    if root.can-pick-file: QuietButton {
+                        text: root.sync-busy ? @tr("Fetching the vault…") : @tr("Set up from the server");
+                        icon: "globe";
+                        outlined: true;
+                        enabled: !root.sync-busy;
+                        clicked => { root.setup-from-server(); }
+                    }
+                    if !root.can-pick-file: Button {
+                        text: root.sync-busy ? @tr("Fetching the vault…") : @tr("Set up from the server");
+                        enabled: !root.sync-busy;
+                        clicked => { root.setup-from-server(); }
+                    }
+                }
+            }
+            Rectangle { vertical-stretch: 1; }
+            Text {
+                text: @tr("Neither the server nor the file opens the vault on its own: it also needs your master password and the Secret Key from your emergency kit.");
+                font-size: Theme.small;
+                color: Theme.graphite;
+                wrap: word-wrap;
+            }
+            if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
+        }
+
+        // ---------------------------------------------------------------- unlock
+        // The desktop's wall of safe-deposit boxes behind the form. The phone's copy of the
+        // scene leaves out the dark glow the desktop keeps behind its sign-in card, which
+        // showed here as an empty blurred panel; the wall fades into the page instead, where
+        // the form is.
+        if root.screen == Screen.unlock: Rectangle {
+            Image {
+                width: parent.width;
+                height: parent.height;
+                source: Theme.dark ? @image-url("brand/lock-scene-phone.svg") : @image-url("brand/lock-scene-phone-light.svg");
+                image-fit: cover;
+                opacity: 0.8;
+            }
+            Rectangle {
+                width: parent.width;
+                height: parent.height;
+                background: @linear-gradient(180deg, Theme.canvas.transparentize(1) 0%, Theme.canvas.transparentize(0.75) 30%, Theme.canvas.transparentize(0.1) 52%, Theme.canvas 64%);
+            }
+            VerticalLayout {
+                padding: root.gutter;
+                spacing: 14px;
+                Rectangle { vertical-stretch: 5; }
+                HorizontalLayout { alignment: start; Logo { width: 64px; height: 64px; } }
+                Text {
+                    text: root.vault-name != "" ? root.vault-name : @tr("Your vault");
+                    font-size: Theme.headline;
+                    font-weight: 300;
+                    color: Theme.ink;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.needs-secret-key
+                        ? @tr("First time on this phone: it needs the Secret Key from your emergency kit, once.")
+                        : root.incoming && root.has-copy
+                        ? @tr("Type your master password. The file you chose replaces the phone's copy once it opens.")
+                        : @tr("Locked. Type your master password to open it.");
+                    font-size: Theme.body;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
+                }
+                if root.needs-secret-key: SecretField {
+                    field: 1;
+                    label: @tr("Secret Key");
+                    icon: "shield";
+                    eye: true;
+                    cells: true;
+                    placeholder: "S0-…";
+                    error: root.error-code == 3;
+                }
+                SecretField {
+                    field: 0;
+                    label: @tr("Master password");
+                    icon: "key";
+                    eye: true;
+                    error: root.error-code == 1;
+                    accepted => { root.unlock(); }
+                }
+                if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
+                Button {
+                    text: @tr("Open my vault");
+                    busy: root.busy;
+                    busy-text: @tr("Opening…");
+                    clicked => { root.unlock(); }
+                }
+                // A chosen file that isn't the right one: another, or back to what was here.
+                if root.incoming: HorizontalLayout {
+                    spacing: 10px;
+                    alignment: start;
+                    QuietButton { text: @tr("Another file"); icon: "folder"; outlined: true; clicked => { root.pick-vault(); } }
+                    QuietButton { text: @tr("Cancel"); clicked => { root.cancel-incoming(); } }
+                }
+                Rectangle { vertical-stretch: 2; }
+            }
+        }
+
+        // ---------------------------------------------------------------- the open vault
+        if root.screen == Screen.vault: Rectangle {
+            // The doodle texture (the desktop's), unless turned off in Settings.
+            if Theme.backdrop != 0: Backdrop {
+                width: parent.width;
+                height: parent.height;
+                strength: 0.6;
+            }
+            // ---- the four places
+            if root.page == Page.none: VerticalLayout {
+                if root.place == Place.items: VerticalLayout {
+                    vertical-stretch: 1;
+                    TopBar {
+                        title: root.vault-name != "" ? root.vault-name : @tr("Vault");
+                        action: @tr("New");
+                        acted => { root.new-item(); }
+                    }
+                    VerticalLayout {
+                        padding-left: root.gutter;
+                        padding-right: root.gutter;
+                        padding-bottom: 6px;
+                        spacing: 10px;
+                        Rectangle {
+                            height: Theme.control-height;
+                            border-radius: Theme.radius;
+                            background: Theme.field;
+                            border-width: 1px;
+                            border-color: Theme.rule;
+                            Stroke {
+                                x: 12px;
+                                y: (parent.height - self.height) / 2;
+                                width: 18px;
+                                height: 18px;
+                                commands: "M11 4 A7 7 0 1 0 11 18 A7 7 0 1 0 11 4 Z M16.2 16.2 L20.5 20.5";
+                            }
+                            if find.text == "": Text {
+                                x: 40px;
+                                text: @tr("Search {} items", root.total);
+                                color: Theme.faint;
+                                font-size: Theme.body;
+                                vertical-alignment: center;
+                            }
+                            find := TextInput {
+                                x: 40px;
+                                width: parent.width - 52px;
+                                height: parent.height;
+                                text <=> root.search;
+                                font-size: Theme.body;
+                                color: Theme.ink;
+                                vertical-alignment: center;
+                                single-line: true;
+                                selection-background-color: Theme.marker;
+                                selection-foreground-color: Theme.on-marker;
+                                accessible-label: @tr("Search");
+                                edited => { root.search-changed(self.text); }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 2px;
+                            for name[index] in root.filter-names: Filter {
+                                text: name;
+                                star: index == 1;
+                                active: root.filter == index;
+                                clicked => {
+                                    root.filter = index;
+                                    root.filter-changed(index);
+                                }
+                            }
+                        }
+                    }
+                    Rule { }
+                    if root.items.length == 0: VerticalLayout {
+                        vertical-stretch: 1;
+                        padding: root.gutter;
+                        padding-top: 48px;
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: root.total == 0 ? @tr("Nothing saved yet") : @tr("Nothing matches");
+                            font-size: Theme.title;
+                            font-weight: 300;
+                            color: Theme.ink;
+                        }
+                        Text {
+                            text: root.total == 0
+                                ? @tr("Tap New to save your first login or note.")
+                                : @tr("Try another word, or look under All.");
+                            font-size: Theme.body;
+                            color: Theme.graphite;
+                            wrap: word-wrap;
+                        }
+                    }
+                    if root.items.length > 0: Flickable {
+                        vertical-stretch: 1;
+                        content-height: rows.preferred-height;
+                        rows := VerticalLayout {
+                            alignment: start;
+                            for row[index] in root.items: Rectangle {
+                                height: 64px;
+                                background: row-touch.pressed ? Theme.hover : transparent;
+                                accessible-role: list-item;
+                                accessible-label: row.title;
+                                HorizontalLayout {
+                                    padding-left: root.gutter;
+                                    padding-right: root.gutter;
+                                    spacing: 14px;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        ItemIcon { size: 40px; icon: row.icon; has-icon: row.has-icon; initial: row.initial; tint: row.tint; kind: row.kind; }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        spacing: 2px;
+                                        horizontal-stretch: 1;
+                                        min-width: 0px;
+                                        Text {
+                                            text: row.title;
+                                            font-size: Theme.lead;
+                                            color: Theme.ink;
+                                            overflow: elide;
+                                        }
+                                        if row.detail != "": Text {
+                                            text: row.detail;
+                                            font-size: Theme.small;
+                                            color: Theme.graphite;
+                                            overflow: elide;
+                                        }
+                                    }
+                                    if row.favorite: VerticalLayout {
+                                        alignment: center;
+                                        Path {
+                                            width: 18px;
+                                            height: 18px;
+                                            viewbox-width: 24;
+                                            viewbox-height: 24;
+                                            commands: Sketch.star;
+                                            stroke: Theme.accent-stroke;
+                                            stroke-width: 1.6px;
+                                            fill: transparent;
+                                        }
+                                    }
+                                    if row.locked: VerticalLayout {
+                                        alignment: center;
+                                        Glyph { width: 16px; height: 16px; name: "lock"; tint: Theme.graphite; }
+                                    }
+                                }
+                                row-touch := TouchArea { clicked => { root.open-item(index); } }
+                            }
+                        }
+                    }
+                }
+
+                if root.place == Place.codes: VerticalLayout {
+                    vertical-stretch: 1;
+                    TopBar {
+                        title: @tr("Codes");
+                        action: @tr("Add");
+                        acted => { root.new-code(); }
+                    }
+                    if root.codes.length == 0: VerticalLayout {
+                        vertical-stretch: 1;
+                        padding: root.gutter;
+                        padding-top: 48px;
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: @tr("No one-time codes yet");
+                            font-size: Theme.title;
+                            font-weight: 300;
+                            color: Theme.ink;
+                        }
+                        Text {
+                            text: @tr("When a site offers two-step sign-in with an authenticator app, tap Add and paste the setup key it shows. The six digits then show up on this page.");
+                            font-size: Theme.body;
+                            color: Theme.graphite;
+                            wrap: word-wrap;
+                        }
+                    }
+                    if root.codes.length > 0: Flickable {
+                        vertical-stretch: 1;
+                        content-height: code-rows.preferred-height;
+                        code-rows := VerticalLayout {
+                            alignment: start;
+                            for row[index] in root.codes: Rectangle {
+                                height: 84px;
+                                background: code-touch.pressed ? Theme.hover : transparent;
+                                accessible-role: list-item;
+                                accessible-label: row.title;
+                                HorizontalLayout {
+                                    padding-left: root.gutter;
+                                    padding-right: root.gutter;
+                                    spacing: 14px;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        ItemIcon { size: 40px; icon: row.icon; has-icon: row.has-icon; initial: row.initial; tint: row.tint; }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        spacing: 2px;
+                                        horizontal-stretch: 1;
+                                        min-width: 0px;
+                                        Text {
+                                            text: row.account != "" ? row.title + "  " + row.account : row.title;
+                                            font-size: Theme.small;
+                                            color: Theme.graphite;
+                                            overflow: elide;
+                                        }
+                                        Text {
+                                            text: row.code != "" ? row.code : @tr("Locked: open the login first");
+                                            font-family: row.code != "" ? Theme.mono-font : Theme.ui-font;
+                                            font-size: row.code != "" ? Theme.headline : Theme.body;
+                                            color: row.code != "" ? Theme.ink : Theme.graphite;
+                                        }
+                                    }
+                                    if row.code != "": VerticalLayout {
+                                        alignment: center;
+                                        Text {
+                                            text: row.left;
+                                            font-size: Theme.body;
+                                            color: row.left <= 5 ? Theme.seal : Theme.graphite;
+                                            horizontal-alignment: right;
+                                            min-width: 24px;
+                                        }
+                                    }
+                                }
+                                // The time left drains under the row.
+                                if row.code != "": Rectangle {
+                                    x: root.gutter;
+                                    y: parent.height - 3px;
+                                    height: 2px;
+                                    width: (parent.width - 2 * root.gutter) * row.left / Math.max(1, row.period);
+                                    background: row.left <= 5 ? Theme.seal : Theme.marker;
+                                    animate width { duration: 900ms; }
+                                }
+                                code-touch := TouchArea { clicked => { root.copy-code(index); } }
+                            }
+                        }
+                    }
+                }
+
+                if root.place == Place.generator: VerticalLayout {
+                    vertical-stretch: 1;
+                    TopBar { title: @tr("Generator"); }
+                    Flickable {
+                        vertical-stretch: 1;
+                        content-height: gen.preferred-height;
+                        gen := VerticalLayout {
+                            padding: root.gutter;
+                            padding-top: 4px;
+                            spacing: 16px;
+                            alignment: start;
+                            Rectangle {
+                                border-radius: Theme.radius;
+                                background: Theme.field;
+                                border-width: 1px;
+                                border-color: Theme.rule;
+                                height: Math.max(52px, made.preferred-height + 22px);
+                                made := Text {
+                                    x: 14px;
+                                    width: parent.width - 28px;
+                                    text: root.gen-password;
+                                    font-family: Theme.mono-font;
+                                    font-size: Theme.body;
+                                    color: Theme.ink;
+                                    wrap: char-wrap;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            StrengthMeter {
+                                bits: root.gen-bits;
+                                crack-unit: root.gen-crack-unit;
+                                crack-amount: root.gen-crack-amount;
+                                crack-comparison: root.gen-crack-comparison;
+                            }
+                            Choice {
+                                options: [@tr("Characters"), @tr("Words")];
+                                selected <=> root.gen-mode;
+                                changed => { root.gen-changed(); }
+                            }
+                            if root.gen-mode == 0: VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    Text { text: @tr("Length"); color: Theme.graphite; font-size: Theme.small; horizontal-stretch: 1; }
+                                    Text { text: root.gen-length; color: Theme.ink; font-size: Theme.body; }
+                                }
+                                Slider {
+                                    label: @tr("Length");
+                                    minimum: 8;
+                                    maximum: 128;
+                                    value <=> root.gen-length;
+                                    changed => { root.gen-changed(); }
+                                }
+                                Check { text: @tr("Capital letters"); checked <=> root.gen-upper; toggled => { root.gen-changed(); } }
+                                Check { text: @tr("Small letters"); checked <=> root.gen-lower; toggled => { root.gen-changed(); } }
+                                Check { text: @tr("Digits"); checked <=> root.gen-digits; toggled => { root.gen-changed(); } }
+                                Check { text: @tr("Symbols"); checked <=> root.gen-symbols; toggled => { root.gen-changed(); } }
+                                HorizontalLayout {
+                                    padding-top: 6px;
+                                    alignment: start;
+                                    QuietButton {
+                                        icon: "gear";
+                                        text: root.gen-advanced ? @tr("Fewer options") : @tr("Advanced options");
+                                        clicked => { root.gen-advanced = !root.gen-advanced; }
+                                    }
+                                }
+                                if root.gen-advanced: VerticalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: @tr("For sites with rules: at least this many of each kind. The length grows if they need more room.");
+                                        font-size: Theme.small;
+                                        color: Theme.graphite;
+                                        wrap: word-wrap;
+                                    }
+                                    Minimum { label: @tr("Capitals, at least"); value <=> root.gen-min-upper; changed => { root.gen-changed(); } }
+                                    Minimum { label: @tr("Small letters, at least"); value <=> root.gen-min-lower; changed => { root.gen-changed(); } }
+                                    Minimum { label: @tr("Digits, at least"); value <=> root.gen-min-digits; changed => { root.gen-changed(); } }
+                                    Minimum { label: @tr("Symbols, at least"); value <=> root.gen-min-symbols; changed => { root.gen-changed(); } }
+                                    Check { text: @tr("Leave out look-alikes (I l 1 O 0 o |)"); checked <=> root.gen-avoid-ambiguous; toggled => { root.gen-changed(); } }
+                                    LineField {
+                                        label: @tr("Also use");
+                                        placeholder: @tr("e.g. ñ€");
+                                        mono: true;
+                                        text <=> root.gen-also-use;
+                                        edited => { root.gen-changed(); }
+                                    }
+                                    LineField {
+                                        label: @tr("Never use");
+                                        placeholder: @tr("e.g. <>'\"");
+                                        mono: true;
+                                        text <=> root.gen-never-use;
+                                        edited => { root.gen-changed(); }
+                                    }
+                                }
+                            }
+                            if root.gen-mode == 1: VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    Text { text: @tr("Words"); color: Theme.graphite; font-size: Theme.small; horizontal-stretch: 1; }
+                                    Text { text: root.gen-words; color: Theme.ink; font-size: Theme.body; }
+                                }
+                                Slider {
+                                    label: @tr("Words");
+                                    minimum: 3;
+                                    maximum: 12;
+                                    value <=> root.gen-words;
+                                    changed => { root.gen-changed(); }
+                                }
+                                Text { text: @tr("Letters"); color: Theme.graphite; font-size: Theme.small; }
+                                Choice {
+                                    options: [@tr("abc"), @tr("Abc"), @tr("ABC"), @tr("Mixed")];
+                                    selected <=> root.gen-word-case;
+                                    changed => { root.gen-changed(); }
+                                }
+                                Text { text: @tr("Between the words"); color: Theme.graphite; font-size: Theme.small; }
+                                Choice {
+                                    options: ["-", ".", "_", @tr("Space")];
+                                    selected <=> root.gen-separator;
+                                    changed => { root.gen-changed(); }
+                                }
+                                Check { text: @tr("Add a digit to one word"); checked <=> root.gen-add-digit; toggled => { root.gen-changed(); } }
+                            }
+                            if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
+                        }
+                    }
+                    HorizontalLayout {
+                        padding: root.gutter;
+                        padding-top: 10px;
+                        padding-bottom: 12px;
+                        spacing: 10px;
+                        VerticalLayout {
+                            alignment: center;
+                            QuietButton {
+                                text: @tr("Another");
+                                icon: "refresh";
+                                outlined: true;
+                                clicked => { root.gen-changed(); }
+                            }
+                        }
+                        Button {
+                            horizontal-stretch: 1;
+                            text: @tr("Copy");
+                            enabled: root.gen-password != "";
+                            clicked => { root.gen-copy(); }
+                        }
+                    }
+                }
+
+                if root.place == Place.settings: VerticalLayout {
+                    vertical-stretch: 1;
+                    TopBar { title: @tr("Settings"); }
+                    Flickable {
+                        vertical-stretch: 1;
+                        content-height: prefs.preferred-height;
+                        prefs := VerticalLayout {
+                            padding: root.gutter;
+                            padding-top: 4px;
+                            spacing: 6px;
+                            alignment: start;
+                            Text { text: @tr("Look"); font-size: Theme.small; color: Theme.graphite; }
+                            Choice {
+                                options: [@tr("Dark"), @tr("Light")];
+                                selected: Theme.dark ? 0 : 1;
+                                changed(index) => { root.theme-changed(index == 0); }
+                            }
+                            Rectangle { height: 10px; }
+                            Text { text: @tr("Lock by itself after"); font-size: Theme.small; color: Theme.graphite; }
+                            Choice {
+                                options: [@tr("1 minute"), @tr("5 minutes"), @tr("15 minutes")];
+                                selected <=> root.lock-choice;
+                                changed(index) => { root.lock-choice-changed(index); }
+                            }
+                            Rectangle { height: 10px; }
+                            Text { text: @tr("Clear a copied secret from the clipboard after"); font-size: Theme.small; color: Theme.graphite; wrap: word-wrap; }
+                            Choice {
+                                options: [@tr("15 seconds"), @tr("30 seconds"), @tr("1 minute")];
+                                selected <=> root.clipboard-choice;
+                                changed(index) => { root.clipboard-choice-changed(index); }
+                            }
+                            Rectangle { height: 6px; }
+                            Check {
+                                text: @tr("Background pattern");
+                                checked: Theme.backdrop != 0;
+                                toggled(on) => { root.backdrop-changed(on); }
+                            }
+                            Check {
+                                text: @tr("Website icons");
+                                checked <=> root.website-icons;
+                                toggled(on) => { root.website-icons-changed(on); }
+                            }
+                            Text {
+                                text: @tr("Each saved site is asked once for its icon, directly. Someone watching the network can see which sites were asked, so it is off until you turn it on.");
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                                wrap: word-wrap;
+                            }
+                            Rectangle { height: 10px; }
+                            Rule { }
+                            Fact {
+                                label: @tr("This vault");
+                                icon: "vault";
+                                value: @tr("{} items", root.total);
+                            }
+                            Fact {
+                                label: @tr("Kept in");
+                                icon: "folder";
+                                value: root.vault-path;
+                            }
+                            if root.sync-available: VerticalLayout {
+                                padding-top: 12px;
+                                padding-bottom: 6px;
+                                spacing: 8px;
+                                Text { text: @tr("Sync"); font-size: Theme.small; color: Theme.graphite; }
+                                if root.sync-place == "" && root.sync-form == 1: VerticalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: @tr("Or through a WebDAV folder (Nextcloud, a NAS): the same address and user your computer uses. The password stays in this phone's keystore.");
+                                        font-size: Theme.small;
+                                        color: Theme.ink;
+                                        wrap: word-wrap;
+                                    }
+                                    LineField {
+                                        label: @tr("WebDAV address");
+                                        placeholder: "https://cloud.example.com/remote.php/dav/files/you/Vault";
+                                        text <=> root.sync-address;
+                                    }
+                                    LineField {
+                                        label: @tr("User name");
+                                        text <=> root.sync-user;
+                                    }
+                                    SecretField {
+                                        field: 4;
+                                        label: @tr("Password");
+                                        icon: "key";
+                                        accepted => { root.sync-use-webdav(); }
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 10px;
+                                        QuietButton {
+                                            text: root.sync-busy ? @tr("Connecting…") : @tr("Connect");
+                                            outlined: true;
+                                            enabled: !root.sync-busy;
+                                            clicked => { root.sync-use-webdav(); }
+                                        }
+                                        QuietButton {
+                                            text: @tr("Use an invite");
+                                            clicked => { root.sync-form = 0; }
+                                        }
+                                    }
+                                }
+                                if root.sync-place == "" && root.sync-form == 0: VerticalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: @tr("Keep this phone and your computers the same through your vault server. On the computer: Settings, Sync, Add a device. Then paste the line it shows here.");
+                                        font-size: Theme.small;
+                                        color: Theme.ink;
+                                        wrap: word-wrap;
+                                    }
+                                    LineField {
+                                        placeholder: "vaultsync:1?server=…";
+                                        mono: true;
+                                        text <=> root.sync-invite-typed;
+                                        accepted => { root.sync-join(); }
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 10px;
+                                        QuietButton {
+                                            text: root.sync-busy ? @tr("Joining…") : @tr("Join");
+                                            outlined: true;
+                                            enabled: !root.sync-busy;
+                                            clicked => { root.sync-join(); }
+                                        }
+                                        QuietButton {
+                                            text: @tr("Use WebDAV");
+                                            clicked => { root.sync-form = 1; }
+                                        }
+                                    }
+                                }
+                                if root.sync-place != "": VerticalLayout {
+                                    spacing: 8px;
+                                    Fact {
+                                        label: root.sync-webdav ? @tr("WebDAV") : @tr("Server");
+                                        icon: "globe";
+                                        value: root.sync-place;
+                                    }
+                                    if root.sync-backup != "": Fact {
+                                        label: @tr("Backup server");
+                                        icon: "globe";
+                                        value: root.sync-backup;
+                                    }
+                                    if root.sync-backup != "" && (root.sync-main-down != "" || root.sync-backup-down != ""): Text {
+                                        text: root.sync-main-down != "" && root.sync-backup-down == ""
+                                                ? @tr("The main server isn't answering: the vault syncs through the backup server, and the main one catches up as soon as it answers.")
+                                            : root.sync-main-down != ""
+                                                ? @tr("Neither server is answering. Changes stay on this phone and go out as soon as one answers.")
+                                                : @tr("The backup server isn't answering: the vault syncs through the main one, and the backup catches up as soon as it answers.");
+                                        font-size: Theme.small;
+                                        color: Theme.seal;
+                                        wrap: word-wrap;
+                                    }
+                                    Fact {
+                                        label: @tr("Last synced");
+                                        icon: "clock";
+                                        value: root.sync-state == 2 ? @tr("Syncing…")
+                                            : root.sync-state == 3 ? @tr("Failed")
+                                            : root.sync-minutes < 0 ? @tr("Not yet")
+                                            : root.sync-minutes == 0 ? @tr("Just now")
+                                            : @tr("{n} minute ago" | "{n} minutes ago" % root.sync-minutes);
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 10px;
+                                        QuietButton {
+                                            text: @tr("Sync now");
+                                            outlined: true;
+                                            enabled: root.sync-state != 2;
+                                            clicked => { root.sync-now(); }
+                                        }
+                                        QuietButton {
+                                            text: @tr("Stop syncing");
+                                            clicked => { root.sync-stop(); }
+                                        }
+                                    }
+                                }
+                                if root.sync-state == 3 && root.sync-detail != "": ErrorLine {
+                                    text: root.sync-detail;
+                                }
+                            }
+                            VerticalLayout {
+                                padding-top: 12px;
+                                padding-bottom: 6px;
+                                spacing: 8px;
+                                Text {
+                                    text: root.sync-place == "" ? @tr("This vault doesn't sync: it works offline. Changed it on the computer? Bring its newest file here, or join your vault server above.") : @tr("A copy from elsewhere (a backup, another computer) can still be brought in by hand.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                                if root.can-pick-file: HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    QuietButton {
+                                        text: @tr("Bring a newer copy");
+                                        icon: "folder";
+                                        outlined: true;
+                                        clicked => { root.pick-vault(); }
+                                    }
+                                    QuietButton {
+                                        text: @tr("Save a copy");
+                                        icon: "download";
+                                        clicked => { root.save-copy(); }
+                                    }
+                                }
+                                Text {
+                                    text: root.backup-confirmed != ""
+                                        ? @tr("Last copy saved and checked: {}", root.backup-confirmed)
+                                        : @tr("A saved copy is read back and checked before the app calls it a backup. It opens only with your master password and Secret Key.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                                // Only what choosing or saving a file can go wrong with.
+                                if root.error-code == 2 || root.error-code == 4 || root.error-code == 9 || root.error-code == 16: ErrorLine {
+                                    text: Words.error(root.error-code, root.error-detail);
+                                }
+                            }
+                            VerticalLayout {
+                                padding-top: 12px;
+                                padding-bottom: 6px;
+                                spacing: 8px;
+                                Text { text: @tr("Master password"); font-size: Theme.small; color: Theme.graphite; }
+                                if !root.changing-password: HorizontalLayout {
+                                    alignment: start;
+                                    QuietButton {
+                                        text: @tr("Change master password");
+                                        icon: "key";
+                                        outlined: true;
+                                        clicked => { root.changing-password = true; }
+                                    }
+                                }
+                                if root.changing-password: VerticalLayout {
+                                    spacing: 8px;
+                                    padding-bottom: 10px;
+                                    Text {
+                                        text: @tr("The Secret Key and your emergency kit's recovery parts stay the same. Devices that sync this vault ask for the new password at their next unlock.");
+                                        font-size: Theme.small;
+                                        color: Theme.ink;
+                                        wrap: word-wrap;
+                                    }
+                                    SecretField {
+                                        field: 5;
+                                        eye: true;
+                                        label: @tr("Current master password");
+                                        icon: "key";
+                                        error: root.error-code == 13;
+                                    }
+                                    SecretField {
+                                        field: 6;
+                                        eye: true;
+                                        label: @tr("New master password");
+                                        error: root.error-code == 14 || root.error-code == 15;
+                                    }
+                                    SecretField {
+                                        field: 7;
+                                        eye: true;
+                                        label: @tr("Type it again");
+                                        error: root.error-code == 14;
+                                        accepted => { root.change-password(); }
+                                    }
+                                    if root.error-code == 6 || root.error-code == 13 || root.error-code == 14 || root.error-code == 15: ErrorLine {
+                                        text: Words.error(root.error-code, root.error-detail);
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 10px;
+                                        QuietButton {
+                                            text: root.busy ? @tr("Changing…") : @tr("Change password");
+                                            outlined: true;
+                                            enabled: !root.busy;
+                                            clicked => { root.change-password(); }
+                                        }
+                                        QuietButton {
+                                            text: @tr("Cancel");
+                                            clicked => { root.cancel-password-change(); }
+                                        }
+                                    }
+                                }
+                            }
+                            Fact {
+                                label: @tr("App");
+                                icon: "shield";
+                                value: @tr("Version {}. Free software under the GPL, version 3 or later.", root.app-version);
+                            }
+                            Rectangle { height: 10px; }
+                            Text {
+                                text: @tr("Still to come on the phone: fingerprint unlock, filling into other apps, and scanning the invite's QR code.");
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        padding: root.gutter;
+                        padding-top: 10px;
+                        padding-bottom: 12px;
+                        Button { text: @tr("Lock now"); clicked => { root.lock-now(); } }
+                    }
+                }
+
+                Rule { }
+                HorizontalLayout {
+                    height: 62px;
+                    PlaceTab { text: @tr("Vault"); icon: "vault"; variant: 0; active: root.place == Place.items; clicked => { root.place = Place.items; } }
+                    PlaceTab { text: @tr("Codes"); icon: "clock"; variant: 1; active: root.place == Place.codes; clicked => { root.place = Place.codes; } }
+                    PlaceTab { text: @tr("Generator"); icon: "sparkle"; variant: 2; active: root.place == Place.generator; clicked => { root.place = Place.generator; root.gen-changed(); } }
+                    PlaceTab { text: @tr("Settings"); icon: "gear"; variant: 0; active: root.place == Place.settings; clicked => { root.place = Place.settings; } }
+                }
+            }
+
+            // ---- one item, over the places
+            if root.page == Page.item: VerticalLayout {
+                TopBar {
+                    back: @tr("Vault");
+                    action: root.d-check == 0 ? @tr("Edit") : "";
+                    action-icon: "pencil";
+                    went-back => { root.close-item(); }
+                    acted => { root.edit-item(); }
+                }
+                Flickable {
+                    vertical-stretch: 1;
+                    content-height: facts.preferred-height;
+                    facts := VerticalLayout {
+                        padding-left: root.gutter;
+                        padding-right: root.gutter;
+                        padding-bottom: 24px;
+                        alignment: start;
+                        HorizontalLayout {
+                            padding-top: 4px;
+                            padding-bottom: 14px;
+                            spacing: 16px;
+                            ItemIcon { size: 56px; icon: root.d-icon; has-icon: root.d-has-icon; initial: root.d-initial; tint: root.d-tint; kind: root.d-kind; }
+                            VerticalLayout {
+                                alignment: center;
+                                horizontal-stretch: 1;
+                                min-width: 0px;
+                                Text {
+                                    text: root.d-title;
+                                    font-size: Theme.title;
+                                    color: Theme.ink;
+                                    wrap: word-wrap;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 44px;
+                                    height: 44px;
+                                    border-radius: Theme.radius;
+                                    background: star-touch.pressed ? Theme.hover : transparent;
+                                    accessible-role: button;
+                                    accessible-label: root.d-favorite ? @tr("Remove from favourites") : @tr("Add to favourites");
+                                    Path {
+                                        width: 24px;
+                                        height: 24px;
+                                        viewbox-width: 24;
+                                        viewbox-height: 24;
+                                        commands: Sketch.star;
+                                        stroke: root.d-favorite ? Theme.accent-stroke : Theme.graphite;
+                                        stroke-width: 1.7px;
+                                        fill: root.d-favorite ? Theme.marker.transparentize(0.75) : transparent;
+                                    }
+                                    star-touch := TouchArea { clicked => { root.toggle-favorite(); } }
+                                }
+                            }
+                        }
+                        Rule { }
+                        if root.d-username != "": Fact {
+                            label: @tr("Username");
+                            icon: "user";
+                            value: root.d-username;
+                            action: @tr("Copy");
+                            acted => { root.copy(0); }
+                        }
+                        if root.d-card != "": Fact {
+                            label: @tr("Card");
+                            icon: "card";
+                            value: root.d-card;
+                        }
+                        if root.d-card-expiry != "": Fact {
+                            label: @tr("Expires");
+                            icon: "calendar";
+                            value: root.d-card-expiry;
+                        }
+                        // The item lock: what is behind it shows after its check.
+                        if root.d-check != 0: VerticalLayout {
+                            padding-top: 16px;
+                            padding-bottom: 16px;
+                            spacing: 12px;
+                            Text {
+                                text: root.d-check == 1 ? @tr("The password and codes of this item are locked. Type your master password to see them.")
+                                    : root.d-check == 2 ? @tr("The password and codes of this item are locked. Type the item PIN to see them.")
+                                    : @tr("The password and codes of this item are locked. Type the item password to see them.");
+                                font-size: Theme.body;
+                                color: Theme.graphite;
+                                wrap: word-wrap;
+                            }
+                            SecretField {
+                                field: 2;
+                                label: root.d-check == 1 ? @tr("Master password") : root.d-check == 2 ? @tr("Item PIN") : @tr("Item password");
+                                icon: "lock";
+                                error: root.error-code == 7;
+                                accepted => { root.unlock-item(); }
+                            }
+                            if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
+                            Button {
+                                text: @tr("Show the secrets");
+                                busy: root.busy;
+                                busy-text: @tr("Checking…");
+                                clicked => { root.unlock-item(); }
+                            }
+                        }
+                        if root.d-ssh-public != "": Fact {
+                            label: @tr("Public key");
+                            icon: "key";
+                            value: root.d-ssh-public;
+                            mono: true;
+                            action: @tr("Copy");
+                            acted => { root.copy(4); }
+                        }
+                        if root.d-check == 0 && root.d-has-password: Fact {
+                            label: root.d-kind == 1 ? @tr("PIN") : root.d-kind == 4 ? @tr("Private key") : @tr("Password");
+                            icon: "key";
+                            value: root.d-password != "" ? root.d-password : "••••••••••";
+                            mono: root.d-password != "";
+                            action: @tr("Copy");
+                            acted => { root.copy(1); }
+                            VerticalLayout {
+                                alignment: center;
+                                EyeButton { open: root.d-password != ""; clicked => { root.toggle-password(); } }
+                            }
+                        }
+                        if root.d-check == 0 && root.d-has-code: Fact {
+                            label: @tr("One-time code, {} s left", root.d-code-left);
+                            icon: "clock";
+                            value: root.d-code;
+                            mono: true;
+                            large: true;
+                            action: @tr("Copy");
+                            acted => { root.copy(2); }
+                        }
+                        if root.d-website != "": Fact {
+                            label: @tr("Website");
+                            icon: "globe";
+                            value: root.d-website;
+                            action: @tr("Copy");
+                            acted => { root.copy(3); }
+                        }
+                        if root.d-notes != "": Fact {
+                            label: @tr("Notes");
+                            icon: "note";
+                            value: root.d-notes;
+                        }
+                        for file[index] in root.d-files: Fact {
+                            label: @tr("File, {}", file.size);
+                            icon: "paperclip";
+                            value: file.name;
+                            action: root.can-pick-file ? @tr("Save") : "";
+                            acted => { root.save-file(index); }
+                        }
+                    }
+                }
+            }
+
+            // ---- the editor, over the places
+            if root.page == Page.editor: VerticalLayout {
+                TopBar {
+                    title: root.ed-new ? @tr("New") : @tr("Edit");
+                    back: @tr("Cancel");
+                    went-back => { root.cancel-edit(); }
+                }
+                Flickable {
+                    vertical-stretch: 1;
+                    content-height: form.preferred-height;
+                    form := VerticalLayout {
+                        padding: root.gutter;
+                        padding-top: 4px;
+                        spacing: 16px;
+                        alignment: start;
+                        if root.ed-new: Choice {
+                            options: [@tr("Login"), @tr("Card"), @tr("Note"), @tr("2FA"), @tr("SSH")];
+                            selected <=> root.ed-kind;
+                        }
+                        // An authenticator item is named after the service in its setup key.
+                        if root.ed-kind == 3: LineField {
+                            label: @tr("Setup key");
+                            icon: "clock";
+                            required: true;
+                            hint: @tr("When you turn on two-step sign-in, the site shows a QR code and a text key, often under “Can't scan it?”. Paste that key here, or an otpauth:// link. The codes then show on the Codes page.");
+                            placeholder: @tr("otpauth:// link or key");
+                            mono: true;
+                            text <=> root.ed-totp;
+                            error: root.error-code == 10 || root.error-code == 21;
+                        }
+                        LineField {
+                            label: @tr("Name");
+                            icon: "tag";
+                            required: root.ed-kind != 3;
+                            placeholder: root.ed-kind == 0 ? @tr("The site or app")
+                                : root.ed-kind == 1 ? @tr("Visa ending 4242")
+                                : root.ed-kind == 3 ? @tr("Taken from the setup key")
+                                : @tr("What the note is about");
+                            text <=> root.ed-title;
+                            error: root.error-code == 5;
+                        }
+                        if root.ed-kind != 2: LineField {
+                            label: root.ed-kind == 1 ? @tr("Name on card") : root.ed-kind == 3 ? @tr("Account") : root.ed-kind == 4 ? @tr("User or comment") : @tr("Username");
+                            icon: "user";
+                            text <=> root.ed-username;
+                        }
+                        if root.ed-kind == 1: VerticalLayout {
+                            spacing: 6px;
+                            LineField {
+                                label: @tr("Card number");
+                                icon: "card";
+                                placeholder: "1234 5678 9012 3456";
+                                mono: true;
+                                text <=> root.ed-card-number;
+                                error: root.error-code == 17;
+                                edited(text) => { root.ed-card-number-edited(text); }
+                            }
+                            if root.ed-card-brand != "": Text {
+                                text: root.ed-card-brand;
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                            }
+                        }
+                        if root.ed-kind == 1: HorizontalLayout {
+                            spacing: 12px;
+                            LineField {
+                                horizontal-stretch: 1;
+                                label: @tr("Expires");
+                                icon: "calendar";
+                                placeholder: @tr("MM/YY");
+                                mono: true;
+                                text <=> root.ed-card-expiry;
+                                error: root.error-code == 18;
+                            }
+                            LineField {
+                                horizontal-stretch: 1;
+                                label: @tr("Security code");
+                                icon: "shield";
+                                placeholder: "CVV";
+                                mono: true;
+                                text <=> root.ed-card-code;
+                                error: root.error-code == 19;
+                            }
+                        }
+                        if root.ed-kind == 1: HorizontalLayout {
+                            spacing: 6px;
+                            SecretField {
+                                horizontal-stretch: 1;
+                                field: 3;
+                                label: @tr("PIN");
+                                icon: "pin";
+                                placeholder: @tr("Digits only, as the bank gave it");
+                                revealed: root.ed-password;
+                                error: root.error-code == 20;
+                            }
+                            VerticalLayout {
+                                alignment: end;
+                                EyeButton { open: root.ed-password != ""; clicked => { root.ed-toggle-password(); } }
+                            }
+                        }
+                        if root.ed-kind == 4: VerticalLayout {
+                            spacing: 8px;
+                            Text {
+                                text: root.ed-ssh-has-key ? @tr("Public key") : @tr("No key yet: make one here, or bring yours from a file or the clipboard.");
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                                wrap: word-wrap;
+                            }
+                            if root.ed-ssh-has-key: Text {
+                                text: root.ed-ssh-public != "" ? root.ed-ssh-public : @tr("Kept as it is; its public half couldn't be read.");
+                                font-family: Theme.mono-font;
+                                font-size: Theme.small;
+                                color: Theme.ink;
+                                wrap: char-wrap;
+                            }
+                            if root.ed-ssh-fingerprint != "": Text {
+                                text: root.ed-ssh-fingerprint;
+                                font-family: Theme.mono-font;
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                                wrap: char-wrap;
+                            }
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 8px;
+                                QuietButton {
+                                    icon: "sparkle";
+                                    outlined: true;
+                                    text: root.ed-ssh-has-key ? @tr("New key") : @tr("Make a key");
+                                    clicked => { root.ed-ssh-generate(); }
+                                }
+                                QuietButton { text: @tr("Paste"); clicked => { root.ed-ssh-paste(); } }
+                                if root.can-pick-file: QuietButton { text: @tr("From a file"); clicked => { root.pick-file(2); } }
+                            }
+                        }
+                        if root.ed-kind == 0: VerticalLayout {
+                            spacing: 8px;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                SecretField {
+                                    horizontal-stretch: 1;
+                                    field: 3;
+                                    label: @tr("Password");
+                                    icon: "key";
+                                    revealed: root.ed-password;
+                                }
+                                VerticalLayout {
+                                    alignment: end;
+                                    EyeButton { open: root.ed-password != ""; clicked => { root.ed-toggle-password(); } }
+                                }
+                            }
+                            HorizontalLayout {
+                                alignment: start;
+                                QuietButton {
+                                    text: @tr("Make a strong one");
+                                    icon: "sparkle";
+                                    outlined: true;
+                                    clicked => { root.ed-generate(); }
+                                }
+                            }
+                        }
+                        // Its icon comes from the website, for cards too (the bank's site).
+                        if root.ed-kind != 2: LineField {
+                            label: @tr("Website");
+                            icon: "globe";
+                            placeholder: root.ed-kind == 1 ? @tr("The bank's site, for its icon") : "example.com";
+                            text <=> root.ed-website;
+                        }
+                        if root.ed-kind == 0: LineField {
+                            label: @tr("One-time code key");
+                            icon: "clock";
+                            hint: @tr("Paste the setup key the site shows for its authenticator app, often under “Can't scan it?”. Leave it empty if the site has none.");
+                            mono: true;
+                            text <=> root.ed-totp;
+                            error: root.error-code == 10;
+                        }
+                        NotesField {
+                            label: @tr("Notes");
+                            icon: "note";
+                            field-height: root.ed-kind == 2 ? 220px : 96px;
+                            text <=> root.ed-notes;
+                        }
+                        // Files kept with the item: encrypted with it, and locked with it.
+                        VerticalLayout {
+                            spacing: 6px;
+                            if root.ed-files.length > 0: Text { text: @tr("Files"); font-size: Theme.small; color: Theme.graphite; }
+                            for file[index] in root.ed-files: HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: file.name;
+                                    font-size: Theme.body;
+                                    color: Theme.ink;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                    min-width: 0px;
+                                }
+                                Text { text: file.size; font-size: Theme.small; color: Theme.graphite; vertical-alignment: center; }
+                                QuietButton { icon: "trash"; tint: Theme.graphite; text: @tr("Remove"); clicked => { root.ed-file-remove(index); } }
+                            }
+                            if root.can-pick-file: HorizontalLayout {
+                                alignment: start;
+                                QuietButton { icon: "paperclip"; text: @tr("Attach a file"); clicked => { root.pick-file(1); } }
+                            }
+                        }
+                        Check { text: @tr("Favourite"); checked <=> root.ed-favorite; }
+                        if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
+                        if !root.ed-new: HorizontalLayout {
+                            alignment: start;
+                            QuietButton {
+                                text: root.ed-confirm-delete ? @tr("Tap again to delete it for good") : @tr("Delete");
+                                icon: "trash";
+                                tint: Theme.seal;
+                                clicked => { root.delete-item(); }
+                            }
+                        }
+                    }
+                }
+                VerticalLayout {
+                    padding: root.gutter;
+                    padding-top: 10px;
+                    padding-bottom: 12px;
+                    Button { text: @tr("Save"); clicked => { root.save-item(); } }
+                }
+            }
+
+            if root.notice-code != 0: Toast {
+                x: root.gutter;
+                width: parent.width - 2 * root.gutter;
+                y: parent.height - self.height - 12px - root.bottom-bar;
+                text: Words.notice(root.notice-code, root.notice-arg);
+            }
+        }
+    }
+
+    // The app's own keyboard while a secret field has the focus (MOBILE.md §6.1).
+    if root.drawn-keyboard && Secrets.focused >= 0: SecretKeyboard {
+        field: Secrets.focused;
+        x: 0px;
+        width: root.width;
+        y: root.height - self.height - root.inset-bottom;
+    }
+    }
+}

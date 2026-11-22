@@ -1,7 +1,7 @@
 [package]
 name = "vault-platform"
 version = "0.0.0"
-description = "OS integration shared by the CLI and desktop app: secret store, device state, clipboard, screen capture, secure input"
+description = "OS integration shared by the apps: secret store, device state, clipboard, screen capture, secure input, sync targets"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

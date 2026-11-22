@@ -1,0 +1,31 @@
+[package]
+name = "vault-cli"
+version = "0.0.0"
+description = "Command-line client for the password manager"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "vault"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+vault-core = { path = "../../crates/core" }
+vault-import = { path = "../../crates/import" }
+vault-platform = { path = "../../crates/platform" }
+vault-sync-wire = { path = "../../crates/sync-wire" }
+anyhow = "1"
+clap = { version = "4.6", features = ["derive", "env"] }
+rpassword = "7.5"
+zeroize = "1.9"
+
+[dev-dependencies]
+tempfile = "3.27"
+# `vault sync --server` against a real server on a local port.
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync"] }
+vault-server = { path = "../server" }
