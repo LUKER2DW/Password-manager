@@ -130,8 +130,10 @@ not a `TextInput`, so as it stands no keyboard opens for it at all.
 | C. A keyboard drawn by the app | No | No | Large; accessibility and languages suffer |
 
 **Chosen: B, with C for the item PIN.** **Built first: C for every secret field** (M7.1,
-§7.2): it needs no Java shell and no keyboard app sees anything. B can still come with the
-shell, as a choice, for people who would rather use their own keyboard.
+§7.2): it needs no Java shell and no keyboard app sees anything. **Then, for now: A with
+stand-ins** (the list in §7.2), the system keyboard after all: the field's input
+holds stand-ins, never the secret, but each edit crosses a Java and a Slint string. B is
+still the goal now that the Java shell exists.
 
 - **The view.** The shell adds `SecretInputView`, a plain `View` whose
   `onCreateInputConnection` returns a connection that holds no text:
@@ -286,10 +288,15 @@ adb install -r target/release/apk/vault-mobile-android.apk
 The APK is signed with the Android debug key: for trying it, never for publishing it.
 
 What is in this first build (M7.1):
-- **The app's own keyboard for secret fields** (§6.1, option C now rather than later): the
-  master password, the Secret Key, item PINs and passwords are typed on keys the app draws,
-  straight into the secure buffers. No keyboard app sees them. Ordinary fields (search,
-  names, the invite line) use the system keyboard.
+- **Secret fields take the system keyboard, asked for a password** (no learning, no
+  suggestions). An unseen `TextInput` lies over the field and only ever holds stand-ins:
+  each edit goes to `Secrets.typed`, which puts what was typed in the secure buffer and
+  hands back a stand-in for each character, as long in UTF-8 and UTF-16 as that character
+  (Slint then puts the keyboard's cursor at an offset into what it typed; inside a
+  character, its password mask panics). The cursor stays at the end and a selection is all
+  of it, as on the desktop. A long press opens the system's menu: Paste goes through the
+  same path. Each keystroke still passes through a Java string and a Slint string on the
+  way (§6.1, option A); the stand-ins replace it at once.
 - **The start screen offers both ways:** choose the `.vault` file (the system's picker; it
   then works offline, and sync can be turned on later in Settings, server or WebDAV), or
   paste the `vaultsync:` line from a computer's Add a device to set it up from the server.
