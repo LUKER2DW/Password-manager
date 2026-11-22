@@ -4,6 +4,12 @@
 export enum Screen { onboarding, unlock, recover, vault }
 export enum Panel { detail, editor, generator, settings, kit, transfer, authenticator, health }
 
+// A file attached to an item: its name and size ("12 KB").
+export struct FileRow {
+    name: string,
+    size: string,
+}
+
 export struct ItemRow {
     title: string,
     subtitle: string,
@@ -153,6 +159,8 @@ export global Messages {
         if (code == 48) { return @tr("This vault has no recovery parts: its kit has a Secret Key to type, or the Recovery Key of an older kit."); }
         if (code == 49) { return @tr("Part C couldn't be hidden in that picture: {}", detail); }
         if (code == 50) { return @tr("The backup didn't pass its check, so it was deleted ({}). Try another place: a full or failing drive may be the cause.", detail); }
+        if (code == 51) { return @tr("That file is too large: an item keeps files of up to 5 MB, and up to 10 of them."); }
+        if (code == 52) { return @tr("That isn't an SSH private key. Choose the key file itself (often id_ed25519 or id_rsa), not the .pub one."); }
         if (code == 9) { return @tr("Give the item a title."); }
         if (code == 10) { return @tr("The one-time code secret isn't valid. Paste the otpauth:// link or the key shown by the website."); }
         if (code == 11) { return @tr("The current master password is wrong."); }

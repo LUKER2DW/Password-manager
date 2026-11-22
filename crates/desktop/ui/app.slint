@@ -1,5 +1,5 @@
 import { Theme, Sketch, Secrets } from "theme.slint";
-import { Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
+import { FileRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage } from "pages.slint";
@@ -337,6 +337,18 @@ export component AppWindow inherits Window {
     in property <[DetailField]> detail-fields;
     in property <string> detail-folder;
     in property <int> detail-codes-total;
+    in property <[FileRow]> detail-files;
+    callback file-save(int);
+    // The editor's SSH key and files.
+    in property <bool> ed-ssh-has-key;
+    in property <string> ed-ssh-public;
+    in property <string> ed-ssh-fingerprint;
+    in property <[FileRow]> ed-files;
+    callback ssh-generate();
+    callback ssh-load();
+    callback ssh-paste();
+    callback file-add();
+    callback file-remove(int);
     in property <int> detail-codes-left;
     in property <[CodeRow]> detail-codes;
     callback show-codes();
@@ -701,6 +713,8 @@ export component AppWindow inherits Window {
                 fields: root.detail-fields;
                 folder: root.detail-folder;
                 codes-total: root.detail-codes-total;
+                files: root.detail-files;
+                file-save(i) => { root.file-save(i); }
                 codes-left: root.detail-codes-left;
                 codes: root.detail-codes;
                 show-codes => { root.show-codes(); }
@@ -742,6 +756,15 @@ export component AppWindow inherits Window {
             }
             if root.panel == Panel.editor: EditorPage {
                 is-new: root.editor-is-new;
+                ssh-has-key: root.ed-ssh-has-key;
+                ssh-public: root.ed-ssh-public;
+                ssh-fingerprint: root.ed-ssh-fingerprint;
+                files: root.ed-files;
+                ssh-generate => { root.ssh-generate(); }
+                ssh-load => { root.ssh-load(); }
+                ssh-paste => { root.ssh-paste(); }
+                file-add => { root.file-add(); }
+                file-remove(i) => { root.file-remove(i); }
                 // Only to change an item: a new one is sealed when the item lock next opens.
                 needs-check: !root.editor-is-new && root.guard-encrypts && !root.secrets-open && (root.guard-current-all || root.ed-reprompt);
                 check: root.detail-check;

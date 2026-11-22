@@ -2,7 +2,7 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { DetailField, CodeRow, AuthRow, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
+import { DetailField, FileRow, CodeRow, AuthRow, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
 import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker } from "icons.slint";
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip } from "kit.slint";
@@ -224,6 +224,9 @@ export component DetailPage inherits Rectangle {
     in property <[string]> urls;
     in property <string> notes;
     in property <[DetailField]> fields;
+    // Files attached to the item (none while it is locked).
+    in property <[FileRow]> files;
+    callback file-save(int);
     in property <string> folder;
     in property <int> codes-total;
     in property <int> codes-left;
@@ -384,8 +387,8 @@ export component DetailPage inherits Rectangle {
             }
 
             if root.has-password: FieldRow {
-                label: root.kind == 1 ? @tr("PIN") : @tr("Password");
-                icon: root.kind == 1 ? "pin" : "key";
+                label: root.kind == 1 ? @tr("PIN") : root.kind == 4 ? @tr("Private key") : @tr("Password");
+                icon: root.kind == 1 ? "pin" : root.kind == 4 ? "terminal" : "key";
                 value: root.revealed-password != "" ? root.revealed-password : "••••••••••••";
                 mono: root.revealed-password != "";
                 if root.revealed-password != "": Text {
@@ -649,6 +652,30 @@ export component DetailPage inherits Rectangle {
                             clicked => { root.copy-code(index); }
                         }
                     }
+                }
+            }
+
+            if root.files.length > 0: VerticalLayout {
+                spacing: 6px;
+                padding-top: 6px;
+                Text { text: @tr("Files"); font-size: Theme.small; color: Theme.graphite; }
+                for file[index] in root.files: HorizontalLayout {
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        Glyph { width: 16px; height: 16px; name: "paperclip"; tint: Theme.graphite; }
+                    }
+                    Text {
+                        text: file.name;
+                        font-size: Theme.body;
+                        color: Theme.ink;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                    }
+                    Text { text: file.size; font-size: Theme.small; color: Theme.graphite; vertical-alignment: center; }
+                    QuietButton { text: @tr("Save…"); clicked => { root.file-save(index); } }
                 }
             }
 
@@ -926,6 +953,17 @@ export component EditorPage inherits Rectangle {
     in property <string> card-brand;
     in property <int> card-brand-mark;
     in property <[EditField]> fields;
+    // An SSH key (kind 4): its private key stays in Rust; the page shows its public half.
+    in property <bool> ssh-has-key;
+    in property <string> ssh-public;
+    in property <string> ssh-fingerprint;
+    callback ssh-generate();
+    callback ssh-load();
+    callback ssh-paste();
+    // Files attached to the item.
+    in property <[FileRow]> files;
+    callback file-add();
+    callback file-remove(int);
     // Strength of the password being typed (logins only; 0 bits = empty).
     in property <int> strength-bits;
     in property <int> crack-unit;
@@ -970,7 +1008,7 @@ export component EditorPage inherits Rectangle {
                 }
                 // 3 is a login made for its two-step codes only (no password).
                 Choice {
-                    options: [@tr("Login"), @tr("Card"), @tr("Secure note"), @tr("Authenticator")];
+                    options: [@tr("Login"), @tr("Card"), @tr("Secure note"), @tr("Authenticator"), @tr("SSH key")];
                     selected <=> root.kind;
                 }
             }
@@ -999,7 +1037,7 @@ export component EditorPage inherits Rectangle {
                 spacing: 16px;
                 LineField {
                     horizontal-stretch: 1;
-                    label: root.kind == 1 ? @tr("Name on card") : root.kind == 3 ? @tr("Account") : @tr("Username or email");
+                    label: root.kind == 1 ? @tr("Name on card") : root.kind == 3 ? @tr("Account") : root.kind == 4 ? @tr("User or comment") : @tr("Username or email");
                     icon: "user";
                     placeholder: root.kind == 1 ? "" : @tr("you@example.com");
                     text <=> root.username;
@@ -1151,6 +1189,40 @@ export component EditorPage inherits Rectangle {
                 crack-amount: root.crack-amount;
                 weakness: root.weakness;
             }
+            if root.kind == 4: VerticalLayout {
+                spacing: 10px;
+                Text {
+                    text: root.ssh-has-key ? @tr("Public key") : @tr("No key yet: make one here, or bring yours from a file or the clipboard.");
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
+                }
+                if root.ssh-has-key: Text {
+                    text: root.ssh-public != "" ? root.ssh-public : @tr("Kept as it is; its public half couldn't be read.");
+                    font-family: Theme.mono-font;
+                    font-size: Theme.small;
+                    color: Theme.ink;
+                    wrap: char-wrap;
+                }
+                if root.ssh-fingerprint != "": Text {
+                    text: root.ssh-fingerprint;
+                    font-family: Theme.mono-font;
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 8px;
+                    QuietButton {
+                        icon: "sparkle";
+                        outlined: true;
+                        text: root.ssh-has-key ? @tr("Make a new key") : @tr("Make a key (Ed25519)");
+                        clicked => { root.ssh-generate(); }
+                    }
+                    QuietButton { icon: "folder"; text: @tr("Load from a file…"); clicked => { root.ssh-load(); } }
+                    QuietButton { icon: "copy"; text: @tr("Paste"); clicked => { root.ssh-paste(); } }
+                }
+            }
             if root.kind == 0: NotesField {
                 label: @tr("Recovery codes");
                 icon: "list";
@@ -1164,6 +1236,38 @@ export component EditorPage inherits Rectangle {
                 label: @tr("Notes");
                 icon: "note";
                 text <=> root.notes;
+            }
+            // Files kept with the item: encrypted with it, and locked with it.
+            VerticalLayout {
+                spacing: 8px;
+                if root.files.length > 0: Text { text: @tr("Files"); font-size: Theme.small; color: Theme.graphite; }
+                for file[index] in root.files: HorizontalLayout {
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        Glyph { width: 16px; height: 16px; name: "paperclip"; tint: Theme.graphite; }
+                    }
+                    Text {
+                        text: file.name;
+                        font-size: Theme.body;
+                        color: Theme.ink;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                    }
+                    Text { text: file.size; font-size: Theme.small; color: Theme.graphite; vertical-alignment: center; }
+                    QuietButton { icon: "trash"; text: @tr("Remove"); tint: Theme.graphite; clicked => { root.file-remove(index); } }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 8px;
+                    QuietButton { icon: "paperclip"; text: @tr("Attach a file…"); clicked => { root.file-add(); } }
+                    VerticalLayout {
+                        alignment: center;
+                        Hint { text: @tr("Up to 10 files of 5 MB each. They are encrypted with the item and go wherever the vault goes, so large files make every save and sync slower."); }
+                    }
+                }
             }
             // Extra fields: anything the item needs that has no box of its own.
             VerticalLayout {

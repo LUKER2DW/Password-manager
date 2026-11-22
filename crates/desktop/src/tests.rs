@@ -201,7 +201,7 @@ fn whole_app_flow_headless() {
     app.invoke_save_item();
     assert_eq!(app.get_total_items(), 2);
     let counts: Vec<i32> = app.get_counts().iter().collect();
-    assert_eq!(counts, [2, 0, 1, 0, 1]);
+    assert_eq!(counts, [2, 0, 1, 0, 1, 0]);
 
     // ---- sync through a folder: another computer's copy is merged in ----
     let sync_dir = dir.path().join("sync folder");
@@ -304,6 +304,59 @@ fn whole_app_flow_headless() {
     app.invoke_delete_item();
     assert_eq!(app.get_total_items(), 1);
     assert_eq!(app.get_notice_code(), 6);
+
+    // ---- an SSH key made here, with a file attached ----
+    app.invoke_select_category(5);
+    app.invoke_new_item();
+    assert_eq!(app.get_ed_kind(), 4, "the SSH keys list makes SSH keys");
+    app.set_ed_title("Build server".into());
+    app.set_ed_username("deploy@test".into());
+    app.invoke_ssh_generate();
+    assert!(app.get_ed_ssh_has_key());
+    assert!(
+        app.get_ed_ssh_public().starts_with("ssh-ed25519 ")
+            && app.get_ed_ssh_public().ends_with(" deploy@test")
+    );
+    assert!(app.get_ed_ssh_fingerprint().starts_with("SHA256:"));
+    let attached = dir.path().join("notes for the server.txt");
+    std::fs::write(&attached, b"test attachment").unwrap();
+    controller.file_add_from(&attached);
+    assert_eq!(app.get_ed_files().row_count(), 1);
+    assert_eq!(app.get_ed_files().row_data(0).unwrap().size, "15 B");
+    let not_a_key = dir.path().join("not-a-key.pub");
+    std::fs::write(&not_a_key, b"ssh-ed25519 AAAA public only").unwrap();
+    controller.ssh_load_from(&not_a_key);
+    assert_eq!(
+        app.get_error_code(),
+        52,
+        "a .pub file isn't the private key"
+    );
+    app.invoke_save_item();
+    assert_eq!(app.get_detail_kind(), 4);
+    assert_eq!(app.get_detail_files().row_count(), 1);
+    assert!(
+        app.get_detail_fields()
+            .iter()
+            .any(|f| f.label == "Public key")
+    );
+    app.invoke_reveal();
+    assert!(
+        app.get_revealed_password()
+            .starts_with("-----BEGIN OPENSSH PRIVATE KEY-----")
+    );
+    app.invoke_conceal();
+    app.invoke_edit_item();
+    assert!(app.get_ed_ssh_has_key());
+    assert_eq!(
+        app.get_ed_fields().row_count(),
+        0,
+        "the public half has its own place"
+    );
+    app.invoke_file_remove(0);
+    app.invoke_save_item();
+    assert_eq!(app.get_detail_files().row_count(), 0);
+    app.invoke_delete_item();
+    app.invoke_select_category(0);
 
     // ---- folders and recovery codes ----
     // The folder dialog: a name is required, a picture link must look like one.

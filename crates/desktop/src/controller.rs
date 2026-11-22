@@ -43,6 +43,7 @@ use crate::{
 };
 use vault_platform::website_icons::{self as favicon, IconCache};
 
+mod attachments;
 mod browser;
 mod drop_box;
 mod features;
@@ -146,6 +147,8 @@ mod error {
     pub const NO_PARTS: i32 = 48;
     pub const COVER: i32 = 49;
     pub const BACKUP_CHECK: i32 = 50;
+    pub const FILE_TOO_LARGE: i32 = 51;
+    pub const NOT_A_KEY: i32 = 52;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -369,6 +372,9 @@ struct State {
     file_hash: Option<[u8; 32]>,
     /// Extra fields while an item is being edited (card details excluded).
     edit_fields: Vec<CustomField>,
+    /// The editor's files and SSH private key (attachments.rs), never in a Slint string.
+    editor_files: Vec<vault_core::Attachment>,
+    editor_ssh: Option<Zeroizing<String>>,
     /// The chooser's rows, in order.
     recent_paths: Vec<PathBuf>,
     /// Items with a one-time code, while the Authenticator page is open.
@@ -536,6 +542,8 @@ impl Controller {
                 file_hash: None,
                 recent_paths: Vec::new(),
                 edit_fields: Vec::new(),
+                editor_files: Vec::new(),
+                editor_ssh: None,
                 pending_import: None,
                 settings,
                 icons: IconCache::default(),
@@ -705,6 +713,12 @@ impl Controller {
         on!(on_quick_unlock_toggled, |c, on| c.set_quick_unlock(on));
         on!(on_show_recovery, |c| c.show_recovery());
         on!(on_check_parts, |c| c.check_parts());
+        on!(on_ssh_generate, |c| c.ssh_generate());
+        on!(on_ssh_load, |c| c.ssh_load());
+        on!(on_ssh_paste, |c| c.ssh_paste());
+        on!(on_file_add, |c| c.file_add());
+        on!(on_file_remove, |c, index| c.file_remove(index));
+        on!(on_file_save, |c, index| c.file_save(index));
         on!(on_new_parts_now, |c| c.new_parts_now());
         on!(on_choose_part_picture, |c| c.choose_part_picture());
         on!(on_back_to_unlock, |c| c.show_screen(Screen::Unlock));
@@ -2586,6 +2600,7 @@ impl Controller {
         ));
         let codes = if locked { 0 } else { item.recovery_codes.len() };
         app.set_detail_codes_total(i32::try_from(codes).unwrap_or(0));
+        self.show_detail_files(&item, locked);
         app.set_detail_codes_left(i32::try_from(item.recovery_codes_left()).unwrap_or(0));
         if !locked && self.state.borrow().codes_shown == Some(id) {
             self.fill_codes(&item);
@@ -3494,20 +3509,25 @@ impl Controller {
             .map(|c| c.code.as_str())
             .collect();
         app.set_ed_recovery_codes(SharedString::from(codes.join("\n")));
-        // Extra fields; a card's own details have their own boxes.
+        // Extra fields; a card's own details and an SSH key's public half have their own boxes.
         let is_card = item.kind == ItemKind::Card;
+        let is_ssh = item.kind == ItemKind::SshKey;
         self.state.borrow_mut().edit_fields = item
             .custom_fields
             .iter()
             .filter(|f| {
-                !is_card
+                (!is_card
                     || !card::RESERVED
                         .iter()
-                        .any(|r| f.name.eq_ignore_ascii_case(r))
+                        .any(|r| f.name.eq_ignore_ascii_case(r)))
+                    && (!is_ssh
+                        || (f.name != vault_core::ssh::PUBLIC_KEY_FIELD
+                            && f.name != vault_core::ssh::FINGERPRINT_FIELD))
             })
             .cloned()
             .collect();
         self.show_edit_fields();
+        self.editor_files_from(&item);
         let details = CardDetails::from_item(&item);
         app.set_ed_card_number(SharedString::from(card::group(&details.number)));
         app.set_ed_card_expiry(SharedString::from(
@@ -3538,6 +3558,7 @@ impl Controller {
         app.set_ed_card_code(SharedString::new());
         app.set_ed_fields(ModelRc::default());
         self.state.borrow_mut().edit_fields.clear();
+        self.clear_editor_files();
         app.set_editing_item(false);
         app.set_panel(Panel::Detail);
         self.show_detail();
@@ -3646,6 +3667,7 @@ impl Controller {
             }
             details.apply(&mut item);
         }
+        self.editor_files_into(&mut item);
         if kind == ItemKind::Login {
             // Codes kept from before stay marked as used.
             let mut codes = RecoveryCode::parse_list(&app.get_ed_recovery_codes());

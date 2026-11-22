@@ -171,8 +171,8 @@ pub fn now_month_year() -> (u32, u32) {
     (month as u32, year as u32)
 }
 
-/// Index tabs: 0 all, 1 favorites, 2 logins, 3 cards, 4 secure notes.
-pub const CATEGORY_COUNT: usize = 5;
+/// Index tabs: 0 all, 1 favorites, 2 logins, 3 cards, 4 secure notes, 5 SSH keys.
+pub const CATEGORY_COUNT: usize = 6;
 
 pub fn kind_to_int(kind: ItemKind) -> i32 {
     match kind {
@@ -180,6 +180,20 @@ pub fn kind_to_int(kind: ItemKind) -> i32 {
         ItemKind::Card => 1,
         ItemKind::SecureNote => 2,
         ItemKind::Passkey => 3,
+        ItemKind::SshKey => 4,
+    }
+}
+
+/// A file's size as people read it: `512 B`, `12 KB`, `3.4 MB`.
+pub fn file_size(bytes: usize) -> String {
+    const KB: f64 = 1024.0;
+    let b = bytes as f64;
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if b < KB * KB {
+        format!("{:.0} KB", b / KB)
+    } else {
+        format!("{:.1} MB", b / KB / KB)
     }
 }
 
@@ -191,6 +205,8 @@ pub fn lock_warning_lead(total_seconds: u64) -> u64 {
 
 /// The editor's kind for a login kept for its two-step codes only (see [`editor_kind`]).
 pub const EDITOR_AUTHENTICATOR: i32 = 3;
+/// The editor's kind for an SSH key.
+pub const EDITOR_SSH: i32 = 4;
 
 /// What the editor shows an item as: 0 login, 1 card, 2 secure note, or
 /// [`EDITOR_AUTHENTICATOR`] for a login with a one-time code secret and no password.
@@ -201,6 +217,7 @@ pub fn editor_kind(item: &vault_core::ItemData) -> i32 {
         }
         ItemKind::Card => 1,
         ItemKind::SecureNote => 2,
+        ItemKind::SshKey => EDITOR_SSH,
         _ => 0,
     }
 }
@@ -210,6 +227,7 @@ pub fn editor_kind_to_kind(value: i32) -> ItemKind {
     match value {
         1 => ItemKind::Card,
         2 => ItemKind::SecureNote,
+        EDITOR_SSH => ItemKind::SshKey,
         _ => ItemKind::Login,
     }
 }
@@ -261,6 +279,7 @@ pub fn new_item_kind(category: i32, authenticator: bool) -> i32 {
     match category {
         3 => 1,
         4 => 2,
+        5 => EDITOR_SSH,
         _ => 0,
     }
 }
@@ -271,6 +290,7 @@ pub fn in_category(summary: &ItemSummary, category: i32) -> bool {
         2 => summary.kind == ItemKind::Login,
         3 => summary.kind == ItemKind::Card,
         4 => summary.kind == ItemKind::SecureNote,
+        5 => summary.kind == ItemKind::SshKey,
         _ => true,
     }
 }
@@ -356,6 +376,7 @@ pub fn tint(kind: ItemKind, key: &str) -> (u8, u8, u8) {
         ItemKind::Card => (0x4A, 0x5D, 0x7E),
         ItemKind::SecureNote => (0x2F, 0x7D, 0x68),
         ItemKind::Passkey => (0x5C, 0x4B, 0x7A),
+        ItemKind::SshKey => (0x3E, 0x4A, 0x5C),
         ItemKind::Login => {
             // FNV-1a: tiny, stable across runs and platforms.
             let hash = key.to_lowercase().bytes().fold(0x811C_9DC5u32, |h, b| {
@@ -554,7 +575,7 @@ mod tests {
     fn categories_counts_and_order() {
         let all = summaries();
         let (visible, counts) = filter(&all, 0, None, "");
-        assert_eq!(counts, [4, 1, 2, 1, 1]);
+        assert_eq!(counts, [4, 1, 2, 1, 1, 0]);
         let titles: Vec<&str> = visible.iter().map(|&i| all[i].title.as_str()).collect();
         assert_eq!(
             titles,
@@ -691,6 +712,14 @@ mod tests {
         assert_eq!(new_item_kind(4, false), 2);
         assert_eq!(new_item_kind(2, false), 0);
         assert_eq!(new_item_kind(0, true), EDITOR_AUTHENTICATOR);
+        assert_eq!(new_item_kind(5, false), EDITOR_SSH);
+        assert_eq!(editor_kind_to_kind(EDITOR_SSH), ItemKind::SshKey);
+        let key = ItemData::new(ItemKind::SshKey, "Server");
+        assert_eq!(editor_kind(&key), EDITOR_SSH);
+        assert_eq!(
+            (file_size(512), file_size(12 * 1024), file_size(3_565_158)),
+            ("512 B".into(), "12 KB".into(), "3.4 MB".into())
+        );
     }
 
     #[test]
