@@ -310,7 +310,18 @@ What is in this first build (M7.1):
   over JNI, with copied secrets marked sensitive.
 - `INTERNET` is the only permission. Android lets plain http through only so a Tailscale
   address works; the app itself refuses `http://` to anything else.
+- **Back** goes one step back: an item or the editor closes, another place goes back to the
+  Vault. At the top the app goes to the background (`moveTaskToBack`), never closed by
+  mistake. A focus scope around the window takes Back before any field does.
+- **Items:** logins, cards (number checked, expiry, security code, PIN kept as the item's
+  secret), notes, and authenticator items (a setup key; the name comes from the key's
+  issuer when none is typed), as on the desktop. The Codes page has Add.
+- **Settings of its own** (`settings.json` next to the vault copy; nothing secret): theme,
+  lock time, clipboard time, the doodle backdrop, website icons (off until turned on; the
+  desktop's fetcher and sealed cache), the generator's options (Advanced: at least N of each
+  kind, look-alikes, characters added or left out; words: case, separator, a digit).
+- **An eye** on the master password, the Secret Key (also in boxes, as printed) and the
+  password change fields.
 
-Not yet: `FLAG_SECURE`, the back button, biometrics and autofill in the shell,
-the bundled fonts (Roboto stands in), and checking it on a device: built here, not run on a
-phone yet.
+Not yet: `FLAG_SECURE`, biometrics and autofill in the shell, the bundled fonts (Roboto
+stands in).

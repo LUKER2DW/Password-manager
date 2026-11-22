@@ -339,6 +339,19 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
 - ✅ Confirmed backups on the desktop and the phone: written, read back, compared with the
   vault file and opened with the vault's key (`Vault::check_copy`), deleted when they
   fail
+- ✅ Recovery parts work once (CRYPTO.md §3.6): retired after use, a new kit offered at once
+  (desktop, CLI); recovery in two steps (the parts checked, then the new password); an eye on
+  the master password, Secret Key and parts (parts and key also in boxes, as printed); the
+  kit PDF printed with the keys or with empty boxes to fill in by hand, and shorter
+- ✅ Phone: Back goes one step back (the app goes to the background only at the top); the
+  list's filters fit without scrolling; the doodle backdrop; a launcher icon that fits round
+  masks; cards and authenticator items in the editor (an authenticator item named after
+  its setup key, also on the desktop, without recovery codes); its own settings file
+  (theme, lock, clipboard, backdrop, website icons, generator); website icons, opt-in, with
+  the desktop's fetcher and sealed cache (now `vault_platform::website_icons`), for every
+  item with a website (a card's is its bank's site; "Icon from" is gone)
+- ✅ Generators: at least N capitals, small letters, digits and symbols (Advanced options,
+  both apps); on the phone also word case, separator and a digit for passphrases
 - ⬜ M7.3 BiometricPrompt Class 3 quick unlock (StrongBox)
 - ⬜ M7.4 Kotlin Autofill Service; M7.5 Credential Manager provider (passwords, passkeys)
 - ⬜ M7.6 Sync; M7.7 cards, custom fields, folders, health, import, translations

@@ -266,6 +266,16 @@ parts.secret_key = seal(K_secret_key, secret_key)
 - A new kit draws a new `kit_id` and `pair_key`, so nothing the old parts open is left in the
   file. The vault key itself is not changed: an old copy of the file still opens with that
   copy's parts (as with a changed master password).
+- Parts work once. Parts typed on a device may have been seen there, so once they have
+  opened the vault (two of them bringing back the Secret Key, then the master password; or
+  all three for a new master password) the apps remove the whole slot
+  (`Vault::clear_recovery_parts`) and offer a new kit at once: the desktop right after the
+  unlock or on the recovery's kit page, the command line by printing new parts with the
+  recovery. A vault without the slot is a valid v8 file (as before the first kit).
+- Not added: a word chosen or drawn per part, needed with it. Read with its part, a short
+  word adds at most a few bits that the slot's quick HKDF opens offline in moments; kept in
+  memory, it is one more thing to forget, in the one place meant for when memory fails. The
+  parts' 128 bits each and the kit kept apart from the devices are the protection.
 - Only HKDF-SHA-256 and the AEAD of §5; there is no secret sharing scheme to get wrong.
 
 ## 4. Argon2id parameters
