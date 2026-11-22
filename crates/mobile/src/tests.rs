@@ -264,7 +264,7 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
 
     // ---- a note, then the list ----
     app.invoke_new_item();
-    app.set_ed_kind(1);
+    app.set_ed_kind(2);
     app.set_ed_title("Wi-Fi".into());
     app.set_ed_notes("network: test-net".into());
     app.invoke_save_item();
@@ -295,6 +295,71 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     }
     app.set_filter(0);
     app.invoke_filter_changed(0);
+
+    // ---- a card: checked, its PIN kept as the item's secret ----
+    app.invoke_new_item();
+    app.set_ed_kind(1);
+    app.set_ed_title("Test card".into());
+    app.set_ed_username("Test Person".into());
+    app.set_ed_card_number("4111 1111 1111 1112".into());
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 17, "a number that fails the check");
+    app.set_ed_card_number("4111 1111 1111 1111".into());
+    app.invoke_ed_card_number_edited("4111 1111 1111 1111".into());
+    assert_eq!(app.get_ed_card_brand(), "Visa");
+    app.set_ed_card_expiry("8/29".into());
+    app.set_ed_card_code("123".into());
+    type_secret(&app, 3, "12");
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 20, "a PIN is 4 to 12 digits");
+    type_secret(&app, 3, "4321");
+    app.set_ed_website("https://bank.example".into());
+    app.invoke_save_item();
+    assert_eq!(app.get_page(), Page::Item, "{}", app.get_error_code());
+    assert_eq!(app.get_d_card_expiry(), "08/29");
+    assert!(app.get_d_card().ends_with("1111"));
+    app.invoke_toggle_password();
+    assert_eq!(app.get_d_password(), "4321");
+    app.invoke_edit_item();
+    assert_eq!(app.get_ed_kind(), 1);
+    assert_eq!(app.get_ed_card_code(), "123");
+    app.invoke_cancel_edit();
+    app.invoke_close_item();
+
+    // ---- an authenticator item from the Codes page: named after its setup key ----
+    app.invoke_new_code();
+    assert_eq!((app.get_page(), app.get_ed_kind()), (Page::Editor, 3));
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 21, "the setup key comes first");
+    app.set_ed_totp(
+        "otpauth://totp/Example%20Mail:me%40example.com?secret=GEZDGNBVGY3TQOJQ&issuer=Example%20Mail"
+            .into(),
+    );
+    app.invoke_save_item();
+    assert_eq!(app.get_page(), Page::Item, "{}", app.get_error_code());
+    assert_eq!(app.get_d_title(), "Example Mail");
+    assert_eq!(app.get_d_username(), "me@example.com");
+    assert!(app.get_d_has_code() && !app.get_d_has_password());
+    app.invoke_close_item();
+    assert!(
+        app.get_codes()
+            .iter()
+            .any(|row| row.title == "Example Mail")
+    );
+    assert_eq!(app.get_total(), 4);
+    // Both go again, so the rest of this test sees the vault it expects.
+    for title in ["Example Mail", "Test card"] {
+        let index = app
+            .get_items()
+            .iter()
+            .position(|row| row.title == title)
+            .unwrap();
+        app.invoke_open_item(i32::try_from(index).unwrap());
+        app.invoke_edit_item();
+        app.invoke_delete_item();
+        app.invoke_delete_item();
+    }
+    assert_eq!(app.get_total(), 2);
 
     // ---- edit: the password changes, the rest stays ----
     app.invoke_open_item(0);

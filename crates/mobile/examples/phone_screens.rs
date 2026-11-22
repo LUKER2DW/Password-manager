@@ -245,7 +245,7 @@ fn main() {
         "",
     );
     app.invoke_new_item();
-    app.set_ed_kind(1);
+    app.set_ed_kind(2);
     app.set_ed_title("Wi-Fi at home".into());
     app.set_ed_notes("Network: demo-net\nRouter page: 192.0.2.1".into());
     app.invoke_save_item();

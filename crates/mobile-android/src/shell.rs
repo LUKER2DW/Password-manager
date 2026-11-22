@@ -57,6 +57,12 @@ pub(crate) fn create_document(name: &str, data: &[u8]) -> Result<(), String> {
     })
 }
 
+/// Back at the first screen: the app goes to the background (it isn't closed).
+pub(crate) fn leave() {
+    let _ =
+        with_activity(|env, activity| env.call_method(activity, "leave", "()V", &[]).map(|_| ()));
+}
+
 /// Deletes a document saved through the picker (a copy that failed its check).
 fn delete_document(uri: &str) -> bool {
     with_activity(|env, activity| {

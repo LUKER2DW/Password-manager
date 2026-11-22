@@ -56,6 +56,11 @@ public class VaultActivity extends NativeActivity {
         });
     }
 
+    /** Back at the app's first screen: to the background, as Home does, instead of closing. */
+    public void leave() {
+        runOnUiThread(() -> moveTaskToBack(true));
+    }
+
     /** Deletes a document saved here (a copy that failed its check). */
     public boolean deleteDocument(String uri) {
         try {

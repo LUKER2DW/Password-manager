@@ -20,10 +20,11 @@ use sha2::{Digest, Sha256};
 use slint::{Color, ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use vault_core::{
     Error as CoreError, GuardCheck, ItemData, ItemId, ItemKind, SecretKey, Unlock, Vault,
+    card::{self, CardDetails, CardProblem},
     generator::{
         PassphraseOptions, PasswordOptions, WordCase, generate_passphrase, generate_password,
     },
-    totp::Totp,
+    totp::{self, Totp},
 };
 // The std clock on a phone or computer; the browser's in the web preview.
 use web_time::Instant;
@@ -33,6 +34,7 @@ use crate::{
     platform::{
         DeviceState, RollbackStatus, SecretBuffer, StateFile, clipboard, files, secret_store,
     },
+    prefs::{self, Prefs},
     sketch,
     ui::{CodeRow, ItemRow, Page, PhoneWindow, Place, Screen, Secrets, Sketch, Theme},
     view,
@@ -78,8 +80,23 @@ mod error {
     pub const TOO_SHORT: i32 = 15;
     /// A copy of the vault didn't pass its check after it was saved (it was deleted).
     pub const BACKUP_CHECK: i32 = 16;
+    pub const CARD_NUMBER: i32 = 17;
+    pub const CARD_EXPIRY: i32 = 18;
+    pub const CARD_CODE: i32 = 19;
+    pub const CARD_PIN: i32 = 20;
+    pub const SETUP_KEY: i32 = 21;
 }
 
+/// The editor's kinds (`ed-kind`), the desktop's: an authenticator item is a login kept for
+/// its one-time codes (a setup key and no password).
+mod editor {
+    pub const LOGIN: i32 = 0;
+    pub const CARD: i32 = 1;
+    pub const NOTE: i32 = 2;
+    pub const AUTHENTICATOR: i32 = 3;
+}
+
+mod icons;
 mod syncing;
 
 /// Notice codes (texts live in app.slint → Words.notice).
@@ -98,8 +115,8 @@ mod notice {
     pub const BACKUP_CONFIRMED: i32 = 11;
 }
 
-/// A copied secret leaves the clipboard after this long.
-const CLIPBOARD_SECONDS: u64 = 30;
+/// How long a copied secret may stay on the clipboard (Settings), in seconds.
+const CLIPBOARD_CHOICES: [u32; 3] = [15, 30, 60];
 /// What a secret field's hidden input holds instead of each character (system keyboard):
 /// characters secret buffers never take, one for each UTF-8 length. A stand-in is as long as
 /// the character it replaces in UTF-8 and in UTF-16, so the place the keyboard puts the
@@ -188,6 +205,17 @@ fn grouped(code: &str) -> String {
     format!("{} {}", &code[..half], &code[half..])
 }
 
+fn editor_kind(item: &ItemData) -> i32 {
+    match item.kind {
+        ItemKind::Card => editor::CARD,
+        ItemKind::SecureNote => editor::NOTE,
+        ItemKind::Login if item.password.is_empty() && !item.totp.is_empty() => {
+            editor::AUTHENTICATOR
+        }
+        _ => editor::LOGIN,
+    }
+}
+
 fn fingerprint(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
@@ -204,6 +232,8 @@ struct State {
     /// SHA-256 of the vault file as last read or written here.
     file_hash: Option<[u8; 32]>,
     secrets: [SecretBuffer; field::COUNT],
+    /// The fields whose eye is open (their text is on screen while it is).
+    showing: [bool; field::COUNT],
     /// The items behind the list's rows and the Codes rows, in order.
     shown: Vec<ItemId>,
     code_ids: Vec<ItemId>,
@@ -223,6 +253,8 @@ struct State {
     sync: syncing::SyncStatus,
     /// SHA-256 of the vault file handed out to be saved as a copy, until it is read back.
     backup_expected: Option<[u8; 32]>,
+    /// This phone's settings (`settings.json` next to the vault copy).
+    prefs: Prefs,
 }
 
 thread_local! {
@@ -233,6 +265,9 @@ thread_local! {
 pub struct Controller {
     app: slint::Weak<PhoneWindow>,
     state: RefCell<State>,
+    /// Website icons found so far (apart from `state`: the list reads them while it reads
+    /// the vault).
+    icons: RefCell<icons::Icons>,
     tick: Timer,
     /// Sync: a round a moment after a save, and one every few minutes (not in a browser).
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -262,16 +297,20 @@ impl Controller {
     /// The window's `pick-vault` callback is left to the shell: it shows the system's file
     /// picker and hands the chosen file to [`Controller::bring_vault`].
     pub fn start(app: &PhoneWindow, path: PathBuf, inline: bool) -> Rc<Self> {
+        let prefs = Prefs::load(&prefs::path_for(&path));
         let controller = Rc::new(Self {
             app: app.as_weak(),
+            icons: RefCell::default(),
             state: RefCell::new(State {
                 inline,
+                prefs: prefs.clone(),
                 path,
                 incoming: None,
                 vault: None,
                 secret_key: None,
                 file_hash: None,
                 secrets: std::array::from_fn(|_| SecretBuffer::new()),
+                showing: [false; field::COUNT],
                 shown: Vec::new(),
                 code_ids: Vec::new(),
                 selected: None,
@@ -285,7 +324,7 @@ impl Controller {
                 last_touch: Instant::now(),
                 sync: syncing::SyncStatus::default(),
                 backup_expected: None,
-                lock_after: LOCK_CHOICES[1],
+                lock_after: LOCK_CHOICES[usize::from(prefs.lock_choice).min(2)],
             }),
             tick: Timer::default(),
             sync_soon: Timer::default(),
@@ -302,7 +341,18 @@ impl Controller {
         global.set_check(sketches.check.as_str().into());
         global.set_star(sketches.star.as_str().into());
         app.set_app_version(env!("CARGO_PKG_VERSION").into());
-        app.set_lock_choice(1);
+        app.global::<Theme>().set_dark(prefs.dark_theme);
+        app.global::<Theme>()
+            .set_backdrop(i32::from(prefs.backdrop));
+        app.set_lock_choice(i32::from(prefs.lock_choice.min(2)));
+        app.set_clipboard_choice(
+            CLIPBOARD_CHOICES
+                .iter()
+                .position(|s| *s == prefs.clipboard_seconds)
+                .map_or(1, |i| i32::try_from(i).unwrap_or(1)),
+        );
+        app.set_website_icons(prefs.website_icons);
+        controller.show_generator(&prefs.generator);
         controller.wire(app);
         controller.show_entry();
         controller
@@ -341,6 +391,19 @@ impl Controller {
         on!(on_filter_changed, |c, _index| c.refresh_list());
         on!(on_open_item, |c, index| c.open_item(index));
         on!(on_new_item, |c| c.open_editor(None));
+        on!(on_new_code, |c| {
+            c.open_editor(None);
+            c.app().set_ed_kind(editor::AUTHENTICATOR);
+        });
+        on!(on_ed_card_number_edited, |c, text| {
+            let digits = card::digits(&text);
+            let brand = if digits.is_empty() {
+                ""
+            } else {
+                card::detect_brand(&digits).name()
+            };
+            c.app().set_ed_card_brand(brand.into());
+        });
         on!(on_close_item, |c| c.close_item());
         on!(on_edit_item, |c| {
             let selected = c.state.borrow().selected;
@@ -365,13 +428,32 @@ impl Controller {
         on!(on_copy_code, |c, index| c.copy_code(index));
         on!(on_gen_changed, |c| c.generate());
         on!(on_gen_copy, |c| c.copy_generated());
-        on!(on_theme_changed, |c, dark| c
-            .app()
-            .global::<Theme>()
-            .set_dark(dark));
+        on!(on_theme_changed, |c, dark| {
+            c.app().global::<Theme>().set_dark(dark);
+            c.change_prefs(|prefs| prefs.dark_theme = dark);
+        });
         on!(on_lock_choice_changed, |c, index| {
-            let after = LOCK_CHOICES[usize::try_from(index).unwrap_or(1).min(2)];
-            c.state.borrow_mut().lock_after = after;
+            let index = usize::try_from(index).unwrap_or(1).min(2);
+            c.state.borrow_mut().lock_after = LOCK_CHOICES[index];
+            c.change_prefs(|prefs| prefs.lock_choice = u8::try_from(index).unwrap_or(1));
+        });
+        on!(on_clipboard_choice_changed, |c, index| {
+            let seconds = CLIPBOARD_CHOICES[usize::try_from(index).unwrap_or(1).min(2)];
+            c.change_prefs(|prefs| prefs.clipboard_seconds = seconds);
+        });
+        on!(on_backdrop_changed, |c, on| {
+            c.app().global::<Theme>().set_backdrop(i32::from(on));
+            c.change_prefs(|prefs| prefs.backdrop = on);
+        });
+        on!(on_website_icons_changed, |c, on| {
+            c.change_prefs(|prefs| prefs.website_icons = on);
+            if on {
+                c.load_icons();
+                c.fetch_icons();
+            } else {
+                c.forget_icons();
+            }
+            c.refresh_list();
         });
         on!(on_lock_now, |c| c.lock());
         on!(on_change_password, |c| c.change_password());
@@ -391,6 +473,18 @@ impl Controller {
         secrets.on_backspace(move |id| {
             if let Some(c) = weak.upgrade() {
                 c.with_secret(id, SecretBuffer::backspace);
+            }
+        });
+        let weak = Rc::downgrade(self);
+        secrets.on_toggle_shown(move |id| {
+            if let Some(c) = weak.upgrade()
+                && let Some(index) = usize::try_from(id).ok().filter(|i| *i < field::COUNT)
+            {
+                {
+                    let mut state = c.state.borrow_mut();
+                    state.showing[index] = !state.showing[index];
+                }
+                c.publish_lengths();
             }
         });
         let weak = Rc::downgrade(self);
@@ -452,6 +546,14 @@ impl Controller {
             });
     }
 
+    // ---- settings ----
+
+    fn change_prefs(&self, change: impl FnOnce(&mut Prefs)) {
+        let mut state = self.state.borrow_mut();
+        change(&mut state.prefs);
+        state.prefs.save(&prefs::path_for(&state.path));
+    }
+
     // ---- secure fields ----
 
     fn with_secret(&self, id: i32, change: impl FnOnce(&mut SecretBuffer)) {
@@ -486,19 +588,57 @@ impl Controller {
     }
 
     fn publish_lengths(&self) {
-        // The UI learns how many characters each field holds, nothing more.
+        // The UI learns how many characters each field holds, nothing more; and the text only
+        // of a field whose eye the person opened.
         let mut lengths = vec![0i32; 15];
-        for (slot, buffer) in lengths.iter_mut().zip(&self.state.borrow().secrets) {
+        let state = self.state.borrow();
+        for (slot, buffer) in lengths.iter_mut().zip(&state.secrets) {
             *slot = i32::try_from(buffer.char_count()).unwrap_or(i32::MAX);
         }
-        self.app()
-            .global::<Secrets>()
-            .set_lengths(ModelRc::new(VecModel::from(lengths)));
+        let shown: Vec<SharedString> = state
+            .secrets
+            .iter()
+            .zip(state.showing)
+            .map(|(buffer, on)| {
+                if on {
+                    buffer.as_str().into()
+                } else {
+                    SharedString::new()
+                }
+            })
+            .collect();
+        let cells: Vec<ModelRc<SharedString>> = (0..field::COUNT)
+            .map(|index| {
+                if state.showing[index] && index == field::SECRET_KEY {
+                    let cells = view::key_cells(state.secrets[index].as_str(), 4, 7);
+                    ModelRc::new(VecModel::from(
+                        cells
+                            .iter()
+                            .map(|c| c.as_str().into())
+                            .collect::<Vec<SharedString>>(),
+                    ))
+                } else {
+                    ModelRc::default()
+                }
+            })
+            .collect();
+        let showing = state.showing.to_vec();
+        drop(state);
+        let app = self.app();
+        let secrets = app.global::<Secrets>();
+        secrets.set_lengths(ModelRc::new(VecModel::from(lengths)));
+        secrets.set_showing(ModelRc::new(VecModel::from(showing)));
+        secrets.set_shown(ModelRc::new(VecModel::from(shown)));
+        secrets.set_shown_cells(ModelRc::new(VecModel::from(cells)));
     }
 
     fn clear_secrets(&self) {
-        for buffer in &mut self.state.borrow_mut().secrets {
-            buffer.clear();
+        {
+            let mut state = self.state.borrow_mut();
+            for buffer in &mut state.secrets {
+                buffer.clear();
+            }
+            state.showing = [false; field::COUNT];
         }
         self.publish_lengths();
     }
@@ -813,7 +953,9 @@ impl Controller {
         app.set_place(Place::Items);
         app.set_page(Page::None);
         app.set_screen(Screen::Vault);
+        self.load_icons();
         self.refresh_list();
+        self.fetch_icons();
         self.start_sync();
     }
 
@@ -853,6 +995,7 @@ impl Controller {
             state.show_password = false;
             state.generated = Zeroizing::new(String::new());
         }
+        *self.icons.borrow_mut() = icons::Icons::default();
         let app = self.app();
         app.set_changing_password(false);
         app.set_items(ModelRc::default());
@@ -1065,7 +1208,10 @@ impl Controller {
                     .find(|text| !text.is_empty())
                     .cloned()
                     .unwrap_or_default();
+                let (icon, has_icon) = self.picture(&item.url);
                 rows.push(ItemRow {
+                    icon,
+                    has_icon,
                     title: item.title.as_str().into(),
                     detail: detail.into(),
                     initial: initial(&item.title),
@@ -1161,6 +1307,9 @@ impl Controller {
             },
         ));
         app.set_d_kind(kind_index(item.kind));
+        let (icon, has_icon) = self.picture(&website);
+        app.set_d_icon(icon);
+        app.set_d_has_icon(has_icon);
         app.set_d_favorite(item.favorite);
         app.set_d_username(item.username.as_str().into());
         app.set_d_website(website.into());
@@ -1169,9 +1318,9 @@ impl Controller {
         let notes_wait = !open && item.kind == ItemKind::SecureNote;
         app.set_d_notes(if notes_wait { "" } else { item.notes.as_str() }.into());
         let card = if item.kind == ItemKind::Card {
-            let number = vault_core::card::CardDetails::from_item(&item).number;
+            let number = CardDetails::from_item(&item).number;
             if open && number.len() >= 4 {
-                vault_core::card::masked(&number)
+                card::masked(&number)
             } else {
                 String::new()
             }
@@ -1179,6 +1328,12 @@ impl Controller {
             String::new()
         };
         app.set_d_card(card.into());
+        let expiry = if open && item.kind == ItemKind::Card {
+            CardDetails::from_item(&item).expiry
+        } else {
+            String::new()
+        };
+        app.set_d_card_expiry(expiry.into());
         app.set_d_has_password(open && !item.password.is_empty());
         app.set_d_password(if open && state.show_password {
             item.password.as_str().into()
@@ -1209,6 +1364,7 @@ impl Controller {
             PhoneWindow::set_d_website,
             PhoneWindow::set_d_notes,
             PhoneWindow::set_d_card,
+            PhoneWindow::set_d_card_expiry,
             PhoneWindow::set_d_code,
         ] {
             clear(&app, SharedString::new());
@@ -1341,11 +1497,12 @@ impl Controller {
         if clipboard::copy_secret(value).is_err() {
             return;
         }
+        let seconds = self.state.borrow().prefs.clipboard_seconds;
         self.state.borrow_mut().copied = Some((
             Zeroizing::new(value.to_owned()),
-            Instant::now() + Duration::from_secs(CLIPBOARD_SECONDS),
+            Instant::now() + Duration::from_secs(u64::from(seconds)),
         ));
-        self.notify(code, &CLIPBOARD_SECONDS.to_string());
+        self.notify(code, &seconds.to_string());
     }
 
     fn copy(&self, what: i32) {
@@ -1420,7 +1577,10 @@ impl Controller {
                     Some(((digits, left), period)) => (grouped(&digits), left, period),
                     None => (String::new(), 0, 30),
                 };
+                let (icon, has_icon) = self.picture(&summary.url);
                 rows.push(CodeRow {
+                    icon,
+                    has_icon,
                     title: summary.title.as_str().into(),
                     account: summary.username.as_str().into(),
                     code: digits.into(),
@@ -1474,6 +1634,10 @@ impl Controller {
             PhoneWindow::set_ed_totp,
             PhoneWindow::set_ed_notes,
             PhoneWindow::set_ed_password,
+            PhoneWindow::set_ed_card_number,
+            PhoneWindow::set_ed_card_expiry,
+            PhoneWindow::set_ed_card_code,
+            PhoneWindow::set_ed_card_brand,
         ] {
             clear(&app, SharedString::new());
         }
@@ -1494,10 +1658,7 @@ impl Controller {
         self.set_error(error::NONE, "");
         let app = self.app();
         app.set_ed_new(item.is_none());
-        app.set_ed_kind(match item.as_ref().map(|item| item.kind) {
-            Some(ItemKind::SecureNote) => 1,
-            _ => 0,
-        });
+        app.set_ed_kind(item.as_ref().map_or(editor::LOGIN, editor_kind));
         {
             let mut state = self.state.borrow_mut();
             state.editing = id;
@@ -1512,6 +1673,15 @@ impl Controller {
             app.set_ed_totp(item.totp.as_str().into());
             app.set_ed_notes(item.notes.as_str().into());
             app.set_ed_favorite(item.favorite);
+            if item.kind == ItemKind::Card {
+                let details = CardDetails::from_item(item);
+                app.set_ed_card_number(card::group(&details.number).into());
+                app.set_ed_card_expiry(details.expiry.as_str().into());
+                app.set_ed_card_code(details.security_code.as_str().into());
+                if !details.number.is_empty() {
+                    app.set_ed_card_brand(card::detect_brand(&details.number).name().into());
+                }
+            }
         }
         self.publish_lengths();
         app.set_page(Page::Editor);
@@ -1559,16 +1729,44 @@ impl Controller {
 
     fn save_item(&self) {
         let app = self.app();
-        let title = app.get_ed_title().trim().to_owned();
+        let kind = app.get_ed_kind();
+        let totp = app.get_ed_totp().trim().to_owned();
+        let website = app.get_ed_website().trim().to_owned();
+        if kind == editor::AUTHENTICATOR && totp.is_empty() {
+            return self.set_error(error::SETUP_KEY, "");
+        }
+        if (kind == editor::LOGIN || kind == editor::AUTHENTICATOR)
+            && !totp.is_empty()
+            && Totp::parse(&totp).is_err()
+        {
+            return self.set_error(error::TOTP, "");
+        }
+        let mut title = app.get_ed_title().trim().to_owned();
+        if title.is_empty() && kind == editor::AUTHENTICATOR {
+            title = view::authenticator_title(&totp, &website);
+        }
         if title.is_empty() {
             return self.set_error(error::NAME, "");
         }
-        let note = app.get_ed_kind() == 1;
-        let totp = app.get_ed_totp().trim().to_owned();
-        if !note && !totp.is_empty() && Totp::parse(&totp).is_err() {
-            return self.set_error(error::TOTP, "");
-        }
         let password = self.secret(field::ITEM_PASSWORD);
+        let card_details = CardDetails {
+            number: app.get_ed_card_number().to_string(),
+            expiry: app.get_ed_card_expiry().to_string(),
+            security_code: app.get_ed_card_code().to_string(),
+        };
+        if kind == editor::CARD
+            && let Err(problem) = card_details.validate(&password)
+        {
+            return self.set_error(
+                match problem {
+                    CardProblem::Number => error::CARD_NUMBER,
+                    CardProblem::Expiry => error::CARD_EXPIRY,
+                    CardProblem::SecurityCode => error::CARD_CODE,
+                    CardProblem::Pin => error::CARD_PIN,
+                },
+                "",
+            );
+        }
         let stored = {
             let mut state = self.state.borrow_mut();
             let state = &mut *state;
@@ -1578,10 +1776,10 @@ impl Controller {
             let existing = state.editing.and_then(|id| vault.get_item(&id).ok());
             let mut item = existing.clone().unwrap_or_else(|| {
                 ItemData::new(
-                    if note {
-                        ItemKind::SecureNote
-                    } else {
-                        ItemKind::Login
+                    match kind {
+                        editor::CARD => ItemKind::Card,
+                        editor::NOTE => ItemKind::SecureNote,
+                        _ => ItemKind::Login,
                     },
                     &title,
                 )
@@ -1589,11 +1787,16 @@ impl Controller {
             item.title = title;
             item.notes = app.get_ed_notes().to_string();
             item.favorite = app.get_ed_favorite();
-            if item.kind == ItemKind::Login {
+            if item.kind != ItemKind::SecureNote {
                 item.username = app.get_ed_username().trim().to_owned();
-                item.password = password.to_string();
-                item.totp = totp;
-                let website = app.get_ed_website().trim().to_owned();
+                // An authenticator item's account, when none was typed, is the one in its key.
+                if item.username.is_empty() && kind == editor::AUTHENTICATOR {
+                    item.username = totp::names(&totp).account;
+                }
+                // A card's PIN is kept where a login keeps its password.
+                if kind != editor::AUTHENTICATOR {
+                    item.password = password.to_string();
+                }
                 // The first website is the one edited here; any others stay.
                 match (item.urls.first_mut(), website.is_empty()) {
                     (Some(first), false) => *first = website,
@@ -1603,6 +1806,12 @@ impl Controller {
                     (None, false) => item.urls.push(website),
                     (None, true) => {}
                 }
+            }
+            if item.kind == ItemKind::Login {
+                item.totp = totp;
+            }
+            if item.kind == ItemKind::Card {
+                card_details.apply(&mut item);
             }
             item.touch();
             match state.editing {
@@ -1661,24 +1870,104 @@ impl Controller {
 
     // ---- generator ----
 
+    /// The generator's options on screen, as saved in the settings.
+    fn generator_on_screen(&self) -> prefs::Generator {
+        let app = self.app();
+        let count = |n: i32| u32::try_from(n.clamp(0, 32)).unwrap_or(0);
+        prefs::Generator {
+            mode: u8::from(app.get_gen_mode() == 1),
+            length: u32::try_from(app.get_gen_length().clamp(8, 128)).unwrap_or(20),
+            words: u32::try_from(app.get_gen_words().clamp(3, 12)).unwrap_or(6),
+            uppercase: app.get_gen_upper(),
+            lowercase: app.get_gen_lower(),
+            digits: app.get_gen_digits(),
+            symbols: app.get_gen_symbols(),
+            avoid_ambiguous: app.get_gen_avoid_ambiguous(),
+            also_use: app.get_gen_also_use().chars().take(64).collect(),
+            never_use: app.get_gen_never_use().chars().take(64).collect(),
+            min_uppercase: count(app.get_gen_min_upper()),
+            min_lowercase: count(app.get_gen_min_lower()),
+            min_digits: count(app.get_gen_min_digits()),
+            min_symbols: count(app.get_gen_min_symbols()),
+            word_case: u8::try_from(app.get_gen_word_case().clamp(0, 3)).unwrap_or(0),
+            separator: u8::try_from(app.get_gen_separator().clamp(0, 3)).unwrap_or(0),
+            add_digit: app.get_gen_add_digit(),
+        }
+    }
+
+    /// Puts saved generator options on screen (at start).
+    fn show_generator(&self, options: &prefs::Generator) {
+        let app = self.app();
+        let int = |n: u32| i32::try_from(n).unwrap_or(0);
+        app.set_gen_mode(i32::from(options.mode.min(1)));
+        app.set_gen_length(int(options.length.clamp(8, 128)));
+        app.set_gen_words(int(options.words.clamp(3, 12)));
+        app.set_gen_upper(options.uppercase);
+        app.set_gen_lower(options.lowercase);
+        app.set_gen_digits(options.digits);
+        app.set_gen_symbols(options.symbols);
+        app.set_gen_avoid_ambiguous(options.avoid_ambiguous);
+        app.set_gen_also_use(options.also_use.as_str().into());
+        app.set_gen_never_use(options.never_use.as_str().into());
+        app.set_gen_min_upper(int(options.min_uppercase));
+        app.set_gen_min_lower(int(options.min_lowercase));
+        app.set_gen_min_digits(int(options.min_digits));
+        app.set_gen_min_symbols(int(options.min_symbols));
+        app.set_gen_word_case(i32::from(options.word_case.min(3)));
+        app.set_gen_separator(i32::from(options.separator.min(3)));
+        app.set_gen_add_digit(options.add_digit);
+        app.set_gen_advanced(
+            options.min_uppercase
+                + options.min_lowercase
+                + options.min_digits
+                + options.min_symbols
+                > 0
+                || !options.also_use.is_empty()
+                || !options.never_use.is_empty(),
+        );
+    }
+
     fn generate(&self) {
         let app = self.app();
-        let made = if app.get_gen_mode() == 1 {
+        let chosen = self.generator_on_screen();
+        if self.state.borrow().prefs.generator != chosen {
+            self.change_prefs(|prefs| prefs.generator = chosen.clone());
+        }
+        let made = if chosen.mode == 1 {
             let options = PassphraseOptions {
-                words: usize::try_from(app.get_gen_words()).unwrap_or(6),
-                case: WordCase::Lower,
+                words: chosen.words as usize,
+                case: match chosen.word_case {
+                    1 => WordCase::Title,
+                    2 => WordCase::Upper,
+                    3 => WordCase::Mixed,
+                    _ => WordCase::Lower,
+                },
+                separator: ["-", ".", "_", " "][usize::from(chosen.separator.min(3))].into(),
+                include_number: chosen.add_digit,
                 ..PassphraseOptions::default()
             };
             generate_passphrase(&options).map(|phrase| (phrase, options.entropy_bits()))
         } else {
-            let options = PasswordOptions {
-                length: usize::try_from(app.get_gen_length()).unwrap_or(20),
-                uppercase: app.get_gen_upper(),
-                lowercase: app.get_gen_lower(),
-                digits: app.get_gen_digits(),
-                symbols: app.get_gen_symbols(),
+            let mut options = PasswordOptions {
+                length: chosen.length as usize,
+                uppercase: chosen.uppercase,
+                lowercase: chosen.lowercase,
+                digits: chosen.digits,
+                symbols: chosen.symbols,
+                avoid_ambiguous: chosen.avoid_ambiguous,
+                also_use: chosen.also_use.clone(),
+                never_use: chosen.never_use.clone(),
+                min_uppercase: chosen.min_uppercase as usize,
+                min_lowercase: chosen.min_lowercase as usize,
+                min_digits: chosen.min_digits as usize,
+                min_symbols: chosen.min_symbols as usize,
                 ..PasswordOptions::default()
             };
+            // Minimums that need more room than the length: the length grows.
+            if options.required() > options.length {
+                options.length = options.required().min(128);
+                app.set_gen_length(i32::try_from(options.length).unwrap_or(20));
+            }
             generate_password(&options).map(|password| (password, options.entropy_bits()))
         };
         match made {

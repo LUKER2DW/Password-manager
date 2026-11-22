@@ -59,5 +59,6 @@ fn android_main(app: slint::android::AndroidApp) {
             controller.file_failed(&detail);
         }
     });
+    window.on_leave(shell::leave);
     let _ = window.run();
 }

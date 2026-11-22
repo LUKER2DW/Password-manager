@@ -4,7 +4,7 @@
 // the two apps share one design. What is here is the phone's own layout (see docs/MOBILE.md).
 
 import { Theme, Sketch, Secrets } from "../../desktop/ui/theme.slint";
-import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Slider, Choice, ItemIcon, MarkStroke, Logo, Rule } from "../../desktop/ui/widgets.slint";
+import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Slider, Choice, ItemIcon, MarkStroke, Logo, Rule, Backdrop } from "../../desktop/ui/widgets.slint";
 import { Glyph } from "../../desktop/ui/icons.slint";
 import { StrengthMeter } from "../../desktop/ui/strength.slint";
 
@@ -17,6 +17,8 @@ export enum Page { none, item, editor }
 
 // One line of the list.
 export struct ItemRow {
+    icon: image,        // the website's icon, when website icons are on and one was found
+    has-icon: bool,
     title: string,
     detail: string,
     initial: string,
@@ -28,6 +30,8 @@ export struct ItemRow {
 
 // One line of the Codes place.
 export struct CodeRow {
+    icon: image,
+    has-icon: bool,
     title: string,
     account: string,
     code: string,       // "" while the item is locked
@@ -55,6 +59,11 @@ export global Words {
         if (code == 14) { return @tr("The two new passwords are different. Type them again."); }
         if (code == 15) { return @tr("Use at least 12 characters. A few random words are easiest."); }
         if (code == 16) { return @tr("The copy didn't pass its check, so it was deleted ({}). Try another place.", detail); }
+        if (code == 17) { return @tr("That card number doesn't check out. Look at the digits again."); }
+        if (code == 18) { return @tr("Write the expiry as MM/YY, for example 08/29."); }
+        if (code == 19) { return @tr("The security code is the 3 or 4 digits on the card."); }
+        if (code == 20) { return @tr("A card PIN is 4 to 12 digits."); }
+        if (code == 21) { return @tr("Paste the setup key first: the codes are made from it."); }
         return detail;
     }
     pure public function notice(code: int, arg: string) -> string {
@@ -186,22 +195,40 @@ component PlaceTab inherits Rectangle {
     TouchArea { clicked => { root.clicked(); } }
 }
 
-// A filter over the list: a word that gets a soft pill when chosen.
+// A filter over the list: a word (the star for favourites) that gets a soft pill when chosen.
+// The filters share the row's width, so all of them show without scrolling sideways.
 component Filter inherits Rectangle {
     in property <string> text;
+    in property <bool> star;
     in property <bool> active;
     callback clicked;
     height: 36px;
-    width: label.preferred-width + 26px;
+    horizontal-stretch: 1;
+    min-width: 0px;
     border-radius: 18px;
     background: root.active ? Theme.selected : transparent;
     accessible-role: button;
     accessible-label: root.text;
-    label := Text {
+    if !root.star: Text {
+        x: 2px;
+        width: parent.width - 4px;
         text: root.text;
         font-size: Theme.body;
         font-weight: root.active ? 600 : 400;
         color: root.active ? Theme.ink : Theme.graphite;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    if root.star: Path {
+        width: 18px;
+        height: 18px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: Sketch.star;
+        stroke: root.active ? Theme.accent-stroke : Theme.graphite;
+        stroke-width: 1.7px;
+        fill: root.active ? Theme.marker.transparentize(0.75) : transparent;
     }
     TouchArea { clicked => { root.clicked(); } }
 }
@@ -252,6 +279,50 @@ component Fact inherits Rectangle {
         }
     }
     Rule { y: parent.height - 1px; }
+}
+
+// "At least N" with − and + (the generator's minimums), sized for a phone.
+component Minimum inherits HorizontalLayout {
+    in property <string> label;
+    in-out property <int> value;
+    callback changed();
+    spacing: 8px;
+    Text {
+        text: root.label;
+        font-size: Theme.body;
+        color: Theme.ink;
+        vertical-alignment: center;
+        horizontal-stretch: 1;
+        min-width: 0px;
+        overflow: elide;
+    }
+    QuietButton {
+        text: "−";
+        outlined: true;
+        enabled: root.value > 0;
+        clicked => {
+            root.value = Math.max(0, root.value - 1);
+            root.changed();
+        }
+    }
+    Text {
+        text: root.value;
+        font-size: Theme.lead;
+        font-weight: 600;
+        color: Theme.ink;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+        min-width: 36px;
+    }
+    QuietButton {
+        text: "+";
+        outlined: true;
+        enabled: root.value < 32;
+        clicked => {
+            root.value = Math.min(32, root.value + 1);
+            root.changed();
+        }
+    }
 }
 
 // A confirmation, just above the places.
@@ -452,6 +523,7 @@ export component PhoneWindow inherits Window {
     in property <int> total;
     in-out property <string> search;
     in-out property <int> filter;       // 0 all, 1 favourites, 2 logins, 3 cards, 4 notes
+    property <[string]> filter-names: [@tr("All"), @tr("Favourites"), @tr("Logins"), @tr("Cards"), @tr("Notes")];
     callback search-changed(string);
     callback filter-changed(int);
     callback open-item(int);
@@ -460,6 +532,8 @@ export component PhoneWindow inherits Window {
     // One item
     in property <string> d-title;
     in property <string> d-initial;
+    in property <image> d-icon;
+    in property <bool> d-has-icon;
     in property <color> d-tint;
     in property <int> d-kind;
     in property <bool> d-favorite;
@@ -469,6 +543,7 @@ export component PhoneWindow inherits Window {
     in property <string> d-website;
     in property <string> d-notes;
     in property <string> d-card;
+    in property <string> d-card-expiry;
     in property <string> d-code;
     in property <int> d-code-left;
     in property <int> d-code-period;
@@ -483,9 +558,15 @@ export component PhoneWindow inherits Window {
     callback copy(int);                 // 0 username, 1 password, 2 code, 3 website
     callback unlock-item();
 
-    // The editor
+    // The editor. Kinds as on the desktop: 0 login, 1 card, 2 note, 3 authenticator (a login
+    // kept for its one-time codes: a setup key and no password).
     in property <bool> ed-new;
-    in-out property <int> ed-kind;      // 0 login, 1 note
+    in-out property <int> ed-kind;
+    in-out property <string> ed-card-number;
+    in-out property <string> ed-card-expiry;
+    in-out property <string> ed-card-code;
+    in property <string> ed-card-brand;  // the network, read from the first digits
+    callback ed-card-number-edited(string);
     in-out property <string> ed-title;
     in-out property <string> ed-username;
     in-out property <string> ed-website;
@@ -503,6 +584,7 @@ export component PhoneWindow inherits Window {
     // Codes
     in property <[CodeRow]> codes;
     callback copy-code(int);
+    callback new-code();                // the editor, on a new authenticator item
 
     // Generator
     in property <string> gen-password;
@@ -518,11 +600,30 @@ export component PhoneWindow inherits Window {
     in-out property <bool> gen-lower: true;
     in-out property <bool> gen-digits: true;
     in-out property <bool> gen-symbols: true;
+    // Advanced options: at least this many of each kind, look-alikes, characters added or
+    // left out. Words: their case (0 lower, 1 Title, 2 UPPER, 3 mixed), what goes between
+    // them (0 -, 1 ., 2 _, 3 a space) and a digit added to one of them.
+    in-out property <bool> gen-advanced;
+    in-out property <int> gen-min-upper;
+    in-out property <int> gen-min-lower;
+    in-out property <int> gen-min-digits;
+    in-out property <int> gen-min-symbols;
+    in-out property <bool> gen-avoid-ambiguous;
+    in-out property <string> gen-also-use;
+    in-out property <string> gen-never-use;
+    in-out property <int> gen-word-case;
+    in-out property <int> gen-separator;
+    in-out property <bool> gen-add-digit;
     callback gen-changed();
     callback gen-copy();
 
     // Settings
     in-out property <int> lock-choice;  // 0: 1 minute, 1: 5 minutes, 2: 15 minutes
+    in-out property <int> clipboard-choice;  // 0: 15 s, 1: 30 s, 2: 60 s
+    in-out property <bool> website-icons;
+    callback clipboard-choice-changed(int);
+    callback backdrop-changed(bool);
+    callback website-icons-changed(bool);
     in property <string> vault-path;
     in property <string> app-version;
     callback theme-changed(bool);
@@ -558,12 +659,56 @@ export component PhoneWindow inherits Window {
     callback change-password();
     callback cancel-password-change();
 
+    // Android's Back: one step back (a page, a settings section, another place); only at the
+    // top does the app go to the background (`leave`, the shell), never closed by mistake.
+    callback leave();
+    function go-back() {
+        if (root.drawn-keyboard && Secrets.focused >= 0) {
+            Secrets.focused = -1;
+            return;
+        }
+        if (root.screen == Screen.vault) {
+            if (root.page == Page.item) {
+                root.close-item();
+                return;
+            }
+            if (root.page == Page.editor) {
+                root.cancel-edit();
+                return;
+            }
+            if (root.place != Place.items) {
+                root.place = Place.items;
+                return;
+            }
+        }
+        if (root.screen == Screen.unlock && root.incoming) {
+            root.cancel-incoming();
+            return;
+        }
+        root.leave();
+    }
+    // Back comes to whatever has the focus; with nothing focused the system would close the
+    // app, so the window's scope takes the focus back whenever the screen changes.
+    init => { nav.focus(); }
+    changed screen => { nav.focus(); }
+    changed page => { nav.focus(); }
+    changed place => { nav.focus(); }
+
     property <length> gutter: 20px;
     // What sits at the bottom of the open vault: the places, and a page's main button.
     property <length> bottom-bar: root.page == Page.editor ? 72px
         : root.page == Page.item ? 0px
         : 63px + (root.place == Place.generator || root.place == Place.settings ? 72px : 0px);
 
+    nav := FocusScope {
+    focus-on-click: false;
+    capture-key-pressed(event) => {
+        if (event.text == Key.Back) {
+            root.go-back();
+            return accept;
+        }
+        reject
+    }
     VerticalLayout {
         padding-top: root.inset-top;
         padding-bottom: root.inset-bottom;
@@ -702,6 +847,8 @@ export component PhoneWindow inherits Window {
                     field: 1;
                     label: @tr("Secret Key");
                     icon: "shield";
+                    eye: true;
+                    cells: true;
                     placeholder: "S0-…";
                     error: root.error-code == 3;
                 }
@@ -709,6 +856,7 @@ export component PhoneWindow inherits Window {
                     field: 0;
                     label: @tr("Master password");
                     icon: "key";
+                    eye: true;
                     error: root.error-code == 1;
                     accepted => { root.unlock(); }
                 }
@@ -732,6 +880,12 @@ export component PhoneWindow inherits Window {
 
         // ---------------------------------------------------------------- the open vault
         if root.screen == Screen.vault: Rectangle {
+            // The doodle texture (the desktop's), unless turned off in Settings.
+            if Theme.backdrop != 0: Backdrop {
+                width: parent.width;
+                height: parent.height;
+                strength: 0.6;
+            }
             // ---- the four places
             if root.page == Page.none: VerticalLayout {
                 if root.place == Place.items: VerticalLayout {
@@ -781,19 +935,15 @@ export component PhoneWindow inherits Window {
                                 edited => { root.search-changed(self.text); }
                             }
                         }
-                        Flickable {
-                            height: 36px;
-                            content-width: filters.preferred-width;
-                            filters := HorizontalLayout {
-                                spacing: 2px;
-                                alignment: start;
-                                for name[index] in [@tr("All"), @tr("Favourites"), @tr("Logins"), @tr("Cards"), @tr("Notes")]: Filter {
-                                    text: name;
-                                    active: root.filter == index;
-                                    clicked => {
-                                        root.filter = index;
-                                        root.filter-changed(index);
-                                    }
+                        HorizontalLayout {
+                            spacing: 2px;
+                            for name[index] in root.filter-names: Filter {
+                                text: name;
+                                star: index == 1;
+                                active: root.filter == index;
+                                clicked => {
+                                    root.filter = index;
+                                    root.filter-changed(index);
                                 }
                             }
                         }
@@ -836,7 +986,7 @@ export component PhoneWindow inherits Window {
                                     spacing: 14px;
                                     VerticalLayout {
                                         alignment: center;
-                                        ItemIcon { size: 40px; initial: row.initial; tint: row.tint; kind: row.kind; }
+                                        ItemIcon { size: 40px; icon: row.icon; has-icon: row.has-icon; initial: row.initial; tint: row.tint; kind: row.kind; }
                                     }
                                     VerticalLayout {
                                         alignment: center;
@@ -882,7 +1032,11 @@ export component PhoneWindow inherits Window {
 
                 if root.place == Place.codes: VerticalLayout {
                     vertical-stretch: 1;
-                    TopBar { title: @tr("Codes"); }
+                    TopBar {
+                        title: @tr("Codes");
+                        action: @tr("Add");
+                        acted => { root.new-code(); }
+                    }
                     if root.codes.length == 0: VerticalLayout {
                         vertical-stretch: 1;
                         padding: root.gutter;
@@ -896,7 +1050,7 @@ export component PhoneWindow inherits Window {
                             color: Theme.ink;
                         }
                         Text {
-                            text: @tr("When a site offers two-step sign-in with an authenticator app, paste its setup key into the login here. The six digits then show up on this page.");
+                            text: @tr("When a site offers two-step sign-in with an authenticator app, tap Add and paste the setup key it shows. The six digits then show up on this page.");
                             font-size: Theme.body;
                             color: Theme.graphite;
                             wrap: word-wrap;
@@ -918,7 +1072,7 @@ export component PhoneWindow inherits Window {
                                     spacing: 14px;
                                     VerticalLayout {
                                         alignment: center;
-                                        ItemIcon { size: 40px; initial: row.initial; tint: row.tint; }
+                                        ItemIcon { size: 40px; icon: row.icon; has-icon: row.has-icon; initial: row.initial; tint: row.tint; }
                                     }
                                     VerticalLayout {
                                         alignment: center;
@@ -1020,6 +1174,43 @@ export component PhoneWindow inherits Window {
                                 Check { text: @tr("Small letters"); checked <=> root.gen-lower; toggled => { root.gen-changed(); } }
                                 Check { text: @tr("Digits"); checked <=> root.gen-digits; toggled => { root.gen-changed(); } }
                                 Check { text: @tr("Symbols"); checked <=> root.gen-symbols; toggled => { root.gen-changed(); } }
+                                HorizontalLayout {
+                                    padding-top: 6px;
+                                    alignment: start;
+                                    QuietButton {
+                                        icon: "gear";
+                                        text: root.gen-advanced ? @tr("Fewer options") : @tr("Advanced options");
+                                        clicked => { root.gen-advanced = !root.gen-advanced; }
+                                    }
+                                }
+                                if root.gen-advanced: VerticalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: @tr("For sites with rules: at least this many of each kind. The length grows if they need more room.");
+                                        font-size: Theme.small;
+                                        color: Theme.graphite;
+                                        wrap: word-wrap;
+                                    }
+                                    Minimum { label: @tr("Capitals, at least"); value <=> root.gen-min-upper; changed => { root.gen-changed(); } }
+                                    Minimum { label: @tr("Small letters, at least"); value <=> root.gen-min-lower; changed => { root.gen-changed(); } }
+                                    Minimum { label: @tr("Digits, at least"); value <=> root.gen-min-digits; changed => { root.gen-changed(); } }
+                                    Minimum { label: @tr("Symbols, at least"); value <=> root.gen-min-symbols; changed => { root.gen-changed(); } }
+                                    Check { text: @tr("Leave out look-alikes (I l 1 O 0 o |)"); checked <=> root.gen-avoid-ambiguous; toggled => { root.gen-changed(); } }
+                                    LineField {
+                                        label: @tr("Also use");
+                                        placeholder: @tr("e.g. ñ€");
+                                        mono: true;
+                                        text <=> root.gen-also-use;
+                                        edited => { root.gen-changed(); }
+                                    }
+                                    LineField {
+                                        label: @tr("Never use");
+                                        placeholder: @tr("e.g. <>'\"");
+                                        mono: true;
+                                        text <=> root.gen-never-use;
+                                        edited => { root.gen-changed(); }
+                                    }
+                                }
                             }
                             if root.gen-mode == 1: VerticalLayout {
                                 spacing: 4px;
@@ -1034,6 +1225,19 @@ export component PhoneWindow inherits Window {
                                     value <=> root.gen-words;
                                     changed => { root.gen-changed(); }
                                 }
+                                Text { text: @tr("Letters"); color: Theme.graphite; font-size: Theme.small; }
+                                Choice {
+                                    options: [@tr("abc"), @tr("Abc"), @tr("ABC"), @tr("Mixed")];
+                                    selected <=> root.gen-word-case;
+                                    changed => { root.gen-changed(); }
+                                }
+                                Text { text: @tr("Between the words"); color: Theme.graphite; font-size: Theme.small; }
+                                Choice {
+                                    options: ["-", ".", "_", @tr("Space")];
+                                    selected <=> root.gen-separator;
+                                    changed => { root.gen-changed(); }
+                                }
+                                Check { text: @tr("Add a digit to one word"); checked <=> root.gen-add-digit; toggled => { root.gen-changed(); } }
                             }
                             if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
                         }
@@ -1084,6 +1288,30 @@ export component PhoneWindow inherits Window {
                                 options: [@tr("1 minute"), @tr("5 minutes"), @tr("15 minutes")];
                                 selected <=> root.lock-choice;
                                 changed(index) => { root.lock-choice-changed(index); }
+                            }
+                            Rectangle { height: 10px; }
+                            Text { text: @tr("Clear a copied secret from the clipboard after"); font-size: Theme.small; color: Theme.graphite; wrap: word-wrap; }
+                            Choice {
+                                options: [@tr("15 seconds"), @tr("30 seconds"), @tr("1 minute")];
+                                selected <=> root.clipboard-choice;
+                                changed(index) => { root.clipboard-choice-changed(index); }
+                            }
+                            Rectangle { height: 6px; }
+                            Check {
+                                text: @tr("Background pattern");
+                                checked: Theme.backdrop != 0;
+                                toggled(on) => { root.backdrop-changed(on); }
+                            }
+                            Check {
+                                text: @tr("Website icons");
+                                checked <=> root.website-icons;
+                                toggled(on) => { root.website-icons-changed(on); }
+                            }
+                            Text {
+                                text: @tr("Each saved site is asked once for its icon, directly. Someone watching the network can see which sites were asked, so it is off until you turn it on.");
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                                wrap: word-wrap;
                             }
                             Rectangle { height: 10px; }
                             Rule { }
@@ -1282,17 +1510,20 @@ export component PhoneWindow inherits Window {
                                     }
                                     SecretField {
                                         field: 5;
+                                        eye: true;
                                         label: @tr("Current master password");
                                         icon: "key";
                                         error: root.error-code == 13;
                                     }
                                     SecretField {
                                         field: 6;
+                                        eye: true;
                                         label: @tr("New master password");
                                         error: root.error-code == 14 || root.error-code == 15;
                                     }
                                     SecretField {
                                         field: 7;
+                                        eye: true;
                                         label: @tr("Type it again");
                                         error: root.error-code == 14;
                                         accepted => { root.change-password(); }
@@ -1369,7 +1600,7 @@ export component PhoneWindow inherits Window {
                             padding-top: 4px;
                             padding-bottom: 14px;
                             spacing: 16px;
-                            ItemIcon { size: 56px; initial: root.d-initial; tint: root.d-tint; kind: root.d-kind; }
+                            ItemIcon { size: 56px; icon: root.d-icon; has-icon: root.d-has-icon; initial: root.d-initial; tint: root.d-tint; kind: root.d-kind; }
                             VerticalLayout {
                                 alignment: center;
                                 horizontal-stretch: 1;
@@ -1417,6 +1648,11 @@ export component PhoneWindow inherits Window {
                             icon: "card";
                             value: root.d-card;
                         }
+                        if root.d-card-expiry != "": Fact {
+                            label: @tr("Expires");
+                            icon: "calendar";
+                            value: root.d-card-expiry;
+                        }
                         // The item lock: what is behind it shows after its check.
                         if root.d-check != 0: VerticalLayout {
                             padding-top: 16px;
@@ -1446,7 +1682,7 @@ export component PhoneWindow inherits Window {
                             }
                         }
                         if root.d-check == 0 && root.d-has-password: Fact {
-                            label: @tr("Password");
+                            label: root.d-kind == 1 ? @tr("PIN") : @tr("Password");
                             icon: "key";
                             value: root.d-password != "" ? root.d-password : "••••••••••";
                             mono: root.d-password != "";
@@ -1498,21 +1734,89 @@ export component PhoneWindow inherits Window {
                         spacing: 16px;
                         alignment: start;
                         if root.ed-new: Choice {
-                            options: [@tr("Login"), @tr("Note")];
+                            options: [@tr("Login"), @tr("Card"), @tr("Note"), @tr("2FA")];
                             selected <=> root.ed-kind;
+                        }
+                        // An authenticator item is named after the service in its setup key.
+                        if root.ed-kind == 3: LineField {
+                            label: @tr("Setup key");
+                            icon: "clock";
+                            required: true;
+                            hint: @tr("When you turn on two-step sign-in, the site shows a QR code and a text key, often under “Can't scan it?”. Paste that key here, or an otpauth:// link. The codes then show on the Codes page.");
+                            placeholder: @tr("otpauth:// link or key");
+                            mono: true;
+                            text <=> root.ed-totp;
+                            error: root.error-code == 10 || root.error-code == 21;
                         }
                         LineField {
                             label: @tr("Name");
                             icon: "tag";
-                            required: true;
-                            placeholder: root.ed-kind == 0 ? @tr("The site or app") : @tr("What the note is about");
+                            required: root.ed-kind != 3;
+                            placeholder: root.ed-kind == 0 ? @tr("The site or app")
+                                : root.ed-kind == 1 ? @tr("Visa ending 4242")
+                                : root.ed-kind == 3 ? @tr("Taken from the setup key")
+                                : @tr("What the note is about");
                             text <=> root.ed-title;
                             error: root.error-code == 5;
                         }
-                        if root.ed-kind == 0: LineField {
-                            label: @tr("Username");
+                        if root.ed-kind != 2: LineField {
+                            label: root.ed-kind == 1 ? @tr("Name on card") : root.ed-kind == 3 ? @tr("Account") : @tr("Username");
                             icon: "user";
                             text <=> root.ed-username;
+                        }
+                        if root.ed-kind == 1: VerticalLayout {
+                            spacing: 6px;
+                            LineField {
+                                label: @tr("Card number");
+                                icon: "card";
+                                placeholder: "1234 5678 9012 3456";
+                                mono: true;
+                                text <=> root.ed-card-number;
+                                error: root.error-code == 17;
+                                edited(text) => { root.ed-card-number-edited(text); }
+                            }
+                            if root.ed-card-brand != "": Text {
+                                text: root.ed-card-brand;
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                            }
+                        }
+                        if root.ed-kind == 1: HorizontalLayout {
+                            spacing: 12px;
+                            LineField {
+                                horizontal-stretch: 1;
+                                label: @tr("Expires");
+                                icon: "calendar";
+                                placeholder: @tr("MM/YY");
+                                mono: true;
+                                text <=> root.ed-card-expiry;
+                                error: root.error-code == 18;
+                            }
+                            LineField {
+                                horizontal-stretch: 1;
+                                label: @tr("Security code");
+                                icon: "shield";
+                                placeholder: "CVV";
+                                mono: true;
+                                text <=> root.ed-card-code;
+                                error: root.error-code == 19;
+                            }
+                        }
+                        if root.ed-kind == 1: HorizontalLayout {
+                            spacing: 6px;
+                            SecretField {
+                                horizontal-stretch: 1;
+                                field: 3;
+                                label: @tr("PIN");
+                                icon: "pin";
+                                placeholder: @tr("Digits only, as the bank gave it");
+                                revealed: root.ed-password;
+                                error: root.error-code == 20;
+                            }
+                            VerticalLayout {
+                                alignment: end;
+                                EyeButton { open: root.ed-password != ""; clicked => { root.ed-toggle-password(); } }
+                            }
                         }
                         if root.ed-kind == 0: VerticalLayout {
                             spacing: 8px;
@@ -1540,10 +1844,11 @@ export component PhoneWindow inherits Window {
                                 }
                             }
                         }
-                        if root.ed-kind == 0: LineField {
+                        // Its icon comes from the website, for cards too (the bank's site).
+                        if root.ed-kind != 2: LineField {
                             label: @tr("Website");
                             icon: "globe";
-                            placeholder: "example.com";
+                            placeholder: root.ed-kind == 1 ? @tr("The bank's site, for its icon") : "example.com";
                             text <=> root.ed-website;
                         }
                         if root.ed-kind == 0: LineField {
@@ -1557,7 +1862,7 @@ export component PhoneWindow inherits Window {
                         NotesField {
                             label: @tr("Notes");
                             icon: "note";
-                            field-height: root.ed-kind == 0 ? 96px : 220px;
+                            field-height: root.ed-kind == 2 ? 220px : 96px;
                             text <=> root.ed-notes;
                         }
                         Check { text: @tr("Favourite"); checked <=> root.ed-favorite; }
@@ -1596,5 +1901,6 @@ export component PhoneWindow inherits Window {
         x: 0px;
         width: root.width;
         y: root.height - self.height - root.inset-bottom;
+    }
     }
 }
