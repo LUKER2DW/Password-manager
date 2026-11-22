@@ -347,8 +347,58 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
             .any(|row| row.title == "Example Mail")
     );
     assert_eq!(app.get_total(), 4);
+
+    // ---- an SSH key made on the phone, with a file attached ----
+    app.invoke_new_item();
+    app.set_ed_kind(4);
+    app.set_ed_title("Home server".into());
+    app.set_ed_username("me@phone".into());
+    app.invoke_ed_ssh_generate();
+    assert!(app.get_ed_ssh_has_key() && app.get_ed_ssh_public().ends_with(" me@phone"));
+    controller.picked_file(
+        2,
+        "id_ed25519.pub",
+        b"ssh-ed25519 AAAA only the public half".to_vec(),
+    );
+    assert_eq!(
+        app.get_error_code(),
+        22,
+        "a .pub file isn't the private key"
+    );
+    controller.picked_file(1, "scan.pdf", b"%PDF test".to_vec());
+    controller.picked_file(1, "too big", vec![0; vault_core::Attachment::MAX_BYTES + 1]);
+    assert_eq!(app.get_error_code(), 23);
+    assert_eq!(app.get_ed_files().row_count(), 1);
+    app.invoke_save_item();
+    assert_eq!(app.get_page(), Page::Item, "{}", app.get_error_code());
+    assert_eq!(app.get_d_kind(), 4);
+    assert!(app.get_d_ssh_public().starts_with("ssh-ed25519 "));
+    assert_eq!(app.get_d_files().row_count(), 1);
+    let (name, bytes) = controller.file_to_save(0).unwrap();
+    assert_eq!(
+        (name.as_str(), bytes.as_slice()),
+        ("scan.pdf", &b"%PDF test"[..])
+    );
+    assert!(controller.file_written(Ok(bytes)));
+    assert!(
+        !controller.file_written(Ok(b"something else".to_vec())),
+        "a file read back differently"
+    );
+    app.invoke_toggle_password();
+    assert!(
+        app.get_d_password()
+            .starts_with("-----BEGIN OPENSSH PRIVATE KEY-----")
+    );
+    app.invoke_toggle_password();
+    app.invoke_close_item();
+    app.set_filter(5);
+    app.invoke_filter_changed(5);
+    assert_eq!(app.get_items().row_count(), 1, "the SSH filter");
+    app.set_filter(0);
+    app.invoke_filter_changed(0);
+    assert_eq!(app.get_total(), 5);
     // Both go again, so the rest of this test sees the vault it expects.
-    for title in ["Example Mail", "Test card"] {
+    for title in ["Example Mail", "Test card", "Home server"] {
         let index = app
             .get_items()
             .iter()

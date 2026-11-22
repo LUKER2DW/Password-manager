@@ -3,7 +3,10 @@
 //! additions). The activity reads and writes the files; answers come back here on its threads
 //! and go on to the controller on the UI thread.
 
-use std::{cell::RefCell, rc::Weak};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Weak,
+};
 
 use jni::{
     JNIEnv, JavaVM,
@@ -14,6 +17,22 @@ use vault_mobile::Controller;
 thread_local! {
     /// The controller, on the UI thread, for the picker's answers.
     pub(crate) static CONTROLLER: RefCell<Weak<Controller>> = const { RefCell::new(Weak::new()) };
+    /// What the open picker is for: 0 a vault file, else the screens' `pick-file` purpose.
+    static PICKING: Cell<i32> = const { Cell::new(0) };
+    /// What the open "save as" is for: false a copy of the vault, true an item's file.
+    static SAVING_FILE: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The picker, for a file with `purpose` (0 a vault file).
+pub(crate) fn pick(purpose: i32) -> Result<(), String> {
+    PICKING.with(|p| p.set(purpose));
+    open_document()
+}
+
+/// "Save as" for an item's file (`true`) or a copy of the vault (`false`).
+pub(crate) fn save(name: &str, data: &[u8], item_file: bool) -> Result<(), String> {
+    SAVING_FILE.with(|s| s.set(item_file));
+    create_document(name, data)
 }
 
 /// Runs `f` with this thread's JNI environment and the activity.
@@ -107,16 +126,21 @@ fn bytes(env: &mut JNIEnv, value: &JByteArray) -> Option<Vec<u8>> {
 pub extern "system" fn Java_org_passwordvault_phone_VaultActivity_opened<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
-    _name: JString<'local>,
+    name: JString<'local>,
     data: JByteArray<'local>,
     error: JString<'local>,
 ) {
+    let name = string(&mut env, &name).unwrap_or_default();
     let data = bytes(&mut env, &data);
     let error = string(&mut env, &error);
-    on_ui(move |controller| match (data, error) {
-        (Some(bytes), _) => controller.bring_vault(bytes),
-        (None, Some(error)) => controller.file_failed(&error),
-        (None, None) => {}
+    on_ui(move |controller| {
+        let purpose = PICKING.with(|p| p.replace(0));
+        match (data, error) {
+            (Some(bytes), _) if purpose == 0 => controller.bring_vault(bytes),
+            (Some(bytes), _) => controller.picked_file(purpose, &name, bytes),
+            (None, Some(error)) => controller.file_failed(&error),
+            (None, None) => {}
+        }
     });
 }
 
@@ -141,8 +165,13 @@ pub extern "system" fn Java_org_passwordvault_phone_VaultActivity_saved<'local>(
             return; // cancelled
         };
         let read_back = read_back.ok_or_else(|| error.unwrap_or_default());
-        let place = name.unwrap_or_else(|| uri.clone());
-        if !controller.copy_written(&place, read_back) {
+        let kept = if SAVING_FILE.with(|s| s.replace(false)) {
+            controller.file_written(read_back)
+        } else {
+            let place = name.unwrap_or_else(|| uri.clone());
+            controller.copy_written(&place, read_back)
+        };
+        if !kept {
             delete_document(&uri);
         }
     });

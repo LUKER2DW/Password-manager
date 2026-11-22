@@ -67,5 +67,41 @@ fn main() -> Result<(), slint::PlatformError> {
             let _ = std::fs::remove_file(&target);
         }
     });
+    // A file to attach, or an SSH key file, for the editor.
+    let weak = Rc::downgrade(&controller);
+    app.on_pick_file(move |purpose| {
+        let Some(controller) = weak.upgrade() else {
+            return;
+        };
+        if let Some(file) = rfd::FileDialog::new().pick_file() {
+            let name = file
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            match std::fs::read(&file) {
+                Ok(bytes) => controller.picked_file(purpose, &name, bytes),
+                Err(err) => controller.file_failed(&err.to_string()),
+            }
+        }
+    });
+    // One of an item's files, saved where the person picks and read back.
+    let weak = Rc::downgrade(&controller);
+    app.on_save_file(move |index| {
+        let Some(controller) = weak.upgrade() else {
+            return;
+        };
+        let Some((name, bytes)) = controller.file_to_save(index) else {
+            return;
+        };
+        let Some(target) = rfd::FileDialog::new().set_file_name(&name).save_file() else {
+            return;
+        };
+        let read_back = std::fs::write(&target, &bytes)
+            .and_then(|()| std::fs::read(&target))
+            .map_err(|e| e.to_string());
+        if !controller.file_written(read_back) {
+            let _ = std::fs::remove_file(&target);
+        }
+    });
     app.run()
 }

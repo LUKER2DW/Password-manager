@@ -85,6 +85,8 @@ mod error {
     pub const CARD_CODE: i32 = 19;
     pub const CARD_PIN: i32 = 20;
     pub const SETUP_KEY: i32 = 21;
+    pub const NOT_A_KEY: i32 = 22;
+    pub const FILE_TOO_LARGE: i32 = 23;
 }
 
 /// The editor's kinds (`ed-kind`), the desktop's: an authenticator item is a login kept for
@@ -94,8 +96,10 @@ mod editor {
     pub const CARD: i32 = 1;
     pub const NOTE: i32 = 2;
     pub const AUTHENTICATOR: i32 = 3;
+    pub const SSH: i32 = 4;
 }
 
+mod attachments;
 mod icons;
 mod syncing;
 
@@ -113,6 +117,8 @@ mod notice {
     pub const SYNCED: i32 = 9;
     pub const PASSWORD_CHANGED: i32 = 10;
     pub const BACKUP_CONFIRMED: i32 = 11;
+    pub const FILE_SAVED: i32 = 12;
+    pub const COPIED_PLAIN: i32 = 13;
 }
 
 /// How long a copied secret may stay on the clipboard (Settings), in seconds.
@@ -167,6 +173,7 @@ fn tint(kind: ItemKind, key: &str) -> Color {
         ItemKind::Card => (0x4A, 0x5D, 0x7E),
         ItemKind::SecureNote => (0x2F, 0x7D, 0x68),
         ItemKind::Passkey => (0x5C, 0x4B, 0x7A),
+        ItemKind::SshKey => (0x3E, 0x4A, 0x5C),
         ItemKind::Login => {
             // FNV-1a: tiny, stable across runs and platforms.
             let hash = key.to_lowercase().bytes().fold(0x811C_9DC5u32, |h, b| {
@@ -193,6 +200,7 @@ fn kind_index(kind: ItemKind) -> i32 {
         ItemKind::Card => 1,
         ItemKind::SecureNote => 2,
         ItemKind::Passkey => 3,
+        ItemKind::SshKey => 4,
     }
 }
 
@@ -209,6 +217,7 @@ fn editor_kind(item: &ItemData) -> i32 {
     match item.kind {
         ItemKind::Card => editor::CARD,
         ItemKind::SecureNote => editor::NOTE,
+        ItemKind::SshKey => editor::SSH,
         ItemKind::Login if item.password.is_empty() && !item.totp.is_empty() => {
             editor::AUTHENTICATOR
         }
@@ -255,6 +264,11 @@ struct State {
     backup_expected: Option<[u8; 32]>,
     /// This phone's settings (`settings.json` next to the vault copy).
     prefs: Prefs,
+    /// The editor's files and SSH private key (attachments.rs), never in a Slint string.
+    editor_files: Vec<vault_core::Attachment>,
+    editor_ssh: Option<Zeroizing<String>>,
+    /// SHA-256 of a file handed out to be saved, until it is read back.
+    file_expected: Option<[u8; 32]>,
 }
 
 thread_local! {
@@ -324,6 +338,9 @@ impl Controller {
                 last_touch: Instant::now(),
                 sync: syncing::SyncStatus::default(),
                 backup_expected: None,
+                editor_files: Vec::new(),
+                editor_ssh: None,
+                file_expected: None,
                 lock_after: LOCK_CHOICES[usize::from(prefs.lock_choice).min(2)],
             }),
             tick: Timer::default(),
@@ -391,6 +408,9 @@ impl Controller {
         on!(on_filter_changed, |c, _index| c.refresh_list());
         on!(on_open_item, |c, index| c.open_item(index));
         on!(on_new_item, |c| c.open_editor(None));
+        on!(on_ed_ssh_generate, |c| c.ssh_generate());
+        on!(on_ed_ssh_paste, |c| c.ssh_paste());
+        on!(on_ed_file_remove, |c, index| c.file_remove(index));
         on!(on_new_code, |c| {
             c.open_editor(None);
             c.app().set_ed_kind(editor::AUTHENTICATOR);
@@ -1197,6 +1217,7 @@ impl Controller {
                     2 => item.kind == ItemKind::Login,
                     3 => item.kind == ItemKind::Card,
                     4 => item.kind == ItemKind::SecureNote,
+                    5 => item.kind == ItemKind::SshKey,
                     _ => true,
                 };
                 let text = format!("{} {} {}", item.title, item.username, item.url).to_lowercase();
@@ -1334,6 +1355,7 @@ impl Controller {
             String::new()
         };
         app.set_d_card_expiry(expiry.into());
+        self.show_item_files(&item, open);
         app.set_d_has_password(open && !item.password.is_empty());
         app.set_d_password(if open && state.show_password {
             item.password.as_str().into()
@@ -1365,6 +1387,7 @@ impl Controller {
             PhoneWindow::set_d_notes,
             PhoneWindow::set_d_card,
             PhoneWindow::set_d_card_expiry,
+            PhoneWindow::set_d_ssh_public,
             PhoneWindow::set_d_code,
         ] {
             clear(&app, SharedString::new());
@@ -1372,6 +1395,7 @@ impl Controller {
         app.set_d_has_password(false);
         app.set_d_has_code(false);
         app.set_d_check(0);
+        app.set_d_files(ModelRc::default());
     }
 
     /// Leaves the item: what the item lock opened for it is closed again.
@@ -1547,6 +1571,12 @@ impl Controller {
                     self.copy_secret(&code, notice::CODE_COPIED);
                 }
             }
+            4 => {
+                let public = self.app().get_d_ssh_public();
+                if !public.is_empty() && clipboard::copy_plain(&public).is_ok() {
+                    self.notify(notice::COPIED_PLAIN, "");
+                }
+            }
             _ => {}
         }
     }
@@ -1643,6 +1673,7 @@ impl Controller {
         }
         app.set_ed_favorite(false);
         app.set_ed_confirm_delete(false);
+        self.clear_editor_files();
     }
 
     /// Opens the editor on a new item, or on `id` (whose secrets must be open).
@@ -1683,6 +1714,7 @@ impl Controller {
                 }
             }
         }
+        self.editor_files_from(item.as_ref());
         self.publish_lengths();
         app.set_page(Page::Editor);
     }
@@ -1749,6 +1781,7 @@ impl Controller {
             return self.set_error(error::NAME, "");
         }
         let password = self.secret(field::ITEM_PASSWORD);
+        let extras = self.editor_extras();
         let card_details = CardDetails {
             number: app.get_ed_card_number().to_string(),
             expiry: app.get_ed_card_expiry().to_string(),
@@ -1779,6 +1812,7 @@ impl Controller {
                     match kind {
                         editor::CARD => ItemKind::Card,
                         editor::NOTE => ItemKind::SecureNote,
+                        editor::SSH => ItemKind::SshKey,
                         _ => ItemKind::Login,
                     },
                     &title,
@@ -1793,8 +1827,9 @@ impl Controller {
                 if item.username.is_empty() && kind == editor::AUTHENTICATOR {
                     item.username = totp::names(&totp).account;
                 }
-                // A card's PIN is kept where a login keeps its password.
-                if kind != editor::AUTHENTICATOR {
+                // A card's PIN is kept where a login keeps its password (an SSH key's private
+                // key too, from the editor's own copy below).
+                if kind != editor::AUTHENTICATOR && kind != editor::SSH {
                     item.password = password.to_string();
                 }
                 // The first website is the one edited here; any others stay.
@@ -1813,6 +1848,7 @@ impl Controller {
             if item.kind == ItemKind::Card {
                 card_details.apply(&mut item);
             }
+            extras.apply(&mut item);
             item.touch();
             match state.editing {
                 Some(id) => vault.update_item(&id, &item).map(|()| id),

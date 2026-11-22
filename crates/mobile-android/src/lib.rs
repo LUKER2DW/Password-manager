@@ -44,7 +44,24 @@ fn android_main(app: slint::android::AndroidApp) {
     // where to save a copy.
     let weak = Rc::downgrade(&controller);
     window.on_pick_vault(move || {
-        if let (Err(detail), Some(controller)) = (shell::open_document(), weak.upgrade()) {
+        if let (Err(detail), Some(controller)) = (shell::pick(0), weak.upgrade()) {
+            controller.file_failed(&detail);
+        }
+    });
+    let weak = Rc::downgrade(&controller);
+    window.on_pick_file(move |purpose| {
+        if let (Err(detail), Some(controller)) = (shell::pick(purpose), weak.upgrade()) {
+            controller.file_failed(&detail);
+        }
+    });
+    let weak = Rc::downgrade(&controller);
+    window.on_save_file(move |index| {
+        let Some(controller) = weak.upgrade() else {
+            return;
+        };
+        if let Some((name, bytes)) = controller.file_to_save(index)
+            && let Err(detail) = shell::save(&name, &bytes, true)
+        {
             controller.file_failed(&detail);
         }
     });
@@ -54,7 +71,7 @@ fn android_main(app: slint::android::AndroidApp) {
             return;
         };
         if let Some((name, bytes)) = controller.copy_to_save()
-            && let Err(detail) = shell::create_document(&name, &bytes)
+            && let Err(detail) = shell::save(&name, &bytes, false)
         {
             controller.file_failed(&detail);
         }
