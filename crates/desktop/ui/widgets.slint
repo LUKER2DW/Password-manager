@@ -587,6 +587,16 @@ export component SecretField inherits VerticalLayout {
     changed done-count => {
         if (Secrets.done-field == root.field && root.has-focus) { root.accepted(); }
     }
+    // The system keyboard's input holds a stand-in for each character the field holds; when
+    // the field changes some other way (cleared, generated, pasted with a shortcut) it gets
+    // them again, so a tap never finds it out of step.
+    changed length => { root.sync-system(); }
+    function sync-system() {
+        if (Secrets.system-keyboard && system.text.character-count != root.length) {
+            system.text = Secrets.placeholders(root.field);
+            if (system.has-focus) { system.set-selection-offsets(2147483647, 2147483647); }
+        }
+    }
     forward-focus: scope;
     spacing: 6px;
 
@@ -613,18 +623,45 @@ export component SecretField inherits VerticalLayout {
         }
         // The system keyboard on a phone (Secrets.system-keyboard): asked for a password, so it
         // keeps nothing; what it types comes back through Secrets.typed and the input is set
-        // back to placeholders at once.
+        // back to stand-ins at once. It lies over the whole field (unseen), so a tap focuses it
+        // and a long press opens the system's menu with Paste.
         system := TextInput {
-            x: 0px;
+            x: Secrets.system-keyboard ? 12px : 0px;
             y: 0px;
-            width: 1px;
-            height: 1px;
+            width: Secrets.system-keyboard ? parent.width - 24px : 1px;
+            height: Secrets.system-keyboard ? parent.height : 1px;
             opacity: 0;
             enabled: Secrets.system-keyboard;
             input-type: InputType.password;
             single-line: true;
+            font-size: Theme.body;
+            vertical-alignment: center;
+            init => {
+                if (Secrets.system-keyboard) { self.text = Secrets.placeholders(root.field); }
+            }
             edited => {
                 self.text = Secrets.typed(root.field, self.text);
+                // Placing the cursor also tells the keyboard what the input holds now, so
+                // something pasted from the menu doesn't stay there.
+                self.set-selection-offsets(2147483647, 2147483647);
+            }
+            // Slint places the keyboard's cursor after each edit (calling this): it goes back
+            // to the end, where the field is edited (as on the desktop), and a selection is
+            // always all of it. (A nested call from here doesn't come back here.)
+            cursor-position-changed(_) => {
+                if (!Secrets.system-keyboard) { return; }
+                // An edit that leaves the input empty (the last character deleted, or all of
+                // it while selected) isn't reported as one.
+                if (self.text == "" && root.length > 0) {
+                    Secrets.clear(root.field);
+                }
+                if (self.anchor-position-byte-offset != self.cursor-position-byte-offset) {
+                    self.set-selection-offsets(0, 2147483647);
+                    root.all-selected = root.length > 0;
+                } else {
+                    self.set-selection-offsets(2147483647, 2147483647);
+                    root.all-selected = false;
+                }
             }
             accepted => { root.accepted(); }
             changed has-focus => {
@@ -632,6 +669,7 @@ export component SecretField inherits VerticalLayout {
                     Secrets.focused = root.field;
                 } else if (Secrets.focused == root.field && !scope.has-focus) {
                     Secrets.focused = -1;
+                    root.all-selected = false;
                 }
             }
         }
@@ -642,6 +680,7 @@ export component SecretField inherits VerticalLayout {
                     // Hand the keys to the system keyboard's input.
                     system.text = Secrets.placeholders(root.field);
                     system.focus();
+                    system.set-selection-offsets(2147483647, 2147483647);
                     return;
                 }
                 if (self.has-focus) {
