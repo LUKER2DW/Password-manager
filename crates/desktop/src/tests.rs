@@ -1474,6 +1474,22 @@ fn whole_app_flow_headless() {
     app.invoke_unlock();
     assert_eq!(app.get_error_code(), 45, "not a whole part");
     type_into(&app, 17, &parts[2].to_lowercase().replace('-', " "));
+    // The eye shows what was typed, a part also in boxes; closed again, nothing is shown.
+    let secrets = app.global::<Secrets>();
+    secrets.invoke_toggle_shown(17);
+    assert_eq!(
+        secrets.get_shown().row_data(17).unwrap(),
+        parts[2].to_lowercase().replace('-', " ")
+    );
+    let cells = secrets.get_shown_cells().row_data(17).unwrap();
+    assert_eq!(cells.row_count(), 34);
+    assert_eq!(cells.row_data(0).unwrap(), "C");
+    secrets.invoke_toggle_shown(17);
+    assert_eq!(secrets.get_shown().row_data(17).unwrap(), "");
+    assert_eq!(
+        secrets.get_shown_cells().row_data(17).unwrap().row_count(),
+        0
+    );
     app.invoke_unlock();
     assert_eq!(
         app.get_screen(),
@@ -1487,23 +1503,63 @@ fn whole_app_flow_headless() {
         secret_store::load(&app.get_vault_id()).unwrap().is_some(),
         "the Secret Key the parts brought back is remembered"
     );
+    // Parts work once: these stopped working, and a new kit is offered at once.
+    assert!(app.get_parts_used());
+    assert_eq!(app.get_vault_recovery(), 0);
+    let file = std::fs::read(&path).unwrap();
+    assert!(
+        !vault_core::Vault::inspect(&file)
+            .unwrap()
+            .has_recovery_parts
+    );
+    app.set_parts_used(false);
+    app.invoke_new_parts_now();
+    assert_eq!(app.get_panel(), Panel::Kit);
+    assert_eq!(app.get_vault_recovery(), 2);
+    let used_parts = parts.clone();
+    let parts: Vec<String> = [
+        app.get_kit_part_a(),
+        app.get_kit_part_b(),
+        app.get_kit_part_c(),
+    ]
+    .iter()
+    .map(ToString::to_string)
+    .collect();
+    assert!(parts[0].starts_with("A0-") && parts[0] != used_parts[0]);
+    // On paper: the keys, or empty boxes to fill in by hand.
+    app.set_kit_filled(false);
+    let blank = controller.kit_pdf_for_test().unwrap();
+    assert!(!String::from_utf8_lossy(&blank).contains(&parts[0]));
+    app.set_kit_filled(true);
+    assert!(String::from_utf8_lossy(&controller.kit_pdf_for_test().unwrap()).contains(&parts[0]));
 
     // ---- recovery with the emergency kit ----
     app.invoke_lock();
     app.invoke_show_recovery();
     assert_eq!(app.get_screen(), Screen::Recover);
     assert!(app.get_recover_with_parts());
+    // First the parts, checked; then the new password.
+    assert_eq!(app.get_recover_step(), 1);
     type_into(&app, 16, &parts[0]);
     type_into(&app, 17, "B0-not-a-part");
     type_into(&app, 18, &parts[2]);
-    type_into(&app, 0, PASSWORD);
-    type_into(&app, 1, PASSWORD);
-    app.invoke_recover();
-    assert_eq!(app.get_error_code(), 45);
+    app.invoke_check_parts();
+    assert_eq!((app.get_error_code(), app.get_recover_step()), (45, 1));
     type_into(&app, 17, &old_parts[1]);
-    app.invoke_recover();
+    app.invoke_check_parts();
     assert_eq!(app.get_error_code(), 44, "parts of two kits");
+    type_into(&app, 17, &used_parts[1]);
+    app.invoke_check_parts();
+    assert_eq!(app.get_error_code(), 44, "parts already used");
+    type_into(&app, 16, &used_parts[0]);
+    type_into(&app, 18, &used_parts[2]);
+    app.invoke_check_parts();
+    assert_eq!(app.get_error_code(), 44, "a used kit opens nothing");
+    type_into(&app, 16, &parts[0]);
     type_into(&app, 17, &parts[1]);
+    type_into(&app, 18, &parts[2]);
+    app.invoke_check_parts();
+    assert_eq!((app.get_error_code(), app.get_recover_step()), (0, 2));
     type_into(&app, 0, PASSWORD);
     type_into(&app, 1, PASSWORD);
     app.invoke_recover();
@@ -1518,14 +1574,26 @@ fn whole_app_flow_headless() {
     assert!(!home.join(format!("quick-unlock-{id}.bin")).exists());
     let new_secret_key = app.get_kit_secret_key().to_string();
     assert!(new_secret_key.starts_with("S0-") && new_secret_key != secret_key);
-    assert_eq!(
-        app.get_kit_part_a(),
-        "",
-        "the recovery parts themselves did not change"
-    );
+    assert_eq!(app.get_kit_part_a(), "", "the used parts are gone");
     for part in [16, 17, 18] {
         assert_eq!(length(&app, part), 0, "parts wiped after use");
     }
+    let file = std::fs::read(&path).unwrap();
+    assert!(
+        !vault_core::Vault::inspect(&file)
+            .unwrap()
+            .has_recovery_parts
+    );
+    // New ones, without typing the new password again.
+    app.invoke_new_parts_now();
+    assert!(app.get_kit_part_a().starts_with("A0-"));
+    assert_ne!(app.get_kit_part_a(), parts[0]);
+    let file = std::fs::read(&path).unwrap();
+    assert!(
+        vault_core::Vault::inspect(&file)
+            .unwrap()
+            .has_recovery_parts
+    );
     app.set_kit_saved(true);
     app.invoke_finish_onboarding();
     assert_eq!(app.get_screen(), Screen::Vault);

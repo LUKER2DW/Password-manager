@@ -565,6 +565,29 @@ export component NotesField inherits VerticalLayout {
 
 // Secret entry. Keystrokes are forwarded to Rust and never stored in the UI; the field draws
 // one dot per character. Paste and other shortcuts are ignored on purpose (AltGr still works).
+// A key as the emergency kit prints it: one character per box, a dash between groups. `cells`
+// are the characters ("" for a box still empty, "-" for a dash).
+export component KeyCells inherits HorizontalLayout {
+    in property <[string]> cells;
+    spacing: 2px;
+    alignment: start;
+    for cell in root.cells: Rectangle {
+        width: cell == "-" ? 6px : (Theme.touch ? 10px : 12px);
+        height: Theme.touch ? 16px : 18px;
+        border-radius: 2px;
+        border-width: cell == "-" ? 0px : 1px;
+        border-color: Theme.rule;
+        background: cell == "-" ? transparent : Theme.field;
+        Text {
+            text: cell;
+            font-family: Theme.mono-font;
+            font-size: Theme.touch ? 10px : 11px;
+            font-weight: 600;
+            color: cell == "-" ? Theme.graphite : Theme.ink;
+        }
+    }
+}
+
 export component SecretField inherits VerticalLayout {
     in property <int> field;
     in property <string> label;
@@ -573,8 +596,13 @@ export component SecretField inherits VerticalLayout {
     in property <string> hint;
     in property <string> placeholder;
     in property <bool> error: false;
-    // When not empty, shown instead of the dots (a password the user asked to see).
-    in property <string> revealed;
+    // When not empty, shown instead of the dots (a password the user asked to see). With
+    // `eye`, the field has its own eye, and shows what Rust puts in `Secrets.shown`; with
+    // `cells` too (a recovery part), the characters also show one per box, as printed.
+    in property <bool> eye;
+    in property <bool> cells;
+    in property <string> revealed: Secrets.shown[root.field];
+    property <bool> showing: Secrets.showing[root.field];
     callback accepted();
 
     property <int> length: Secrets.lengths[root.field];
@@ -757,7 +785,7 @@ export component SecretField inherits VerticalLayout {
         }
         HorizontalLayout {
             padding-left: 12px;
-            padding-right: 12px;
+            padding-right: root.eye ? (Theme.touch ? 48px : 40px) : 12px;
             spacing: 5px;
             alignment: start;
             if root.revealed != "": Text {
@@ -811,7 +839,14 @@ export component SecretField inherits VerticalLayout {
                 }
             }
         }
+        if root.eye: EyeButton {
+            x: parent.width - self.width - 4px;
+            y: (parent.height - self.height) / 2;
+            open: root.showing;
+            clicked => { Secrets.toggle-shown(root.field); }
+        }
     }
+    if root.cells && root.showing: KeyCells { cells: Secrets.shown-cells[root.field]; }
 }
 
 export component Check inherits Rectangle {

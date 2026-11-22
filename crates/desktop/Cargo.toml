@@ -37,17 +37,13 @@ vault-browser = { path = "../browser" }
 # The Slint screens, compiled apart (see its lib.rs).
 vault-desktop-ui = { path = "ui" }
 anyhow = "1"
-# Website icons (opt-in): fetched directly from each site over HTTPS, decoded in pure Rust.
+# The tray icon and the screenshots' pictures.
 image = { version = "0.25", default-features = false, features = ["png", "ico", "jpeg", "gif", "bmp", "webp"] }
 postcard = { version = "1.1", features = ["use-std"] }
-# SVG website icons, drawn in pure Rust (the same version Slint already uses).
-resvg = { version = "0.48", default-features = false }
 raw-window-handle = "0.6"
 # Native open/save dialogs (kit PDF, import, export).
 rfd = "0.18"
 serde = { version = "1.0", features = ["derive"] }
-# Web app manifests (their list of icons).
-serde_json = "1.0"
 # Fingerprint of the vault file, to notice changes made outside this window.
 sha2 = "0.11"
 ureq = "3.5"

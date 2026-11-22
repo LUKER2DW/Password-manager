@@ -94,4 +94,11 @@ export global Secrets {
     in property <bool> system-keyboard: false;
     callback typed(int, string) -> string;
     pure callback placeholders(int) -> string;
+    // The eye on a field (`SecretField.eye`): which fields the person asked to see, by field
+    // id, and only for those their text, and for a recovery part also one character per box
+    // ("A", "0", "-", …; "" for a box still empty). Only while asked; cleared after.
+    in property <[bool]> showing;
+    in property <[string]> shown;
+    in property <[[string]]> shown-cells;
+    callback toggle-shown(int);
 }

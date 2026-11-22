@@ -979,9 +979,10 @@ export component EditorPage inherits Rectangle {
                 LineField {
                     horizontal-stretch: 2;
                     label: @tr("Title");
-                    required: true;
+                    // An authenticator item takes the service's name from its setup key.
+                    required: root.kind != 3;
                     icon: "tag";
-                    placeholder: root.kind == 1 ? @tr("Visa ending 4242") : root.kind == 2 ? @tr("Home Wi-Fi") : root.kind == 3 ? @tr("e.g. GitHub, Google, Microsoft") : @tr("GitHub");
+                    placeholder: root.kind == 1 ? @tr("Visa ending 4242") : root.kind == 2 ? @tr("Home Wi-Fi") : root.kind == 3 ? @tr("Taken from the setup key") : @tr("GitHub");
                     text <=> root.title;
                     error: root.error-code == 9;
                 }
@@ -1003,11 +1004,12 @@ export component EditorPage inherits Rectangle {
                     placeholder: root.kind == 1 ? "" : @tr("you@example.com");
                     text <=> root.username;
                 }
-                if root.kind == 0 || root.kind == 3: LineField {
+                // The item's icon comes from its website: a card's is its bank's site.
+                LineField {
                     horizontal-stretch: 1;
                     label: @tr("Website");
                     icon: "globe";
-                    placeholder: "https://";
+                    placeholder: root.kind == 1 ? @tr("The bank's site, for its icon") : "https://";
                     text <=> root.url;
                 }
             }
@@ -1020,13 +1022,6 @@ export component EditorPage inherits Rectangle {
                 mono: true;
                 error: root.error-code == 10 || root.error-code == 41;
                 text <=> root.totp;
-            }
-            LineField {
-                label: @tr("Icon from");
-                icon: "globe";
-                hint: @tr("Type a website, for example nubank.com.br, to show its icon for this item. Leave it empty to use the item's own website. The icon is fetched once from that site and kept encrypted on this computer.");
-                placeholder: root.kind == 0 ? @tr("Same as the website") : @tr("e.g. nubank.com.br");
-                text <=> root.icon-url;
             }
             if root.kind == 1: HorizontalLayout {
                 spacing: 16px;
@@ -1156,7 +1151,7 @@ export component EditorPage inherits Rectangle {
                 crack-amount: root.crack-amount;
                 weakness: root.weakness;
             }
-            if root.kind == 0 || root.kind == 3: NotesField {
+            if root.kind == 0: NotesField {
                 label: @tr("Recovery codes");
                 icon: "list";
                 hint: @tr("The single-use backup codes a site gives you when you turn on two-step sign-in (also called backup codes). They get you in if you lose your phone. Paste them all, one per line; numbering is removed. On the item page you can copy one and mark it as used.");
@@ -1285,6 +1280,12 @@ export component GeneratorPage inherits Rectangle {
     in-out property <bool> avoid-ambiguous;
     in-out property <string> also-use;
     in-out property <string> never-use;
+    in-out property <int> min-lowercase;
+    in-out property <int> min-uppercase;
+    in-out property <int> min-digits;
+    in-out property <int> min-symbols;
+    // Advanced options: minimums per kind, characters added or left out, look-alikes.
+    property <bool> advanced: root.min-lowercase + root.min-uppercase + root.min-digits + root.min-symbols > 0 || root.also-use != "" || root.never-use != "";
     in-out property <int> word-case;
     in-out property <bool> number;
     in-out property <string> separator;
@@ -1422,6 +1423,31 @@ export component GeneratorPage inherits Rectangle {
                         Check { text: @tr("0–9 digits"); checked <=> root.digits; toggled => { root.regenerate(); } }
                         Check { text: @tr("!@#$%^&* symbols"); checked <=> root.symbols; toggled => { root.regenerate(); } }
                     }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    QuietButton {
+                        icon: "gear";
+                        text: root.advanced ? @tr("Fewer options") : @tr("Advanced options");
+                        clicked => { root.advanced = !root.advanced; }
+                    }
+                }
+                if root.advanced: VerticalLayout {
+                    spacing: 10px;
+                    Text {
+                        text: @tr("For sites with rules: at least this many of each kind. The length grows if they need more room.");
+                        font-size: Theme.small;
+                        color: Theme.graphite;
+                        wrap: word-wrap;
+                    }
+                    Stepper { label: @tr("At least, capitals"); value <=> root.min-uppercase; maximum: 64; changed => { root.regenerate(); } }
+                    Stepper { label: @tr("At least, lowercase"); value <=> root.min-lowercase; maximum: 64; changed => { root.regenerate(); } }
+                    Stepper { label: @tr("At least, digits"); value <=> root.min-digits; maximum: 64; changed => { root.regenerate(); } }
+                    Stepper { label: @tr("At least, symbols"); value <=> root.min-symbols; maximum: 64; changed => { root.regenerate(); } }
+                }
+                if root.advanced: GridLayout {
+                    spacing-horizontal: 24px;
+                    spacing-vertical: 10px;
                     Row {
                         HorizontalLayout {
                             spacing: 8px;
@@ -1437,7 +1463,7 @@ export component GeneratorPage inherits Rectangle {
                         Check { text: @tr("Leave out look-alikes (I l 1 O 0 o |)"); checked <=> root.avoid-ambiguous; toggled => { root.regenerate(); } }
                     }
                 }
-                HorizontalLayout {
+                if root.advanced: HorizontalLayout {
                     spacing: 16px;
                     LineField {
                         horizontal-stretch: 1;
@@ -3530,6 +3556,7 @@ export component KitPage inherits Rectangle {
     in property <string> kit-part-b;
     in property <string> kit-part-c;
     in property <int> vault-recovery;
+    in-out property <bool> kit-filled: true;
     callback show-kit();
     callback hide-kit();
     callback new-parts();
@@ -3594,6 +3621,11 @@ export component KitPage inherits Rectangle {
                         : root.vault-recovery == 1 ? @tr("This vault still uses the Recovery Key of an older kit, which opens it on its own. Issue recovery parts to replace it: three pieces kept apart, where any two bring back the Secret Key and all three a new master password.")
                         : @tr("This vault has no way to recover a forgotten master password. Issue recovery parts to add one.");
                 }
+                Choice {
+                    options: [@tr("Print the keys"), @tr("Print empty boxes to fill in by hand")];
+                    selected: root.kit-filled ? 0 : 1;
+                    changed(index) => { root.kit-filled = index == 0; }
+                }
                 HorizontalLayout {
                     alignment: start;
                     spacing: 8px;
@@ -3611,7 +3643,7 @@ export component KitPage inherits Rectangle {
                     if root.kit-part-c != "": VerticalLayout {
                         alignment: center;
                         QuietButton {
-                            text: @tr("Hide part C in a picture…");
+                            text: @tr("Save part C in a picture…");
                             clicked => { root.save-part-picture(); }
                         }
                     }
@@ -3635,7 +3667,7 @@ export component KitPage inherits Rectangle {
                     }
                 }
                 if root.kit-part-c != "": Text {
-                    text: @tr("Part C can also live in a photo of yours: the app saves a copy of it as a PNG that looks the same and holds the part in its pixels. Keep that file as it is; a resized or converted copy (as chat apps send) loses the part.");
+                    text: @tr("A copy of a photo of yours, as a PNG that looks the same with part C in its pixels. Keep the file as it is: a resized or converted copy loses the part.");
                     font-size: Theme.small;
                     color: Theme.faint;
                     wrap: word-wrap;

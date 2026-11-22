@@ -216,6 +216,44 @@ pub fn editor_kind_to_kind(value: i32) -> ItemKind {
 
 /// The editor kind for a new item asked for from list `category` (2 logins, 3 cards, 4 notes)
 /// or from the Authenticator page.
+/// The site's name in a web address: `https://www.example.com:8443/x` → `example.com`.
+pub fn site_name(url: &str) -> String {
+    let url = url.trim();
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = host.rsplit_once('@').map_or(host, |(_, host)| host);
+    let host = host.split(':').next().unwrap_or_default().to_lowercase();
+    host.strip_prefix("www.").map(str::to_owned).unwrap_or(host)
+}
+
+/// The name an authenticator item takes when none was typed: the service in its setup key
+/// (`otpauth://` link), else its website's name.
+pub fn authenticator_title(setup_key: &str, website: &str) -> String {
+    let issuer = vault_core::totp::names(setup_key).issuer;
+    if issuer.is_empty() {
+        site_name(website)
+    } else {
+        issuer
+    }
+}
+
+/// A key as the emergency kit prints it, one character per box: its two-character prefix, then
+/// `groups` groups of `group_len`, with a `-` between them; "" for a box still empty. What was
+/// typed counts only for its letters and digits (dashes and spaces don't matter), in capitals;
+/// anything past the last box is left out.
+pub fn key_cells(typed: &str, groups: usize, group_len: usize) -> Vec<String> {
+    let mut chars = typed
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_uppercase().to_string());
+    let mut cells: Vec<String> = (0..2).map(|_| chars.next().unwrap_or_default()).collect();
+    for _ in 0..groups {
+        cells.push("-".into());
+        cells.extend((0..group_len).map(|_| chars.next().unwrap_or_default()));
+    }
+    cells
+}
+
 pub fn new_item_kind(category: i32, authenticator: bool) -> i32 {
     if authenticator {
         return EDITOR_AUTHENTICATOR;
@@ -605,6 +643,32 @@ mod tests {
         assert_eq!(lock_warning_lead(300), 60);
         assert_eq!(lock_warning_lead(60), 30);
         assert_eq!(lock_warning_lead(3600), 60);
+    }
+
+    #[test]
+    fn authenticator_names() {
+        assert_eq!(
+            authenticator_title("otpauth://totp/GitHub:me?secret=GEZDGNBV&issuer=GitHub", ""),
+            "GitHub"
+        );
+        assert_eq!(
+            authenticator_title("GEZD GNBV", "https://www.example.com/login"),
+            "example.com"
+        );
+        assert_eq!(authenticator_title("GEZDGNBV", ""), "");
+        assert_eq!(site_name("http://me@Example.org:8080/a?b"), "example.org");
+    }
+
+    #[test]
+    fn keys_in_boxes() {
+        let cells = key_cells("a0-abcdefg hjkm", 4, 7);
+        assert_eq!(cells.len(), 2 + 4 * 8);
+        assert_eq!(cells[..3], ["A", "0", "-"]);
+        assert_eq!(cells[3..10].concat(), "ABCDEFG");
+        assert_eq!(cells[10], "-");
+        assert_eq!(cells[11..15].concat(), "HJKM");
+        assert_eq!(cells[15], "");
+        assert!(key_cells("", 4, 7).iter().all(|c| c.is_empty() || c == "-"));
     }
 
     #[test]

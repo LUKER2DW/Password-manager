@@ -125,6 +125,39 @@ export component PairingDialog inherits Modal {
     }
 }
 
+// Recovery parts just brought back the Secret Key: they no longer work (each kit's parts
+// work once). A new kit is offered at once.
+export component PartsUsedDialog inherits Modal {
+    callback decided(bool);
+    dismissed => { root.decided(false); }
+    Text {
+        text: @tr("Your recovery parts were used");
+        font-size: Theme.title;
+        color: Theme.ink;
+    }
+    Text {
+        text: @tr("They brought back your Secret Key, and now they no longer work. Make a new emergency kit and print it, so you have a way back in again.");
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        alignment: end;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            QuietButton {
+                text: @tr("Later");
+                clicked => { root.decided(false); }
+            }
+        }
+        Button {
+            text: @tr("Make a new kit");
+            clicked => { root.decided(true); }
+        }
+    }
+}
+
 export component FolderDialog inherits Modal {
     in property <int> mode;
     in-out property <string> name;

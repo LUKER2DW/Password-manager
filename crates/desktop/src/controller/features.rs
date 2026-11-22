@@ -67,6 +67,11 @@ impl Controller {
         app.set_gen_word_case(i32::from(prefs.word_case.min(3)));
         app.set_gen_number(prefs.add_digit);
         app.set_gen_separator(SharedString::from(prefs.separator.as_str()));
+        let minimum = |n: u32| i32::try_from(n.min(128)).unwrap_or(0);
+        app.set_gen_min_lowercase(minimum(prefs.min_lowercase));
+        app.set_gen_min_uppercase(minimum(prefs.min_uppercase));
+        app.set_gen_min_digits(minimum(prefs.min_digits));
+        app.set_gen_min_symbols(minimum(prefs.min_symbols));
         self.load_wordlists();
         let index = self
             .state
@@ -101,6 +106,10 @@ impl Controller {
             add_digit: app.get_gen_number(),
             separator: app.get_gen_separator().chars().take(3).collect(),
             wordlist,
+            min_lowercase: u32::try_from(app.get_gen_min_lowercase().clamp(0, 128)).unwrap_or(0),
+            min_uppercase: u32::try_from(app.get_gen_min_uppercase().clamp(0, 128)).unwrap_or(0),
+            min_digits: u32::try_from(app.get_gen_min_digits().clamp(0, 128)).unwrap_or(0),
+            min_symbols: u32::try_from(app.get_gen_min_symbols().clamp(0, 128)).unwrap_or(0),
         }
     }
 
@@ -153,7 +162,16 @@ impl Controller {
                 avoid_ambiguous: prefs.avoid_ambiguous,
                 also_use: prefs.also_use.clone(),
                 never_use: prefs.never_use.clone(),
+                min_lowercase: prefs.min_lowercase as usize,
+                min_uppercase: prefs.min_uppercase as usize,
+                min_digits: prefs.min_digits as usize,
+                min_symbols: prefs.min_symbols as usize,
             };
+            // Minimums that need more characters than the length: the length grows.
+            if options.required() > options.length {
+                options.length = options.required().min(128);
+                app.set_gen_length(i32::try_from(options.length).unwrap_or(24));
+            }
             if options.alphabet_size() == 0 {
                 // Nothing left to draw from: fall back to lowercase letters.
                 options.lowercase = true;

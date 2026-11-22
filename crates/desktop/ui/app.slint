@@ -3,7 +3,7 @@ import { Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, Recen
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage } from "pages.slint";
-import { FolderDialog, PairingDialog } from "dialogs.slint";
+import { FolderDialog, PairingDialog, PartsUsedDialog } from "dialogs.slint";
 import { MenuCard, MenuEntry, MenuRule, Backdrop } from "widgets.slint";
 import { Glyph } from "icons.slint";
 // A second window: the notification area icon's menu (src/tray.rs).
@@ -120,6 +120,15 @@ export component AppWindow inherits Window {
     in property <string> kit-part-b;
     in property <string> kit-part-c;
     in-out property <bool> kit-saved;
+    // The kit on paper: the keys printed, or empty boxes to write them in by hand.
+    in-out property <bool> kit-filled: true;
+    // Recovery in two steps (the parts, checked; then the new password), and new parts made
+    // right after a recovery used the old ones.
+    in-out property <int> recover-step: 1;
+    callback check-parts();
+    callback new-parts-now();
+    // Recovery parts were just used to open the vault: they no longer work, a new kit is offered.
+    in-out property <bool> parts-used;
     callback create-vault();
     callback finish-onboarding-import();
     callback suggest-passphrase();
@@ -422,6 +431,10 @@ export component AppWindow inherits Window {
     in-out property <bool> gen-extended;
     in-out property <string> gen-also-use;
     in-out property <string> gen-never-use;
+    in-out property <int> gen-min-lowercase;
+    in-out property <int> gen-min-uppercase;
+    in-out property <int> gen-min-digits;
+    in-out property <int> gen-min-symbols;
     in property <int> gen-alphabet;
     in-out property <int> gen-word-case;
     in-out property <bool> gen-number;
@@ -525,6 +538,8 @@ export component AppWindow inherits Window {
         kit-part-c: root.kit-part-c;
         kit-path: root.vault-path;
         kit-saved <=> root.kit-saved;
+        kit-filled <=> root.kit-filled;
+        new-parts-now => { root.new-parts-now(); }
         guard <=> root.onboarding-guard;
         guard-all <=> root.guard-all;
         guard-hello <=> root.guard-hello;
@@ -578,6 +593,8 @@ export component AppWindow inherits Window {
         error-code: root.error-code;
         error-detail: root.error-detail;
         with-parts: root.recover-with-parts;
+        step <=> root.recover-step;
+        check-parts => { root.check-parts(); }
         choose-part-picture => { root.choose-part-picture(); }
         recover => { root.recover(); }
         back => { root.back-to-unlock(); }
@@ -793,6 +810,10 @@ export component AppWindow inherits Window {
                 extended <=> root.gen-extended;
                 also-use <=> root.gen-also-use;
                 never-use <=> root.gen-never-use;
+                min-lowercase <=> root.gen-min-lowercase;
+                min-uppercase <=> root.gen-min-uppercase;
+                min-digits <=> root.gen-min-digits;
+                min-symbols <=> root.gen-min-symbols;
                 alphabet: root.gen-alphabet;
                 word-case <=> root.gen-word-case;
                 number <=> root.gen-number;
@@ -983,6 +1004,7 @@ export component AppWindow inherits Window {
                 kit-part-b: root.kit-part-b;
                 kit-part-c: root.kit-part-c;
                 vault-recovery: root.vault-recovery;
+                kit-filled <=> root.kit-filled;
                 show-kit => { root.show-kit(); }
                 hide-kit => { root.hide-kit(); }
                 new-parts => { root.new-parts(); }
@@ -1002,6 +1024,15 @@ export component AppWindow inherits Window {
                 seconds: root.lock-warning-seconds;
                 stay => { root.stay-unlocked(); }
             }
+        }
+    }
+
+    if root.screen == Screen.vault && root.parts-used: PartsUsedDialog {
+        width: root.width;
+        height: root.height;
+        decided(make) => {
+            root.parts-used = false;
+            if (make) { root.new-parts-now(); }
         }
     }
 

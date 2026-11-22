@@ -35,13 +35,13 @@ use vault_platform::{
 use zeroize::Zeroizing;
 
 use crate::{
-    favicon::{self, IconCache},
     ui::{
         AppWindow, AuthRow, CodeRow, DetailField, EditField, FolderRow, ItemRow, Panel,
         RecentVault, Screen, Secrets, Theme,
     },
     view,
 };
+use vault_platform::website_icons::{self as favicon, IconCache};
 
 mod browser;
 mod drop_box;
@@ -91,6 +91,8 @@ mod field {
     pub const PART_B: usize = 17;
     pub const PART_C: usize = 18;
     pub const COUNT: usize = 19;
+    /// Fields whose eye also lays the characters out in boxes, as the kit prints them.
+    pub const IN_BOXES: [usize; 4] = [SECRET_KEY, PART_A, PART_B, PART_C];
 }
 
 /// Error codes (texts live in model.slint → Messages.error).
@@ -257,6 +259,8 @@ enum JobResult {
     Unlocked {
         session: Session,
         typed_secret_key: bool,
+        /// Two recovery parts brought back the Secret Key: they are retired once open.
+        used_parts: bool,
         /// How long opening took (Argon2id), shown on the Settings page; `None` for Windows
         /// Hello, which skips it.
         seconds: Option<f64>,
@@ -454,6 +458,10 @@ pub struct Controller {
     state: RefCell<State>,
     timers: Timers,
     lengths: Rc<VecModel<i32>>,
+    /// The eye on secret fields (`Secrets.showing`, `shown`, `shown-cells`), by field.
+    showing: Rc<VecModel<bool>>,
+    shown: Rc<VecModel<SharedString>>,
+    shown_cells: Rc<VecModel<ModelRc<SharedString>>>,
     items: Rc<VecModel<ItemRow>>,
     this: RefCell<Weak<Controller>>,
     /// When the auto-lock will lock the vault (while it is open).
@@ -564,6 +572,9 @@ impl Controller {
             }),
             timers: Timers::default(),
             lengths: Rc::new(VecModel::from(vec![0; field::COUNT])),
+            showing: Rc::new(VecModel::from(vec![false; field::COUNT])),
+            shown: Rc::new(VecModel::from(vec![SharedString::new(); field::COUNT])),
+            shown_cells: Rc::new(VecModel::from(vec![ModelRc::default(); field::COUNT])),
             items: Rc::new(VecModel::default()),
             this: RefCell::new(Weak::new()),
             lock_deadline: std::cell::Cell::new(None),
@@ -574,8 +585,11 @@ impl Controller {
             controller.apply_browser_link(true);
         }
 
-        app.global::<Secrets>()
-            .set_lengths(ModelRc::from(controller.lengths.clone()));
+        let secrets = app.global::<Secrets>();
+        secrets.set_lengths(ModelRc::from(controller.lengths.clone()));
+        secrets.set_showing(ModelRc::from(controller.showing.clone()));
+        secrets.set_shown(ModelRc::from(controller.shown.clone()));
+        secrets.set_shown_cells(ModelRc::from(controller.shown_cells.clone()));
         app.set_items(ModelRc::from(controller.items.clone()));
         app.global::<Theme>()
             .set_dark(controller.state.borrow().settings.dark_theme);
@@ -619,6 +633,19 @@ impl Controller {
         }
 
         let secrets = app.global::<Secrets>();
+        {
+            let weak = Rc::downgrade(self);
+            secrets.on_toggle_shown(move |field| {
+                if let Some(c) = weak.upgrade()
+                    && let Ok(index) = usize::try_from(field)
+                    && index < field::COUNT
+                {
+                    let on = !c.showing.row_data(index).unwrap_or(false);
+                    c.showing.set_row_data(index, on);
+                    c.refresh_shown(index);
+                }
+            });
+        }
         {
             let weak = Rc::downgrade(self);
             secrets.on_insert(move |field, text| {
@@ -677,6 +704,8 @@ impl Controller {
         on!(on_quick_unlock, |c| c.quick_unlock());
         on!(on_quick_unlock_toggled, |c, on| c.set_quick_unlock(on));
         on!(on_show_recovery, |c| c.show_recovery());
+        on!(on_check_parts, |c| c.check_parts());
+        on!(on_new_parts_now, |c| c.new_parts_now());
         on!(on_choose_part_picture, |c| c.choose_part_picture());
         on!(on_back_to_unlock, |c| c.show_screen(Screen::Unlock));
         on!(on_recover, |c| c.recover());
@@ -864,6 +893,7 @@ impl Controller {
             let text = SharedString::from(self.state.borrow().secrets[index].as_str());
             self.app().set_editor_password_shown(text);
         }
+        self.refresh_shown(index);
         self.set_error(error::NONE, "");
         self.touch_activity();
     }
@@ -871,12 +901,42 @@ impl Controller {
     fn clear_secret(&self, index: usize) {
         self.state.borrow_mut().secrets[index].clear();
         self.lengths.set_row_data(index, 0);
+        self.refresh_shown(index);
     }
 
+    /// Every field hidden again and its shown text dropped (the screen changed).
     fn clear_all_secrets(&self) {
         for index in 0..field::COUNT {
+            self.showing.set_row_data(index, false);
             self.clear_secret(index);
         }
+    }
+
+    /// What a field's eye shows: its text (and boxes) while asked, nothing otherwise.
+    fn refresh_shown(&self, index: usize) {
+        let on = self.showing.row_data(index).unwrap_or(false);
+        let text = if on {
+            Zeroizing::new(self.state.borrow().secrets[index].as_str().to_owned())
+        } else {
+            Zeroizing::new(String::new())
+        };
+        if self
+            .shown
+            .row_data(index)
+            .is_some_and(|old| old != text.as_str())
+        {
+            self.shown.set_row_data(index, text.as_str().into());
+        }
+        let cells: Vec<SharedString> = if on && field::IN_BOXES.contains(&index) {
+            view::key_cells(&text, 4, 7)
+                .iter()
+                .map(|cell| cell.as_str().into())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.shown_cells
+            .set_row_data(index, ModelRc::new(VecModel::from(cells)));
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1043,6 +1103,7 @@ impl Controller {
             JobResult::Unlocked {
                 session,
                 typed_secret_key,
+                used_parts,
                 seconds,
             } => {
                 if seconds.is_some() {
@@ -1085,6 +1146,9 @@ impl Controller {
                 self.clear_secret(field::PART_B);
                 app.set_use_parts(false);
                 self.enter_vault(session);
+                if used_parts {
+                    self.retire_used_parts();
+                }
                 self.offer_pending_pairing(!pairing_by_password);
             }
             JobResult::KdfFailed {
@@ -1445,9 +1509,10 @@ impl Controller {
             }
         };
         self.app().set_can_use_parts(info.has_recovery_parts);
+        let used_parts = self.app().get_use_parts();
         let (secret_key, typed) = match secret_store::load(&info.id_hex) {
             Ok(Some(key)) => (key, false),
-            Ok(None) if self.app().get_use_parts() => {
+            Ok(None) if used_parts => {
                 match self.secret_key_from_parts(&bytes, info.has_recovery_parts) {
                     Ok(key) => (key, true),
                     Err(code) => {
@@ -1521,6 +1586,7 @@ impl Controller {
                             keyfile: keyfile.map(|(key, _)| key),
                         },
                         typed_secret_key: typed,
+                        used_parts,
                         seconds: Some(seconds),
                     }
                 }
@@ -1552,7 +1618,117 @@ impl Controller {
             .and_then(|bytes| Vault::inspect(&bytes).ok())
             .is_some_and(|info| info.has_recovery_key);
         self.app().set_recover_with_parts(!older_key);
+        self.app().set_recover_step(1);
         self.show_screen(Screen::Recover);
+    }
+
+    /// Recovery, first step: the three parts are tried on the vault file (quick: no password
+    /// hashing) before the new master password is asked for.
+    fn check_parts(&self) {
+        let parts = match self.typed_parts([field::PART_A, field::PART_B, field::PART_C]) {
+            Ok(parts) => parts,
+            Err(code) => return self.set_error(code, ""),
+        };
+        let path = self.state.borrow().path.clone();
+        let bytes = match storage::read(&path) {
+            Ok(bytes) => bytes,
+            Err(err) => return self.set_error(error::FILE, &err.to_string()),
+        };
+        let [a, b, c] = &parts;
+        match Vault::open(&bytes, Unlock::Parts([a, b, c])) {
+            Ok(_) => {
+                self.set_error(error::NONE, "");
+                self.app().set_recover_step(2);
+            }
+            Err(CoreError::NoMatchingSlot) => self.set_error(error::NO_PARTS, ""),
+            Err(CoreError::DecryptionFailed) => self.set_error(error::PARTS_WRONG, ""),
+            Err(other) => self.set_error(error::OTHER, &other.to_string()),
+        }
+    }
+
+    /// Two parts just brought back the Secret Key and the vault is open: they stop working,
+    /// and a new kit is offered.
+    fn retire_used_parts(&self) {
+        let had_parts = {
+            let mut state = self.state.borrow_mut();
+            let Some(session) = state.session.as_mut() else {
+                return;
+            };
+            let had = session.vault.has_recovery_parts();
+            session.vault.clear_recovery_parts();
+            had
+        };
+        if had_parts && self.save_vault() {
+            let app = self.app();
+            app.set_vault_recovery(0);
+            app.set_parts_used(true);
+        }
+    }
+
+    /// New recovery parts without asking for the master password again: right after a
+    /// recovery (the vault waiting on the kit screen) or right after unlocking with parts.
+    fn new_parts_now(&self) {
+        let app = self.app();
+        if app.get_screen() == Screen::Onboarding {
+            let made = {
+                let mut state = self.state.borrow_mut();
+                let path = state.path.clone();
+                let Some(Session {
+                    vault, secret_key, ..
+                }) = state.pending.as_mut()
+                else {
+                    return;
+                };
+                (|| -> vault_core::Result<RecoveryParts> {
+                    let parts = RecoveryParts::generate()?;
+                    vault.set_recovery_parts(&parts, secret_key)?;
+                    storage::write_atomic(&path, &vault.to_bytes()?)?;
+                    let _ = device::record_revision(&vault.id_hex(), vault.revision());
+                    Ok(parts)
+                })()
+            };
+            match made {
+                Ok(parts) => {
+                    show_kit_parts(&app, &parts);
+                    app.set_kit_saved(false);
+                }
+                Err(err) => self.set_error(error::FILE, &err.to_string()),
+            }
+            return;
+        }
+        let made = {
+            let mut state = self.state.borrow_mut();
+            let Some(session) = state.session.as_mut() else {
+                return;
+            };
+            let secret_key = &session.secret_key;
+            RecoveryParts::generate().and_then(|parts| {
+                session
+                    .vault
+                    .set_recovery_parts(&parts, secret_key)
+                    .map(|()| parts)
+            })
+        };
+        match made {
+            Ok(parts) if self.save_vault() => {
+                app.set_kit_secret_key(SharedString::from(
+                    self.state
+                        .borrow()
+                        .session
+                        .as_ref()
+                        .map(|s| s.secret_key.to_display_string().to_string())
+                        .unwrap_or_default()
+                        .as_str(),
+                ));
+                show_kit_parts(&app, &parts);
+                app.set_vault_recovery(2);
+                app.set_panel(Panel::Kit);
+                self.note_place();
+                self.notify(notice::PARTS_ISSUED, "");
+            }
+            Ok(_) => {}
+            Err(err) => self.set_error(error::OTHER, &err.to_string()),
+        }
     }
 
     /// The recovery parts typed into `fields`, each a different one. `Err` is the error code
@@ -1638,6 +1814,11 @@ impl Controller {
                 vault
                     .change_password(&password, &secret_key, None, &kdf)
                     .map_err(|e| (error::OTHER, e.to_string()))?;
+                // Recovery parts work once: the ones just typed stop working (new ones are
+                // offered with the new kit).
+                if matches!(with, With::Parts(_)) {
+                    vault.clear_recovery_parts();
+                }
                 let _ = vault_platform::keyfile::remember_path(&vault.id_hex(), None);
                 let bytes = vault
                     .to_bytes()
@@ -1743,6 +1924,7 @@ impl Controller {
                             keyfile,
                         },
                         typed_secret_key: false,
+                        used_parts: false,
                         seconds: None,
                     }
                 }
@@ -3363,12 +3545,24 @@ impl Controller {
 
     fn save_item(&self) {
         let app = self.app();
-        let title = app.get_ed_title().trim().to_owned();
+        let totp = app.get_ed_totp().trim().to_owned();
+        let mut title = app.get_ed_title().trim().to_owned();
+        // An authenticator item named by nobody takes the service in its setup key, else its
+        // website's name.
+        if title.is_empty() && app.get_ed_kind() == view::EDITOR_AUTHENTICATOR {
+            title = view::authenticator_title(&totp, &app.get_ed_url());
+        }
         if title.is_empty() {
-            self.set_error(error::TITLE_REQUIRED, "");
+            self.set_error(
+                if app.get_ed_kind() == view::EDITOR_AUTHENTICATOR && totp.is_empty() {
+                    error::TOTP_REQUIRED
+                } else {
+                    error::TITLE_REQUIRED
+                },
+                "",
+            );
             return;
         }
-        let totp = app.get_ed_totp().trim().to_owned();
         if !totp.is_empty() && Totp::parse(&totp).is_err() {
             self.set_error(error::BAD_TOTP, "");
             return;
@@ -3394,6 +3588,9 @@ impl Controller {
         item.kind = kind;
         item.title = title;
         item.username = app.get_ed_username().to_string();
+        if item.username.trim().is_empty() && app.get_ed_kind() == view::EDITOR_AUTHENTICATOR {
+            item.username = vault_core::totp::names(&totp).account;
+        }
         item.password = self.state.borrow().secrets[field::ITEM_PASSWORD]
             .as_str()
             .to_owned();
@@ -3979,9 +4176,16 @@ impl Controller {
                 .then(|| [parts[0].as_str(), parts[1].as_str(), parts[2].as_str()]),
             vault_id: &vault_id,
             created_at,
+            filled: app.get_kit_filled(),
         });
         let short_id: String = vault_id.chars().take(8).collect();
         Some((format!("emergency-kit-{short_id}.pdf"), bytes))
+    }
+
+    /// The kit as it would print (tests).
+    #[cfg(test)]
+    pub(crate) fn kit_pdf_for_test(&self) -> Option<Zeroizing<Vec<u8>>> {
+        self.kit_pdf().map(|(_, bytes)| bytes)
     }
 
     /// Writes the kit to the print folder (wiped when the vault locks) and opens it in the PDF
@@ -4208,12 +4412,13 @@ impl Controller {
     }
 
     // -----------------------------------------------------------------------------------------
-    // Website icons (opt-in; see favicon.rs for the privacy model)
+    // Website icons (opt-in; see vault_platform::website_icons for the privacy model)
     // -----------------------------------------------------------------------------------------
 
-    /// What to draw for an item: its site's icon when there is one to show, else its initial on
-    /// a colour. `icon_url` (chosen in the editor) wins over `url` and is shown even when
-    /// website icons are off, since the user asked for that icon.
+    /// What to draw for an item: its website's icon when there is one to show (any kind: a
+    /// card's is its bank's site), else its initial on a colour. An `icon_url` chosen in an
+    /// earlier version wins over `url` and is shown even when website icons are off, since
+    /// the user asked for that icon.
     fn icon_for(&self, kind: ItemKind, url: &str, icon_url: &str, title: &str) -> IconVisual {
         let chosen = !icon_url.trim().is_empty();
         let key = if chosen {
@@ -4228,8 +4433,7 @@ impl Controller {
             initial: SharedString::from(view::initial(title)),
             tint: slint::Color::from_rgb_u8(r, g, b),
         };
-        let wanted =
-            chosen || (kind == ItemKind::Login && self.state.borrow().settings.website_icons);
+        let wanted = chosen || self.state.borrow().settings.website_icons;
         if let Some(image) = key
             .filter(|_| wanted)
             .and_then(|key| self.cached_icon(&key))
@@ -4330,8 +4534,8 @@ impl Controller {
             }
             let all_sites = state.settings.website_icons;
             let mut seen = std::collections::BTreeSet::new();
-            // Every login's site when website icons are on; the icons chosen per item and per
-            // folder always (the user asked for those).
+            // Every item's website when website icons are on; the icons chosen per item and
+            // per folder always (the user asked for those).
             let folder_links: Vec<String> = state
                 .session
                 .as_ref()
@@ -4349,7 +4553,7 @@ impl Controller {
                 .filter_map(|s| {
                     if !s.icon_url.trim().is_empty() {
                         favicon::IconSource::parse(&s.icon_url)
-                    } else if all_sites && s.kind == ItemKind::Login {
+                    } else if all_sites {
                         favicon::host_of(&s.url).map(favicon::IconSource::Site)
                     } else {
                         None

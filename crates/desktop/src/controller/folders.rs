@@ -5,7 +5,7 @@ use slint::{Image, SharedString};
 use vault_core::FolderId;
 
 use super::{CURRENT, Controller, FOLDER_CATEGORY, Runner, error, notice};
-use crate::favicon::IconSource;
+use vault_platform::website_icons::IconSource;
 
 /// `folder-dialog` values in app.slint.
 const CLOSED: i32 = -1;
@@ -149,7 +149,7 @@ impl Controller {
         }
     }
 
-    fn folder_preview_fetched(&self, key: String, icon: crate::favicon::Fetched) {
+    fn folder_preview_fetched(&self, key: String, icon: vault_platform::website_icons::Fetched) {
         if self.state.borrow().session.is_none() {
             return; // locked meanwhile
         }
