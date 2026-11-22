@@ -133,6 +133,10 @@ mod notice {
     pub const DEVICE_REMOVED: i32 = 15;
     pub const BIO_REVOKED: i32 = 16;
     pub const VAULT_REMOVED: i32 = 17;
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const BACKUP_JOINED: i32 = 18;
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const ADDRESS_CHANGED: i32 = 19;
 }
 
 /// How long a copied secret may stay on the clipboard (Settings), in seconds.
@@ -556,6 +560,17 @@ impl Controller {
         on!(on_check_password, |c| c.check_password());
         on!(on_sync_remove_device, |c, index| c
             .sync_remove_device(index));
+        on!(on_sync_add_device, |c| c.sync_add_device());
+        on!(on_sync_hide_invite, |c| c.sync_hide_invite());
+        on!(on_sync_copy_invite, |c| {
+            let line = c.app().get_sync_invite();
+            if !line.is_empty() {
+                c.copy_secret(&line, notice::COPIED);
+            }
+        });
+        on!(on_sync_change_address, |c| c.sync_change_address());
+        on!(on_sync_join_backup, |c| c.sync_join_backup());
+        on!(on_sync_remove_backup, |c| c.sync_remove_backup());
         on!(on_change_password, |c| c.change_password());
         on!(on_cancel_password_change, |c| c.close_password_change());
 

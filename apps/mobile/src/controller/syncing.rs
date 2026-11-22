@@ -36,6 +36,11 @@ impl Controller {
     }
     pub(super) fn sync_stop(&self) {}
     pub(super) fn sync_remove_device(&self, _index: i32) {}
+    pub(super) fn sync_add_device(&self) {}
+    pub(super) fn sync_hide_invite(&self) {}
+    pub(super) fn sync_change_address(&self) {}
+    pub(super) fn sync_join_backup(&self) {}
+    pub(super) fn sync_remove_backup(&self) {}
     pub fn sync_round(&self) {}
 }
 
@@ -53,7 +58,7 @@ mod native {
         time::Duration,
     };
 
-    use slint::{ModelRc, SharedString, TimerMode, VecModel};
+    use slint::{ModelRc, SharedPixelBuffer, SharedString, TimerMode, VecModel};
     use vault_core::sync::DeviceId;
     use vault_platform::{
         DeviceState, SyncPlace, SyncTo, secret_store,
@@ -653,6 +658,188 @@ mod native {
             }
         }
 
+        /// This phone's key for the server in `role`, as a client of it at `url`.
+        fn server_for(place: &Place, url: &str, role: Role) -> Result<ServerTarget, String> {
+            let seed = secret_store::load_sync_key(
+                &place.vault_id,
+                &sync::sync_key_name(place.device, role),
+            )
+            .map_err(|err| format!("{err:#}"))?
+            .ok_or("this phone has no key for that server: stop syncing and join again")?;
+            ServerTarget::new(
+                url,
+                &place.vault_id,
+                place.device,
+                DeviceKey::from_seed(&seed),
+            )
+            .map_err(|err| format!("{err:#}"))
+        }
+
+        /// "Add a device": a one-time invite from the server (and the backup's, when it
+        /// answers), shown as a QR code and as its `vaultsync:` line.
+        pub(in crate::controller) fn sync_add_device(&self) {
+            let Some(place) = self.sync_place() else {
+                return;
+            };
+            let SyncTo::Server { url } = place.place.to.clone() else {
+                return;
+            };
+            let backup = match place.place.backup.clone() {
+                Some(SyncTo::Server { url }) => Some(url),
+                _ => None,
+            };
+            self.app().set_sync_busy(true);
+            let job = move || -> Result<Zeroizing<String>, String> {
+                let server = Self::server_for(&place, &url, Role::Main)?;
+                let invite = server.invite().map_err(|err| format!("{err:#}"))?;
+                let mut link = server.invite_link(&invite);
+                if let Some(backup) = &backup
+                    && let Ok(target) = Self::server_for(&place, backup, Role::Backup)
+                    && let Ok(backup_invite) = target.invite()
+                {
+                    link.backup = Some((
+                        target.invite_link(&backup_invite).server,
+                        backup_invite.invite,
+                    ));
+                }
+                Ok(link.to_text())
+            };
+            self.off_thread(job, |controller, result| {
+                let app = controller.app();
+                app.set_sync_busy(false);
+                match result {
+                    Ok(text) => {
+                        app.set_sync_invite_qr(qr_image(&text));
+                        app.set_sync_invite(SharedString::from(text.as_str()));
+                    }
+                    Err(why) => controller.sync_setup_failed(&why),
+                }
+            });
+        }
+
+        /// Hides the invite (it stays good until used, or for an hour).
+        pub(in crate::controller) fn sync_hide_invite(&self) {
+            let app = self.app();
+            app.set_sync_invite(SharedString::new());
+            app.set_sync_invite_qr(slint::Image::default());
+        }
+
+        /// "Change the server's address": the same server somewhere else. It is used only once
+        /// it answers this phone's key there (so it is the server that knows this phone).
+        pub(in crate::controller) fn sync_change_address(&self) {
+            let app = self.app();
+            let Some(place) = self.sync_place() else {
+                return;
+            };
+            if !matches!(place.place.to, SyncTo::Server { .. }) {
+                return;
+            }
+            let address = match sync::check_address(app.get_sync_new_address().trim()) {
+                Ok(address) => address,
+                Err(err) => return self.sync_setup_failed(&format!("{err:#}")),
+            };
+            app.set_sync_busy(true);
+            let vault_id = place.vault_id.clone();
+            let job = {
+                let address = address.clone();
+                move || -> Result<(), String> {
+                    Self::server_for(&place, &address, Role::Main)?
+                        .enrolled()
+                        .map(|_| ())
+                        .map_err(|err| format!("{err:#}"))
+                }
+            };
+            self.off_thread(job, move |controller, result| {
+                let app = controller.app();
+                app.set_sync_busy(false);
+                if let Err(why) = result {
+                    return controller.sync_setup_failed(&why);
+                }
+                let mut device_state = DeviceState::load().unwrap_or_default();
+                device_state.set_sync_to(&vault_id, Some(SyncTo::Server { url: address }));
+                if let Err(err) = device_state.save() {
+                    return controller.sync_setup_failed(&format!("{err:#}"));
+                }
+                app.set_sync_editing(false);
+                controller.notify(super::super::notice::ADDRESS_CHANGED, "");
+                controller.start_sync();
+            });
+        }
+
+        /// "Add a backup server": joins a second server with an invite for it (a
+        /// `vaultsync:` line that names it, or one from `vault-server invite` with its
+        /// address), keeps this phone's key for it, and syncs through both from now on.
+        pub(in crate::controller) fn sync_join_backup(&self) {
+            let app = self.app();
+            let (Some(vault_id), Some(device)) = (self.vault_id(), self.device_id()) else {
+                return;
+            };
+            let typed = app.get_sync_backup_invite().trim().to_owned();
+            let (address, invite) = match InviteLink::parse(&typed) {
+                Some(link) if link.vault != vault_id => {
+                    return self.sync_setup_failed("that invite is for another vault");
+                }
+                Some(link) => (link.server, link.invite),
+                None => (app.get_sync_backup_address().trim().to_owned(), typed),
+            };
+            let address = match sync::check_address(&address) {
+                Ok(address) => address,
+                Err(err) => return self.sync_setup_failed(&format!("{err:#}")),
+            };
+            let main = DeviceState::load()
+                .ok()
+                .and_then(|state| state.sync_place(&vault_id))
+                .map(|place| place.to);
+            if let Some(SyncTo::Server { url }) = &main
+                && sync::split_pin(url).0 == sync::split_pin(&address).0
+            {
+                return self.sync_setup_failed("that is the main server: a backup is another one");
+            }
+            app.set_sync_busy(true);
+            let job = {
+                let (vault_id, address) = (vault_id.clone(), address.clone());
+                move || -> Result<(), String> {
+                    join_or_resume(&address, &vault_id, device, &invite, Role::Backup).map(|_| ())
+                }
+            };
+            self.off_thread(job, move |controller, result| {
+                let app = controller.app();
+                app.set_sync_busy(false);
+                if let Err(why) = result {
+                    return controller.sync_setup_failed(&why);
+                }
+                let mut device_state = DeviceState::load().unwrap_or_default();
+                device_state.set_sync_backup(&vault_id, Some(SyncTo::Server { url: address }));
+                if let Err(err) = device_state.save() {
+                    return controller.sync_setup_failed(&format!("{err:#}"));
+                }
+                app.set_sync_backup_form(false);
+                app.set_sync_backup_invite(SharedString::new());
+                app.set_sync_backup_address(SharedString::new());
+                controller.state.borrow_mut().sync.tags = KnownTags::default();
+                controller.notify(super::super::notice::BACKUP_JOINED, "");
+                controller.show_sync();
+                controller.sync_round();
+            });
+        }
+
+        /// "Remove the backup server": this phone stops syncing through it (its copy there is
+        /// left) and forgets its key for it.
+        pub(in crate::controller) fn sync_remove_backup(&self) {
+            let (Some(vault_id), Some(device)) = (self.vault_id(), self.device_id()) else {
+                return;
+            };
+            let mut device_state = DeviceState::load().unwrap_or_default();
+            device_state.set_sync_backup(&vault_id, None);
+            let _ = device_state.save();
+            let _ = secret_store::forget_sync_key(
+                &vault_id,
+                &sync::sync_key_name(device, Role::Backup),
+            );
+            self.app().set_sync_backup_down(SharedString::new());
+            self.show_sync();
+        }
+
         /// "Remove" on another device's row: it leaves the vault's device list (so every
         /// device refuses its copies from then on), and its copy and key leave the place.
         pub(in crate::controller) fn sync_remove_device(&self, index: i32) {
@@ -771,6 +958,37 @@ mod native {
                 app.set_sync_state(state::SYNCED);
             }
         }
+    }
+
+    /// A QR code of `text`, black on white with a quiet zone, a few pixels per module (the
+    /// desktop's).
+    fn qr_image(text: &str) -> slint::Image {
+        let Ok(code) = qrcode::QrCode::with_error_correction_level(text, qrcode::EcLevel::M) else {
+            return slint::Image::default();
+        };
+        let modules = code.width();
+        let colors = code.to_colors();
+        let (quiet, scale) = (4, 6);
+        let side = (modules + 2 * quiet) * scale;
+        let Ok(side_px) = u32::try_from(side) else {
+            return slint::Image::default();
+        };
+        let mut buffer = SharedPixelBuffer::<slint::Rgb8Pixel>::new(side_px, side_px);
+        for (i, pixel) in buffer.make_mut_slice().iter_mut().enumerate() {
+            let (x, y) = (i % side / scale, i / side / scale);
+            let dark = x >= quiet
+                && y >= quiet
+                && x - quiet < modules
+                && y - quiet < modules
+                && colors[(y - quiet) * modules + (x - quiet)] == qrcode::Color::Dark;
+            let value = if dark { 0 } else { 255 };
+            *pixel = slint::Rgb8Pixel {
+                r: value,
+                g: value,
+                b: value,
+            };
+        }
+        slint::Image::from_rgb8(buffer)
     }
 
     fn unix_now() -> i64 {

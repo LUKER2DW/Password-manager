@@ -7243,6 +7243,7 @@ dependencies = [
  "anyhow",
  "i-slint-backend-testing",
  "image",
+ "qrcode",
  "rfd",
  "serde",
  "serde_json",

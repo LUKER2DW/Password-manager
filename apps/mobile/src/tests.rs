@@ -1044,6 +1044,40 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         devices,
         [("Phone".to_owned(), true), ("PC".to_owned(), false)]
     );
+    // Settings → Sync, as on a computer: invite another device (a QR code and its line).
+    app.invoke_sync_add_device();
+    assert!(
+        app.get_sync_invite().starts_with("vaultsync:"),
+        "{}",
+        app.get_sync_detail()
+    );
+    assert!(app.get_sync_invite_qr().size().width > 0);
+    app.invoke_sync_copy_invite();
+    assert_eq!(app.get_notice_code(), 7);
+    app.invoke_sync_hide_invite();
+    assert_eq!(app.get_sync_invite(), "");
+    // The server's address changes: the server there must know this phone's key.
+    let other = TestServer::start();
+    app.set_sync_new_address(other.url.as_str().into());
+    app.invoke_sync_change_address();
+    assert_eq!(app.get_sync_state(), 3, "another server is refused");
+    assert_eq!(app.get_sync_place(), server.url.as_str());
+    let renamed = server.url.replace("127.0.0.1", "localhost");
+    app.set_sync_new_address(renamed.as_str().into());
+    app.invoke_sync_change_address();
+    assert_eq!(app.get_notice_code(), 19, "{}", app.get_sync_detail());
+    assert_eq!(app.get_sync_place(), renamed.as_str());
+    assert_eq!(app.get_sync_state(), 1, "{}", app.get_sync_detail());
+    // A backup server: joined with an invite from `vault-server invite`, then removed.
+    let backup_invite = vault_server::admin_invite(other.data.path(), 1).unwrap().0;
+    app.set_sync_backup_invite(backup_invite.as_str().into());
+    app.set_sync_backup_address(other.url.as_str().into());
+    app.invoke_sync_join_backup();
+    assert_eq!(app.get_notice_code(), 18, "{}", app.get_sync_detail());
+    assert_eq!(app.get_sync_backup(), other.url.as_str());
+    app.invoke_sync_remove_backup();
+    assert_eq!(app.get_sync_backup(), "");
+    drop(other);
 
     // A new phone is set up from the server alone: the invite line on its start screen.
     {

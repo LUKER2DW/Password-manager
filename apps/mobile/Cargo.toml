@@ -50,6 +50,8 @@ vault-platform = { path = "../../crates/platform" }
 vault-sync-wire = { path = "../../crates/sync-wire" }
 # Settings → Import and export: another manager's export (no browser stores on a phone).
 vault-import = { path = "../../crates/import", default-features = false }
+# Settings → Sync → Add a device: the invite as a QR code (the desktop's).
+qrcode = { version = "0.14", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 anyhow = "1"

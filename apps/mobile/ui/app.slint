@@ -113,6 +113,8 @@ export global Words {
         if (code == 15) { return @tr("“{}” removed: it gets nothing new from now on.", arg); }
         if (code == 16) { return @tr("Fingerprint unlock was turned off because the master password changed. Turn it on again in Settings, Security."); }
         if (code == 17) { return @tr("“{}” was removed from this phone.", arg); }
+        if (code == 18) { return @tr("Backup server added: the vault syncs through both from now on."); }
+        if (code == 19) { return @tr("The server's address changed. This phone's key there stays the same."); }
         return "";
     }
 }
@@ -914,6 +916,21 @@ export component PhoneWindow inherits Window {
     in-out property <int> sync-removing: -1;
     in-out property <bool> sync-explained;
     callback sync-remove-device(int);
+    // Sync with the server, as on a computer: invite another device (a QR code and its line),
+    // change the server's address, add or remove a backup server.
+    in property <string> sync-invite;
+    in property <image> sync-invite-qr;
+    callback sync-add-device();
+    callback sync-hide-invite();
+    callback sync-copy-invite();
+    in-out property <bool> sync-editing;
+    in-out property <string> sync-new-address;
+    callback sync-change-address();
+    in-out property <bool> sync-backup-form;
+    in-out property <string> sync-backup-invite;
+    in-out property <string> sync-backup-address;
+    callback sync-join-backup();
+    callback sync-remove-backup();
     in-out property <int> lock-choice;  // 0: 1 minute, 1: 5 minutes, 2: 15 minutes
     in-out property <int> clipboard-choice;  // 0: 15 s, 1: 30 s, 2: 60 s
     in-out property <bool> website-icons;
@@ -2117,6 +2134,166 @@ export component PhoneWindow inherits Window {
                                         QuietButton {
                                             text: @tr("Stop syncing");
                                             clicked => { root.sync-stop(); }
+                                        }
+                                    }
+                                }
+                                // The server, as on a computer: another device, its address, a backup.
+                                if root.sync-place != "" && !root.sync-webdav: VerticalLayout {
+                                    padding-top: 12px;
+                                    spacing: 8px;
+                                    Text { text: @tr("Your vault server"); font-size: Theme.small; color: Theme.graphite; }
+                                    if root.sync-invite == "": HorizontalLayout {
+                                        alignment: start;
+                                        QuietButton {
+                                            text: root.sync-busy ? @tr("Asking the server…") : @tr("Add a device");
+                                            icon: "stack";
+                                            outlined: true;
+                                            enabled: !root.sync-busy;
+                                            clicked => { root.sync-add-device(); }
+                                        }
+                                    }
+                                    if root.sync-invite != "": Rectangle {
+                                        border-radius: Theme.radius + 4px;
+                                        background: Theme.panel;
+                                        border-width: 1px;
+                                        border-color: Theme.rule;
+                                        VerticalLayout {
+                                            padding: 14px;
+                                            spacing: 10px;
+                                            Text {
+                                                text: @tr("On the other device: Settings, Sync (or its start screen). Scan this code or paste the line. It works once, within an hour, and the device still needs your master password and Secret Key.");
+                                                font-size: Theme.small;
+                                                color: Theme.ink;
+                                                wrap: word-wrap;
+                                            }
+                                            HorizontalLayout {
+                                                alignment: center;
+                                                Rectangle {
+                                                    width: 200px;
+                                                    height: 200px;
+                                                    border-radius: 6px;
+                                                    background: #FFFFFF;
+                                                    Image {
+                                                        width: 184px;
+                                                        height: 184px;
+                                                        source: root.sync-invite-qr;
+                                                        image-rendering: pixelated;
+                                                    }
+                                                }
+                                            }
+                                            Text {
+                                                text: root.sync-invite;
+                                                font-family: Theme.mono-font;
+                                                font-size: Theme.small;
+                                                color: Theme.graphite;
+                                                wrap: word-wrap;
+                                            }
+                                            HorizontalLayout {
+                                                alignment: start;
+                                                spacing: 10px;
+                                                QuietButton {
+                                                    text: @tr("Copy the line");
+                                                    icon: "copy";
+                                                    outlined: true;
+                                                    clicked => { root.sync-copy-invite(); }
+                                                }
+                                                QuietButton {
+                                                    text: @tr("Done");
+                                                    clicked => { root.sync-hide-invite(); }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if !root.sync-editing: HorizontalLayout {
+                                        alignment: start;
+                                        QuietButton {
+                                            text: @tr("Change the server's address");
+                                            icon: "pencil";
+                                            clicked => {
+                                                root.sync-new-address = root.sync-place;
+                                                root.sync-editing = true;
+                                            }
+                                        }
+                                    }
+                                    if root.sync-editing: VerticalLayout {
+                                        spacing: 8px;
+                                        Text {
+                                            text: @tr("When the server moved (a new name, a new address on your network, a new certificate), type where it is now. The phone checks that the server there knows it before using it.");
+                                            font-size: Theme.small;
+                                            color: Theme.ink;
+                                            wrap: word-wrap;
+                                        }
+                                        LineField {
+                                            label: @tr("Server address");
+                                            mono: true;
+                                            text <=> root.sync-new-address;
+                                            accepted => { root.sync-change-address(); }
+                                        }
+                                        HorizontalLayout {
+                                            alignment: start;
+                                            spacing: 10px;
+                                            QuietButton {
+                                                text: root.sync-busy ? @tr("Checking…") : @tr("Save the address");
+                                                outlined: true;
+                                                enabled: !root.sync-busy;
+                                                clicked => { root.sync-change-address(); }
+                                            }
+                                            QuietButton {
+                                                text: @tr("Cancel");
+                                                clicked => { root.sync-editing = false; }
+                                            }
+                                        }
+                                    }
+                                    if root.sync-backup == "" && !root.sync-backup-form: HorizontalLayout {
+                                        alignment: start;
+                                        QuietButton {
+                                            text: @tr("Add a backup server");
+                                            icon: "globe";
+                                            clicked => { root.sync-backup-form = true; }
+                                        }
+                                    }
+                                    if root.sync-backup == "" && root.sync-backup-form: VerticalLayout {
+                                        spacing: 8px;
+                                        Text {
+                                            text: @tr("A second vault server, synced every round too: while one doesn't answer, the vault keeps syncing through the other. Paste an invite for it: the vaultsync: line from Add a device on a device that already uses it, or one from vault-server invite with its address below.");
+                                            font-size: Theme.small;
+                                            color: Theme.ink;
+                                            wrap: word-wrap;
+                                        }
+                                        LineField {
+                                            label: @tr("Invite");
+                                            placeholder: "vaultsync:1?server=…";
+                                            mono: true;
+                                            text <=> root.sync-backup-invite;
+                                        }
+                                        LineField {
+                                            label: @tr("Its address, for an invite from vault-server");
+                                            placeholder: "https://backup.example-net.ts.net";
+                                            mono: true;
+                                            text <=> root.sync-backup-address;
+                                            accepted => { root.sync-join-backup(); }
+                                        }
+                                        HorizontalLayout {
+                                            alignment: start;
+                                            spacing: 10px;
+                                            QuietButton {
+                                                text: root.sync-busy ? @tr("Joining…") : @tr("Add the backup");
+                                                outlined: true;
+                                                enabled: !root.sync-busy;
+                                                clicked => { root.sync-join-backup(); }
+                                            }
+                                            QuietButton {
+                                                text: @tr("Cancel");
+                                                clicked => { root.sync-backup-form = false; }
+                                            }
+                                        }
+                                    }
+                                    if root.sync-backup != "": HorizontalLayout {
+                                        alignment: start;
+                                        QuietButton {
+                                            text: @tr("Remove the backup server");
+                                            icon: "trash";
+                                            clicked => { root.sync-remove-backup(); }
                                         }
                                     }
                                 }
