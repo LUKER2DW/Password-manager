@@ -177,11 +177,17 @@ impl SecretBuffer {
         }
     }
 
-    /// Appends printable characters; control characters and the private-use code points UI
-    /// toolkits use for special keys are ignored. Returns `false` if the buffer is full.
+    /// Whether `c` can be part of a secret (the platform crate's rule): never a control
+    /// character or a private-use code point.
+    pub fn takes(c: char) -> bool {
+        !(c.is_control() || ('\u{E000}'..='\u{F8FF}').contains(&c) || c >= '\u{F0000}')
+    }
+
+    /// Appends the characters it [takes](Self::takes) and skips the others. Returns `false`
+    /// if the buffer is full.
     pub fn push_str(&mut self, text: &str) -> bool {
         for c in text.chars() {
-            if c.is_control() || ('\u{E000}'..='\u{F8FF}').contains(&c) {
+            if !Self::takes(c) {
                 continue;
             }
             let mut encoded = [0u8; 4];

@@ -100,9 +100,31 @@ mod notice {
 
 /// A copied secret leaves the clipboard after this long.
 const CLIPBOARD_SECONDS: u64 = 30;
-/// What a secret field's hidden input holds for each character (system keyboard): a
-/// private-use code point, which secret buffers never take.
-const PLACEHOLDER: char = '\u{E000}';
+/// What a secret field's hidden input holds instead of each character (system keyboard):
+/// characters secret buffers never take, one for each UTF-8 length. A stand-in is as long as
+/// the character it replaces in UTF-8 and in UTF-16, so the place the keyboard puts the
+/// cursor (an offset into what it typed) still falls between two characters; anywhere else,
+/// Slint's password mask panics.
+const STAND_INS: [char; 4] = ['\u{1}', '\u{80}', '\u{E000}', '\u{F0000}'];
+
+fn is_stand_in(c: char) -> bool {
+    STAND_INS.contains(&c)
+}
+
+/// `text` with each character a buffer takes replaced by its stand-in; the others (stand-ins
+/// already, a control character the keyboard sent) stay as they are, since they aren't in the
+/// buffer either.
+fn stand_ins(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if SecretBuffer::takes(c) {
+                STAND_INS[c.len_utf8() - 1]
+            } else {
+                c
+            }
+        })
+        .collect()
+}
 const NOTICE_FOR: Duration = Duration::from_secs(3);
 const LOCK_CHOICES: [Duration; 3] = [
     Duration::from_secs(60),
@@ -377,23 +399,24 @@ impl Controller {
                 c.with_secret(id, SecretBuffer::clear);
             }
         });
-        // The system keyboard (Android): each edit of the hidden input. Placeholders stand
-        // for what the field already holds; fewer of them is that many deleted, anything else
-        // is what was typed. The input gets placeholders back at once.
+        // The system keyboard (Android): each edit of the hidden input, whose cursor stays at
+        // the end. Stand-ins are what the field already holds; fewer of them is that many
+        // deleted, anything else is what was typed (or pasted). The input gets stand-ins back
+        // at once, laid out like what came in.
         let weak = Rc::downgrade(self);
         secrets.on_typed(move |id, text| {
             let Some(c) = weak.upgrade() else {
                 return SharedString::new();
             };
-            let kept = text.chars().filter(|ch| *ch == PLACEHOLDER).count();
+            let kept = text.chars().filter(|ch| is_stand_in(*ch)).count();
             c.with_secret(id, |buffer| {
                 for _ in kept..buffer.char_count() {
                     buffer.backspace();
                 }
-                // Placeholders are private-use characters, which the buffer drops.
+                // The buffer skips the stand-ins.
                 buffer.push_str(&text);
             });
-            c.placeholders(id)
+            SharedString::from(stand_ins(&text).as_str())
         });
         let weak = Rc::downgrade(self);
         secrets.on_placeholders(move |id| {
@@ -447,7 +470,7 @@ impl Controller {
         self.publish_lengths();
     }
 
-    /// As many placeholders as field `id` holds characters.
+    /// A one-byte stand-in for each character field `id` holds.
     fn placeholders(&self, id: i32) -> SharedString {
         let count = usize::try_from(id)
             .ok()
@@ -459,7 +482,7 @@ impl Controller {
                     .map(SecretBuffer::char_count)
             })
             .unwrap_or(0);
-        SharedString::from(PLACEHOLDER.to_string().repeat(count).as_str())
+        SharedString::from(STAND_INS[0].to_string().repeat(count).as_str())
     }
 
     fn publish_lengths(&self) {

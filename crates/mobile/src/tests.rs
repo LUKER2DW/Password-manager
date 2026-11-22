@@ -117,19 +117,19 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     let path = dir.path().join("phone").join("vault.vault");
     let controller = Controller::start(&app, path.clone(), true);
 
-    // ---- the system keyboard (Android): the hidden input only ever holds placeholders ----
+    // ---- the system keyboard (Android): the hidden input only ever holds stand-ins ----
     {
         let secrets = app.global::<Secrets>();
-        let p = '\u{E000}';
+        let p = '\u{1}';
         assert_eq!(secrets.invoke_placeholders(0), "");
         assert_eq!(secrets.invoke_typed(0, "ab".into()), format!("{p}{p}"));
         assert_eq!(length(&app, 0), 2);
-        // One more letter after the placeholders.
+        // One more letter after the stand-ins.
         assert_eq!(
             secrets.invoke_typed(0, format!("{p}{p}c").into()),
             format!("{p}{p}{p}")
         );
-        // Backspace: one placeholder gone.
+        // Backspace: one stand-in gone.
         assert_eq!(
             secrets.invoke_typed(0, format!("{p}{p}").into()),
             format!("{p}{p}")
@@ -140,6 +140,31 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         assert_eq!(secrets.invoke_placeholders(0), format!("{p}"));
         secrets.invoke_clear(0);
         assert_eq!(length(&app, 0), 0);
+
+        // Letters of every UTF-8 length: each stand-in is as long as its letter in UTF-8 and
+        // UTF-16, so the keyboard's cursor (placed by Slint right after) is never inside one.
+        // With same-length stand-ins, this is where typing on the phone crashed the app.
+        let typed = "aé€😀";
+        let back = secrets.invoke_typed(0, typed.into());
+        assert_eq!(back.len(), typed.len());
+        assert_eq!(back.encode_utf16().count(), typed.encode_utf16().count());
+        assert!((0..=typed.len()).all(|i| typed.is_char_boundary(i) == back.is_char_boundary(i)));
+        assert!(!back.chars().any(|c| typed.contains(c)));
+        assert_eq!(length(&app, 0), 4);
+        // Then a pasted line after them, and one of them deleted from the end.
+        let back = secrets.invoke_typed(0, format!("{back}ção").into());
+        assert_eq!(back.len(), format!("{typed}ção").len());
+        assert_eq!(length(&app, 0), 7);
+        let shorter: String = back.chars().take(6).collect();
+        assert_eq!(secrets.invoke_typed(0, shorter.as_str().into()), shorter);
+        assert_eq!(length(&app, 0), 6);
+        // A control character the keyboard sent isn't in the field, and stays as it is.
+        let back = secrets.invoke_typed(0, format!("{shorter}\t").into());
+        assert!(back.ends_with('\t'));
+        assert_eq!(length(&app, 0), 6);
+        assert_eq!(secrets.invoke_typed(0, shorter.as_str().into()), shorter);
+        assert_eq!(length(&app, 0), 6);
+        secrets.invoke_clear(0);
     }
 
     // ---- no vault on the phone: one is brought in, never made ----
@@ -168,7 +193,22 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         !path.exists(),
         "a file that didn't open is not kept on the phone"
     );
-    type_secret(&app, 0, PASSWORD);
+    // This time as the phone's keyboard types it: one key at a time, each edit the whole
+    // input (the stand-ins given back, then the new letter), with a mistake taken back.
+    let secrets = app.global::<Secrets>();
+    secrets.invoke_clear(0);
+    let mut input = secrets.invoke_placeholders(0).to_string();
+    for (i, letter) in PASSWORD.chars().enumerate() {
+        if i == 3 {
+            input = secrets.invoke_typed(0, format!("{input}#").into()).into();
+            input.pop();
+            input = secrets.invoke_typed(0, input.as_str().into()).into();
+        }
+        input = secrets
+            .invoke_typed(0, format!("{input}{letter}").into())
+            .into();
+    }
+    assert!(!input.chars().any(|c| PASSWORD.contains(c)));
     app.invoke_unlock();
     assert_eq!(
         app.get_screen(),
