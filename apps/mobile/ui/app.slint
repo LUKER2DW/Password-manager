@@ -34,6 +34,23 @@ export struct FileRow {
     size: string,
 }
 
+// A vault this phone keeps, for the vault chooser: its name and initial, its colour, where it
+// syncs ("" = it doesn't) and whether it is the one open now.
+export struct VaultRow {
+    name: string,
+    initial: string,
+    tint: color,
+    place: string,
+    open: bool,
+}
+
+// A device that syncs this vault: its name, since when, and whether it is this phone.
+export struct DeviceRow {
+    name: string,
+    added: string,
+    own: bool,
+}
+
 // One line of the Codes place.
 export struct CodeRow {
     icon: image,
@@ -72,6 +89,10 @@ export global Words {
         if (code == 21) { return @tr("Paste the setup key first: the codes are made from it."); }
         if (code == 22) { return @tr("That isn't an SSH private key. Choose the key file itself (often id_ed25519 or id_rsa), not the .pub one."); }
         if (code == 23) { return @tr("That file is too large: an item keeps files of up to 5 MB, and up to 10 of them."); }
+        if (code == 24) { return @tr("Fingerprint unlock didn't work ({}).", detail); }
+        if (code == 25) { return @tr("That file can't be imported ({}).", detail); }
+        if (code == 26) { return @tr("That isn't the file's password. Type it in the field above and choose the file again."); }
+        if (code == 27) { return @tr("The update couldn't be fetched ({}).", detail); }
         return detail;
     }
     pure public function notice(code: int, arg: string) -> string {
@@ -88,6 +109,10 @@ export global Words {
         if (code == 11) { return @tr("Backup confirmed: {}. It was read back and opens with this vault's key.", arg); }
         if (code == 12) { return @tr("File saved."); }
         if (code == 13) { return @tr("Copied."); }
+        if (code == 14) { return @tr("Fingerprint unlock is on for this vault."); }
+        if (code == 15) { return @tr("“{}” removed: it gets nothing new from now on.", arg); }
+        if (code == 16) { return @tr("Fingerprint unlock was turned off because the master password changed. Turn it on again in Settings, Security."); }
+        if (code == 17) { return @tr("“{}” was removed from this phone.", arg); }
         return "";
     }
 }
@@ -110,8 +135,12 @@ component TopBar inherits Rectangle {
     in property <string> back;          // "" = no way back
     in property <string> action;        // "" = none
     in property <string> action-icon;
+    // The title opens a chooser (the vaults): a chevron after it, and the whole title taps.
+    in property <bool> chooser;
+    in property <bool> chooser-open;
     callback went-back;
     callback acted;
+    callback title-clicked;
     height: 56px;
     HorizontalLayout {
         padding-left: root.back != "" ? 4px : 20px;
@@ -141,7 +170,7 @@ component TopBar inherits Rectangle {
             }
             back-touch := TouchArea { clicked => { root.went-back(); } }
         }
-        Text {
+        if !root.chooser: Text {
             text: root.title;
             font-size: Theme.title;
             font-weight: 300;
@@ -150,6 +179,36 @@ component TopBar inherits Rectangle {
             overflow: elide;
             horizontal-stretch: 1;
             min-width: 0px;
+        }
+        if root.chooser: Rectangle {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            accessible-role: button;
+            accessible-label: root.title;
+            accessible-action-default => { root.title-clicked(); }
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: root.title;
+                    font-size: Theme.title;
+                    font-weight: 300;
+                    color: title-touch.pressed ? Theme.graphite : Theme.ink;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    min-width: 0px;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Stroke {
+                        width: 16px;
+                        height: 16px;
+                        commands: root.chooser-open ? "M6 15 L12 9 L18 15" : "M6 9 L12 15 L18 9";
+                        tint: Theme.ink;
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            title-touch := TouchArea { clicked => { root.title-clicked(); } }
         }
         if root.action != "": VerticalLayout {
             alignment: center;
@@ -162,6 +221,149 @@ component TopBar inherits Rectangle {
             }
         }
     }
+}
+
+// One group on the Settings page: its icon, its name and what is in it.
+component SettingsRow inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    in property <string> detail;
+    callback clicked;
+    background: touch.pressed ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    HorizontalLayout {
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 14px;
+        VerticalLayout {
+            alignment: center;
+            Glyph { width: 22px; height: 22px; name: root.icon; tint: Theme.ink; }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            min-width: 0px;
+            Text { text: root.text; font-size: Theme.lead; color: Theme.ink; overflow: elide; }
+            if root.detail != "": Text {
+                text: root.detail;
+                font-size: Theme.small;
+                color: Theme.graphite;
+                wrap: word-wrap;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Stroke { width: 18px; height: 18px; commands: "M9 5 L16 12 L9 19"; }
+        }
+    }
+    Rule { y: parent.height - 1px; }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+// One vault in the vault chooser: its initial on its colour, its name, whether it is open and
+// where it syncs; a check mark on the current one.
+component VaultChoice inherits Rectangle {
+    in property <VaultRow> vault;
+    in property <bool> current;
+    callback clicked;
+    height: 60px;
+    border-radius: Theme.radius;
+    background: touch.pressed ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.vault.name;
+    accessible-action-default => { root.clicked(); }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 12px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 36px;
+                height: 36px;
+                border-radius: 9px;
+                background: root.vault.tint;
+                Text {
+                    text: root.vault.initial;
+                    color: #FFFFFF;
+                    font-size: Theme.lead;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            min-width: 0px;
+            Text {
+                text: root.vault.name != "" ? root.vault.name : @tr("Unnamed vault");
+                font-size: Theme.body;
+                font-weight: root.current ? 600 : 400;
+                color: Theme.ink;
+                overflow: elide;
+            }
+            Text {
+                text: root.vault.open
+                    ? (root.vault.place != "" ? @tr("Open, syncs through {}", root.vault.place) : @tr("Open, not syncing"))
+                    : (root.vault.place != "" ? @tr("Locked, syncs through {}", root.vault.place) : @tr("Locked, not syncing"));
+                font-size: Theme.small;
+                color: Theme.graphite;
+                overflow: elide;
+            }
+        }
+        if root.current: VerticalLayout {
+            alignment: center;
+            Path {
+                width: 20px;
+                height: 20px;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: Sketch.check;
+                stroke: Theme.accent-stroke;
+                stroke-width: 2px;
+                fill: transparent;
+            }
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+// An action under the vaults in the chooser ("Add a vault", "Manage vaults").
+component ChooserAction inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    callback clicked;
+    height: 48px;
+    border-radius: Theme.radius;
+    background: touch.pressed ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 12px;
+        spacing: 20px;
+        VerticalLayout {
+            alignment: center;
+            Glyph { width: 20px; height: 20px; name: root.icon; tint: Theme.ink; }
+        }
+        Text {
+            text: root.text;
+            font-size: Theme.body;
+            color: Theme.ink;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+            min-width: 0px;
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
 }
 
 // One of the four places at the bottom.
@@ -572,6 +774,17 @@ export component PhoneWindow inherits Window {
     callback toggle-password();
     callback copy(int);                 // 0 username, 1 password, 2 code, 3 website, 4 public key
     callback unlock-item();
+    // "Check this password": its strength (worked out here) and the leak check (asked of the
+    // breach service on the tap): -1 asking, -2 no answer, 0 not found, else how many times.
+    in property <bool> d-checked;
+    in property <int> d-bits;
+    in property <int> d-crack-unit;
+    in property <int> d-crack-amount;
+    in property <int> d-crack-comparison;
+    in property <int> d-weakness;
+    in property <int> d-leak;
+    in property <string> d-leak-count;
+    callback check-password();
 
     // The editor. Kinds as on the desktop: 0 login, 1 card, 2 note, 3 authenticator (a login
     // kept for its one-time codes: a setup key and no password).
@@ -643,7 +856,64 @@ export component PhoneWindow inherits Window {
     callback gen-changed();
     callback gen-copy();
 
-    // Settings
+    // Settings: the list of groups (-1) or one group (0 security, 1 autofill, 2 vault, 3 import
+    // and export, 4 sync, 5 appearance, 6 updates, 7 about).
+    in-out property <int> settings-section: -1;
+    property <[string]> section-names: [@tr("Security"), @tr("Autofill"), @tr("Vault"), @tr("Import and export"), @tr("Sync"), @tr("Appearance"), @tr("Updates"), @tr("About")];
+    // Security: fingerprint (or face) unlock, whether the phone has it, whether this vault uses
+    // it; on the unlock screen, whether it can open the vault now, or waits for the master
+    // password (asked every 14 days).
+    in property <bool> bio-available;
+    in-out property <bool> bio-on;
+    in property <bool> bio-ready;
+    in property <bool> bio-stale;
+    callback bio-toggled(bool);
+    callback bio-unlock();
+    // The words of the system's fingerprint prompt.
+    out property <string> bio-unlock-title: @tr("Open your vault");
+    out property <string> bio-enrol-title: @tr("Turn on fingerprint unlock");
+    out property <string> bio-cancel: @tr("Use the master password");
+    in-out property <bool> lock-on-leave;
+    callback lock-on-leave-changed(bool);
+    in-out property <bool> allow-capture;
+    callback allow-capture-changed(bool);
+    // Autofill: whether this system has it, and whether this app is the service it uses.
+    in property <bool> autofill-available;
+    in property <bool> autofill-on;
+    callback open-autofill-settings();
+    // Vaults on this phone: their names, the current one, the vault chooser, adding one (the
+    // start screen, with a way back) and removing the current one from the phone.
+    in property <[VaultRow]> vaults;
+    in property <int> vault-current;
+    in property <string> vault-size;
+    in-out property <bool> choosing-vault;
+    in property <bool> adding-vault;
+    in-out property <bool> confirm-remove-vault;
+    callback switch-vault(int);
+    callback add-vault();
+    callback cancel-add-vault();
+    callback remove-vault();
+    // Import: what the last import added and skipped (-1 = none yet).
+    in property <int> import-added: -1;
+    in property <int> import-skipped;
+    // Appearance: 0 the phone's language, 1 English, 2 Brazilian Portuguese.
+    in-out property <int> language-choice;
+    callback language-changed(int);
+    // Updates from the vault server: 0 not asked, 1 asking, 2 newest already, 3 one waits,
+    // 4 downloading, 5 failed, 6 handed to Android's installer.
+    in property <bool> updates-available;
+    in property <int> update-state;
+    in property <string> update-version;
+    callback check-update();
+    callback install-update();
+    // Sync: how many copies the place keeps, their size in all, this phone's; the devices.
+    in property <int> sync-copies;
+    in property <string> sync-total;
+    in property <string> sync-own;
+    in property <[DeviceRow]> sync-devices;
+    in-out property <int> sync-removing: -1;
+    in-out property <bool> sync-explained;
+    callback sync-remove-device(int);
     in-out property <int> lock-choice;  // 0: 1 minute, 1: 5 minutes, 2: 15 minutes
     in-out property <int> clipboard-choice;  // 0: 15 s, 1: 30 s, 2: 60 s
     in-out property <bool> website-icons;
@@ -702,6 +972,14 @@ export component PhoneWindow inherits Window {
                 root.cancel-edit();
                 return;
             }
+            if (root.choosing-vault) {
+                root.choosing-vault = false;
+                return;
+            }
+            if (root.place == Place.settings && root.settings-section >= 0) {
+                root.settings-section = -1;
+                return;
+            }
             if (root.place != Place.items) {
                 root.place = Place.items;
                 return;
@@ -709,6 +987,14 @@ export component PhoneWindow inherits Window {
         }
         if (root.screen == Screen.unlock && root.incoming) {
             root.cancel-incoming();
+            return;
+        }
+        if (root.screen != Screen.vault && root.choosing-vault) {
+            root.choosing-vault = false;
+            return;
+        }
+        if (root.screen == Screen.start && root.adding-vault) {
+            root.cancel-add-vault();
             return;
         }
         root.leave();
@@ -724,7 +1010,7 @@ export component PhoneWindow inherits Window {
     // What sits at the bottom of the open vault: the places, and a page's main button.
     property <length> bottom-bar: root.page == Page.editor ? 72px
         : root.page == Page.item ? 0px
-        : 63px + (root.place == Place.generator || root.place == Place.settings ? 72px : 0px);
+        : 63px + (root.place == Place.generator || (root.place == Place.settings && root.settings-section < 0) ? 72px : 0px);
 
     nav := FocusScope {
     focus-on-click: false;
@@ -747,7 +1033,7 @@ export component PhoneWindow inherits Window {
             spacing: 14px;
             HorizontalLayout { alignment: start; Logo { width: 72px; height: 72px; } }
             Text {
-                text: @tr("No vault on this phone yet");
+                text: root.adding-vault ? @tr("Add a vault") : @tr("No vault on this phone yet");
                 font-size: Theme.headline;
                 font-weight: 300;
                 color: Theme.ink;
@@ -818,6 +1104,10 @@ export component PhoneWindow inherits Window {
                         clicked => { root.setup-from-server(); }
                     }
                 }
+            }
+            if root.adding-vault: HorizontalLayout {
+                alignment: start;
+                QuietButton { text: @tr("Back to my vault"); clicked => { root.cancel-add-vault(); } }
             }
             Rectangle { vertical-stretch: 1; }
             Text {
@@ -893,6 +1183,46 @@ export component PhoneWindow inherits Window {
                     busy-text: @tr("Opening…");
                     clicked => { root.unlock(); }
                 }
+                if root.bio-ready && !root.incoming: QuietButton {
+                    text: @tr("Unlock with fingerprint");
+                    icon: "lock";
+                    outlined: true;
+                    clicked => { root.bio-unlock(); }
+                }
+                if root.bio-stale && !root.incoming: Text {
+                    text: @tr("Fingerprint unlock comes back once you type the master password: it is asked every 14 days.");
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
+                }
+                if root.vaults.length > 1 && !root.incoming: VerticalLayout {
+                    spacing: 6px;
+                    HorizontalLayout {
+                        alignment: start;
+                        QuietButton {
+                            text: @tr("Another vault");
+                            icon: "vault";
+                            clicked => { root.choosing-vault = !root.choosing-vault; }
+                        }
+                    }
+                    if root.choosing-vault: Rectangle {
+                        border-radius: Theme.radius + 4px;
+                        background: Theme.panel;
+                        border-width: 1px;
+                        border-color: Theme.rule;
+                        VerticalLayout {
+                            padding: 6px;
+                            for vault[index] in root.vaults: VaultChoice {
+                                vault: vault;
+                                current: index == root.vault-current;
+                                clicked => {
+                                    root.choosing-vault = false;
+                                    root.switch-vault(index);
+                                }
+                            }
+                        }
+                    }
+                }
                 // A chosen file that isn't the right one: another, or back to what was here.
                 if root.incoming: HorizontalLayout {
                     spacing: 10px;
@@ -919,7 +1249,10 @@ export component PhoneWindow inherits Window {
                     TopBar {
                         title: root.vault-name != "" ? root.vault-name : @tr("Vault");
                         action: @tr("New");
+                        chooser: true;
+                        chooser-open: root.choosing-vault;
                         acted => { root.new-item(); }
+                        title-clicked => { root.choosing-vault = !root.choosing-vault; }
                     }
                     VerticalLayout {
                         padding-left: root.gutter;
@@ -1293,7 +1626,11 @@ export component PhoneWindow inherits Window {
 
                 if root.place == Place.settings: VerticalLayout {
                     vertical-stretch: 1;
-                    TopBar { title: @tr("Settings"); }
+                    TopBar {
+                        title: root.settings-section < 0 ? @tr("Settings") : root.section-names[root.settings-section];
+                        back: root.settings-section < 0 ? "" : @tr("Settings");
+                        went-back => { root.settings-section = -1; }
+                    }
                     Flickable {
                         vertical-stretch: 1;
                         content-height: prefs.preferred-height;
@@ -1302,60 +1639,363 @@ export component PhoneWindow inherits Window {
                             padding-top: 4px;
                             spacing: 6px;
                             alignment: start;
-                            Text { text: @tr("Look"); font-size: Theme.small; color: Theme.graphite; }
-                            Choice {
-                                options: [@tr("Dark"), @tr("Light")];
-                                selected: Theme.dark ? 0 : 1;
-                                changed(index) => { root.theme-changed(index == 0); }
+
+                            // ---- the groups
+                            if root.settings-section < 0: VerticalLayout {
+                                SettingsRow {
+                                    icon: "shield";
+                                    text: root.section-names[0];
+                                    detail: @tr("Master password, fingerprint, locking, screenshots, clipboard");
+                                    clicked => { root.settings-section = 0; }
+                                }
+                                if root.autofill-available: SettingsRow {
+                                    icon: "key";
+                                    text: root.section-names[1];
+                                    detail: root.autofill-on ? @tr("On: Android fills in logins from this vault") : @tr("Off");
+                                    clicked => { root.settings-section = 1; }
+                                }
+                                SettingsRow {
+                                    icon: "vault";
+                                    text: root.section-names[2];
+                                    detail: @tr("{n} vault on this phone" | "{n} vaults on this phone" % Math.max(1, root.vaults.length));
+                                    clicked => { root.settings-section = 2; }
+                                }
+                                SettingsRow {
+                                    icon: "swap";
+                                    text: root.section-names[3];
+                                    detail: @tr("A copy of the vault, a newer copy, another manager's export");
+                                    clicked => { root.settings-section = 3; }
+                                }
+                                if root.sync-available: SettingsRow {
+                                    icon: "refresh";
+                                    text: root.section-names[4];
+                                    detail: root.sync-place == "" ? @tr("Off: this vault works offline") : root.sync-place;
+                                    clicked => { root.settings-section = 4; }
+                                }
+                                SettingsRow {
+                                    icon: "sliders";
+                                    text: root.section-names[5];
+                                    detail: @tr("Theme, language, background, website icons");
+                                    clicked => { root.settings-section = 5; }
+                                }
+                                if root.updates-available: SettingsRow {
+                                    icon: "download";
+                                    text: root.section-names[6];
+                                    detail: root.update-state == 3 ? @tr("Version {} is ready", root.update-version) : @tr("Version {}", root.app-version);
+                                    clicked => { root.settings-section = 6; }
+                                }
+                                SettingsRow {
+                                    icon: "lifebuoy";
+                                    text: root.section-names[7];
+                                    detail: @tr("Version {}, licence, what is still to come", root.app-version);
+                                    clicked => { root.settings-section = 7; }
+                                }
                             }
-                            Rectangle { height: 10px; }
-                            Text { text: @tr("Lock by itself after"); font-size: Theme.small; color: Theme.graphite; }
-                            Choice {
-                                options: [@tr("1 minute"), @tr("5 minutes"), @tr("15 minutes")];
-                                selected <=> root.lock-choice;
-                                changed(index) => { root.lock-choice-changed(index); }
-                            }
-                            Rectangle { height: 10px; }
-                            Text { text: @tr("Clear a copied secret from the clipboard after"); font-size: Theme.small; color: Theme.graphite; wrap: word-wrap; }
-                            Choice {
-                                options: [@tr("15 seconds"), @tr("30 seconds"), @tr("1 minute")];
-                                selected <=> root.clipboard-choice;
-                                changed(index) => { root.clipboard-choice-changed(index); }
-                            }
-                            Rectangle { height: 6px; }
-                            Check {
-                                text: @tr("Background pattern");
-                                checked: Theme.backdrop != 0;
-                                toggled(on) => { root.backdrop-changed(on); }
-                            }
-                            Check {
-                                text: @tr("Website icons");
-                                checked <=> root.website-icons;
-                                toggled(on) => { root.website-icons-changed(on); }
-                            }
-                            Text {
-                                text: @tr("Each saved site is asked once for its icon, directly. Someone watching the network can see which sites were asked, so it is off until you turn it on.");
-                                font-size: Theme.small;
-                                color: Theme.graphite;
-                                wrap: word-wrap;
-                            }
-                            Rectangle { height: 10px; }
-                            Rule { }
-                            Fact {
-                                label: @tr("This vault");
-                                icon: "vault";
-                                value: @tr("{} items", root.total);
-                            }
-                            Fact {
-                                label: @tr("Kept in");
-                                icon: "folder";
-                                value: root.vault-path;
-                            }
-                            if root.sync-available: VerticalLayout {
-                                padding-top: 12px;
-                                padding-bottom: 6px;
+
+                            // ---- security
+                            if root.settings-section == 0: VerticalLayout {
                                 spacing: 8px;
-                                Text { text: @tr("Sync"); font-size: Theme.small; color: Theme.graphite; }
+                                Text { text: @tr("Fingerprint unlock"); font-size: Theme.small; color: Theme.graphite; }
+                                if root.bio-available: Check {
+                                    text: @tr("Unlock with a fingerprint or face");
+                                    checked <=> root.bio-on;
+                                    toggled(on) => { root.bio-toggled(on); }
+                                }
+                                Text {
+                                    text: root.bio-available
+                                        ? @tr("The phone's secure hardware keeps a key that only your fingerprint (or face) releases, and that key opens this vault. The master password is still asked every 14 days, and after it changes.")
+                                        : @tr("This phone has no fingerprint or face unlock that Android counts as strong. Set one up in Android's settings to use it here.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                                if root.error-code == 24: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
+                                Rectangle { height: 10px; }
+                                Text { text: @tr("Lock by itself after"); font-size: Theme.small; color: Theme.graphite; }
+                                Choice {
+                                    options: [@tr("1 minute"), @tr("5 minutes"), @tr("15 minutes")];
+                                    selected <=> root.lock-choice;
+                                    changed(index) => { root.lock-choice-changed(index); }
+                                }
+                                Check {
+                                    text: @tr("Lock as soon as I leave the app");
+                                    checked <=> root.lock-on-leave;
+                                    toggled(on) => { root.lock-on-leave-changed(on); }
+                                }
+                                Rectangle { height: 10px; }
+                                Text { text: @tr("Clear a copied secret from the clipboard after"); font-size: Theme.small; color: Theme.graphite; wrap: word-wrap; }
+                                Choice {
+                                    options: [@tr("15 seconds"), @tr("30 seconds"), @tr("1 minute")];
+                                    selected <=> root.clipboard-choice;
+                                    changed(index) => { root.clipboard-choice-changed(index); }
+                                }
+                                Rectangle { height: 10px; }
+                                Check {
+                                    text: @tr("Allow screenshots");
+                                    checked <=> root.allow-capture;
+                                    toggled(on) => { root.allow-capture-changed(on); }
+                                }
+                                Text {
+                                    text: @tr("While it is off, the app stays out of screenshots, screen recordings and the recent apps view, so nothing else on the phone can capture a password shown on screen.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                                Rectangle { height: 10px; }
+                                Text { text: @tr("Master password"); font-size: Theme.small; color: Theme.graphite; }
+                                if !root.changing-password: HorizontalLayout {
+                                    alignment: start;
+                                    QuietButton {
+                                        text: @tr("Change master password");
+                                        icon: "key";
+                                        outlined: true;
+                                        clicked => { root.changing-password = true; }
+                                    }
+                                }
+                                if root.changing-password: VerticalLayout {
+                                    spacing: 8px;
+                                    padding-bottom: 10px;
+                                    Text {
+                                        text: @tr("The Secret Key and your emergency kit's recovery parts stay the same. Devices that sync this vault ask for the new password at their next unlock.");
+                                        font-size: Theme.small;
+                                        color: Theme.ink;
+                                        wrap: word-wrap;
+                                    }
+                                    SecretField {
+                                        field: 5;
+                                        eye: true;
+                                        label: @tr("Current master password");
+                                        icon: "key";
+                                        error: root.error-code == 13;
+                                    }
+                                    SecretField {
+                                        field: 6;
+                                        eye: true;
+                                        label: @tr("New master password");
+                                        error: root.error-code == 14 || root.error-code == 15;
+                                    }
+                                    SecretField {
+                                        field: 7;
+                                        eye: true;
+                                        label: @tr("Type it again");
+                                        error: root.error-code == 14;
+                                        accepted => { root.change-password(); }
+                                    }
+                                    if root.error-code == 6 || root.error-code == 13 || root.error-code == 14 || root.error-code == 15: ErrorLine {
+                                        text: Words.error(root.error-code, root.error-detail);
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 10px;
+                                        QuietButton {
+                                            text: root.busy ? @tr("Changing…") : @tr("Change password");
+                                            outlined: true;
+                                            enabled: !root.busy;
+                                            clicked => { root.change-password(); }
+                                        }
+                                        QuietButton {
+                                            text: @tr("Cancel");
+                                            clicked => { root.cancel-password-change(); }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ---- autofill
+                            if root.settings-section == 1: VerticalLayout {
+                                spacing: 10px;
+                                Fact {
+                                    label: @tr("Autofill service");
+                                    icon: "key";
+                                    value: root.autofill-on ? @tr("Vault") : @tr("Another app, or none");
+                                }
+                                Text {
+                                    text: @tr("With Vault as Android's autofill service, a sign-in form in another app or in your browser offers the logins saved for it. While the vault is locked, it asks for your fingerprint first, if fingerprint unlock is on.");
+                                    font-size: Theme.body;
+                                    color: Theme.ink;
+                                    wrap: word-wrap;
+                                }
+                                Text {
+                                    text: @tr("A website's logins are offered on that site only: its exact address, or every address under it for *.example.com. For an app, add its address to the login as androidapp:// and the app's package name, for example androidapp://com.example.app.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    QuietButton {
+                                        text: root.autofill-on ? @tr("Change it in Android's settings") : @tr("Turn it on in Android's settings");
+                                        icon: "external";
+                                        outlined: true;
+                                        clicked => { root.open-autofill-settings(); }
+                                    }
+                                }
+                                Text {
+                                    text: @tr("Some browsers ask for one more step: turn on “Autofill using another service” in the browser's own settings.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            // ---- vaults
+                            if root.settings-section == 2: VerticalLayout {
+                                spacing: 6px;
+                                Fact {
+                                    label: @tr("This vault");
+                                    icon: "vault";
+                                    value: root.vault-name != "" ? root.vault-name : @tr("Unnamed vault");
+                                }
+                                Fact { label: @tr("Items"); icon: "list"; value: root.total; }
+                                Fact { label: @tr("File size"); icon: "stack"; value: root.vault-size; }
+                                Fact { label: @tr("Kept in"); icon: "folder"; value: root.vault-path; }
+                                Text {
+                                    text: @tr("The phone keeps its copy in the app's private storage, where other apps can't read it and Android encrypts it with the phone. To keep a copy somewhere else, use Save a copy under Import and export.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                                Rectangle { height: 10px; }
+                                Text { text: @tr("Vaults on this phone"); font-size: Theme.small; color: Theme.graphite; }
+                                for vault[index] in root.vaults: VaultChoice {
+                                    vault: vault;
+                                    current: index == root.vault-current;
+                                    clicked => { root.switch-vault(index); }
+                                }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    QuietButton {
+                                        text: @tr("Add a vault");
+                                        icon: "vault";
+                                        outlined: true;
+                                        clicked => { root.add-vault(); }
+                                    }
+                                }
+                                Text {
+                                    text: @tr("Each vault opens with its own master password and Secret Key, and syncs on its own. The vault's name at the top of the list switches between them.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                                Rectangle { height: 10px; }
+                                if !root.confirm-remove-vault: HorizontalLayout {
+                                    alignment: start;
+                                    QuietButton {
+                                        text: @tr("Remove this vault from the phone");
+                                        icon: "trash";
+                                        tint: Theme.seal;
+                                        clicked => { root.confirm-remove-vault = true; }
+                                    }
+                                }
+                                if root.confirm-remove-vault: VerticalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: @tr("The phone's copy of this vault, its Secret Key and its fingerprint unlock are deleted from this phone. The vault stays on your computer and your other devices; a change made here that hasn't synced yet is lost. Save a copy first if you are unsure.");
+                                        font-size: Theme.body;
+                                        color: Theme.ink;
+                                        wrap: word-wrap;
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 10px;
+                                        QuietButton {
+                                            text: @tr("Remove from this phone");
+                                            outlined: true;
+                                            tint: Theme.seal;
+                                            clicked => { root.remove-vault(); }
+                                        }
+                                        QuietButton {
+                                            text: @tr("Cancel");
+                                            clicked => { root.confirm-remove-vault = false; }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ---- import and export
+                            if root.settings-section == 3: VerticalLayout {
+                                spacing: 8px;
+                                Text { text: @tr("A copy of this vault"); font-size: Theme.small; color: Theme.graphite; }
+                                Text {
+                                    text: root.sync-place == "" ? @tr("This vault doesn't sync: it works offline. Changed it on the computer? Bring its newest file here, or join your vault server under Sync.") : @tr("A copy from elsewhere (a backup, another computer) can still be brought in by hand.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                                if root.can-pick-file: HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    QuietButton {
+                                        text: @tr("Bring a newer copy");
+                                        icon: "folder";
+                                        outlined: true;
+                                        clicked => { root.pick-vault(); }
+                                    }
+                                    QuietButton {
+                                        text: @tr("Save a copy");
+                                        icon: "download";
+                                        clicked => { root.save-copy(); }
+                                    }
+                                }
+                                Text {
+                                    text: root.backup-confirmed != ""
+                                        ? @tr("Last copy saved and checked: {}", root.backup-confirmed)
+                                        : @tr("A saved copy is read back and checked before the app calls it a backup. It opens only with your master password and Secret Key.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                                // Only what choosing or saving a file can go wrong with.
+                                if root.error-code == 2 || root.error-code == 4 || root.error-code == 9 || root.error-code == 16: ErrorLine {
+                                    text: Words.error(root.error-code, root.error-detail);
+                                }
+                                Rectangle { height: 12px; }
+                                Text { text: @tr("From another password manager"); font-size: Theme.small; color: Theme.graphite; }
+                                Text {
+                                    text: @tr("Its export: a JSON or CSV file, a KeePass database (.kdbx), or this app's protected export (.vaultx). Logins already in the vault are skipped.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                                SecretField {
+                                    field: 8;
+                                    eye: true;
+                                    label: @tr("The file's password, if it has one");
+                                    icon: "key";
+                                    error: root.error-code == 26;
+                                }
+                                if root.can-pick-file: HorizontalLayout {
+                                    alignment: start;
+                                    QuietButton {
+                                        text: root.busy ? @tr("Importing…") : @tr("Choose a file to import");
+                                        icon: "folder";
+                                        outlined: true;
+                                        enabled: !root.busy;
+                                        clicked => { root.pick-file(3); }
+                                    }
+                                }
+                                if root.import-added >= 0: Text {
+                                    text: root.import-skipped > 0
+                                        ? @tr("{} imported; {} already in the vault were skipped.", root.import-added, root.import-skipped)
+                                        : @tr("{n} item imported." | "{n} items imported." % root.import-added);
+                                    font-size: Theme.body;
+                                    color: Theme.ink;
+                                    wrap: word-wrap;
+                                }
+                                if root.error-code == 25 || root.error-code == 26: ErrorLine {
+                                    text: Words.error(root.error-code, root.error-detail);
+                                }
+                                Text {
+                                    text: @tr("A plain export holds every password unencrypted: delete it once it is imported.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            // ---- sync
+                            if root.settings-section == 4: VerticalLayout {
+                                spacing: 8px;
                                 if root.sync-place == "" && root.sync-form == 1: VerticalLayout {
                                     spacing: 8px;
                                     Text {
@@ -1454,6 +2094,17 @@ export component PhoneWindow inherits Window {
                                             : root.sync-minutes == 0 ? @tr("Just now")
                                             : @tr("{n} minute ago" | "{n} minutes ago" % root.sync-minutes);
                                     }
+                                    if root.sync-copies > 0: Fact {
+                                        label: root.sync-webdav ? @tr("In the WebDAV folder") : @tr("On the server");
+                                        icon: "stack";
+                                        value: @tr("{n} sealed copy, {}" | "{n} sealed copies, {} in all" % root.sync-copies, root.sync-total);
+                                    }
+                                    if root.sync-copies > 0: Text {
+                                        text: @tr("One copy per device, each the whole vault, sealed. This phone's is {}.", root.sync-own);
+                                        font-size: Theme.small;
+                                        color: Theme.graphite;
+                                        wrap: word-wrap;
+                                    }
                                     HorizontalLayout {
                                         alignment: start;
                                         spacing: 10px;
@@ -1472,136 +2123,206 @@ export component PhoneWindow inherits Window {
                                 if root.sync-state == 3 && root.sync-detail != "": ErrorLine {
                                     text: root.sync-detail;
                                 }
-                            }
-                            VerticalLayout {
-                                padding-top: 12px;
-                                padding-bottom: 6px;
-                                spacing: 8px;
-                                Text {
-                                    text: root.sync-place == "" ? @tr("This vault doesn't sync: it works offline. Changed it on the computer? Bring its newest file here, or join your vault server above.") : @tr("A copy from elsewhere (a backup, another computer) can still be brought in by hand.");
-                                    font-size: Theme.small;
-                                    color: Theme.graphite;
-                                    wrap: word-wrap;
-                                }
-                                if root.can-pick-file: HorizontalLayout {
-                                    alignment: start;
-                                    spacing: 10px;
-                                    QuietButton {
-                                        text: @tr("Bring a newer copy");
-                                        icon: "folder";
-                                        outlined: true;
-                                        clicked => { root.pick-vault(); }
+                                if root.sync-devices.length > 0: VerticalLayout {
+                                    padding-top: 12px;
+                                    spacing: 2px;
+                                    Text { text: @tr("Devices that sync this vault"); font-size: Theme.small; color: Theme.graphite; }
+                                    for device[index] in root.sync-devices: Fact {
+                                        label: device.own ? @tr("This phone, since {}", device.added) : @tr("Since {}", device.added);
+                                        icon: "stack";
+                                        value: device.name;
+                                        action: device.own || root.sync-removing >= 0 ? "" : @tr("Remove");
+                                        acted => { root.sync-removing = index; }
                                     }
-                                    QuietButton {
-                                        text: @tr("Save a copy");
-                                        icon: "download";
-                                        clicked => { root.save-copy(); }
-                                    }
-                                }
-                                Text {
-                                    text: root.backup-confirmed != ""
-                                        ? @tr("Last copy saved and checked: {}", root.backup-confirmed)
-                                        : @tr("A saved copy is read back and checked before the app calls it a backup. It opens only with your master password and Secret Key.");
-                                    font-size: Theme.small;
-                                    color: Theme.graphite;
-                                    wrap: word-wrap;
-                                }
-                                // Only what choosing or saving a file can go wrong with.
-                                if root.error-code == 2 || root.error-code == 4 || root.error-code == 9 || root.error-code == 16: ErrorLine {
-                                    text: Words.error(root.error-code, root.error-detail);
-                                }
-                            }
-                            VerticalLayout {
-                                padding-top: 12px;
-                                padding-bottom: 6px;
-                                spacing: 8px;
-                                Text { text: @tr("Master password"); font-size: Theme.small; color: Theme.graphite; }
-                                if !root.changing-password: HorizontalLayout {
-                                    alignment: start;
-                                    QuietButton {
-                                        text: @tr("Change master password");
-                                        icon: "key";
-                                        outlined: true;
-                                        clicked => { root.changing-password = true; }
+                                    if root.sync-removing >= 0: VerticalLayout {
+                                        padding-top: 8px;
+                                        spacing: 8px;
+                                        Text {
+                                            text: @tr("Remove “{}”? It stays out of this vault: every device refuses its copies from now on. Use it for a lost or sold device.", root.sync-devices[root.sync-removing].name);
+                                            font-size: Theme.body;
+                                            color: Theme.ink;
+                                            wrap: word-wrap;
+                                        }
+                                        HorizontalLayout {
+                                            alignment: start;
+                                            spacing: 10px;
+                                            QuietButton {
+                                                text: @tr("Remove");
+                                                outlined: true;
+                                                tint: Theme.seal;
+                                                clicked => { root.sync-remove-device(root.sync-removing); }
+                                            }
+                                            QuietButton {
+                                                text: @tr("Cancel");
+                                                clicked => { root.sync-removing = -1; }
+                                            }
+                                        }
                                     }
                                 }
-                                if root.changing-password: VerticalLayout {
+                                VerticalLayout {
+                                    padding-top: 12px;
                                     spacing: 8px;
-                                    padding-bottom: 10px;
-                                    Text {
-                                        text: @tr("The Secret Key and your emergency kit's recovery parts stay the same. Devices that sync this vault ask for the new password at their next unlock.");
-                                        font-size: Theme.small;
-                                        color: Theme.ink;
-                                        wrap: word-wrap;
-                                    }
-                                    SecretField {
-                                        field: 5;
-                                        eye: true;
-                                        label: @tr("Current master password");
-                                        icon: "key";
-                                        error: root.error-code == 13;
-                                    }
-                                    SecretField {
-                                        field: 6;
-                                        eye: true;
-                                        label: @tr("New master password");
-                                        error: root.error-code == 14 || root.error-code == 15;
-                                    }
-                                    SecretField {
-                                        field: 7;
-                                        eye: true;
-                                        label: @tr("Type it again");
-                                        error: root.error-code == 14;
-                                        accepted => { root.change-password(); }
-                                    }
-                                    if root.error-code == 6 || root.error-code == 13 || root.error-code == 14 || root.error-code == 15: ErrorLine {
-                                        text: Words.error(root.error-code, root.error-detail);
-                                    }
                                     HorizontalLayout {
                                         alignment: start;
-                                        spacing: 10px;
                                         QuietButton {
-                                            text: root.busy ? @tr("Changing…") : @tr("Change password");
-                                            outlined: true;
-                                            enabled: !root.busy;
-                                            clicked => { root.change-password(); }
+                                            text: root.sync-explained ? @tr("Hide how sync works") : @tr("How sync works");
+                                            icon: "lifebuoy";
+                                            clicked => { root.sync-explained = !root.sync-explained; }
                                         }
-                                        QuietButton {
-                                            text: @tr("Cancel");
-                                            clicked => { root.cancel-password-change(); }
+                                    }
+                                    if root.sync-explained: VerticalLayout {
+                                        spacing: 10px;
+                                        Text {
+                                            text: @tr("Every device keeps the whole vault and works offline. Syncing only moves sealed copies: each device writes its own copy, reads the others' and merges them in. When two devices changed the same login, the newer change wins and the other password goes into the login's history, so nothing is lost.");
+                                            font-size: Theme.small;
+                                            color: Theme.ink;
+                                            wrap: word-wrap;
+                                        }
+                                        Text {
+                                            text: @tr("Your vault server: a small program you run yourself (Docker, reached over Tailscale or with its own HTTPS). It keeps one sealed copy per device and the devices' public keys, and never anything that opens the vault. A device joins with a one-time invite from a device already in.");
+                                            font-size: Theme.small;
+                                            color: Theme.ink;
+                                            wrap: word-wrap;
+                                        }
+                                        Text {
+                                            text: @tr("WebDAV: a folder on a WebDAV host (Nextcloud, a NAS) that keeps the same sealed copies. Its password stays in this phone's keystore.");
+                                            font-size: Theme.small;
+                                            color: Theme.ink;
+                                            wrap: word-wrap;
+                                        }
+                                        Text {
+                                            text: @tr("By hand: bring a newer copy of the file, or save one, under Import and export. Nothing then syncs by itself.");
+                                            font-size: Theme.small;
+                                            color: Theme.ink;
+                                            wrap: word-wrap;
+                                        }
+                                        Text {
+                                            text: @tr("Neither place can open the vault, put an older copy back or add a device of its own: every device checks each copy with the vault's own key, and remembers the newest one it saw from every other device.");
+                                            font-size: Theme.small;
+                                            color: Theme.graphite;
+                                            wrap: word-wrap;
                                         }
                                     }
                                 }
                             }
-                            Fact {
-                                label: @tr("App");
-                                icon: "shield";
-                                value: @tr("Version {}. Free software under the GPL, version 3 or later.", root.app-version);
+
+                            // ---- appearance
+                            if root.settings-section == 5: VerticalLayout {
+                                spacing: 6px;
+                                Text { text: @tr("Theme"); font-size: Theme.small; color: Theme.graphite; }
+                                Choice {
+                                    options: [@tr("Dark"), @tr("Light")];
+                                    selected: Theme.dark ? 0 : 1;
+                                    changed(index) => { root.theme-changed(index == 0); }
+                                }
+                                Rectangle { height: 10px; }
+                                Text { text: @tr("Language"); font-size: Theme.small; color: Theme.graphite; }
+                                Choice {
+                                    options: [@tr("The phone's"), "English", "Português"];
+                                    selected <=> root.language-choice;
+                                    changed(index) => { root.language-changed(index); }
+                                }
+                                Rectangle { height: 10px; }
+                                Check {
+                                    text: @tr("Background pattern");
+                                    checked: Theme.backdrop != 0;
+                                    toggled(on) => { root.backdrop-changed(on); }
+                                }
+                                Check {
+                                    text: @tr("Website icons");
+                                    checked <=> root.website-icons;
+                                    toggled(on) => { root.website-icons-changed(on); }
+                                }
+                                Text {
+                                    text: @tr("Each saved site is asked once for its icon, directly. Someone watching the network can see which sites were asked, so it is off until you turn it on.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
                             }
-                            Rectangle { height: 10px; }
-                            Text {
-                                text: @tr("Still to come on the phone: fingerprint unlock, filling into other apps, and scanning the invite's QR code.");
-                                font-size: Theme.small;
-                                color: Theme.graphite;
-                                wrap: word-wrap;
+
+                            // ---- updates
+                            if root.settings-section == 6: VerticalLayout {
+                                spacing: 8px;
+                                Fact {
+                                    label: @tr("Installed");
+                                    icon: "shield";
+                                    value: @tr("Version {}", root.app-version);
+                                }
+                                if root.update-state != 0: Text {
+                                    text: root.update-state == 1 ? @tr("Asking your vault server…")
+                                        : root.update-state == 2 ? @tr("This is the newest version on your vault server.")
+                                        : root.update-state == 3 ? @tr("Version {} is on your vault server.", root.update-version)
+                                        : root.update-state == 4 ? @tr("Fetching version {}…", root.update-version)
+                                        : root.update-state == 6 ? @tr("Android asks you to confirm the update. The vault stays as it is.")
+                                        : "";
+                                    font-size: Theme.body;
+                                    color: Theme.ink;
+                                    wrap: word-wrap;
+                                }
+                                if root.update-state == 5: ErrorLine { text: Words.error(27, root.error-detail); }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 10px;
+                                    if root.update-state == 3: QuietButton {
+                                        text: @tr("Install version {}", root.update-version);
+                                        icon: "download";
+                                        outlined: true;
+                                        clicked => { root.install-update(); }
+                                    }
+                                    if root.update-state != 3: QuietButton {
+                                        text: @tr("Check for updates");
+                                        icon: "refresh";
+                                        outlined: true;
+                                        enabled: root.update-state != 1 && root.update-state != 4;
+                                        clicked => { root.check-update(); }
+                                    }
+                                }
+                                Text {
+                                    text: @tr("Updates come from your own vault server, where a computer puts them (vault-server publish-app). Android installs one only if it is signed with the same key as the app already here, and asks you first.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            // ---- about
+                            if root.settings-section == 7: VerticalLayout {
+                                spacing: 6px;
+                                Fact {
+                                    label: @tr("App");
+                                    icon: "shield";
+                                    value: @tr("Version {}. Free software under the GPL, version 3 or later.", root.app-version);
+                                }
+                                Text {
+                                    text: @tr("Nothing here has been audited yet: keep your real passwords in it only once it has been.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                                Text {
+                                    text: @tr("Still to come on the phone: scanning QR codes, saving new logins from other apps, and passkeys.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
                             }
                         }
                     }
-                    VerticalLayout {
+                    if root.settings-section < 0: VerticalLayout {
                         padding: root.gutter;
                         padding-top: 10px;
                         padding-bottom: 12px;
                         Button { text: @tr("Lock now"); clicked => { root.lock-now(); } }
                     }
                 }
-
                 Rule { }
                 HorizontalLayout {
                     height: 62px;
                     PlaceTab { text: @tr("Vault"); icon: "vault"; variant: 0; active: root.place == Place.items; clicked => { root.place = Place.items; } }
                     PlaceTab { text: @tr("Codes"); icon: "clock"; variant: 1; active: root.place == Place.codes; clicked => { root.place = Place.codes; } }
                     PlaceTab { text: @tr("Generator"); icon: "sparkle"; variant: 2; active: root.place == Place.generator; clicked => { root.place = Place.generator; root.gen-changed(); } }
-                    PlaceTab { text: @tr("Settings"); icon: "gear"; variant: 0; active: root.place == Place.settings; clicked => { root.place = Place.settings; } }
+                    PlaceTab { text: @tr("Settings"); icon: "gear"; variant: 0; active: root.place == Place.settings; clicked => { root.place = Place.settings; root.settings-section = -1; } }
                 }
             }
 
@@ -1725,6 +2446,47 @@ export component PhoneWindow inherits Window {
                             VerticalLayout {
                                 alignment: center;
                                 EyeButton { open: root.d-password != ""; clicked => { root.toggle-password(); } }
+                            }
+                        }
+                        if root.d-check == 0 && root.d-has-password && root.d-kind == 0: VerticalLayout {
+                            padding-top: 10px;
+                            padding-bottom: 12px;
+                            spacing: 10px;
+                            if !root.d-checked: HorizontalLayout {
+                                alignment: start;
+                                QuietButton {
+                                    text: @tr("Check this password");
+                                    icon: "shield";
+                                    outlined: true;
+                                    clicked => { root.check-password(); }
+                                }
+                            }
+                            if root.d-checked: StrengthMeter {
+                                bits: root.d-bits;
+                                crack-unit: root.d-crack-unit;
+                                crack-amount: root.d-crack-amount;
+                                crack-comparison: root.d-crack-comparison;
+                                weakness: root.d-weakness;
+                                compact: true;
+                            }
+                            if root.d-checked: Text {
+                                text: root.d-leak == -1 ? @tr("Asking the leak check…")
+                                    : root.d-leak == -2 ? @tr("The leak check didn't answer. Check the connection and try again.")
+                                    : root.d-leak == 0 ? @tr("Not found in any known data breach.")
+                                    : @tr("Found {} times in data breaches. Change it wherever you use it.", root.d-leak-count);
+                                font-size: Theme.body;
+                                color: root.d-leak > 0 ? Theme.seal : root.d-leak == 0 ? Theme.good : Theme.graphite;
+                                wrap: word-wrap;
+                            }
+                            if root.d-checked && root.d-leak == -2: HorizontalLayout {
+                                alignment: start;
+                                QuietButton { text: @tr("Try again"); outlined: true; clicked => { root.check-password(); } }
+                            }
+                            if root.d-checked: Text {
+                                text: @tr("Only the first 5 characters of the password's SHA-1 fingerprint went to the breach service (Have I Been Pwned), never the password.");
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                                wrap: word-wrap;
                             }
                         }
                         if root.d-check == 0 && root.d-has-code: Fact {
@@ -1990,6 +2752,68 @@ export component PhoneWindow inherits Window {
                 width: parent.width - 2 * root.gutter;
                 y: parent.height - self.height - 12px - root.bottom-bar;
                 text: Words.notice(root.notice-code, root.notice-arg);
+            }
+
+            // The vault chooser: a card that floats over the list, under the vault's name. A
+            // tap anywhere else closes it.
+            if root.choosing-vault && root.page == Page.none && root.place == Place.items: Rectangle {
+                width: parent.width;
+                height: parent.height;
+                TouchArea { clicked => { root.choosing-vault = false; } }
+                Rectangle {
+                    x: root.gutter - 8px;
+                    y: 52px;
+                    width: parent.width - 2 * (root.gutter - 8px);
+                    height: chooser.preferred-height;
+                    border-radius: Theme.radius + 6px;
+                    background: Theme.panel;
+                    border-width: 1px;
+                    border-color: Theme.rule;
+                    drop-shadow-blur: 28px;
+                    drop-shadow-offset-y: 10px;
+                    drop-shadow-color: Theme.dark ? #00000099 : #1F2A3D40;
+                    // Taps on the card itself stay on it.
+                    TouchArea { }
+                    chooser := VerticalLayout {
+                        padding: 8px;
+                        spacing: 2px;
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-top: 6px;
+                            padding-bottom: 6px;
+                            Text { text: @tr("Vaults on this phone"); font-size: Theme.small; color: Theme.graphite; }
+                        }
+                        for vault[index] in root.vaults: VaultChoice {
+                            vault: vault;
+                            current: index == root.vault-current;
+                            clicked => {
+                                root.choosing-vault = false;
+                                root.switch-vault(index);
+                            }
+                        }
+                        Rectangle {
+                            height: 9px;
+                            Rule { y: 4px; }
+                        }
+                        ChooserAction {
+                            icon: "vault";
+                            text: @tr("Add a vault");
+                            clicked => {
+                                root.choosing-vault = false;
+                                root.add-vault();
+                            }
+                        }
+                        ChooserAction {
+                            icon: "gear";
+                            text: @tr("Manage vaults");
+                            clicked => {
+                                root.choosing-vault = false;
+                                root.place = Place.settings;
+                                root.settings-section = 2;
+                            }
+                        }
+                    }
+                }
             }
         }
     }

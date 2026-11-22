@@ -1,6 +1,7 @@
-//! The phone's own settings, kept next to its copy of the vault (`settings.json`): how it
-//! looks, when it locks, what it fetches. Nothing secret is in them, and nothing of the vault.
-//! A file that can't be read gives the defaults (the app works the same, as if new).
+//! The phone's own settings, kept next to its copies of the vaults (`settings.json`): how it
+//! looks, when it locks, what it fetches, which vaults it keeps. Nothing secret is in them,
+//! and nothing of a vault but its name. A file that can't be read gives the defaults (the app
+//! works the same, as if new).
 
 use std::path::{Path, PathBuf};
 
@@ -23,6 +24,42 @@ pub struct Prefs {
     pub website_icons: bool,
     /// How the generator was last set up (never what it made).
     pub generator: Generator,
+    /// Lock at once whenever the app leaves the screen, not only after `lock_choice`.
+    pub lock_on_leave: bool,
+    /// Screenshots, screen recordings and the recent apps view may show the app.
+    pub allow_capture: bool,
+    /// The app's language: "" follows the phone, else a catalogue's tag ("en", "pt-BR").
+    pub language: String,
+    /// The vaults this phone keeps, each a file next to this one, in the order they came.
+    pub vaults: Vec<KnownVault>,
+    /// The file of the vault opened last ("" = the first one, `vault.vault`).
+    pub current: String,
+}
+
+/// A vault this phone keeps: its file (a bare name, next to `settings.json`) and the name it
+/// had when it was last open (shown in the vault chooser; the file itself tells nothing
+/// before it is unlocked).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KnownVault {
+    pub file: String,
+    pub name: String,
+    /// The vault's id (it is in the file's plain header too), for where it syncs.
+    #[serde(default)]
+    pub id: String,
+}
+
+/// The first vault's file, kept where the phone has always kept its one vault.
+pub const FIRST_VAULT: &str = "vault.vault";
+
+/// Whether `file` is a plain vault file name, next to `settings.json`: no folder, nothing
+/// that could point elsewhere (`vault.vault`, `vault-2.vault`, a copy's own name).
+pub fn is_vault_file(file: &str) -> bool {
+    file.len() <= 64
+        && file.len() > ".vault".len()
+        && file.ends_with(".vault")
+        && !file.starts_with('.')
+        && !file.contains(['/', '\\', ':'])
+        && !file.contains("..")
 }
 
 impl Default for Prefs {
@@ -34,6 +71,11 @@ impl Default for Prefs {
             backdrop: true,
             website_icons: false,
             generator: Generator::default(),
+            lock_on_leave: false,
+            allow_capture: false,
+            language: String::new(),
+            vaults: Vec::new(),
+            current: String::new(),
         }
     }
 }
@@ -94,6 +136,33 @@ pub fn path_for(vault: &Path) -> PathBuf {
 }
 
 impl Prefs {
+    /// Notes that the vault in `file` is called `name` and has the id `id`, adding it to the
+    /// list if it is new.
+    pub fn remember_vault(&mut self, file: &str, id: &str, name: &str) {
+        match self.vaults.iter_mut().find(|v| v.file == file) {
+            Some(known) => {
+                known.name = name.to_owned();
+                known.id = id.to_owned();
+            }
+            None => self.vaults.push(KnownVault {
+                file: file.to_owned(),
+                name: name.to_owned(),
+                id: id.to_owned(),
+            }),
+        }
+    }
+
+    /// A file name for one more vault, not used by any vault this phone knows or keeps in
+    /// `folder`.
+    pub fn free_file(&self, folder: &Path) -> String {
+        (2..10_000)
+            .map(|n| format!("vault-{n}.vault"))
+            .find(|name| {
+                !self.vaults.iter().any(|v| v.file == *name) && !folder.join(name).exists()
+            })
+            .unwrap_or_else(|| FIRST_VAULT.to_owned())
+    }
+
     pub fn load(path: &Path) -> Self {
         files::read_any(path)
             .ok()
@@ -129,5 +198,35 @@ mod tests {
         };
         changed.save(&path);
         assert_eq!(Prefs::load(&path), changed);
+    }
+
+    #[test]
+    fn only_plain_vault_names_are_opened() {
+        for good in ["vault.vault", "vault-2.vault", "phone-test.vault"] {
+            assert!(is_vault_file(good), "{good}");
+        }
+        for bad in [
+            "",
+            ".vault",
+            "../vault.vault",
+            "a/b.vault",
+            "a\\b.vault",
+            "C:x.vault",
+            "vault.txt",
+            "a..b.vault",
+        ] {
+            assert!(!is_vault_file(bad), "{bad}");
+        }
+        let mut prefs = Prefs::default();
+        assert!(!is_vault_file("../../elsewhere.vault"));
+        let dir = tempfile::tempdir().unwrap();
+        prefs.remember_vault(FIRST_VAULT, "ab", "Personal");
+        assert_eq!(prefs.free_file(dir.path()), "vault-2.vault");
+        std::fs::write(dir.path().join("vault-2.vault"), b"x").unwrap();
+        assert_eq!(prefs.free_file(dir.path()), "vault-3.vault");
+        prefs.remember_vault("vault-3.vault", "cd", "Work");
+        prefs.remember_vault(FIRST_VAULT, "ab", "Home");
+        assert_eq!(prefs.vaults.len(), 2);
+        assert_eq!(prefs.vaults[0].name, "Home");
     }
 }

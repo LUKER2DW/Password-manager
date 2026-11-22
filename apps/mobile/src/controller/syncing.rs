@@ -35,6 +35,7 @@ impl Controller {
         );
     }
     pub(super) fn sync_stop(&self) {}
+    pub(super) fn sync_remove_device(&self, _index: i32) {}
     pub fn sync_round(&self) {}
 }
 
@@ -44,6 +45,7 @@ pub(super) use native::SyncStatus;
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
     use std::{
+        collections::HashMap,
         sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
@@ -51,7 +53,7 @@ mod native {
         time::Duration,
     };
 
-    use slint::{SharedString, TimerMode};
+    use slint::{ModelRc, SharedString, TimerMode, VecModel};
     use vault_core::sync::DeviceId;
     use vault_platform::{
         DeviceState, SyncPlace, SyncTo, secret_store,
@@ -62,9 +64,10 @@ mod native {
     use zeroize::Zeroizing;
 
     use super::{
-        super::{CURRENT, field},
+        super::{CURRENT, field, size_text},
         Controller, state,
     };
+    use crate::{ui::DeviceRow, view};
 
     /// Joins the server with the invite, or, when this phone already joined that vault there
     /// (a setup that failed after joining, tried again), goes on with the key it has: an
@@ -119,6 +122,10 @@ mod native {
         /// again.
         tags: KnownTags,
         watch: Option<Arc<AtomicBool>>,
+        /// The size of each device's copy at the main place, as last read or written.
+        sizes: HashMap<DeviceId, usize>,
+        /// The devices behind Settings → Sync's rows, in order.
+        devices: Vec<DeviceId>,
     }
 
     struct Place {
@@ -181,6 +188,7 @@ mod native {
         pub(in crate::controller) fn start_sync(&self) {
             self.stop_watch();
             self.state.borrow_mut().sync.tags = KnownTags::default();
+            self.state.borrow_mut().sync.sizes.clear();
             let Some(place) = self.sync_place() else {
                 self.show_sync();
                 return;
@@ -496,6 +504,12 @@ mod native {
             if self.vault_id().as_deref() != Some(place.vault_id.as_str()) {
                 return self.sync_finished();
             }
+            if let Ok(fetched) = &reading.main {
+                let mut state = self.state.borrow_mut();
+                for (device, bytes) in &fetched.copies {
+                    state.sync.sizes.insert(*device, bytes.len());
+                }
+            }
             let (round, joined) = {
                 let mut state = self.state.borrow_mut();
                 let vault = state.vault.as_mut().expect("checked above");
@@ -560,23 +574,26 @@ mod native {
                 (place.vault_id.clone(), place.device, place.place);
             let job = {
                 let vault_id = vault_id.clone();
-                move || -> Result<sync::Published, String> {
+                move || -> Result<(usize, sync::Published), String> {
                     let bytes =
                         crate::platform::files::read(&path).map_err(|err| err.to_string())?;
-                    Ok(sync::publish_all(
-                        &vault_id,
-                        device,
-                        &sync_place,
-                        &bytes,
-                        &roles,
+                    Ok((
+                        bytes.len(),
+                        sync::publish_all(&vault_id, device, &sync_place, &bytes, &roles),
                     ))
                 }
             };
             self.off_thread(job, move |controller, result| {
-                let results = match result {
+                let (len, results) = match result {
                     Ok(results) => results,
                     Err(why) => return controller.sync_failed(&why),
                 };
+                if results
+                    .iter()
+                    .any(|(role, put)| *role == Role::Main && put.is_ok())
+                {
+                    controller.state.borrow_mut().sync.sizes.insert(device, len);
+                }
                 let mut device_state = DeviceState::load().unwrap_or_default();
                 for (role, put) in &results {
                     if put.is_ok() {
@@ -636,15 +653,98 @@ mod native {
             }
         }
 
+        /// "Remove" on another device's row: it leaves the vault's device list (so every
+        /// device refuses its copies from then on), and its copy and key leave the place.
+        pub(in crate::controller) fn sync_remove_device(&self, index: i32) {
+            let Some(id) = usize::try_from(index)
+                .ok()
+                .and_then(|i| self.state.borrow().sync.devices.get(i).copied())
+            else {
+                return;
+            };
+            let removed = {
+                let mut state = self.state.borrow_mut();
+                let Some(vault) = state.vault.as_mut() else {
+                    return;
+                };
+                let name = vault
+                    .sync_devices()
+                    .iter()
+                    .find(|d| d.id == id)
+                    .map(|d| d.name.clone())
+                    .unwrap_or_default();
+                vault.remove_sync_device(&id).map(|()| name)
+            };
+            let Ok(name) = removed else {
+                return;
+            };
+            self.app().set_sync_removing(-1);
+            if !self.save() {
+                return;
+            }
+            self.state.borrow_mut().sync.sizes.remove(&id);
+            self.notify(super::super::notice::DEVICE_REMOVED, &name);
+            if let Some(place) = self.sync_place() {
+                let job = move || {
+                    sync::open_target(&place.vault_id, place.device, &place.place.to)
+                        .and_then(|target| target.remove(id))
+                        .map_err(|err| format!("{err:#}"))
+                };
+                // A copy left behind is refused anyway: nothing to say if it couldn't go.
+                self.off_thread(job, |_, _| {});
+            }
+            self.show_sync();
+        }
+
+        /// The devices that sync this vault, and the copies the place keeps.
+        fn show_devices(&self) {
+            let app = self.app();
+            let (rows, ids, own) = {
+                let state = self.state.borrow();
+                let Some(vault) = state.vault.as_ref() else {
+                    return;
+                };
+                let own = vault.device();
+                let mut devices: Vec<_> = vault.sync_devices().to_vec();
+                // This phone first, then the others as they joined.
+                devices.sort_by_key(|d| (d.id != own, d.added_at));
+                let rows: Vec<DeviceRow> = devices
+                    .iter()
+                    .map(|d| DeviceRow {
+                        name: d.name.as_str().into(),
+                        added: view::date(d.added_at).into(),
+                        own: d.id == own,
+                    })
+                    .collect();
+                (rows, devices.iter().map(|d| d.id).collect(), own)
+            };
+            let (copies, total, own_size) = {
+                let mut state = self.state.borrow_mut();
+                state.sync.devices = ids;
+                let sizes = &state.sync.sizes;
+                (
+                    sizes.len(),
+                    sizes.values().sum::<usize>(),
+                    sizes.get(&own).copied(),
+                )
+            };
+            app.set_sync_devices(ModelRc::new(VecModel::from(rows)));
+            app.set_sync_copies(i32::try_from(copies).unwrap_or(i32::MAX));
+            app.set_sync_total(size_text(total).into());
+            app.set_sync_own(own_size.map(size_text).unwrap_or_default().into());
+        }
+
         /// The Sync part of Settings.
         pub(in crate::controller) fn show_sync(&self) {
             let app = self.app();
             app.set_sync_available(true);
+            self.show_devices();
             let place = self
                 .vault_id()
                 .and_then(|id| DeviceState::load().ok()?.sync_place(&id));
             let Some(place) = place else {
                 app.set_sync_place(SharedString::new());
+                app.set_sync_copies(0);
                 app.set_sync_backup(SharedString::new());
                 app.set_sync_main_down(SharedString::new());
                 app.set_sync_backup_down(SharedString::new());

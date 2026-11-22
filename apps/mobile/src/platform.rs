@@ -4,8 +4,15 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use vault_platform::{
-    DeviceState, RollbackStatus, SecretBuffer, StateFile, clipboard, device, secret_store,
+    DeviceState, RollbackStatus, SecretBuffer, StateFile, clipboard, device, leak_check,
+    secret_store,
 };
+
+/// The computer's language, where the system tells it through the process (not Android).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn system_language() -> Option<String> {
+    vault_platform::locale::system_language()
+}
 
 /// The vault file: on disk, or (in a browser) in this page's memory.
 #[cfg(not(target_arch = "wasm32"))]
@@ -20,6 +27,11 @@ pub mod files {
 
     pub fn create_dir_all(path: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(path)
+    }
+
+    /// Deletes a file, if it is there.
+    pub fn remove(path: &Path) {
+        let _ = std::fs::remove_file(path);
     }
 }
 

@@ -7252,6 +7252,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "vault-core",
+ "vault-import",
  "vault-platform",
  "vault-server",
  "vault-sync-wire",

@@ -3,17 +3,71 @@
 //! running server. Slow work runs
 //! inline; test values only.
 
-use std::path::Path;
+use std::{
+    cell::{Cell, RefCell},
+    path::Path,
+    rc::Rc,
+};
 
 use slint::{ComponentHandle, Model};
 use vault_core::{GuardCheck, ItemData, ItemKind, KdfParams, SecretKey, Unlock, Vault};
+use zeroize::Zeroizing;
 
 use vault_platform::sync::{self, ServerTarget, Target as _};
 
 use crate::{
     Controller,
+    system::{PromptWords, System},
     ui::{Page, PhoneWindow, Place, Screen, Secrets},
 };
+
+/// The phone's system as the tests see it: a fingerprint that is always the right one, a
+/// "secure hardware" that seals by flipping bits, and what the app asked of it.
+#[derive(Default)]
+struct FakeSystem {
+    /// What the app handed over last: a secret to seal, or a sealed one to open.
+    handed: RefCell<Option<Vec<u8>>>,
+    off_screenshots: Cell<Option<bool>>,
+    forgotten: RefCell<Vec<String>>,
+}
+
+impl System for FakeSystem {
+    fn biometrics(&self) -> bool {
+        true
+    }
+
+    fn seal_with_biometrics(
+        &self,
+        _: &str,
+        secret: &[u8],
+        words: &PromptWords,
+    ) -> Result<(), String> {
+        assert!(!words.title.is_empty() && !words.cancel.is_empty());
+        *self.handed.borrow_mut() = Some(secret.to_vec());
+        Ok(())
+    }
+
+    fn open_with_biometrics(&self, _: &str, sealed: &[u8], _: &PromptWords) -> Result<(), String> {
+        *self.handed.borrow_mut() = Some(sealed.to_vec());
+        Ok(())
+    }
+
+    fn forget_biometrics(&self, vault_id: &str) {
+        self.forgotten.borrow_mut().push(vault_id.to_owned());
+    }
+
+    fn keep_off_screenshots(&self, on: bool) {
+        self.off_screenshots.set(Some(on));
+    }
+
+    fn autofill(&self) -> Option<bool> {
+        Some(false)
+    }
+}
+
+fn flip(bytes: &[u8]) -> Vec<u8> {
+    bytes.iter().map(|b| b ^ 0x5a).collect()
+}
 
 const PASSWORD: &str = "phone test master passphrase";
 
@@ -601,6 +655,102 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     assert_eq!(app.get_notice_code(), 10, "{}", app.get_error_detail());
     app.set_place(Place::Items);
 
+    // ---- the phone's system: screenshots, autofill, fingerprint unlock (a stand-in) ----
+    let system = Rc::new(FakeSystem::default());
+    controller.set_system(system.clone());
+    assert_eq!(
+        system.off_screenshots.get(),
+        Some(true),
+        "out of screenshots by default"
+    );
+    app.invoke_allow_capture_changed(true);
+    assert_eq!(system.off_screenshots.get(), Some(false));
+    app.invoke_allow_capture_changed(false);
+    assert!(app.get_autofill_available() && !app.get_autofill_on());
+    assert!(app.get_bio_available() && !app.get_bio_on());
+    app.invoke_bio_toggled(true);
+    let secret = system.handed.borrow_mut().take().expect("a secret to seal");
+    assert_eq!(secret.len(), 32);
+    controller.biometric_sealed(Ok(flip(&secret)));
+    assert!(app.get_bio_on());
+    assert_eq!(app.get_notice_code(), 14);
+    app.invoke_lock_now();
+    assert!(app.get_bio_ready(), "offered on the unlock screen");
+    assert_eq!(
+        app.get_vault_name(),
+        "Test vault",
+        "a locked vault keeps its name"
+    );
+    // The person chose the master password instead: nothing happens.
+    app.invoke_bio_unlock();
+    assert_eq!(system.handed.borrow_mut().take(), Some(flip(&secret)));
+    controller.biometric_opened(Err(String::new()));
+    assert_eq!(
+        (app.get_screen(), app.get_error_code()),
+        (Screen::Unlock, 0)
+    );
+    app.invoke_bio_unlock();
+    let sealed = system.handed.borrow_mut().take().unwrap();
+    controller.biometric_opened(Ok(Zeroizing::new(flip(&sealed))));
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "{}",
+        app.get_error_detail()
+    );
+    // Every 14 days the master password is asked again.
+    let unlock_file = path.with_file_name(format!("unlock-{vault_id}.json"));
+    let mut json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&unlock_file).unwrap()).unwrap();
+    let typed_at = json["password_at"].clone();
+    json["password_at"] = 0.into();
+    std::fs::write(&unlock_file, serde_json::to_vec(&json).unwrap()).unwrap();
+    app.invoke_lock_now();
+    assert!(
+        !app.get_bio_ready() && app.get_bio_stale(),
+        "the master password is due"
+    );
+    type_secret(&app, 0, PASSWORD);
+    app.invoke_unlock();
+    app.invoke_lock_now();
+    assert!(app.get_bio_ready(), "typing it brings the fingerprint back");
+    json["password_at"] = typed_at;
+    // A new master password revokes it: it was bound to the old one.
+    type_secret(&app, 0, PASSWORD);
+    app.invoke_unlock();
+    app.set_changing_password(true);
+    type_secret(&app, 5, PASSWORD);
+    type_secret(&app, 6, NEW_PASSWORD);
+    type_secret(&app, 7, NEW_PASSWORD);
+    app.invoke_change_password();
+    assert_eq!(app.get_notice_code(), 16, "{}", app.get_error_detail());
+    assert!(!app.get_bio_on() && !unlock_file.exists());
+    assert_eq!(
+        system.forgotten.borrow().as_slice(),
+        std::slice::from_ref(&vault_id)
+    );
+    app.set_changing_password(true);
+    type_secret(&app, 5, NEW_PASSWORD);
+    type_secret(&app, 6, PASSWORD);
+    type_secret(&app, 7, PASSWORD);
+    app.invoke_change_password();
+    assert_eq!(app.get_notice_code(), 10, "{}", app.get_error_detail());
+    // "Lock as soon as I leave the app".
+    controller.left_app();
+    assert!(controller.is_unlocked(), "off by default");
+    app.invoke_lock_on_leave_changed(true);
+    controller.left_app();
+    assert!(!controller.is_unlocked());
+    type_secret(&app, 0, PASSWORD);
+    app.invoke_unlock();
+    app.invoke_lock_on_leave_changed(false);
+    assert!(controller.is_unlocked());
+    // The language: kept, shown as chosen.
+    app.invoke_language_changed(2);
+    assert_eq!(app.get_language_choice(), 2);
+    app.invoke_language_changed(0);
+    assert_eq!(app.get_language_choice(), 0);
+
     // ---- a copy of the vault: confirmed only after it is read back and checked ----
     let (name, copy) = controller
         .copy_to_save()
@@ -689,6 +839,121 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     );
     app.invoke_close_item();
 
+    // ---- a second vault on the phone ----
+    let work_key = SecretKey::generate().unwrap();
+    let work_secret_key = work_key.to_display_string().to_string();
+    let mut work = Vault::create(PASSWORD, &work_key, None, KdfParams::minimum().unwrap()).unwrap();
+    let mut work_settings = work.settings().clone();
+    work_settings.name = "Work".into();
+    work.set_settings(work_settings).unwrap();
+    let work_file = dir.path().join("work.vault");
+    std::fs::write(&work_file, work.to_bytes().unwrap()).unwrap();
+    let work_id = work.id_hex();
+    drop(work);
+    assert_eq!(app.get_vaults().row_count(), 1);
+    app.invoke_add_vault();
+    assert!(app.get_adding_vault() && !controller.is_unlocked());
+    assert_eq!(app.get_screen(), Screen::Start);
+    app.invoke_cancel_add_vault();
+    assert_eq!(
+        (app.get_screen(), app.get_adding_vault()),
+        (Screen::Unlock, false)
+    );
+    assert_eq!(controller.path(), path, "back to the first vault");
+    app.invoke_add_vault();
+    controller.bring_vault_file(&work_file);
+    type_secret(&app, 0, PASSWORD);
+    type_secret(&app, 1, &work_secret_key);
+    app.invoke_unlock();
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "{}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_vault_name(), "Work");
+    assert_eq!(controller.path(), path.with_file_name("vault-2.vault"));
+    let rows: Vec<(String, bool)> = app
+        .get_vaults()
+        .iter()
+        .map(|v| (v.name.to_string(), v.open))
+        .collect();
+    assert_eq!(
+        rows,
+        [("Test vault".to_owned(), false), ("Work".to_owned(), true)]
+    );
+    assert_eq!(app.get_vault_current(), 1);
+
+    // Import: another manager's CSV, once and then again (nothing twice).
+    let csv = "name,url,username,password\nForum,https://forum.example.com,tester,password123\n";
+    controller.picked_file(3, "export.csv", csv.as_bytes().to_vec());
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    assert_eq!((app.get_import_added(), app.get_import_skipped()), (1, 0));
+    assert_eq!(app.get_total(), 1);
+    controller.picked_file(3, "export.csv", csv.as_bytes().to_vec());
+    assert_eq!((app.get_import_added(), app.get_import_skipped()), (0, 1));
+    controller.picked_file(3, "export.kdbx", vec![0x03, 0xd9, 0xa2, 0x9a, 0, 0]);
+    assert_eq!(
+        app.get_error_code(),
+        26,
+        "a protected file needs its password"
+    );
+
+    // "Check this password": its strength here, the leak check only on the tap.
+    controller.set_leak_lookup(|password| {
+        assert_eq!(password, "password123");
+        Ok(12_345)
+    });
+    app.invoke_open_item(0);
+    assert!(!app.get_d_checked());
+    app.invoke_check_password();
+    assert!(app.get_d_checked() && app.get_d_weakness() != 0);
+    assert_eq!(
+        (app.get_d_leak(), app.get_d_leak_count().as_str()),
+        (12_345, "12,345")
+    );
+    app.invoke_close_item();
+    controller.set_leak_lookup(|_| Err("offline".into()));
+    app.invoke_open_item(0);
+    assert!(!app.get_d_checked(), "nothing stays from the last item");
+    app.invoke_check_password();
+    assert_eq!(app.get_d_leak(), -2);
+    app.invoke_close_item();
+
+    // Switching: the open vault locks, the other one's unlock shows.
+    app.invoke_switch_vault(0);
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    assert_eq!(
+        (app.get_vault_name().as_str(), controller.path()),
+        ("Test vault", path.clone())
+    );
+    app.invoke_switch_vault(1);
+    type_secret(&app, 0, PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_vault_name(), "Work");
+    // Removing it from the phone: its copy and its Secret Key go; the first one shows.
+    app.invoke_remove_vault();
+    assert_eq!(app.get_notice_code(), 17);
+    assert!(!path.with_file_name("vault-2.vault").exists());
+    assert!(
+        vault_platform::secret_store::load(&work_id)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(app.get_vaults().row_count(), 1);
+    assert_eq!(
+        (app.get_screen(), controller.path()),
+        (Screen::Unlock, path.clone())
+    );
+    type_secret(&app, 0, PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "{}",
+        app.get_error_detail()
+    );
+
     // ---- sync through a server: the computer invites the phone ----
     let server = TestServer::start();
     let pc_id = vault_core::sync::DeviceId::generate().unwrap();
@@ -767,6 +1032,18 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         .map(|s| s.title.clone())
         .collect();
     assert!(titles.iter().any(|t| t == "From the phone"), "{titles:?}");
+    // Settings → Sync: the copies the server keeps, and the devices.
+    assert_eq!(app.get_sync_copies(), 2, "the computer's and this phone's");
+    assert!(app.get_sync_total().ends_with("KB") && !app.get_sync_own().is_empty());
+    let devices: Vec<(String, bool)> = app
+        .get_sync_devices()
+        .iter()
+        .map(|d| (d.name.to_string(), d.own))
+        .collect();
+    assert_eq!(
+        devices,
+        [("Phone".to_owned(), true), ("PC".to_owned(), false)]
+    );
 
     // A new phone is set up from the server alone: the invite line on its start screen.
     {
@@ -829,6 +1106,27 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         }
     }
 
+    // Settings → Sync → Remove: the second phone leaves the vault, its copy the server.
+    controller.sync_round();
+    let rows: Vec<(String, bool)> = app
+        .get_sync_devices()
+        .iter()
+        .map(|d| (d.name.to_string(), d.own))
+        .collect();
+    assert_eq!(rows.len(), 3, "{rows:?}");
+    let second_phone = rows
+        .iter()
+        .position(|(name, own)| !own && name == "Phone")
+        .unwrap();
+    app.invoke_sync_remove_device(i32::try_from(second_phone).unwrap());
+    assert_eq!(app.get_notice_code(), 15, "{}", app.get_error_detail());
+    assert_eq!(app.get_sync_devices().row_count(), 2);
+    assert_eq!(
+        pc_server.list().unwrap().len(),
+        2,
+        "its copy left the server"
+    );
+
     // Stop: the phone forgets its server key; the copies stay on the server.
     app.invoke_sync_stop();
     assert_eq!(
@@ -837,8 +1135,8 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     );
     assert_eq!(
         pc_server.list().unwrap().len(),
-        3,
-        "the computer's and both phones'"
+        2,
+        "the computer's and this phone's"
     );
     drop(server);
 

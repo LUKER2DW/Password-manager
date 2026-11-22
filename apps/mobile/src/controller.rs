@@ -36,6 +36,7 @@ use crate::{
     },
     prefs::{self, Prefs},
     sketch,
+    system::{NoSystem, System},
     ui::{CodeRow, ItemRow, Page, PhoneWindow, Place, Screen, Secrets, Sketch, Theme},
     view,
 };
@@ -53,7 +54,9 @@ mod field {
     pub const CURRENT: usize = 5;
     pub const NEW: usize = 6;
     pub const NEW_AGAIN: usize = 7;
-    pub const COUNT: usize = 8;
+    /// Settings → Import and export: the password of the file to import.
+    pub const IMPORT_PASSWORD: usize = 8;
+    pub const COUNT: usize = 9;
 }
 
 /// The shortest master password the phone sets (the desktop's rule).
@@ -87,6 +90,11 @@ mod error {
     pub const SETUP_KEY: i32 = 21;
     pub const NOT_A_KEY: i32 = 22;
     pub const FILE_TOO_LARGE: i32 = 23;
+    pub const BIOMETRICS: i32 = 24;
+    pub const IMPORT: i32 = 25;
+    pub const IMPORT_PASSWORD: i32 = 26;
+    #[allow(dead_code)]
+    pub const UPDATE: i32 = 27;
 }
 
 /// The editor's kinds (`ed-kind`), the desktop's: an authenticator item is a login kept for
@@ -101,6 +109,7 @@ mod editor {
 
 mod attachments;
 mod icons;
+mod settings;
 mod syncing;
 
 /// Notice codes (texts live in app.slint → Words.notice).
@@ -119,6 +128,11 @@ mod notice {
     pub const BACKUP_CONFIRMED: i32 = 11;
     pub const FILE_SAVED: i32 = 12;
     pub const COPIED_PLAIN: i32 = 13;
+    pub const BIO_ON: i32 = 14;
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const DEVICE_REMOVED: i32 = 15;
+    pub const BIO_REVOKED: i32 = 16;
+    pub const VAULT_REMOVED: i32 = 17;
 }
 
 /// How long a copied secret may stay on the clipboard (Settings), in seconds.
@@ -168,7 +182,7 @@ const TINTS: [(u8, u8, u8); 8] = [
     (0x5B, 0x7F, 0x2E),
 ];
 
-fn tint(kind: ItemKind, key: &str) -> Color {
+pub(super) fn tint(kind: ItemKind, key: &str) -> Color {
     let (r, g, b) = match kind {
         ItemKind::Card => (0x4A, 0x5D, 0x7E),
         ItemKind::SecureNote => (0x2F, 0x7D, 0x68),
@@ -185,7 +199,7 @@ fn tint(kind: ItemKind, key: &str) -> Color {
     Color::from_rgb_u8(r, g, b)
 }
 
-fn initial(title: &str) -> SharedString {
+pub(super) fn initial(title: &str) -> SharedString {
     title
         .chars()
         .find(|c| c.is_alphanumeric())
@@ -229,6 +243,28 @@ fn fingerprint(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
+/// "12 KB", "1.4 MB": a file's size as the screens show it.
+fn size_text(len: usize) -> String {
+    if len < 1024 * 1024 {
+        format!("{} KB", len.div_ceil(1024))
+    } else {
+        format!("{:.1} MB", len as f64 / (1024.0 * 1024.0))
+    }
+}
+
+/// "1,234": a count with its thousands apart.
+fn grouped_count(count: u64) -> String {
+    let digits = count.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 struct State {
     /// Slow work (password hashing) runs inline: headless tests and screenshots.
     inline: bool,
@@ -269,6 +305,13 @@ struct State {
     editor_ssh: Option<Zeroizing<String>>,
     /// SHA-256 of a file handed out to be saved, until it is read back.
     file_expected: Option<[u8; 32]>,
+    /// While another vault is being added: the one to go back to.
+    previous: Option<PathBuf>,
+    /// What an open fingerprint prompt is for.
+    bio: settings::BioPending,
+    /// The leak check ("Check this password"), and the item it was asked for.
+    leak_lookup: fn(&str) -> Result<u64, String>,
+    leak_for: Option<ItemId>,
 }
 
 thread_local! {
@@ -283,6 +326,8 @@ pub struct Controller {
     /// the vault).
     icons: RefCell<icons::Icons>,
     tick: Timer,
+    /// What only the phone's own system does (biometrics, screenshots, autofill).
+    system: RefCell<Rc<dyn System>>,
     /// Sync: a round a moment after a save, and one every few minutes (not in a browser).
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     sync_soon: Timer,
@@ -302,6 +347,8 @@ struct Opened {
     secret_key: SecretKey,
     typed_key: bool,
     hash: [u8; 32],
+    /// Opened with the master password (not the fingerprint).
+    by_password: bool,
 }
 
 impl Controller {
@@ -312,6 +359,13 @@ impl Controller {
     /// picker and hands the chosen file to [`Controller::bring_vault`].
     pub fn start(app: &PhoneWindow, path: PathBuf, inline: bool) -> Rc<Self> {
         let prefs = Prefs::load(&prefs::path_for(&path));
+        // The vault open last, when the phone keeps more than one (they sit next to each
+        // other, and to `settings.json`).
+        let path = if prefs::is_vault_file(&prefs.current) {
+            path.with_file_name(&prefs.current)
+        } else {
+            path
+        };
         let controller = Rc::new(Self {
             app: app.as_weak(),
             icons: RefCell::default(),
@@ -341,9 +395,14 @@ impl Controller {
                 editor_files: Vec::new(),
                 editor_ssh: None,
                 file_expected: None,
+                previous: None,
+                bio: settings::BioPending::None,
+                leak_lookup: settings::leak_lookup_default,
+                leak_for: None,
                 lock_after: LOCK_CHOICES[usize::from(prefs.lock_choice).min(2)],
             }),
             tick: Timer::default(),
+            system: RefCell::new(Rc::new(NoSystem)),
             sync_soon: Timer::default(),
             sync_every: Timer::default(),
         });
@@ -369,9 +428,13 @@ impl Controller {
                 .map_or(1, |i| i32::try_from(i).unwrap_or(1)),
         );
         app.set_website_icons(prefs.website_icons);
+        app.set_lock_on_leave(prefs.lock_on_leave);
+        app.set_allow_capture(prefs.allow_capture);
         controller.show_generator(&prefs.generator);
         controller.wire(app);
+        controller.apply_language(&prefs.language);
         controller.show_entry();
+        controller.publish_vaults();
         controller
     }
 
@@ -476,6 +539,23 @@ impl Controller {
             c.refresh_list();
         });
         on!(on_lock_now, |c| c.lock());
+        on!(on_bio_toggled, |c, on| c.bio_toggled(on));
+        on!(on_bio_unlock, |c| c.bio_unlock());
+        on!(on_lock_on_leave_changed, |c, on| c
+            .lock_on_leave_changed(on));
+        on!(on_allow_capture_changed, |c, on| c
+            .allow_capture_changed(on));
+        on!(on_open_autofill_settings, |c| c
+            .system()
+            .open_autofill_settings());
+        on!(on_switch_vault, |c, index| c.switch_vault(index));
+        on!(on_add_vault, |c| c.add_vault());
+        on!(on_cancel_add_vault, |c| c.cancel_add_vault());
+        on!(on_remove_vault, |c| c.remove_vault());
+        on!(on_language_changed, |c, index| c.language_changed(index));
+        on!(on_check_password, |c| c.check_password());
+        on!(on_sync_remove_device, |c, index| c
+            .sync_remove_device(index));
         on!(on_change_password, |c| c.change_password());
         on!(on_cancel_password_change, |c| c.close_password_change());
 
@@ -724,6 +804,8 @@ impl Controller {
         app.set_incoming(incoming.is_some());
         app.set_has_copy(path.exists());
         let Some(bytes) = incoming.or_else(|| files::read(&path).ok()) else {
+            app.set_bio_ready(false);
+            app.set_bio_stale(false);
             app.set_screen(Screen::Start);
             return;
         };
@@ -733,6 +815,7 @@ impl Controller {
             .is_some();
         app.set_needs_secret_key(!known);
         app.set_screen(Screen::Unlock);
+        self.offer_biometrics(false);
     }
 
     /// A vault file the person chose (from the system's file picker, or shared to the app).
@@ -817,11 +900,7 @@ impl Controller {
             Ok(len) => {
                 let now = view::now_unix();
                 let minutes = now.rem_euclid(86_400) / 60;
-                let size = if len < 1024 * 1024 {
-                    format!("{} KB", len.div_ceil(1024))
-                } else {
-                    format!("{:.1} MB", len as f64 / (1024.0 * 1024.0))
-                };
+                let size = size_text(len);
                 let line = format!(
                     "{place} · {size} · {} {:02}:{:02} UTC",
                     view::date(now),
@@ -890,6 +969,7 @@ impl Controller {
                     secret_key,
                     typed_key,
                     hash: fingerprint(&bytes),
+                    by_password: true,
                 }
             },
             |c, opened| c.opened(opened),
@@ -936,6 +1016,9 @@ impl Controller {
         if opened.typed_key {
             let _ = secret_store::store(&id, &opened.secret_key);
         }
+        if opened.by_password {
+            self.password_typed(&id);
+        }
         {
             let mut state = self.state.borrow_mut();
             state.vault = Some(vault);
@@ -973,6 +1056,12 @@ impl Controller {
         app.set_place(Place::Items);
         app.set_page(Page::None);
         app.set_screen(Screen::Vault);
+        app.set_choosing_vault(false);
+        app.set_settings_section(-1);
+        app.set_bio_ready(false);
+        app.set_bio_stale(false);
+        self.remember_open_vault();
+        self.publish_vault_facts();
         self.load_icons();
         self.refresh_list();
         self.fetch_icons();
@@ -1018,6 +1107,9 @@ impl Controller {
         *self.icons.borrow_mut() = icons::Icons::default();
         let app = self.app();
         app.set_changing_password(false);
+        app.set_choosing_vault(false);
+        app.set_confirm_remove_vault(false);
+        app.set_import_added(-1);
         app.set_items(ModelRc::default());
         app.set_codes(ModelRc::default());
         app.set_total(0);
@@ -1027,6 +1119,7 @@ impl Controller {
         self.clear_item_page();
         self.clear_editor();
         self.show_entry();
+        self.publish_vaults();
     }
 
     // ---- saving ----
@@ -1176,6 +1269,7 @@ impl Controller {
                         let _ = crate::platform::device::record_revision(&id, revision);
                         c.close_password_change();
                         c.notify(notice::PASSWORD_CHANGED, "");
+                        c.biometrics_revoked(&id);
                         c.sync_after_save();
                     }
                     Err((code, detail)) => {
@@ -1396,6 +1490,9 @@ impl Controller {
         app.set_d_has_code(false);
         app.set_d_check(0);
         app.set_d_files(ModelRc::default());
+        app.set_d_checked(false);
+        app.set_d_leak(0);
+        self.state.borrow_mut().leak_for = None;
     }
 
     /// Leaves the item: what the item lock opened for it is closed again.

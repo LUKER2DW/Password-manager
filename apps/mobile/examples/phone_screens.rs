@@ -101,6 +101,26 @@ impl Camera {
     }
 }
 
+/// Two vaults for the vault chooser (demo names and places only).
+fn demo_vaults(first_open: bool) -> slint::ModelRc<vault_mobile::ui::VaultRow> {
+    slint::ModelRc::new(slint::VecModel::from(vec![
+        vault_mobile::ui::VaultRow {
+            name: "Personal".into(),
+            initial: "P".into(),
+            tint: slint::Color::from_rgb_u8(0x3D, 0x6F, 0xD6),
+            place: "vault.example-net.ts.net".into(),
+            open: first_open,
+        },
+        vault_mobile::ui::VaultRow {
+            name: "Work".into(),
+            initial: "W".into(),
+            tint: slint::Color::from_rgb_u8(0xC0, 0x4A, 0x84),
+            place: "".into(),
+            open: false,
+        },
+    ]))
+}
+
 fn type_secret(app: &PhoneWindow, field: i32, text: &str) {
     app.global::<Secrets>().invoke_clear(field);
     app.global::<Secrets>().invoke_insert(field, text.into());
@@ -293,39 +313,140 @@ fn main() {
     app.invoke_gen_changed();
     camera.shot("generator-words", "The generator: words");
     app.set_gen_mode(0);
-    app.set_place(Place::Settings);
-    camera.shot("settings", "Settings: sync off, an invite line to paste");
-    // The whole page at once, in a window twice as tall: the master password being
-    // changed, and the last copy saved and checked.
-    app.set_changing_password(true);
-    app.set_backup_confirmed("vault-backup-2026-11-21.vault · 24 KB · 2026-11-21 14:03 UTC".into());
-    camera.window.set_size(PhysicalSize::new(
-        (WIDTH as f32 * scale) as u32,
-        (HEIGHT as f32 * scale * 2.0) as u32,
-    ));
+    // "Check this password" on a login (demo values: no breach service is asked here).
+    app.set_place(Place::Items);
+    app.invoke_open_item(2);
+    app.set_d_checked(true);
+    app.set_d_bits(38);
+    app.set_d_crack_unit(2);
+    app.set_d_crack_amount(3);
+    app.set_d_weakness(3);
+    app.set_d_leak(12_345);
+    app.set_d_leak_count("12,345".into());
     camera.shot(
-        "settings-whole",
-        "Settings, whole page: the master password, a checked copy",
+        "item-checked",
+        "Check this password: its strength and the leak check",
     );
-    camera.window.set_size(PhysicalSize::new(
-        (WIDTH as f32 * scale) as u32,
-        (HEIGHT as f32 * scale) as u32,
-    ));
+    app.invoke_close_item();
+    // The vault chooser on the vault's name.
+    app.set_vaults(demo_vaults(true));
+    app.set_vault_current(0);
+    app.set_choosing_vault(true);
+    camera.shot("vault-chooser", "The vault's name opens the vault chooser");
+    app.set_choosing_vault(false);
+
+    app.set_place(Place::Settings);
+    app.set_settings_section(-1);
+    app.set_autofill_available(true);
+    camera.shot("settings", "Settings: the groups");
+    let tall = |camera: &mut Camera, factor: f32| {
+        camera.window.set_size(PhysicalSize::new(
+            (WIDTH as f32 * scale) as u32,
+            (HEIGHT as f32 * scale * factor) as u32,
+        ));
+    };
+    app.set_bio_available(true);
+    app.set_bio_on(true);
+    app.set_settings_section(0);
+    tall(&mut camera, 1.6);
+    camera.shot(
+        "settings-security",
+        "Security: fingerprint, locking, screenshots, clipboard",
+    );
+    app.set_changing_password(true);
+    tall(&mut camera, 2.0);
+    camera.shot(
+        "settings-password",
+        "Security: changing the master password",
+    );
     app.set_changing_password(false);
+    app.set_settings_section(1);
+    tall(&mut camera, 1.0);
+    camera.shot("settings-autofill", "Autofill: Android's service");
+    app.set_settings_section(2);
+    app.set_vault_size("24 KB".into());
+    tall(&mut camera, 1.6);
+    camera.shot(
+        "settings-vaults",
+        "Vault: this one, the others, adding and removing",
+    );
+    app.set_confirm_remove_vault(true);
+    camera.shot(
+        "settings-vault-remove",
+        "Removing a vault from the phone, asked first",
+    );
+    app.set_confirm_remove_vault(false);
+    app.set_settings_section(3);
+    app.set_backup_confirmed("vault-backup-2026-11-21.vault · 24 KB · 2026-11-21 14:03 UTC".into());
+    app.set_import_added(12);
+    app.set_import_skipped(3);
+    tall(&mut camera, 1.6);
+    camera.shot(
+        "settings-import",
+        "Import and export: copies, another manager's export",
+    );
+    app.set_import_added(-1);
+    app.set_settings_section(4);
+    tall(&mut camera, 1.0);
+    camera.shot("settings-sync-off", "Sync: off, an invite line to paste");
     // Joined (demo values only: no server is reached here).
     app.set_sync_place("https://vault.example-net.ts.net".into());
     app.set_sync_minutes(2);
     app.set_sync_state(1);
-    camera.shot("settings-synced", "Settings: syncing through the server");
+    app.set_sync_copies(3);
+    app.set_sync_total("72 KB".into());
+    app.set_sync_own("24 KB".into());
+    app.set_sync_devices(slint::ModelRc::new(slint::VecModel::from(vec![
+        vault_mobile::ui::DeviceRow {
+            name: "Phone".into(),
+            added: "2026-11-20".into(),
+            own: true,
+        },
+        vault_mobile::ui::DeviceRow {
+            name: "Desktop".into(),
+            added: "2026-11-02".into(),
+            own: false,
+        },
+        vault_mobile::ui::DeviceRow {
+            name: "Laptop".into(),
+            added: "2026-11-12".into(),
+            own: false,
+        },
+    ])));
+    app.set_sync_explained(true);
+    tall(&mut camera, 2.2);
+    camera.shot(
+        "settings-synced",
+        "Sync: the server, its copies, the devices, how it works",
+    );
+    app.set_sync_explained(false);
+    app.set_sync_removing(2);
+    tall(&mut camera, 1.4);
+    camera.shot("settings-device-remove", "Removing a device, asked first");
+    app.set_sync_removing(-1);
     app.set_sync_state(3);
     app.set_sync_detail("the sync server can't be reached".into());
-    camera.shot(
-        "settings-sync-failed",
-        "Settings: the server can't be reached",
-    );
+    tall(&mut camera, 1.0);
+    camera.shot("settings-sync-failed", "Sync: the server can't be reached");
     app.set_sync_place("".into());
     app.set_sync_state(0);
     app.set_sync_detail("".into());
+    app.set_sync_copies(0);
+    app.set_settings_section(5);
+    camera.shot(
+        "settings-appearance",
+        "Appearance: theme, language, background, icons",
+    );
+    app.set_updates_available(true);
+    app.set_update_state(3);
+    app.set_update_version("0.2.0".into());
+    app.set_settings_section(6);
+    camera.shot("settings-updates", "Updates from the vault server");
+    app.set_settings_section(7);
+    camera.shot("settings-about", "About");
+    app.set_settings_section(-1);
+    app.set_updates_available(false);
+    app.set_update_state(0);
 
     app.global::<Theme>().set_dark(false);
     app.set_place(Place::Items);
@@ -337,6 +458,15 @@ fn main() {
     camera.shot("unlock-light", "Locked, light theme");
     app.global::<Theme>().set_dark(true);
     camera.shot("unlock", "Locked");
+    app.set_bio_ready(true);
+    app.set_vaults(demo_vaults(false));
+    app.set_choosing_vault(true);
+    camera.shot(
+        "unlock-fingerprint",
+        "Locked: the fingerprint, and another vault",
+    );
+    app.set_choosing_vault(false);
+    app.set_bio_ready(false);
     type_secret(&app, 0, "not the password");
     app.invoke_unlock();
     camera.shot("unlock-wrong", "A wrong password, in words");

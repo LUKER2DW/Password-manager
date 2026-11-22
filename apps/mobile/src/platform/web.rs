@@ -40,6 +40,22 @@ pub mod files {
     pub fn create_dir_all(_: &Path) -> std::io::Result<()> {
         Ok(())
     }
+
+    pub fn remove(path: &Path) {
+        FILES.with(|files| files.borrow_mut().remove(path));
+    }
+}
+
+/// The leak check needs the network, which the preview doesn't use.
+pub mod leak_check {
+    pub fn count(_password: &str) -> Result<u64, String> {
+        Err("the browser preview doesn't use the network".into())
+    }
+}
+
+/// The page's language is the browser's; the preview stays in English.
+pub fn system_language() -> Option<String> {
+    None
 }
 
 /// The Secret Key "remembered on this device": in this page's memory.
@@ -58,6 +74,10 @@ pub mod secret_store {
         Ok(SECRET_KEYS
             .with(|keys| keys.borrow().get(vault_id).cloned())
             .and_then(|text| vault_core::SecretKey::parse(&text).ok()))
+    }
+
+    pub fn forget(vault_id: &str) -> anyhow::Result<bool> {
+        Ok(SECRET_KEYS.with(|keys| keys.borrow_mut().remove(vault_id).is_some()))
     }
 }
 

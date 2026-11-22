@@ -14,6 +14,8 @@ use crate::{ui::FileRow, view};
 mod pick {
     pub const ATTACHMENT: i32 = 1;
     pub const SSH_KEY: i32 = 2;
+    /// Another manager's export, for Settings → Import and export.
+    pub const IMPORT: i32 = 3;
 }
 
 fn rows(files: &[Attachment]) -> ModelRc<FileRow> {
@@ -170,6 +172,7 @@ impl Controller {
                     Err(err) => self.set_error(error::UNREADABLE, &err.to_string()),
                 }
             }
+            pick::IMPORT => self.import_file(bytes),
             _ => {}
         }
     }

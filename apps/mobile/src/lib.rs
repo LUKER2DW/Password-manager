@@ -16,6 +16,7 @@ pub mod ui {
 mod controller;
 pub mod platform;
 mod prefs;
+pub mod system;
 // The hand-drawn strokes are the desktop's: one file, used by both apps.
 #[path = "../../desktop/src/sketch.rs"]
 #[allow(dead_code)]
@@ -28,3 +29,4 @@ mod tests;
 mod view;
 
 pub use controller::Controller;
+pub use system::{NoSystem, PromptWords, System};
