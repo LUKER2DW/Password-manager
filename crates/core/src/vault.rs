@@ -13,7 +13,7 @@ use crate::{
     },
     guard::{GuardKeySlots, GuardSlot, WrappedGuardKey},
     item::{
-        FolderV1, FolderV3, ItemDataV0, ItemDataV1, ItemDataV2, ItemDataV3, ItemDataV5,
+        FolderV1, FolderV3, ItemDataV0, ItemDataV1, ItemDataV2, ItemDataV3, ItemDataV5, ItemDataV8,
         ItemSecrets, PasswordChange, SealedSecrets,
     },
     keys::{self, Keyfile, VaultKey},
@@ -389,6 +389,7 @@ impl Vault {
                 2 => format::decode_exact::<ItemDataV2>(plain)?.upgrade(),
                 3 | 4 => format::decode_exact::<ItemDataV3>(plain)?.upgrade(),
                 5 => format::decode_exact::<ItemDataV5>(plain)?.upgrade(),
+                6..=8 => format::decode_exact::<ItemDataV8>(plain)?.upgrade(),
                 _ => return Err(Error::Malformed),
             };
             let (id, revision) = (self.items[index].id, self.items[index].revision);
@@ -879,6 +880,7 @@ impl Vault {
                 break candidate;
             }
         };
+        data.check_attachments()?;
         let mut data = data.clone();
         if data.password_changed_at == 0 && !data.password.is_empty() {
             data.password_changed_at = data.created_at;
@@ -956,6 +958,7 @@ impl Vault {
     /// fails with [`Error::SecretsLocked`]. An item not sealed yet ([`Vault::pending_seal`])
     /// can be changed while the guard is closed and keeps waiting for its seal.
     pub fn update_item(&mut self, id: &ItemId, data: &ItemData) -> Result<()> {
+        data.check_attachments()?;
         let index = self.position(id).ok_or(Error::ItemNotFound)?;
         let revision = self.items[index]
             .revision
@@ -1366,7 +1369,7 @@ impl Vault {
                 &sealed.ciphertext,
                 &secrets_aad(&self.header.vault_id, &record.id),
             )?;
-            let secrets: ItemSecrets = format::decode_exact(padding::unpad(&padded)?)?;
+            let secrets = ItemSecrets::decode(padding::unpad(&padded)?)?;
             item.sealed = None;
             item.put_secrets(secrets)?;
         }

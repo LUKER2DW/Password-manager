@@ -35,6 +35,7 @@ pub mod generator;
 pub mod health;
 pub mod locked_fill;
 pub mod sealed_export;
+pub mod ssh;
 pub mod storage;
 pub mod sync;
 pub mod totp;
@@ -43,8 +44,8 @@ pub mod card;
 pub use error::Error;
 pub use guard::{GuardCheck, ItemGuard};
 pub use item::{
-    CustomField, Folder, FolderId, ItemData, ItemId, ItemKind, ItemSummary, PasswordChange,
-    RecoveryCode, SealedSecrets, VaultSettings,
+    Attachment, CustomField, Folder, FolderId, ItemData, ItemId, ItemKind, ItemSummary,
+    PasswordChange, RecoveryCode, SealedSecrets, VaultSettings,
 };
 pub use kdf::{KdfMethod, KdfParams, KdfStrength, PasswordKdf};
 pub use keys::{Keyfile, PartLabel, RecoveryKey, RecoveryPart, RecoveryParts, SecretKey};

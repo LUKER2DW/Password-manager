@@ -16,6 +16,8 @@ argon2 = { version = "0.6", features = ["zeroize"] }
 chacha20poly1305 = { version = "0.11", features = ["zeroize"] }
 # The browser drop box (spec/CRYPTO.md §3.5): libsodium's sealed box (X25519, XSalsa20-Poly1305).
 crypto_box = { version = "0.9", features = ["seal"] }
+# SSH key items (ssh.rs): a new key is Ed25519 (the crate sync-wire already uses).
+ed25519-dalek = { version = "2.2", features = ["zeroize"] }
 getrandom = "0.4"
 hkdf = "0.13"
 hmac = { version = "0.13", features = ["zeroize"] }

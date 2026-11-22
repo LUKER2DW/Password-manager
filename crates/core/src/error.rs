@@ -39,6 +39,8 @@ pub enum Error {
     InvalidTotp,
     #[error("password generator options are invalid")]
     InvalidGeneratorOptions,
+    #[error("an attached file may be at most 5 MiB, and an item holds at most 10 of them")]
+    AttachmentTooLarge,
     #[error("the operating system random number generator failed")]
     Rng,
     #[error("key derivation failed")]
