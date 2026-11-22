@@ -21,7 +21,7 @@ const here = { tab: undefined, site: undefined, vault: undefined, place: "site" 
 
 // ---- views ----
 
-const VIEWS = ["tabs", "site", "offer", "list", "vault", "gen", "new-login", "entry", "check", "pair", "message", "foot"];
+const VIEWS = ["tabs", "site", "offer", "list", "vault", "gen", "new-login", "entry", "check", "pair", "message", "prefs", "foot"];
 
 function view(...shown) {
   for (const id of VIEWS) $(id).hidden = !shown.includes(id);
@@ -723,6 +723,40 @@ function showNewLogin(generated) {
   };
 }
 
+/**
+ * The extension's own settings: whether Vault offers to save passwords instead of Chrome
+ * (Chrome's "Offer to save passwords and passkeys" is then off, and Chrome says this extension
+ * controls it). Back goes to where the person was.
+ */
+async function showPrefs(back) {
+  view("prefs", "foot");
+  $("prefs-title").textContent = t("prefsTitle");
+  $("prefs-saving-label").textContent = t("prefsSaving");
+  $("prefs-saving-hint").textContent = t("prefsSavingHint");
+  $("prefs-back").textContent = t("back");
+  $("prefs-back").onclick = back;
+  const box = $("prefs-saving");
+  const state = $("prefs-saving-state");
+  const saving = chrome.privacy.services.passwordSavingEnabled;
+  const refresh = async () => {
+    const { vaultSaves = true } = await chrome.storage.local.get("vaultSaves");
+    const details = await saving.get({});
+    const mine = ["controllable_by_this_extension", "controlled_by_this_extension"].includes(details.levelOfControl);
+    box.checked = vaultSaves && mine;
+    box.disabled = !mine;
+    state.textContent = mine
+      ? ""
+      : t(details.levelOfControl === "not_controllable" ? "prefsSavingPolicy" : "prefsSavingOther");
+  };
+  box.onchange = async () => {
+    await chrome.storage.local.set({ vaultSaves: box.checked });
+    if (box.checked) await saving.set({ value: false });
+    else await saving.clear({});
+    await refresh();
+  };
+  await refresh();
+}
+
 /** Asks the app for this page's logins and for the vault's list. */
 async function load() {
   const tab = here.tab;
@@ -759,6 +793,8 @@ async function start() {
   $("tab-gen").onclick = showGenerator;
   $("add-login").textContent = t("addLogin");
   $("add-login").onclick = () => showNewLogin();
+  $("foot-prefs").textContent = t("prefsTitle");
+  $("foot-prefs").onclick = () => showPrefs(() => (here.site?.items.length ? showSite() : showVault()));
   $("new-login").addEventListener("submit", (event) => event.preventDefault());
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   here.tab = tab;

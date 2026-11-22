@@ -17,6 +17,34 @@ import { fallbacks, patternTest, rulesFor } from "./generator.js";
 
 const INLINE = chrome.runtime.getURL("inline.html");
 
+// ---- Chrome's own password saving ----
+//
+// While the person leaves it to Vault (the default), Chrome's "Offer to save passwords and
+// passkeys" is off, and Chrome's settings say that this extension controls it, with a way to
+// take it back. Turning it off here gives the setting back. The `privacy` permission is used
+// for this one setting only.
+
+/** Whether Vault offers to save passwords instead of the browser (the extension's setting). */
+export async function vaultSaves() {
+  const { vaultSaves: on = true } = await chrome.storage.local.get("vaultSaves");
+  return on;
+}
+
+/** Applies the setting to Chrome's own, when this extension may control it. */
+export async function applySaving() {
+  const saving = chrome.privacy.services.passwordSavingEnabled;
+  const details = await saving.get({});
+  if (!["controllable_by_this_extension", "controlled_by_this_extension"].includes(details.levelOfControl)) {
+    return details.levelOfControl;
+  }
+  if (await vaultSaves()) await saving.set({ value: false });
+  else await saving.clear({});
+  return details.levelOfControl;
+}
+
+chrome.runtime.onInstalled.addListener(() => applySaving().catch(() => {}));
+chrome.runtime.onStartup.addListener(() => applySaving().catch(() => {}));
+
 // Answers for "does this page have logins?", kept a few seconds per tab so that clicking
 // between two fields does not ask the app twice.
 const known = new Map();

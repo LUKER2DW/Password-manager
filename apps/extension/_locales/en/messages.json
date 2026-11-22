@@ -381,5 +381,23 @@
   },
   "alreadySavedToast": {
     "message": "That password was already saved."
+  },
+  "prefsTitle": {
+    "message": "Settings"
+  },
+  "prefsSaving": {
+    "message": "Vault offers to save passwords, not the browser"
+  },
+  "prefsSavingHint": {
+    "message": "Turns off the browser's own “Offer to save passwords and passkeys”, so only Vault asks. The browser's settings then say that Vault controls it; turning this off gives it back."
+  },
+  "prefsSavingOther": {
+    "message": "Another extension controls this browser setting. Turn that one off to let Vault have it."
+  },
+  "prefsSavingPolicy": {
+    "message": "Your organization controls this browser setting."
+  },
+  "back": {
+    "message": "Back"
   }
 }

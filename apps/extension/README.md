@@ -48,6 +48,11 @@ Status: early development, like the rest of the project. Use a test vault.
 
 ## How it stays safe
 
+- **Chrome's own saving:** while "Vault offers to save passwords, not the browser" is on (the
+  default, in the extension's Settings), Chrome's "Offer to save passwords and passkeys" is off,
+  and Chrome's settings say the extension controls it. That is what the `privacy` permission
+  is for, and nothing else.
+
 - Every password comes from the app, which decides whether a page may have it: the exact site
   saved in the login, top frame only, nothing while the vault is locked. Each fill or shown
   password is announced in the app.

@@ -173,11 +173,21 @@
       <p id="message-text"></p>
     </section>
 
+    <!-- The extension's own settings. -->
+    <section id="prefs" hidden>
+      <h2 id="prefs-title"></h2>
+      <label class="setting"><input id="prefs-saving" type="checkbox" /> <span id="prefs-saving-label"></span></label>
+      <p id="prefs-saving-hint" class="hint"></p>
+      <p id="prefs-saving-state" class="problem" role="status"></p>
+      <button id="prefs-back" class="quiet" type="button"></button>
+    </section>
+
     <p id="toast" role="status" hidden></p>
 
     <footer id="foot" hidden>
       <span id="foot-dot" aria-hidden="true"></span>
       <span id="foot-text"></span>
+      <button id="foot-prefs" class="quiet" type="button"></button>
     </footer>
 
     <script type="module" src="popup.js"></script>
