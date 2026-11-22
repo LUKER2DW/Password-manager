@@ -19,15 +19,21 @@ serde_json = "1.0"
 thiserror = "2.0"
 sha2 = "0.11"
 zeroize = "1.9"
-aes = "0.9.2"
-aes-gcm = "0.11.1"
-cbc = "0.2.1"
-des = "0.9.0"
-pbkdf2 = "0.13.0"
-sha1 = "0.11.0"
-base64 = "0.23.1"
-# Browser stores (opened from bytes in memory; SQLite is compiled in).
-rusqlite = { version = "0.40.2", features = ["bundled", "serialize"] }
+# Browser stores (opened from bytes in memory; SQLite is compiled in): only with the
+# `browser` feature, which the phone app leaves out.
+aes = { version = "0.9.2", optional = true }
+aes-gcm = { version = "0.11.1", optional = true }
+cbc = { version = "0.2.1", optional = true }
+des = { version = "0.9.0", optional = true }
+pbkdf2 = { version = "0.13.0", optional = true }
+sha1 = { version = "0.11.0", optional = true }
+base64 = { version = "0.23.1", optional = true }
+rusqlite = { version = "0.40.2", features = ["bundled", "serialize"], optional = true }
+
+[features]
+default = ["browser"]
+# Reading a browser's own password store (Chromium and Firefox profiles on Windows).
+browser = ["dep:aes", "dep:aes-gcm", "dep:cbc", "dep:des", "dep:pbkdf2", "dep:sha1", "dep:base64", "dep:rusqlite"]
 
 [dev-dependencies]
 # Used only to build KDBX test databases in memory.

@@ -11,6 +11,7 @@
 //!
 //! Importers only produce [`ItemData`]; they never touch the vault or its keys.
 
+#[cfg(feature = "browser")]
 pub mod browser;
 mod csv_import;
 mod dates;
