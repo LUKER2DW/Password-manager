@@ -43,11 +43,18 @@ impl SecretBuffer {
         buffer
     }
 
-    /// Appends printable characters; control characters and the private-use code points UI
-    /// toolkits use for special keys are ignored. Returns `false` if the buffer is full.
+    /// Whether `c` can be part of a secret: control characters and private-use code points
+    /// (what UI toolkits use for special keys, and what a phone's hidden input holds instead
+    /// of the secret) never are.
+    pub fn takes(c: char) -> bool {
+        !(c.is_control() || ('\u{E000}'..='\u{F8FF}').contains(&c) || c >= '\u{F0000}')
+    }
+
+    /// Appends the characters it [takes](Self::takes) and skips the others. Returns `false`
+    /// if the buffer is full.
     pub fn push_str(&mut self, text: &str) -> bool {
         for c in text.chars() {
-            if c.is_control() || ('\u{E000}'..='\u{F8FF}').contains(&c) {
+            if !Self::takes(c) {
                 continue;
             }
             let mut encoded = [0u8; 4];
@@ -174,8 +181,9 @@ mod tests {
     #[test]
     fn ignores_special_keys() {
         let mut buffer = SecretBuffer::new();
-        buffer.push_str("\u{F702}\u{0010}\t\nx");
+        buffer.push_str("\u{F702}\u{0010}\t\nx\u{1}\u{80}\u{E000}\u{F0000}\u{10FFFD}");
         assert_eq!(buffer.as_str(), "x");
+        assert!(SecretBuffer::takes('é') && SecretBuffer::takes('€') && SecretBuffer::takes('😀'));
     }
 
     #[test]
