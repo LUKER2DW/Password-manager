@@ -19,6 +19,9 @@ pub struct KitContents<'a> {
     pub vault_id: &'a str,
     /// Unix seconds, printed as a date.
     pub created_at: u64,
+    /// `false`: empty boxes, for writing the keys in by hand from the screen, so a printer
+    /// (and its memory) never sees them.
+    pub filled: bool,
 }
 
 const PAGE_W: f32 = 595.0;
@@ -172,56 +175,11 @@ impl Page {
         }
     }
 
-    fn rule(&mut self, gray: f32, width: f32) {
-        let _ = writeln!(
-            self.ops,
-            "{gray:.2} G {width:.2} w {MARGIN:.1} {y:.1} m {x2:.1} {y:.1} l S",
-            y = self.y,
-            x2 = PAGE_W - MARGIN
-        );
-    }
-
     fn rect(&mut self, y: f32, height: f32, fill: f32, stroke: f32) {
         let _ = writeln!(
             self.ops,
             "{fill:.2} g {stroke:.2} G 0.8 w {MARGIN:.1} {y:.1} {WIDTH:.1} {height:.1} re B"
         );
-    }
-
-    /// A labelled key in a light box: label, value, then a short explanation.
-    fn key_box(&mut self, label: &str, value: &str, value_size: f32, note: &str) {
-        let value_lines = wrap(value, Font::MonoBold, value_size, WIDTH - 28.0);
-        let note_lines = wrap(note, Font::Regular, 9.0, WIDTH - 28.0);
-        let height = 14.0
-            + 12.0
-            + 8.0
-            + value_lines.len() as f32 * value_size * 1.3
-            + 6.0
-            + note_lines.len() as f32 * 9.0 * 1.35
-            + 12.0;
-        let top = self.y;
-        self.rect(top - height, height, 0.96, 0.75);
-        let x = MARGIN + 14.0;
-        let mut y = top - 14.0 - 9.0;
-        self.text_at(x, y, Font::Bold, 9.0, 0.35, label);
-        y -= 8.0;
-        for line in &value_lines {
-            y -= value_size * 1.3;
-            self.text_at(
-                x,
-                y + value_size * 0.25,
-                Font::MonoBold,
-                value_size,
-                0.0,
-                line,
-            );
-        }
-        y -= 6.0;
-        for line in &note_lines {
-            y -= 9.0 * 1.35;
-            self.text_at(x, y, Font::Regular, 9.0, 0.35, line);
-        }
-        self.y = top - height;
     }
 }
 
@@ -280,14 +238,13 @@ impl Page {
             Zeroizing::new(text)
         });
         let text_line = if as_text.is_some() { 9.0 * 1.6 } else { 0.0 };
-        let height = 14.0
-            + 9.0
-            + 14.0
-            + rows as f32 * (box_h + ROW_GAP)
-            + text_line
-            + 4.0
-            + note_lines.len() as f32 * 9.0 * 1.35
-            + 12.0;
+        let note_height = if note_lines.is_empty() {
+            0.0
+        } else {
+            4.0 + note_lines.len() as f32 * 9.0 * 1.35
+        };
+        let height =
+            14.0 + 9.0 + 14.0 + rows as f32 * (box_h + ROW_GAP) + text_line + note_height + 8.0;
         let top = self.y;
         self.rect(top - height, height, 0.96, 0.75);
         let x0 = MARGIN + 14.0;
@@ -469,74 +426,35 @@ impl Page {
     }
 }
 
-/// Renders the kit. The bytes contain the keys: they are wiped from memory when dropped.
+/// Renders the kit: a page with the Secret Key and room for the master password, then a page
+/// for each recovery part. With `filled` off, the boxes are empty, to be written in by hand.
+/// The bytes contain the keys: they are wiped from memory when dropped.
 pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
     let date = date_text(kit.created_at);
     let mut pages = Vec::with_capacity(4);
     let mut page = Page::new();
-    page.heading("Emergency kit", "Vault");
-    page.paragraph(
-        Font::Regular,
-        10.5,
-        0.3,
-        &format!(
-            "Made on {date}. Keep it somewhere safe, away from your computer. It gets you back into \
-             your vault on a new computer, or if you lose the Secret Key or forget your master \
-             password."
-        ),
-    );
-    page.gap(14.0);
-    page.rule(0.8, 0.6);
+    page.heading("Emergency kit", &date);
     page.gap(18.0);
-
-    page.key_box(
+    page.key_grid(
         "SECRET KEY",
-        kit.secret_key,
-        15.0,
-        "Combined with your master password to open the vault. Each computer asks for it once. \
-         On its own it opens nothing.",
+        "S0",
+        PART_GROUPS,
+        PART_GROUP_LEN,
+        PART_GROUPS,
+        kit.filled.then_some(kit.secret_key),
+        "",
     );
-    page.gap(22.0);
+    page.gap(26.0);
     page.write_box("MASTER PASSWORD", 44.0);
-    page.gap(8.0);
-    page.paragraph(
-        Font::Regular,
-        9.0,
-        0.35,
-        "Write it by hand only if this page will be kept somewhere only you can reach: with the \
-         Secret Key above, it opens your vault.",
-    );
-
-    page.gap(20.0);
-    page.rule(0.8, 0.6);
-    page.gap(10.0);
-    page.subheading("Recovery parts");
-    page.paragraph(
-        Font::Regular,
-        9.5,
-        0.25,
-        if kit.parts.is_some() {
-            "The next three pages hold parts A, B and C. Keep each one in a different place, apart \
-             from this page and from your computer. Any two parts bring back your Secret Key; all \
-             three let you choose a new master password. One part alone opens nothing."
-        } else {
-            "Your parts A, B and C were printed with the kit that issued them: the app doesn't keep \
-             them, so they are not on this copy. Lost one? Issue new parts in the app; the old \
-             ones stop working."
-        },
-    );
-
-    page.gap(16.0);
-    page.subheading("How to use it");
-    page.bullets(&[
-        "New computer: install the app, open your vault file, type the Secret Key above once, \
-         then your master password.",
-        "Lost the Secret Key: on the lock screen, choose to use two recovery parts instead, then \
-         type your master password.",
-        "Forgot the master password: on the lock screen choose \"Forgot it? Use your emergency \
-         kit\", type all three parts and choose a new password. You'll get a new Secret Key; \
-         print this page again.",
-    ]);
+    if kit.parts.is_none() {
+        page.gap(26.0);
+        page.paragraph(
+            Font::Regular,
+            9.5,
+            0.35,
+            "Recovery parts A, B and C are printed only with the kit that makes them.",
+        );
+    }
     page.footer(kit.vault_id);
     pages.push(page.ops);
 
@@ -546,19 +464,8 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
             let mut page = Page::new();
             page.heading(
                 &format!("Recovery part {letter}"),
-                &format!("{} of 3", label as u8 + 1),
+                &format!("{} of 3, {date}", label as u8 + 1),
             );
-            page.paragraph(
-                Font::Regular,
-                10.5,
-                0.3,
-                &format!(
-                    "One of three recovery parts for your vault, made on {date}. Keep it apart from \
-                     the other two, from the page with your Secret Key and from your computer."
-                ),
-            );
-            page.gap(14.0);
-            page.rule(0.8, 0.6);
             page.gap(18.0);
             page.key_grid(
                 &format!("PART {letter}"),
@@ -566,27 +473,18 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
                 PART_GROUPS,
                 PART_GROUP_LEN,
                 PART_GROUPS,
-                Some(value),
-                "Type it exactly as printed, dashes or not; a typo is caught before anything \
-                 happens. There is no I, L, O or U in it.",
+                kit.filled.then_some(value),
+                "",
             );
-            page.gap(20.0);
+            page.gap(26.0);
             page.subheading("What it does");
-            let mut steps = vec![
+            page.bullets(&[
                 "With any other part: brings back your Secret Key. You still need your master \
                  password.",
                 "With both other parts: lets you choose a new master password.",
                 "On its own: opens nothing, so losing one part, or having it found, is not the end. \
-                 Issue new parts in the app if that happens.",
-            ];
-            if label == vault_core::PartLabel::C {
-                steps.push(
-                    "This part can also live inside a photo of yours: in the app, Emergency kit, \
-                     Hide part C in a picture. Keep that file as it is: a resized or converted \
-                     copy loses the part.",
-                );
-            }
-            page.bullets(&steps);
+                 Make a new kit in the app if that happens.",
+            ]);
             page.footer(kit.vault_id);
             pages.push(page.ops);
         }
@@ -665,11 +563,16 @@ mod tests {
     ];
 
     fn kit(parts: Option<[&str; 3]>) -> Zeroizing<Vec<u8>> {
+        kit_as(parts, true)
+    }
+
+    fn kit_as(parts: Option<[&str; 3]>, filled: bool) -> Zeroizing<Vec<u8>> {
         render(&KitContents {
             secret_key: "S0-ABCDEFG-HJKMNPQ-RSTVWXY-Z012345",
             parts,
             vault_id: "0123456789abcdef0123456789abcdef",
             created_at: 1_794_441_600, // 12 November 2026
+            filled,
         })
     }
 
@@ -713,10 +616,12 @@ mod tests {
             assert!(text.contains(&format!("({part}) Tj")));
         }
         assert_eq!(text.matches(" BDC").count(), text.matches("EMC").count());
-        // One box per character: 3 parts of 4 groups of 7.
+        // One box per character: the Secret Key and 3 parts, each 4 groups of 7.
         assert_eq!(PART_GROUPS * PART_GROUP_LEN, 28);
-        assert_eq!(boxes(&text), 3 * 28);
-        assert!(text.contains("Hide part C in a picture"));
+        assert_eq!(boxes(&text), 4 * 28);
+        assert!(text.contains("What it does"));
+        // Nothing points at where part C may be kept.
+        assert!(!text.contains("picture") && !text.contains("photo"));
         // The vault id is printed, small; where the vault lives is not.
         assert!(text.contains("Vault 0123456789abcdef0123456789abcdef"));
         assert!(!text.contains("AppData"));
@@ -728,9 +633,21 @@ mod tests {
         let bytes = kit(None);
         let text = String::from_utf8_lossy(&bytes).into_owned();
         assert!(text.contains("/Count 1"));
-        assert!(text.contains("the app doesn't keep"));
+        assert!(text.contains("printed only with the kit that makes them"));
         assert!(!text.contains("A0-") && !text.contains("R0-"));
-        assert_eq!(boxes(&text), 0);
+        assert_eq!(boxes(&text), 28);
+        check_xref(&bytes);
+    }
+
+    #[test]
+    fn an_empty_kit_has_boxes_and_no_keys() {
+        let bytes = kit_as(Some(PARTS), false);
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        assert!(text.contains("/Count 4"));
+        assert_eq!(boxes(&text), 4 * 28);
+        assert!(!text.contains("ABCDEFG") && !text.contains("AAAAAAA"));
+        assert!(!text.contains("ActualText"));
+        assert!(text.contains("(S0) Tj") && text.contains("(C0) Tj"));
         check_xref(&bytes);
     }
 

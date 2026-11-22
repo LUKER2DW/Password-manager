@@ -174,6 +174,11 @@ pub struct GeneratorPrefs {
     pub separator: String,
     /// File name in the word list folder; empty = the bundled EFF list.
     pub wordlist: String,
+    /// At least this many of each kind (Advanced options; 0 = just one, as always).
+    pub min_lowercase: u32,
+    pub min_uppercase: u32,
+    pub min_digits: u32,
+    pub min_symbols: u32,
 }
 
 impl Default for GeneratorPrefs {
@@ -194,6 +199,10 @@ impl Default for GeneratorPrefs {
             add_digit: false,
             separator: "-".into(),
             wordlist: String::new(),
+            min_lowercase: 0,
+            min_uppercase: 0,
+            min_digits: 0,
+            min_symbols: 0,
         }
     }
 }
