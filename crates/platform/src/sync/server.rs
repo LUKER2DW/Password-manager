@@ -4,6 +4,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
+use sha2::Digest as _;
 use ureq::http::{Method, Request, Response, StatusCode};
 use vault_core::sync::DeviceId;
 use vault_sync_wire::{self as wire, Changes, Copies, DeviceKey, EnrolledDevice, Invite, Refusal};
@@ -121,6 +122,35 @@ impl ServerTarget {
     /// A one-time invite for one more device (good for an hour).
     pub fn invite(&self) -> Result<Invite> {
         self.json(Method::POST, &self.path("/invites"))
+    }
+
+    /// The phone app's update on this server, when its owner published one.
+    pub fn app_release(&self) -> Result<Option<wire::AppRelease>> {
+        let mut response = self.send(Method::GET, &self.path("/app/android"), Vec::new())?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        check(&mut response)?;
+        let bytes = http::read_body(&mut response, 64 * 1024)?;
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .context("the server's answer can't be read")
+    }
+
+    /// The update's package, checked against the release it belongs to (size and SHA-256).
+    pub fn app_package(&self, release: &wire::AppRelease) -> Result<Vec<u8>> {
+        let mut response =
+            self.send(Method::GET, &self.path("/app/android/package"), Vec::new())?;
+        check(&mut response)?;
+        let bytes = http::read_body(&mut response, wire::MAX_APP_BYTES)?;
+        let digest: String = sha2::Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        if bytes.len() as u64 != release.size || digest != release.sha256 {
+            bail!("the package the server sent doesn't match its release");
+        }
+        Ok(bytes)
     }
 
     fn agent(&self) -> Result<ureq::Agent> {
