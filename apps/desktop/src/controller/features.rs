@@ -1,7 +1,7 @@
 //! Generator options and word lists, password history, password health and the leak check,
 //! the import review, vault settings. Split from `controller.rs`; same `Controller`.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use slint::{Model, ModelRc, SharedString, VecModel};
 use vault_core::{
@@ -17,9 +17,6 @@ use zeroize::Zeroizing;
 
 use super::{Controller, JobResult, Panel, Runner, error, field, notice, view};
 use crate::ui::{HealthRow, HistoryRow, ImportRow, SourceRow};
-
-/// The leak check service (k-anonymity range API; see `vault_core::health`).
-const BREACH_API: &str = "https://api.pwnedpasswords.com/range/";
 
 /// A word list the user added, kept in the app's word list folder.
 pub(super) struct UserWordlist {
@@ -770,7 +767,7 @@ impl Controller {
         }
         self.app().set_leaks_checking(true);
         self.run_job(move || JobResult::LeaksChecked {
-            result: lookup_breaches(&queries),
+            result: vault_platform::leak_check::lookup(&queries),
         });
     }
 
@@ -1320,34 +1317,4 @@ fn format_count(count: u64) -> String {
         out.push(c);
     }
     out
-}
-
-/// Runs on a worker thread: one request per distinct 5-character prefix.
-fn lookup_breaches(queries: &[(ItemId, BreachQuery)]) -> Result<Vec<(ItemId, u64)>, String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .https_only(true)
-        .timeout_global(Some(std::time::Duration::from_secs(20)))
-        .user_agent("vault-password-manager")
-        .build()
-        .into();
-    let mut answers: HashMap<String, String> = HashMap::new();
-    let mut out = Vec::with_capacity(queries.len());
-    for (id, query) in queries {
-        let prefix = query.prefix().to_owned();
-        if !answers.contains_key(&prefix) {
-            let body = agent
-                .get(format!("{BREACH_API}{prefix}"))
-                // Padding makes every answer about the same size, so the traffic doesn't
-                // reveal which prefix was asked for.
-                .header("Add-Padding", "true")
-                .call()
-                .map_err(|e| e.to_string())?
-                .body_mut()
-                .read_to_string()
-                .map_err(|e| e.to_string())?;
-            answers.insert(prefix.clone(), body);
-        }
-        out.push((*id, query.count_in(&answers[&prefix])));
-    }
-    Ok(out)
 }
