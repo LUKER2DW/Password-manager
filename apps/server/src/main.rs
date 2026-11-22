@@ -1,4 +1,5 @@
-//! The `vault-server` command: serve, make an invite, list or remove devices.
+//! The `vault-server` command: serve, make an invite, list or remove devices, publish an
+//! update of the phone app.
 
 use std::{net::SocketAddr, path::PathBuf};
 
@@ -43,6 +44,15 @@ enum Command {
     List,
     /// Take a device out of a vault: its key and its copy.
     Remove { vault: String, device: String },
+    /// Put an update of the phone app here (the APK `apps/mobile-android/build.ps1` made).
+    /// Phones that sync through this server offer it in Settings, Updates.
+    PublishApp {
+        /// The APK.
+        package: PathBuf,
+        /// Its version, as in the app (`0.2.0`).
+        #[arg(long)]
+        version: String,
+    },
 }
 
 #[tokio::main]
@@ -99,6 +109,17 @@ async fn main() -> Result<()> {
                     );
                 }
             }
+            Ok(())
+        }
+        Command::PublishApp { package, version } => {
+            let store = Store::open(&cli.data)?;
+            let bytes = std::fs::read(&package)
+                .with_context(|| format!("reading {}", package.display()))?;
+            let release = store.publish_app(&bytes, &version)?;
+            println!(
+                "Published version {} ({} bytes, SHA-256 {}).",
+                release.version, release.size, release.sha256
+            );
             Ok(())
         }
         Command::Remove { vault, device } => {

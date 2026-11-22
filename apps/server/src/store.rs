@@ -5,6 +5,7 @@
 //! <data>/vaults/<vault>/enrolled.json        the devices allowed in, with their public keys
 //! <data>/vaults/<vault>/invites.json         invites made by an enrolled device
 //! <data>/vaults/<vault>/copies/<device>.vault  each device's sealed copy
+//! <data>/app/android.apk, android.json        the phone app's update (`publish-app`)
 //! ```
 //!
 //! Invites are stored as digests only. Every file is written beside its place and renamed
@@ -19,7 +20,8 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
-use vault_sync_wire::{self as wire, Copy};
+use sha2::{Digest, Sha256};
+use vault_sync_wire::{self as wire, AppRelease, Copy};
 
 /// The most devices one vault may enroll.
 pub const MAX_DEVICES: usize = 32;
@@ -188,6 +190,54 @@ impl Store {
     pub fn put(&self, vault: &str, device: &str, bytes: &[u8]) -> Result<()> {
         let path = self.copy_path(vault, device)?;
         write_atomic(&path, bytes)
+    }
+
+    /// Puts an update of the phone app here: its package (an APK, as built) and its version.
+    /// The phones fetch it with their device key; Android installs it only if it is signed
+    /// like the app already on the phone.
+    pub fn publish_app(&self, package: &[u8], version: &str) -> Result<AppRelease> {
+        if wire::parse_version(version).is_none() {
+            bail!("a version is three numbers, like 0.2.0");
+        }
+        if package.len() > wire::MAX_APP_BYTES {
+            bail!("that package is too large");
+        }
+        if !package.starts_with(b"PK\x03\x04") {
+            bail!("that isn't an APK (an APK is a zip file)");
+        }
+        let release = AppRelease {
+            version: version.trim().to_owned(),
+            sha256: Sha256::digest(package)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+            size: package.len() as u64,
+        };
+        let dir = self.root.join("app");
+        write_atomic(&dir.join("android.apk"), package)?;
+        write_atomic(
+            &dir.join("android.json"),
+            &serde_json::to_vec_pretty(&release)?,
+        )?;
+        Ok(release)
+    }
+
+    /// The phone app's update, when one was published.
+    pub fn app_release(&self) -> Result<Option<AppRelease>> {
+        match fs::read(self.root.join("app").join("android.json")) {
+            Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// The phone app's update package, when one was published.
+    pub fn app_package(&self) -> Result<Option<Vec<u8>>> {
+        match fs::read(self.root.join("app").join("android.apk")) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(err.into()),
+        }
     }
 
     /// Stores a new invite for `vault` (or, with `None`, an admin invite good for any vault).

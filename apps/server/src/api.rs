@@ -114,6 +114,8 @@ pub fn router(server: Arc<Server>) -> Router {
         .route("/v1/vaults/{vault}/enrolled", get(enrolled))
         .route("/v1/vaults/{vault}/invites", post(invite))
         .route("/v1/vaults/{vault}/changes", get(changes))
+        .route("/v1/vaults/{vault}/app/android", get(app_release))
+        .route("/v1/vaults/{vault}/app/android/package", get(app_package))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(server)
 }
@@ -403,6 +405,45 @@ async fn get_copy(
         response.headers_mut().insert(header::ETAG, value);
     }
     Ok(response)
+}
+
+/// The phone app's update, for an enrolled device: its version, hash and size.
+async fn app_release(
+    State(server): State<Arc<Server>>,
+    ConnectInfo(address): ConnectInfo<SocketAddr>,
+    Path(vault): Path<String>,
+    parts: Parts,
+    body: Bytes,
+) -> Answer<Response> {
+    authorize(&server, &address, &vault, &parts, &body).await?;
+    let store = server.store.clone();
+    let release = blocking(move || store.app_release())
+        .await?
+        .ok_or(Refused(StatusCode::NOT_FOUND, "no_update"))?;
+    Ok(Json(release).into_response())
+}
+
+/// The phone app's update package, for an enrolled device.
+async fn app_package(
+    State(server): State<Arc<Server>>,
+    ConnectInfo(address): ConnectInfo<SocketAddr>,
+    Path(vault): Path<String>,
+    parts: Parts,
+    body: Bytes,
+) -> Answer<Response> {
+    authorize(&server, &address, &vault, &parts, &body).await?;
+    let store = server.store.clone();
+    let package = blocking(move || store.app_package())
+        .await?
+        .ok_or(Refused(StatusCode::NOT_FOUND, "no_update"))?;
+    Ok((
+        [(
+            header::CONTENT_TYPE,
+            "application/vnd.android.package-archive",
+        )],
+        package,
+    )
+        .into_response())
 }
 
 async fn put_copy(

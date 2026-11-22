@@ -297,6 +297,41 @@ pub struct Changes {
     pub seq: u64,
 }
 
+/// `GET /v1/vaults/{vault}/app/android`: the phone app's update the server's owner put there
+/// (`vault-server publish-app`): its version, and its package's SHA-256 (hex) and size. The
+/// package itself is `GET /v1/vaults/{vault}/app/android/package`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppRelease {
+    pub version: String,
+    pub sha256: String,
+    pub size: u64,
+}
+
+/// The largest app package the server keeps and hands out.
+pub const MAX_APP_BYTES: usize = 256 * 1024 * 1024;
+
+/// A version as the apps write it: three numbers, `1.2.3`.
+pub fn parse_version(text: &str) -> Option<[u32; 3]> {
+    let mut parts = text.trim().split('.');
+    let mut out = [0u32; 3];
+    for slot in &mut out {
+        let part = parts.next()?;
+        if part.is_empty() || part.len() > 6 || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        *slot = part.parse().ok()?;
+    }
+    parts.next().is_none().then_some(out)
+}
+
+/// Whether version `candidate` comes after `installed` (both `x.y.z`).
+pub fn is_newer(candidate: &str, installed: &str) -> bool {
+    match (parse_version(candidate), parse_version(installed)) {
+        (Some(candidate), Some(installed)) => candidate > installed,
+        _ => false,
+    }
+}
+
 /// `POST /v1/vaults/{vault}/invites`: a one-time invite for one more device.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Invite {
@@ -571,6 +606,16 @@ mod tests {
         assert!(is_id(&"0a".repeat(16)));
         assert!(!is_id(&"0A".repeat(16)));
         assert!(!is_id("../../etc"));
+        assert_eq!(parse_version("0.12.3"), Some([0, 12, 3]));
+        for bad in ["", "1", "1.2", "1.2.3.4", "1.x.3", "-1.2.3", "1.2.3-beta"] {
+            assert_eq!(parse_version(bad), None, "{bad}");
+        }
+        assert!(is_newer("0.2.0", "0.1.9") && is_newer("1.0.0", "0.99.99"));
+        assert!(!is_newer("0.1.0", "0.1.0") && !is_newer("0.0.9", "0.1.0"));
+        assert!(
+            !is_newer("1.0", "0.1.0"),
+            "a version that can't be read is never newer"
+        );
         assert!(is_device_name("Phone"));
         assert!(!is_device_name(""));
         assert!(!is_device_name(" Phone"));
