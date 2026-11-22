@@ -254,6 +254,13 @@ impl Vault {
         Self::from_parsed(parsed, VaultKey::from_slice(&key_bytes)?)
     }
 
+    /// A fresh device secret for [`Vault::seal_for_device`], for a device whose secure
+    /// hardware keeps a secret it is handed (a phone's keystore, behind its fingerprint)
+    /// rather than working one out (Windows Hello's signature). 32 random bytes.
+    pub fn new_device_secret() -> Result<Zeroizing<[u8; 32]>> {
+        crate::random::secret_array()
+    }
+
     /// Wraps the vault key for quick unlock on this device (Windows Hello and similar).
     /// The result is kept on the device, never in the vault file, and is useless without
     /// `device_secret`, which only the device's secure hardware can produce again.
