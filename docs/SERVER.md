@@ -43,7 +43,7 @@ personal use) gives your devices a private network and real HTTPS certificates.
 2. From a copy of this repository:
 
    ```sh
-   docker compose -f crates/server/compose.yaml up -d --build
+   docker compose -f apps/server/compose.yaml up -d --build
    ```
 
    It listens on `127.0.0.1:8750` of that machine only.
@@ -58,7 +58,7 @@ personal use) gives your devices a private network and real HTTPS certificates.
 4. Make an invite for the first device:
 
    ```sh
-   docker compose -f crates/server/compose.yaml exec vault-server vault-server invite
+   docker compose -f apps/server/compose.yaml exec vault-server vault-server invite
    ```
 
    It prints 32 letters and digits, good once for 24 hours.

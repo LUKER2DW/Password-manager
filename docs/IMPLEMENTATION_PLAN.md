@@ -10,30 +10,36 @@
 password-manager/
 ├── Cargo.toml                 # workspace
 ├── rust-toolchain.toml
-├── crates/
-│   ├── core/                  # vault-core: crypto, vault format, items (no I/O except storage.rs)
-│   ├── cli/                   # vault-cli: command-line client
-│   ├── desktop/               # vault-desktop: Slint app (Windows/Linux)
-│   ├── platform/              # OS integration: Windows Hello, TPM, clipboard, screen capture
-│   └── server/                # vault-server: self-hosted sync (AGPL-3.0)
-├── android/                   # Kotlin services (Autofill, Credential Manager) + Slint UI
-├── extension/                 # browser extension (TypeScript, Native Messaging)
-├── docs/
-│   └── spec/                  # crypto and file-format specifications
-└── prototypes/                # throwaway experiments (not shipped)
+├── apps/                      # what people run
+│   ├── cli/                   # vault-cli: the `vault` command
+│   ├── desktop/               # vault-desktop: Slint app (Windows; ui/ is vault-desktop-ui)
+│   ├── mobile/                # vault-mobile: the phone's screens and controller (Slint)
+│   ├── mobile-android/        # vault-mobile-android: the APK (cargo-apk + a Java activity)
+│   ├── mobile-web/            # vault-mobile-web: the phone app in a web page (WebAssembly)
+│   ├── server/                # vault-server: self-hosted sync (AGPL-3.0), Docker files
+│   └── extension/             # browser extension (Manifest V3, plain JavaScript)
+├── crates/                    # libraries the apps share
+│   ├── core/                  # vault-core: crypto, vault format, items, merge (no I/O but storage.rs)
+│   ├── platform/              # OS integration: credential store, Windows Hello, clipboard, sync targets
+│   ├── import/                # vault-import: other managers' files, browsers' stores
+│   ├── browser/               # vault-browser: the extension's protocol and native host
+│   └── sync-wire/             # vault-sync-wire: signed requests between devices and the server
+└── docs/
+    └── spec/                  # crypto, file-format and sync specifications
 ```
 
 Rules:
 - `core` has **no UI and no network**. It is the only place that touches key material.
-- Every crate is `#![forbid(unsafe_code)]` except `platform`, where each `unsafe` block carries
-  a `// SAFETY:` comment.
+- Every crate forbids `unsafe` except `platform`, `desktop` and `mobile-android`, where each
+  `unsafe` block carries a `// SAFETY:` comment.
+- A crate in `crates/` never depends on an app in `apps/`.
 - Every user-facing string lives in a UI crate; `core` returns typed errors only.
 
 ## Milestones
 
 ### M0 — Specification ✅
 - ✅ Threat model, architecture, roadmap
-- ✅ UI prototype (Slint)
+- ✅ UI prototype (Slint): the secure field validated on Windows, then retired
 - ✅ [Crypto spec](spec/CRYPTO.md) and [vault format v0](spec/VAULT_FORMAT.md) (drafts)
 
 ### M1 — Core: primitives ✅ (`crates/core`)
@@ -57,7 +63,7 @@ Rules:
 - ⬜ `cargo-fuzz` target for the file parser (Linux CI)
 - **Done when:** round-trip, tamper, downgrade, wrong-credential and corruption tests pass ✅.
 
-### M3 — CLI 🚧 (`crates/cli`, binary `vault`)
+### M3 — CLI 🚧 (`apps/cli`, binary `vault`)
 - ✅ `init`, `info`, `list`, `add`, `show`, `edit`, `rm`, `generate`, `totp`, `passwd`,
   `recover`, `kit`, `forget`
 - ✅ Secret Key kept in the OS credential store; typed from the kit on a new device
@@ -72,7 +78,7 @@ Rules:
 - ⬜ Printable emergency kit (PDF) — terminal version done
 - **Done when:** a vault can be fully managed from the terminal ✅; import tests use fixtures ✅.
 
-### M4 — Desktop app (Windows first) 🚧 (`crates/desktop`, design in [DESIGN.md](DESIGN.md))
+### M4 — Desktop app (Windows first) 🚧 (`apps/desktop`, design in [DESIGN.md](DESIGN.md))
 - ✅ `crates/platform`: OS integration shared with the CLI (Secret Key store, device state and
   rollback, secure clipboard, capture blocking, page-locked secure input buffer)
 - ✅ Visual system: "locksmith's notebook" tokens, hand-drawn strokes generated in Rust
@@ -186,7 +192,7 @@ Rules:
   offers to import passwords, or to skip
 - ✅ Tray mode: closing the window keeps the app in the notification area (nothing drawn,
   timers stopped), with Open, Lock and Quit
-- ⬜ Attachments, tags; passkeys
+- ✅ Attachments (format v9, see M7); ⬜ tags; passkeys
 - **Done when:** daily use on Windows is possible with a test vault.
 
 ### M4.x — Polish (November 2026)
@@ -204,16 +210,16 @@ Rules:
 - ✅ The notification area menu is a window of the app's own (rounded, dark, minutes left);
   the .exe carries the app's icon (Explorer, taskbar, Windows Hello prompt)
 - ✅ Extension: the generator works with the vault locked; the card under a field is nearly
-  opaque (a real blur would void the click protection: see `extension/inline.css`)
+  opaque (a real blur would void the click protection: see `apps/extension/inline.css`)
 - ✅ Saving asks for nothing: a new item is stored without the item lock's PIN and sealed under
   it the next time it opens (`Vault::seal_pending`); from the browser, a login saved while the
   vault is locked is sealed to the drop box (CRYPTO.md §3.5) and added at the next unlock
 - ✅ Tray menu: thin and text-only; the card under a field: arrow with a visible rim, no item
   name next to the username, no dark box behind it on pages with another colour scheme
-- 🚧 Translations: catalogues compiled in (`crates/desktop/translations/`), language chosen in
+- 🚧 Translations: catalogues compiled in (`apps/desktop/translations/`), language chosen in
   Settings → Appearance or from Windows, template of every text; Brazilian Portuguese started
 
-### M5 — Browser extension 🚧 (`extension/`, `crates/browser`)
+### M5 — Browser extension 🚧 (`apps/extension/`, `crates/browser`)
 - ✅ Native Messaging host (`vault-browser-host`) relaying to the desktop app over a per-user
   named pipe; both ends check the other program; off until turned on in Settings, which also
   registers the host for Chrome and Edge
@@ -252,7 +258,7 @@ Rules:
 - ⬜ Installer that puts the app and the host side by side; store listing
 - **Done when:** fills logins on Chromium with confirmation; clickjacking test page fails to leak.
 
-### M6 — Sync ⬜ ([design](spec/SYNC.md))
+### M6 — Sync 🚧 ([design](spec/SYNC.md))
 - ✅ Design: one sealed copy per device on a folder, WebDAV or own server; merge in the core;
   the server optional and blind
 - ✅ M6.1 Core: format v7 (writer, tombstones, change times, unlock and item lock revisions,
@@ -267,7 +273,7 @@ Rules:
 - ✅ Removing a device from the app (Settings → Sync → Remove) and the CLI (`--remove`)
 - ✅ The desktop app watches the sync folder (a round a second after another device's copy
   lands) besides the 5-minute rounds
-- ✅ M6.3 `vault-server` (`crates/server`: axum, files on disk, Docker image and Compose,
+- ✅ M6.3 `vault-server` (`apps/server`: axum, files on disk, Docker image and Compose,
   Tailscale HTTPS in front, [setup](SERVER.md)): Ed25519-signed requests with time and nonce
   (no password at the server), one-time invites stored as digests, enrollment that proves the
   key, a device writes only its own copy, long-poll for changes, limits per device and per
@@ -307,7 +313,7 @@ Rules:
 
 ### M7 — Android 🚧
 Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
-- ✅ M7.0 Base: `crates/mobile` (vault-mobile) with the phone's screens in Slint (start,
+- ✅ M7.0 Base: `apps/mobile` (vault-mobile) with the phone's screens in Slint (start,
   unlock, the list with search and filters, the item page with the item lock, editor for
   logins and notes, one-time codes, generator, settings), its own controller, a headless
   end-to-end test and off-screen screenshots
@@ -316,12 +322,12 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
 - ✅ The phone opens a vault made on the computer and never makes one: a chosen file
   (`Controller::bring_vault`) replaces the phone's copy only after it opens with the person's
   keys and is no older than what the phone saw; "Bring a newer copy" in Settings
-- ✅ The phone app in a browser (`crates/mobile-web`, WebAssembly): the real screens and
+- ✅ The phone app in a browser (`apps/mobile-web`, WebAssembly): the real screens and
   controller on a canvas with a demo vault, to try it on a computer (MOBILE.md §7.1)
-- 🚧 M7.1 Runs on a phone: ✅ an APK (`crates/mobile-android`, `cargo-apk`, NDK 28, Slint's
-  Android backend) with the app's own keyboard for secret fields, setup from the sync
-  server on the start screen, the Keystore-backed credential store and the system
-  clipboard over JNI (MOBILE.md §7.2); ⬜ tried on a device, bundled fonts, back button
+- 🚧 M7.1 Runs on a phone: ✅ an APK (`apps/mobile-android`, `cargo-apk`, NDK 28, Slint's
+  Android backend) with the system keyboard for secret fields (stand-ins only, MOBILE.md
+  §7.2), setup from the sync server on the start screen, the Keystore-backed credential
+  store and the system clipboard over JNI; tried on a phone; Back; ⬜ bundled fonts
 - 🚧 M7.2 Phone storage: ✅ the activity's Java side (`VaultActivity`, built into the APK
   by `build.ps1` with javac and d8) with the system's file picker: the start screen opens a
   `.vault` file (offline; sync turned on later) or sets up from the server, "Bring a newer
@@ -356,13 +362,20 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   the public key and fingerprint read from it, `vault_core::ssh`) and files attached to items
   (5 MiB each, 10 per item, sealed with the item lock); both apps, the JSON export and import
   (type 5); v8 items upgraded on open, older sealed secrets read in either layout
-- ⬜ M7.3 BiometricPrompt Class 3 quick unlock (StrongBox)
-- ⬜ M7.4 Kotlin Autofill Service; M7.5 Credential Manager provider (passwords, passkeys)
-- ⬜ M7.6 Sync; M7.7 cards, custom fields, folders, health, import, translations
+- ⬜ Settings in groups (account security, autofill, vault, import and export, appearance,
+  sync with the server's copy size and how each way works, devices, screen captures,
+  clipboard, updates); several vaults with a switcher on the vault's name; a leak and
+  strength check for one password; scanning a code's QR with the camera
+- ⬜ M7.3 BiometricPrompt Class 3 quick unlock (StrongBox) and an app lock
+- ⬜ M7.4 Autofill Service; M7.5 Credential Manager provider (passwords, passkeys)
+- ⬜ Updates of the app from the person's own server, without carrying a new APK
+- ✅ M7.6 Sync (M6.4)
+- 🚧 M7.7 Parity with the desktop: ✅ cards, authenticator items, SSH keys, files;
+  ⬜ custom fields, folders, health, import, translations, a Portuguese word list
 
 ### M8 — Advanced ⬜
 - Secure sharing (Send-style links, HPKE hybrid X25519 + ML-KEM-768)
-- Passkey storage on desktop, health report (HIBP k-anonymity), SSH agent, Shamir recovery, Linux
+- Passkey storage on desktop, SSH agent, Linux
 
 ### M9 — Hardening and audit ⬜
 - Threat model review, fuzzing campaign, dependency review, external audit, then real use.

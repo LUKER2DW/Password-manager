@@ -2,10 +2,10 @@
 
 > Status: **M6.1–M6.3 built**: format v7 and `Vault::merge` in `vault-core`
 > (`crates/core/tests/sync.rs`); the folder, server and WebDAV targets in `vault-platform`
-> (`sync.rs`, `sync/`); `vault-server` (`crates/server`, tested end to end in
-> `crates/server/tests/sync.rs` and `crates/cli/tests/cli.rs`); the request protocol in
+> (`sync.rs`, `sync/`); `vault-server` (`apps/server`, tested end to end in
+> `apps/server/tests/sync.rs` and `apps/cli/tests/cli.rs`); the request protocol in
 > `crates/sync-wire`. Setting the server up: [../SERVER.md](../SERVER.md). The phone's sync
-> (M6.4) is in `crates/mobile/src/controller/syncing.rs`. Byte layouts are in [VAULT_FORMAT.md](VAULT_FORMAT.md) §3. This replaces
+> (M6.4) is in `apps/mobile/src/controller/syncing.rs`. Byte layouts are in [VAULT_FORMAT.md](VAULT_FORMAT.md) §3. This replaces
 > the earlier sketch in ARCHITECTURE.md §6.
 
 ## 1. What sync has to do
@@ -224,7 +224,7 @@ unlocked, and on demand. With the vault locked nothing is merged: merging needs 
   supported), `MKCOL` for the folders, `DELETE`. Basic auth over HTTPS only. The password is
   stored in the OS credential store, never in the vault file or in device state; Settings
   checks it answers before keeping it.
-- **Own server** (`crates/server`, `vault-server`, AGPL-3.0, axum, one SQLite file or plain
+- **Own server** (`apps/server`, `vault-server`, AGPL-3.0, axum, one SQLite file or plain
   files on disk, Docker image + Compose):
   - the same four calls over HTTPS (`GET /v1/vaults/{id}/devices`, `GET|PUT|DELETE
     /v1/vaults/{id}/devices/{device}`) plus a long-poll `GET /v1/vaults/{id}/changes?after=`

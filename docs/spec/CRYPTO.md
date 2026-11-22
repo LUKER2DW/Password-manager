@@ -1,7 +1,8 @@
 # Cryptographic Specification — v0
 
-> Status: **draft v0**. Implemented by `crates/core`. Any change that affects bytes on disk
-> requires a new format version (see [VAULT_FORMAT.md](VAULT_FORMAT.md)).
+> Status: **draft**, not audited. Implemented by `crates/core` (file format v9); the labels
+> have carried `vault-v0` since the first version and stay so. Any change that affects bytes
+> on disk requires a new format version (see [VAULT_FORMAT.md](VAULT_FORMAT.md)).
 
 ## 1. Primitives
 
@@ -20,6 +21,10 @@ All labels below are ASCII byte strings and are used verbatim (no terminator).
 Sync server requests (spec/SYNC.md §5.3) are signed with **Ed25519** (`ed25519-dalek`, strict
 verification, weak keys refused); the key is per device and vault, kept in the OS credential
 store, and never touches the vault's own keys.
+
+SSH key items (format v9) may hold a key the app made for the person: Ed25519 from
+`ed25519-dalek`, written in OpenSSH's own format. It is data the vault keeps, like a
+password, and plays no part in the vault's own keys.
 
 ## 2. Secrets the user holds
 

@@ -81,7 +81,7 @@ covers `example.com` and every site under it. A name anyone can register under (
    helper's manifest under the app's data folder and points Chrome and Edge at it (one registry
    value each, for your Windows user). Turning it off removes them.
 3. Open `chrome://extensions` (or `edge://extensions`), turn on *Developer mode*, choose
-   *Load unpacked* and pick this `extension` folder. Pin the extension to the toolbar. After an
+   *Load unpacked* and pick this folder (`apps/extension`). Pin the extension to the toolbar. After an
    update of this folder, click the reload arrow on the extension's card.
 4. Click the extension and choose *Connect*. In the app, type your master password and choose
    *Connect*. Done.
@@ -108,7 +108,7 @@ The `key` in `manifest.json` fixes the extension's id, which is the only id the 
 | `generator.js` | Reads a field's password rules for the app's generator |
 | `tokens.css` | Colours and shared pieces (the desktop app's tokens) |
 | `_locales/en/messages.json` | Every text shown |
-| `test/*.test.mjs` | Tests: `node --test extension/test/fill.test.mjs extension/test/link.test.mjs extension/test/generator.test.mjs` |
+| `test/*.test.mjs` | Tests: `node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs` |
 | `test/preview.html` | Visual review of the window and the frames with fixed test data |
 | `test/pages/clickjacking.html` | Manual test page that tries to steal a fill |
 

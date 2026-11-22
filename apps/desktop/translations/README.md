@@ -18,7 +18,7 @@ a time.
 
 ```bash
 cargo install slint-tr-extractor --version 1.18.1 --locked
-cd crates/desktop
+cd apps/desktop
 slint-tr-extractor ui/*.slint -d vault-desktop-ui --package-name vault-desktop-ui -o translations/vault-desktop-ui.pot
 ```
 
@@ -40,5 +40,5 @@ places. Placeholders (`{}`, `{n}`, `{0}`) must stay as they are; plurals use the
 2. Add it to `LANGUAGES` and `catalogue_for` in `src/i18n.rs`, and to the Language list in
    `ui/pages.slint` (Settings → Appearance), named in its own language.
 
-The browser extension has its own catalogues in `extension/_locales/<language>/messages.json`
+The browser extension has its own catalogues in `apps/extension/_locales/<language>/messages.json`
 (Chrome's format); `en` is the default.

@@ -1,9 +1,10 @@
 # Mobile app
 
-> Status: **started**. The screens and their controller exist (`crates/mobile`) and run in a
-> phone-sized window on the desktop; nothing is packaged for Android yet. This document is the
-> plan: what the app is, how it is built, the order of the work, what we chose after looking
-> into the keyboard, fonts and moving the vault over (§6), and what is still open.
+> Status: **early, runs on Android**. The screens and their controller (`apps/mobile`) run
+> as an APK (`apps/mobile-android`), in a phone-sized window on the desktop and in a web page
+> (`apps/mobile-web`). This document is the plan: what the app is, how it is built, the order
+> of the work, what we chose after looking into the keyboard, fonts and moving the vault over
+> (§6), and what is still open.
 
 ## 1. What it is
 
@@ -21,24 +22,26 @@ the emergency kit is printed. The phone keeps a copy of that file (§6.3).
 
 ```
 ┌──────────────────────────── Android app (one APK) ────────────────────────────┐
-│  Kotlin shell (android/)                 Rust (one shared library)            │
-│  ─ activity that hosts the Slint UI      ─ vault-mobile: screens + controller │
-│  ─ AutofillService                       ─ vault-core: keys, format, items    │
-│  ─ CredentialProviderService (14+)       ─ vault-platform: Keystore, storage  │
-│  ─ BiometricPrompt, Keystore/StrongBox                                        │
-│  ─ file picker, share sheet, lifecycle   JNI bridge: a few narrow functions   │
+│  Java shell (apps/mobile-android/java)   Rust (one shared library)            │
+│  ─ VaultActivity: NativeActivity that    ─ vault-mobile: screens + controller │
+│    hosts the Slint UI, file picker,      ─ vault-core: keys, format, items    │
+│    "save as", Back                       ─ vault-platform: Keystore, storage  │
+│  ─ later: AutofillService,                                                    │
+│    CredentialProviderService (14+),      JNI bridge: a few narrow functions   │
+│    BiometricPrompt, Keystore/StrongBox   (apps/mobile-android/src/shell.rs)   │
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Screens: Slint**, like the desktop app. `crates/mobile/ui` imports the desktop's tokens,
-  widgets and icons (`crates/desktop/ui/theme.slint`, `widgets.slint`, `icons.slint`), so the
+- **Screens: Slint**, like the desktop app. `apps/mobile/ui` imports the desktop's tokens,
+  widgets and icons (`apps/desktop/ui/theme.slint`, `widgets.slint`, `icons.slint`), so the
   two apps can't drift apart. `Theme.touch` makes text a step larger and controls 48 px tall.
 - **Logic: Rust.** `vault-mobile` has its own small controller: a phone shows one thing at a
   time, so it shares the core and the widgets with the desktop, not its window logic.
-- **System services: Kotlin.** Autofill, Credential Manager, biometrics and the Keystore are
-  Android APIs with no Rust equivalent. They call the Rust core through a narrow JNI bridge
-  and never hold a decrypted vault of their own.
-- **No network** until sync exists (§6). The app asks for no `INTERNET` permission before.
+- **System services: the shell.** Autofill, Credential Manager, biometrics and the Keystore
+  are Android APIs with no Rust equivalent. The shell is plain Java for now (one small class
+  needs no Kotlin compiler or Gradle); its services call the Rust core through a narrow JNI
+  bridge and never hold a decrypted vault of their own.
+- **Network only for sync and opt-in website icons.** `INTERNET` is the only permission.
 
 ### Why not a web view or a second UI toolkit
 
@@ -70,12 +73,12 @@ them when an item is open.
 |---|---|---|
 | Start | No vault on this phone: choose its file, or set it up from the server | ✅ (the system's file picker on Android) |
 | Unlock | Master password (and the Secret Key the first time on this phone); a chosen file waits here until it opens | ✅; ⬜ biometrics |
-| Vault | Search, filters (all, favourites, logins, cards, notes), the list | ✅ |
-| Item | Every field with Copy; password and code hidden until asked; item lock | ✅ |
-| Editor | New login or note, edit, delete | ✅ logins and notes; ⬜ cards, custom fields |
-| Codes | One-time codes with their countdown; tap to copy | ✅ |
-| Generator | Characters or words, length, strength; copy | ✅ |
-| Settings | Theme, auto-lock, bring a newer copy of the file, about, lock now | ✅; ⬜ biometrics, autofill, sync |
+| Vault | Search, filters (all, favourites, logins, cards, notes, SSH keys), the list | ✅; ⬜ several vaults |
+| Item | Every field with Copy; password and code hidden until asked; item lock; files | ✅ |
+| Editor | New login, card, note, authenticator item or SSH key, edit, delete, attach files | ✅; ⬜ custom fields |
+| Codes | One-time codes with their countdown; tap to copy; Add | ✅; ⬜ scan a QR code |
+| Generator | Characters or words, length, Advanced options, strength; copy | ✅ |
+| Settings | Theme, lock, clipboard, backdrop, website icons, sync, master password, a copy of the vault | ✅; ⬜ groups, biometrics, autofill, updates |
 | Autofill sheet | Android's own picker over another app | ⬜ (Kotlin) |
 
 Rules carried over from DESIGN.md: one yellow thing per screen (the main button), hand-drawn
@@ -101,14 +104,14 @@ thumb (bottom of the form, not the top bar), nothing that needs hover.
 
 | # | Milestone | Done when |
 |---|---|---|
-| M7.0 | **Base** — crate, screens, controller, off-screen screenshots, headless test | ✅ this document's first commit |
-| M7.1 | **Runs on a phone** — NDK build (cargo-apk, §7.2), Slint Android backend, the app's own keyboard for secret fields (§6.1), bundled fonts (§6.2), back button | An APK opens a test vault on a device |
-| M7.2 | **Phone storage** — Keystore-backed Secret Key, app-private vault path, the system file picker and "open with" for `.vault` files (§6.3), `FLAG_SECURE`, sensitive clipboard | A vault made on Windows opens on the phone |
-| M7.3 | **Biometrics** — Class 3 prompt, key invalidated when biometrics change | Unlock with a fingerprint after one password unlock |
-| M7.4 | **Autofill** — `AutofillService` with app and origin matching, save prompt | A login fills into a browser and an app |
-| M7.5 | **Passkeys and Credential Manager** (Android 14+) | Depends on passkeys in the core |
-| M7.6 | **Sync** with the self-hosted server (M6) | The same vault on both devices without copying a file |
-| M7.7 | Cards and custom fields in the editor, folders, health, import, translations | Parity with what the desktop edits |
+| M7.0 | **Base** — crate, screens, controller, off-screen screenshots, headless test | ✅ |
+| M7.1 | **Runs on a phone** — NDK build (cargo-apk, §7.2), Slint Android backend, the system keyboard for secret fields (§6.1, §7.2), bundled fonts (§6.2), Back | ✅ an APK opens a test vault on a device; ⬜ fonts |
+| M7.2 | **Phone storage** — Keystore-backed Secret Key, app-private vault path, the system file picker and "open with" for `.vault` files (§6.3), `FLAG_SECURE`, sensitive clipboard | ✅ a vault made on Windows opens on the phone; ⬜ "open with", `FLAG_SECURE` |
+| M7.3 | **Biometrics** — Class 3 prompt, key invalidated when biometrics change; an app lock | ⬜ Unlock with a fingerprint after one password unlock |
+| M7.4 | **Autofill** — `AutofillService` with app and origin matching, save prompt | ⬜ A login fills into a browser and an app |
+| M7.5 | **Passkeys and Credential Manager** (Android 14+) | ⬜ Depends on passkeys in the core |
+| M7.6 | **Sync** with the self-hosted server or WebDAV (M6) | ✅ The same vault on both devices without copying a file |
+| M7.7 | Cards, authenticator items, SSH keys and files (✅); custom fields, folders, health, import, translations (⬜) | Parity with what the desktop edits |
 
 ## 6. Researched choices
 
@@ -170,11 +173,11 @@ Barlow wins on weights and on how it reads at small sizes.
 
 How the fonts get in:
 - `import "fonts/Barlow-Regular.ttf";` (and the Light, SemiBold and Cascadia Mono files) in
-  `crates/mobile/ui/app.slint`. Slint compiles the files into the binary, a few hundred KB in
+  `apps/mobile/ui/app.slint`. Slint compiles the files into the binary, a few hundred KB in
   all.
 - `Theme.ui-font` and `Theme.mono-font` become `in-out`, and the phone sets them to `"Barlow"`
   and `"Cascadia Mono"`.
-- The `.ttf` files and their `OFL.txt` go in `crates/mobile/ui/fonts/`.
+- The `.ttf` files and their `OFL.txt` go in `apps/mobile/ui/fonts/`.
 - Without them the phone falls back to Roboto, which works but loses the look.
 
 Linux (ROADMAP) has the same problem, so the same two fonts could serve it. Whether the
@@ -243,7 +246,7 @@ cargo test -p vault-mobile
 
 ### 7.1 In a browser
 
-`crates/mobile-web` compiles the same app to WebAssembly and draws it on a canvas in a web
+`apps/mobile-web` compiles the same app to WebAssembly and draws it on a canvas in a web
 page, with a demo vault made in the page (fake data, master password shown beside the phone).
 It is for trying the app with a mouse and keyboard; nothing leaves the page and nothing is
 kept.
@@ -251,7 +254,7 @@ kept.
 ```powershell
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.130 --locked
-./crates/mobile-web/build.ps1
+./apps/mobile-web/build.ps1
 python -m http.server 8080 --bind 127.0.0.1 --directory target/mobile-web   # then open http://127.0.0.1:8080
 ```
 
@@ -263,10 +266,10 @@ vault code is the same: the core uses the browser's clock (`web-time`) and its r
 
 ### 7.2 On Android
 
-`crates/mobile-android` is the APK's native library: `android_main` points the app folder
+`apps/mobile-android` is the APK's native library: `android_main` points the app folder
 at the app's private storage, starts Slint's Android backend and opens the same screens and
 controller. `cargo-apk` packages it. The activity is `VaultActivity`
-(`crates/mobile-android/java/`), Android's `NativeActivity` plus the system's file picker:
+(`apps/mobile-android/java/`), Android's `NativeActivity` plus the system's file picker:
 it opens a document (`ACTION_OPEN_DOCUMENT`) or asks where to save one
 (`ACTION_CREATE_DOCUMENT`), reads and writes it through the content resolver off the main
 thread, and hands the bytes to the native library (`src/shell.rs`, JNI). `build.ps1`
@@ -281,7 +284,7 @@ sdkmanager "ndk;28.2.13676358" "platforms;android-35"
 rustup target add aarch64-linux-android x86_64-linux-android
 cargo install cargo-apk --locked
 
-./crates/mobile-android/build.ps1          # target/release/apk/vault-mobile-android.apk
+./apps/mobile-android/build.ps1          # target/release/apk/vault-mobile-android.apk
 adb install -r target/release/apk/vault-mobile-android.apk
 ```
 
@@ -322,6 +325,10 @@ What is in this first build (M7.1):
   kind, look-alikes, characters added or left out; words: case, separator, a digit).
 - **An eye** on the master password, the Secret Key (also in boxes, as printed) and the
   password change fields.
+- **SSH keys and files:** a new Ed25519 key, one pasted or read from a file through the
+  system's picker; files attached to any item, saved through the system's "save as" and read
+  back before they are called saved.
 
-Not yet: `FLAG_SECURE`, biometrics and autofill in the shell, the bundled fonts (Roboto
+Not yet: `FLAG_SECURE`, biometrics, an app lock and autofill in the shell, settings in
+groups, updates from the person's own server, scanning QR codes, the bundled fonts (Roboto
 stands in).

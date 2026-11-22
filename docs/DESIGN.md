@@ -1,6 +1,6 @@
 # Design
 
-> The visual system of the desktop app (`crates/desktop/ui`). Tokens live in `theme.slint`.
+> The visual system of the desktop app (`apps/desktop/ui`). Tokens live in `theme.slint`.
 > Review every screen without opening the app:
 > `cargo run -p vault-desktop --example screenshots` renders them off-screen to
 > `target/screenshots/` (PNG + `index.html`).
@@ -96,17 +96,18 @@ Scale 12 / 14 / 16 / 21 / 28 / 44 px. Radius 6 px. Controls 38 px tall.
 
 ## Logo
 
-A small safe with a dial, drawn with a dark rim on a steel tile (variation 08b1 in
-`docs/brand/logo-variations/`, chosen from the gallery there). Two drawings:
+A small safe with a dial, drawn with a dark rim on a steel tile, chosen from a gallery of
+drafts (padlocks, keys, vault doors, dials) that is no longer kept. Two drawings:
 
-- **Full** (`*-refined.svg`): lit door face, hinges on the left, rivets, a knurled yellow dial,
+- **Full** (`logo.svg`, `logo-light.svg`): lit door face, hinges on the left, rivets, a knurled yellow dial,
   the lever. From about 48 px up: the lock screen, the extension's 128 px icon.
-- **Small** (`*-small.svg`): the same safe redrawn for 16–48 px (thicker rim, bigger knob, four
+- **Small** (`logo-small.svg`, `logo-small-light.svg`): the same safe redrawn for 16–48 px (thicker rim, bigger knob, four
   ticks, no rivets): the side panel and vault header (`Logo { small: true; }`), the window and
   tray icon, the extension's 16/32/48 px icons.
 
-The app's copies live in `crates/desktop/ui/brand/` (`logo*.svg`, `icon-64.png`); the
-extension's PNGs are rendered from the same files.
+They live in `apps/desktop/ui/brand/` (`logo*.svg`, `icon-64.png`); the extension's PNGs,
+the .exe's icon and the Android launcher icon (an adaptive icon whose safe fits round masks)
+are rendered from the same drawings.
 
 ## Backgrounds
 
@@ -153,7 +154,7 @@ icons (it fetches them for the demo sites).
 
 ## On a phone
 
-The phone app (`crates/mobile`, docs/MOBILE.md) uses these tokens and widgets with
+The phone app (`apps/mobile`, docs/MOBILE.md) uses these tokens and widgets with
 `Theme.touch` on: body text 16 px, controls 48 px tall, radius 8 px. One column; four places
 at the bottom (Vault, Codes, Generator, Settings) with the marker stroke under the current
 one; an item or the editor covers them, with a way back top left. The main action sits at

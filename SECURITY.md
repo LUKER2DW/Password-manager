@@ -13,7 +13,8 @@ open a public issue, pull request or discussion for a vulnerability.
 
 Include what you can:
 
-- the affected component (`core`, `platform`, `import`, `cli`, `desktop`) and commit;
+- the affected component (`core`, `platform`, `import`, `browser`, `sync-wire`, or the
+  `cli`, `desktop`, `mobile`, `extension` or `server` app) and commit;
 - what an attacker needs (a copy of the vault file, code running as the user, network
   position…) and what they gain;
 - steps or a proof of concept, ideally with a test vault and test values only.
@@ -32,8 +33,9 @@ The full model is in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md). In short:
 | Can modify or replace the vault file | Detected: every part is authenticated (header in the body AAD, items bound to id and revision), KDF downgrades are refused, older copies are flagged (rollback) |
 | Brute-forces the master password from a stolen file | Infeasible without the Secret Key; with it, Argon2id (256 MiB by default, up to 1 GiB if the user picks a stronger level, a hard floor of 64 MiB) slows every guess |
 | Reads the clipboard history or cloud clipboard | Copied secrets are excluded from Windows clipboard history and cloud sync, and cleared after a delay |
-| Captures the screen | The window asks Windows to exclude it from screen capture |
-| Watches the network | Sees nothing by default: the app contacts no server unless the user turns on website icons or runs the leak check; the leak check sends only 5 hex characters of each password's SHA-1, with padded answers |
+| Captures the screen | The desktop window asks Windows to exclude it from screen capture |
+| Watches the network | Sees nothing by default: the app contacts no server unless the user turns on website icons, runs the leak check or sets up sync; the leak check sends only 5 hex characters of each password's SHA-1, with padded answers |
+| Runs or takes over the sync server | Gets sealed copies and device public keys only: no password, hash or key that opens the vault. Older copies, forks and other vaults' copies are refused by every device ([docs/SERVER.md](docs/SERVER.md)) |
 | Leaks a website's password database | The health page flags weak, reused and leaked passwords so they get changed |
 
 Out of scope (see the threat model): an attacker with administrator or kernel control of a
@@ -47,8 +49,10 @@ libraries mitigate.
   per item revision, length-hiding padding. Only audited RustCrypto crates; no home-made
   primitives.
 - **Two secrets to open a vault:** the master password and the Secret Key (stored in the OS
-  credential store on enrolled devices and printed on the emergency kit). An optional Recovery
-  Key, printed on the kit, opens the vault on its own.
+  credential store on enrolled devices and printed on the emergency kit). The kit also has
+  three recovery parts for different places: any two bring back the Secret Key, all three
+  open the vault so a new master password can be set, one alone opens nothing, and each set
+  works once.
 - **Keyfile (optional):** a third factor mixed into the password key. The device stores only
   where the file is; kept on removable storage, a stolen vault file, master password and
   Secret Key still open nothing.
@@ -83,6 +87,13 @@ libraries mitigate.
   securely after import. Unencrypted export requires the master password again.
 - **Saving:** atomic writes with a backup copy, and a refusal to overwrite a vault file that
   something else changed since it was read.
+- **Sync:** each device writes only its own sealed copy and merges the others with the key it
+  already holds; the target never supplies a key or a hashing parameter. Server requests are
+  signed per device (Ed25519); plain `http://` is allowed only to this computer or a
+  Tailscale address.
+- **Phone:** typed secrets go to the same locked buffers through a keyboard input that only
+  holds stand-ins; the Secret Key is kept under an Android Keystore key; copied secrets are
+  marked sensitive. Screen-capture blocking and biometrics are not built yet.
 
 ## Known limitations
 
@@ -91,8 +102,9 @@ libraries mitigate.
   shown on screen.
 - A computer already compromised while the vault is unlocked can read what is unlocked.
 - Windows Hello security depends on the Windows PIN or biometrics of that account.
-- Website icons, chosen icon pictures and the leak check reveal, to someone watching the
-  network, that requests were made; all are off until the user asks for them.
+- Website icons, chosen icon pictures, the leak check and sync reveal, to someone watching
+  the network, that requests were made; all are off until the user asks for them.
+- On a phone, the keyboard app sees the keys of every field it serves, secret ones included.
 
 ## Development practices
 

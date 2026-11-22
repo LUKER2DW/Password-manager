@@ -9,7 +9,7 @@
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 8 | magic `"PMVAULT\0"` |
-| 8 | 2 | `format_version` (u16) = `5` (`0`–`4` are read and upgraded) |
+| 8 | 2 | `format_version` (u16) = `9` (`0`–`8` are read and upgraded) |
 | 10 | 4 | `header_len` (u32) |
 | 14 | `header_len` | `header` (postcard `VaultHeader`) |
 | … | 4 | `body_len` (u32) |
@@ -162,9 +162,9 @@ struct ItemRecord {
 
 Items are encrypted twice on disk (item layer + body layer) on purpose: after unlocking, the
 app keeps items encrypted in memory and decrypts only the one being used; the body layer hides
-the item count, sizes and ids. Item records are also the unit of future sync.
+the item count, sizes and ids. Item records are also the unit of sync (SYNC.md §4).
 
-## 4. Item data (v3)
+## 4. Item data (v9)
 
 ```rust
 struct ItemData {

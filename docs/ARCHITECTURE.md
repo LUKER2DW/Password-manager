@@ -1,34 +1,40 @@
-# Architecture (proposal)
+# Architecture
 
-> Status: **draft** (research phase). Decisions marked _Proposal_ will be validated with
-> prototypes. See also [THREAT_MODEL.md](THREAT_MODEL.md) and [ROADMAP.md](ROADMAP.md).
+> How the pieces fit and why they were chosen. The exact bytes are in
+> [spec/CRYPTO.md](spec/CRYPTO.md), [spec/VAULT_FORMAT.md](spec/VAULT_FORMAT.md) and
+> [spec/SYNC.md](spec/SYNC.md); who we defend against is in [THREAT_MODEL.md](THREAT_MODEL.md).
 
 ## 1. Overview
 
 ```
-                    ┌──────────────────────────────────────────┐
-                    │           Rust core (library)            │
-                    │  crypto · vault format · sync · TOTP     │
-                    │  import/export · generator · zeroize     │
-                    └───────┬──────────────┬──────────────┬────┘
-                            │              │              │ UniFFI
-                    ┌───────▼─────┐  ┌─────▼─────┐  ┌─────▼──────────────┐
-                    │ Desktop     │  │ CLI       │  │ Android            │
-                    │ Slint       │  │ (Rust)    │  │ Slint UI +         │
-                    │ (native)    │  └───────────┘  │ Kotlin services:   │
-                    │ Windows /   │                 │ Autofill Service + │
-                    │ Linux       │                 │ Credential Manager │
-                    └──────┬──────┘                 └────────────────────┘
-          Native Messaging │ (stdio, local only)
-                    ┌──────▼──────────────┐       ┌──────────────────────────┐
-                    │ Browser extension   │       │ Self-hosted sync server  │
-                    │ (TS, no secrets,    │       │ (Rust), stores only      │
-                    │ asks the desktop)   │       │ encrypted blobs          │
-                    └─────────────────────┘       └──────────────────────────┘
+ apps/desktop          apps/mobile              apps/cli
+ Slint, Windows        Slint, Android           the `vault`
+ (tray, Hello)         (apps/mobile-android,    command
+                        apps/mobile-web)
+       │                     │                     │
+       └──────────┬──────────┴──────────┬──────────┘
+                  ▼                     ▼
+        crates/platform          crates/import
+        credential store,        other managers' files,
+        clipboard, Hello,        browsers' own stores
+        kit PDF, sync targets    (on request)
+                  │                     │
+                  └──────────┬──────────┘
+                             ▼
+                       crates/core
+          crypto · vault format · items · merge
+          generator · TOTP · health · SSH keys
+
+ apps/extension ── Native Messaging ── vault-browser-host ── named pipe ── desktop app
+ (no secrets)                          (crates/browser)
+
+ platform's sync targets ── signed requests (crates/sync-wire) ──► apps/server
+                                                                   (sealed copies only)
 ```
 
-**Core rule:** all cryptography lives **only** in the Rust core. UIs, the extension and the server
-never implement crypto themselves.
+**Core rule:** all cryptography lives **only** in `crates/core`. The apps, the extension and
+the server never implement crypto themselves. `apps/` holds what people run; `crates/` holds
+the libraries the apps share, and a library never depends on an app.
 
 ## 2. Key hierarchy
 
@@ -36,65 +42,71 @@ never implement crypto themselves.
 Master password ──► Argon2id(salt, params ≥ floor) ──┐
                                                      ├─► HKDF ──► Key Encryption Key (KEK)
 Secret Key (128 bits) ───────────────────────────────┤
-Hardware key (hmac-secret) [optional] ───────────────┤
 Keyfile [optional] ──────────────────────────────────┘
                                                              │ unwraps (AEAD)
                                                              ▼
                                                  Vault Key (256 bits, random)
                                                              │ HKDF per purpose
-                       ┌───────────────────┬─────────────────┴──┬─────────────────────┐
-                       ▼                   ▼                    ▼                     ▼
-                Item keys           Index/metadata        Vault integrity        X25519 + ML-KEM
-                (one per item)      key                   key (manifest)         key pair (sharing)
+                                  ┌──────────────────────────┼──────────────────────┐
+                                  ▼                          ▼                      ▼
+                           Item keys                  Body key               Device-local keys
+                           (one per item revision)    (the sealed body)      (icon cache, …)
 ```
 
-- **Random Vault Key**: changing the master password only re-wraps this key (fast, no re-encryption).
-- **Secret Key** combined with the password (1Password's "2SKD" model): even a mediocre master
-  password becomes uncrackable offline.
+- **Random Vault Key**: changing the master password only re-wraps this key (fast, no
+  re-encryption).
+- **Secret Key** combined with the password (the "two-secret" model): even a mediocre master
+  password can't be cracked offline from the file alone.
+- **Item lock**: with a PIN or a second password, the secrets of locked items are sealed under
+  a guard key only that PIN or password unwraps, so an unlocked vault taken from memory still
+  doesn't show them (CRYPTO.md §3.2).
 - **Quick unlock** is another wrapping of the same Vault Key, done by a hardware-held key:
-  - Windows ✅: Windows Hello (IR face, fingerprint or PIN), key in the TPM; modeled on KeePassXC's
-    Quick Unlock (`crates/platform/src/quick_unlock.rs`, spec in [CRYPTO.md §3.1](spec/CRYPTO.md)).
-  - Android: Keystore/StrongBox + `BiometricPrompt` Class 3.
-  - Any platform: YubiKey touch (`hmac-secret`).
-  - Policy: the master password is asked every 14 days; changing it revokes every device unlock;
-    failed attempts are rate-limited by Windows Hello / the TPM itself. Planned: optional
-    "master password after every restart".
-- **Emergency kit**: printable PDF with the Secret Key, room to write the master password, and
-  three **recovery parts** (A, B, C), one per page, to keep in different places: any two bring
-  back the Secret Key, all three open the vault so a new master password can be set, one alone
-  opens nothing. No secret sharing scheme: pairwise HKDF wraps in the header (CRYPTO.md §3.6).
-  Part C can also live inside a photo of the person's own (a PNG with it in its pixels).
+  - Windows ✅: Windows Hello (IR face, fingerprint or PIN), key in the TPM
+    (`crates/platform/src/quick_unlock.rs`, CRYPTO.md §3.1).
+  - Android ⬜: Keystore/StrongBox + `BiometricPrompt` Class 3.
+  - Any platform ⬜: YubiKey touch (`hmac-secret`).
+  - Policy: the master password is asked every 14 days; changing it revokes every device
+    unlock; failed attempts are rate-limited by Windows Hello / the TPM itself.
+- **Emergency kit**: a printable PDF with the Secret Key, room to write the master password,
+  and three **recovery parts** (A, B, C), one per page, to keep in different places: any two
+  bring back the Secret Key, all three open the vault so a new master password can be set,
+  one alone opens nothing. No secret-sharing scheme: pairwise HKDF wraps in the header
+  (CRYPTO.md §3.6). Parts work once: after one is used the app offers a new kit. Part C can
+  also live inside a photo of the person's own (a PNG with it in its pixels).
 
-## 3. Primitives (_Proposal_)
+## 3. Primitives
 
 | Purpose | Choice | Notes |
 |---|---|---|
-| Password KDF | **Argon2id** | Calibrated per device (~1 s; hundreds of MiB on desktop). Hard-coded floor, well above the OWASP server-side minimum. |
+| Password hashing | **Argon2id** | Calibrated per device, with a hard floor and ceiling; scrypt and PBKDF2-SHA-256 by choice, marked weaker |
 | Subkey derivation | **HKDF-SHA-256** | Domain separation by label |
-| Encryption | **XChaCha20-Poly1305** | Random 192-bit nonces are safe; alternative AES-256-GCM-SIV |
-| Key commitment | TBD | Avoid partitioning-oracle attacks on non-committing AEADs |
-| Sharing | **HPKE** with hybrid **X25519 + ML-KEM-768** KEM | Resists quantum "harvest now, decrypt later" |
-| Server authentication | **OPAQUE** (PAKE) | The server never sees the password or a crackable verifier |
+| Encryption | **XChaCha20-Poly1305**, made key-committing | A fresh key and commitment per message from HKDF over a random 192-bit nonce |
+| Browser drop box | libsodium sealed box (X25519) | Only for logins saved while the vault is locked |
+| Sync server requests | **Ed25519** signatures | One key per device and vault; no password reaches the server |
 | Randomness | OS CSPRNG (`getrandom`) | |
-| Memory | `zeroize`, `secrecy`, `VirtualLock`/`mlock` | |
+| Memory | `zeroize`, locked pages for typed secrets | |
 
-Candidate libraries: the **RustCrypto** ecosystem (`argon2`, `chacha20poly1305`, `hkdf`,
-`x25519-dalek`, `ml-kem`), `opaque-ke`, `hpke`. The audit status of each crate is still being researched.
+Only audited RustCrypto crates (and `ed25519-dalek`, `crypto_box`). Sharing (later) is planned
+with HPKE and a hybrid X25519 + ML-KEM-768 KEM against "harvest now, decrypt later".
 
-## 4. Vault format (_Proposal_, to be specified)
+## 4. Vault file
 
-- **Header** (plaintext but **authenticated** as AAD): magic, version, KDF parameters, salts,
-  wrapped keys (password, hardware, recovery).
-- **Items**: each encrypted with its own key, AAD = `vault_id ‖ item_id ‖ version`.
-- **Manifest**: list of (item_id, version, hash), authenticated with the integrity key. It detects
-  removal, swapping, reordering and **rollback** of items.
-- **Padding** to fixed size buckets to hide each item's real size.
-- **Atomic writes** plus version history so data is never corrupted or lost.
-- A public specification in `docs/spec/` (to be written), with test vectors.
+- **Envelope and header** (plaintext but **authenticated**: the exact header bytes are the
+  body's associated data): magic, version, password hashing parameters, salts, the key slots
+  (password, keyfile, recovery parts).
+- **Body**: sealed whole and padded, so the number and size of items stay hidden. Inside it,
+  each item is sealed again under its own key, bound to the vault id, the item id and its
+  revision, so items can't be swapped or rolled back one by one.
+- **Revision** counter in the body; each device remembers the highest revision it saw, so an
+  older file is noticed (rollback).
+- **Atomic writes** with one backup copy; a save never overwrites a file something else
+  changed since it was read.
+- Every change to the bytes is a new format version; older versions are read and upgraded,
+  and a committed test vault per version must keep opening (AGENTS.md §5.1).
 
 ## 5. Browser and autofill
 
-- WebExtension (`extension/`, Manifest V3) with **no secrets and no crypto**, in plain
+- WebExtension (`apps/extension/`, Manifest V3) with **no secrets and no crypto**, in plain
   JavaScript with no build step and no packages: what is reviewed is what the browser runs. It
   talks to the desktop app over **Native Messaging** (local process, no network).
 - Path of a request: extension window → native host (`vault-browser-host`, started by the
@@ -108,53 +120,49 @@ Candidate libraries: the **RustCrypto** ecosystem (`argon2`, `chacha20poly1305`,
   the app's generator, fitted to the field's `maxlength`, `minlength`, `pattern` and
   `passwordrules`; after a sign-in it offers to save the login. Clicks in the frame count only
   while the browser reports it fully visible (IntersectionObserver v2), against extension
-  clickjacking (DEF CON 2025). The extension's window (button or Ctrl+Shift+L) lists the
-  site's logins and the whole vault (passwords shown or copied one at a time, each through the
-  item lock), the generator and a form for a new login. The app announces each fill.
+  clickjacking. The extension's window (button or Ctrl+Shift+L) lists the site's logins and
+  the whole vault (passwords shown or copied one at a time, each through the item lock), the
+  generator and a form for a new login. The app announces each fill.
 - Copying from the extension is done by the app (`copy` request): the value never reaches the
   browser, and the clipboard copy is kept out of Windows clipboard history.
 - With the vault locked the app still answers, from a file kept for the extension
   (`vault_core::locked_fill`, `vault_browser::locked`): logins are listed, and one password
   leaves after Windows Hello. Saving, generating and one-time codes wait for the vault to be
-  unlocked. See CRYPTO.md §3.4.
+  unlocked. See CRYPTO.md §3.4; logins saved meanwhile go to a drop box (§3.5).
 - Exact origin matching (scheme + host + port), decided by the app with the WHATWG URL rules
   (`crates/browser/src/origin.rs`); the top frame only; no filling over plain HTTP. A password
   leaves the app only for the one login picked, and only for a page of its origin.
 - **Pairing:** the first time, the extension asks to be connected; the app comes forward,
-  shows a code and asks for the master password (typed in the app, never in the browser). From then on every request is signed with the shared key
-  (HMAC-SHA-256 over a counter and the request), so a program that merely starts the native
-  host gets nothing. The extension never holds the master password.
-- Nothing is answered while the vault is locked. A login behind the item lock is opened for
-  one fill only: by **Windows Hello** (the app shows the system's prompt; nothing is typed in
-  the browser) or by the item lock's **PIN**, typed in the extension's own window and counted
-  with the app's wrong tries. With the master password as the check, it is opened in the app.
+  shows a code and asks for the master password (typed in the app, never in the browser).
+  From then on every request is signed with the shared key (HMAC-SHA-256 over a counter and
+  the request), so a program that merely starts the native host gets nothing.
+- A login behind the item lock is opened for one fill only: by **Windows Hello** (the app
+  shows the system's prompt) or by the item lock's **PIN**, typed in the extension's own
+  window and counted with the app's wrong tries.
 - A login is used on more sites only by choice: every website saved in it counts, and
   `*.example.com` covers that site and everything under it.
-- On Android: Autofill Service + Credential Manager (`CredentialProviderService`, Android 14+),
-  validating the app package and signature (defense against AutoSpill).
+- On Android (planned): Autofill Service + Credential Manager (`CredentialProviderService`,
+  Android 14+), validating the app package and signature (defence against AutoSpill).
 
 ## 6. Sync
 
 Full design: [spec/SYNC.md](spec/SYNC.md). In short:
 
 - Every device keeps a whole vault file and works offline; sync only moves sealed copies.
-- A **server is optional**. The same engine syncs through a folder (OneDrive, Drive, Syncthing,
-  a NAS), a WebDAV host, our own `vault-server` (Docker, reached over Tailscale) or, later,
-  directly between PC and phone on the same Wi-Fi.
+- A **server is optional**. The same engine syncs through a folder (OneDrive, Drive,
+  Syncthing, a NAS), a WebDAV host or our own `vault-server` (Docker, reached over Tailscale or
+  with its own pinned HTTPS), plus an optional backup place.
 - Each device writes only its own copy (`devices/<device id>.vault`) and merges the others
-  in `vault-core` (`Vault::merge`): items by id, deletions as tombstones, the newer edit wins
-  and the other password goes into the history. Nothing is lost to a conflict.
+  in `vault-core` (`Vault::merge`): items by lineage, deletions as tombstones, the newer edit
+  wins and the other password goes into the history. Nothing is lost to a conflict.
 - The other copies are opened with the vault key already in memory: the target never
-  supplies a key or a KDF parameter. Rollback, replay and forks are refused per writer.
+  supplies a key or a password hashing parameter. Rollback, replay and forks are refused per
+  writer.
 - The server authenticates devices by signed requests (Ed25519 keys made on each device);
-  no password or password hash reaches it.
+  no password or password hash reaches it. New devices join with a one-time invite.
 - The browser extension does not sync: it follows the desktop app on the same computer.
 
-## 7. User interface: native Rust with Slint (_Proposal_, prototype passed)
-
-> A working prototype lives in [`prototypes/slint-ui`](../prototypes/slint-ui/README.md): secure
-> password field, Argon2id unlock, reveal with countdown, clipboard exclusion and auto-clear,
-> screen-capture blocking and lock, all verified on Windows.
+## 7. User interface: native Rust with Slint
 
 **Requirement:** passwords and other secrets must not pass through memory we cannot control.
 
@@ -166,7 +174,7 @@ Full design: [spec/SYNC.md](spec/SYNC.md). In short:
 | Revealing a password | The value is serialized over IPC as JSON, then lives in the JS heap and the DOM | The value is a short-lived Rust string shown in one text element, cleared and zeroized when hidden |
 | Copy to clipboard | Can be done in Rust (OK in both) | Done in Rust |
 | Attack surface | Browser engine + JS + npm supply chain | Rust crates only |
-| Design freedom | Highest (HTML/CSS ecosystem) | High: custom components, gradients, shadows, rounded corners, animations and transitions, states, custom fonts, SVG; live preview; Figma-to-Slint inspector plugin. Weaker: fewer ready-made component libraries, limited effects such as backdrop blur |
+| Design freedom | Highest (HTML/CSS ecosystem) | High: custom components, gradients, shadows, animations, custom fonts, SVG; fewer ready-made components, limited effects such as backdrop blur |
 | Platforms | Windows, Linux, Android | Windows, Linux, Android (Rust) |
 
 Note: no UI toolkit can make a secret vanish completely. The OS delivers keystrokes as events,
@@ -175,49 +183,50 @@ Rust gives us is **control**: short lifetimes, no hidden copies, explicit zeroiz
 
 ### Slint details
 
-- Declarative `.slint` markup + Rust logic; renders with its own GPU/software renderer, no WebView.
+- Declarative `.slint` markup + Rust logic; renders with its own renderer, no WebView.
 - License: GPL-3.0-only OR royalty-free OR commercial. The GPL-3.0 option fits this project.
-- Android: supported from Rust. Autofill Service, Credential Manager and BiometricPrompt are still
-  **Kotlin** Android services that call the same Rust core.
-- To validate in the prototype: a secure password field built on key-event handling (no
-  `TextInput` holding the secret), accessibility (screen readers), IME/keyboard layouts, Android
-  build, and whether the visual result matches the intended design.
+- One design for both apps: the phone imports the desktop's tokens, widgets and icons
+  (`apps/desktop/ui`), with `Theme.touch` sizing them for fingers.
+- Android: Slint's Android backend from Rust, with a small Java activity
+  (`apps/mobile-android/java`) for what native code can't reach alone (the file picker,
+  "save as", Back). Secret fields use the system keyboard through an unseen input that only
+  ever holds stand-ins (MOBILE.md §6.1, §7.2). Autofill, Credential Manager and
+  BiometricPrompt will be Android services in the same shell, calling the same Rust core.
 
 ### Alternatives kept on file
 
-- **Tauri 2**: fallback if a native UI cannot reach the design we want. It would run with a
-  locked-down configuration (minimal capabilities, Isolation Pattern, strict CSP, secrets kept in
-  Rust, a native prompt for the master password).
-- **Iced** (Elm-style, used by the COSMIC desktop), **Makepad** (shader-based, very flexible
-  visuals, thin documentation), **Freya** (Skia, Dioxus-style), **Dioxus Native/Blitz** (HTML/CSS
-  rendered natively, not yet stable).
+- **Tauri 2**: fallback if a native UI cannot reach the design we want, with a locked-down
+  configuration (minimal capabilities, Isolation Pattern, strict CSP, secrets kept in Rust).
+- **Iced**, **Makepad**, **Freya**, **Dioxus Native/Blitz**: looked at, not chosen.
 
 ## 8. Internationalization (i18n)
 
 - All code, identifiers, comments, logs and docs are in **English**.
-- No user-facing string is hard-coded: every UI string goes through a translation layer from day one.
-- UI: Slint's built-in translation support (`@tr()` strings, gettext `.po` files or bundled
-  translations). Android system services: Android string resources. Core error messages: stable error codes
-  that the UI translates (the core itself returns no user-facing text).
-- Default locale `en`; the first translation will be `pt-BR`.
+- No user-facing string is hard-coded: every UI string goes through `@tr()`, compiled from
+  gettext catalogues (`apps/desktop/translations/`); the extension uses its own
+  `_locales/`. The core returns error codes, never text.
+- Default locale `en`; Brazilian Portuguese (`pt-BR`) is the first translation, under way.
 
 ## 9. Import / export
 
-- Import: KeePass (KDBX 4), Bitwarden (JSON), Chrome/Edge/Firefox (CSV), 1Password (1PUX).
-- Passkeys: follow the **FIDO Alliance Credential Exchange Protocol/Format**.
-- Plaintext export only after a strong confirmation and a warning; the file is overwritten
-  before deletion when possible.
+- Import: JSON exports in the common layout, CSV from browsers and managers, KeePass KDBX
+  3/4 (with a key file), an export sealed under a password (`.vaultx`), and on Windows a
+  browser's own store read directly on request.
+- Export: JSON (also sealed under a password) and CSV; plain-text export only after the master
+  password again, and plain-text files the app read are offered for secure wiping.
+- Passkeys, later: the FIDO Alliance Credential Exchange Protocol/Format.
 
-## 10. Licensing (_Decided_)
+## 10. Licensing
 
-- Clients, core, CLI and browser extension: **GPL-3.0-or-later**.
-- Sync server: **AGPL-3.0-or-later** (modified versions offered as a network service must share source).
-- Dependencies are checked for license compatibility with `cargo-deny`.
-- Code from other projects is only reused when its license is compatible, with attribution.
+- Apps, libraries, CLI and browser extension: **GPL-3.0-or-later** ([LICENSE](../LICENSE)).
+- Sync server: **AGPL-3.0-or-later** ([apps/server/LICENSE](../apps/server/LICENSE)):
+  modified versions offered as a network service must share their source.
+- Code from other projects is only reused when its licence is compatible, with attribution.
 
 ## 11. Development security
 
-- `cargo-audit` / `cargo-deny` (vulnerabilities and licenses), fuzzing (`cargo-fuzz`) of the
-  vault parser, property-based tests, known-answer test vectors.
-- Reproducible builds and signed releases.
-- An independent external audit before any stable release.
+- Known-answer test vaults per format version, tamper, rollback and downgrade tests, property
+  tests (`proptest`), headless end-to-end tests of each app, `clippy -D warnings`.
+- Planned: `cargo-audit` / `cargo-deny` in CI, fuzzing (`cargo-fuzz`) of the vault parser,
+  reproducible builds and signed releases, and an independent external audit before any
+  stable release.

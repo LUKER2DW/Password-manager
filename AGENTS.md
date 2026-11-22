@@ -12,43 +12,49 @@ A local-first, zero-knowledge password manager written in Rust.
   computer (infostealers), stolen vault files, tampered files, leaked website databases. See
   [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 - **Local-first.** The vault is one encrypted file. Nothing leaves the device unless the user
-  asks for it (website icons, leak check). Sync to a self-hosted server is planned, never a
-  hosted service.
+  asks for it (website icons, leak check, sync). Sync is optional: a folder, WebDAV or the
+  project's own small server that the person runs; never a hosted service.
 - **Zero-knowledge.** The vault key depends on the master password *and* a 128-bit Secret Key
   that is never stored in the vault file. A stolen file alone is useless.
-- **Platforms, in order:** Windows desktop (now), browser extension, Android, Linux.
+- **Platforms:** Windows desktop and the Chrome/Edge extension (working), Android (early),
+  Linux (later).
 - **Status:** early development, not audited. Never test with real passwords.
-- **Licences:** GPL-3.0-or-later for clients and core; AGPL-3.0-or-later for the future server.
+- **Licences:** GPL-3.0-or-later for the apps and libraries ([LICENSE](LICENSE));
+  AGPL-3.0-or-later for the sync server ([apps/server/LICENSE](apps/server/LICENSE)).
 
 ## 2. Repository layout
+
+`apps/` holds what people run, `crates/` the libraries the apps share. An app may depend on
+crates and, for tests, on another app (the server); a crate never depends on an app.
 
 ```
 Cargo.toml              workspace (edition 2024, shared lints, release profile)
 rust-toolchain.toml     stable toolchain + clippy + rustfmt
+apps/
+  cli/                  vault-cli: the `vault` command-line client
+  desktop/              vault-desktop: the Slint desktop app (ui/ is vault-desktop-ui)
+  mobile/               vault-mobile: the phone app's screens and controller (Android first)
+  mobile-android/       vault-mobile-android: the phone app as an APK (cargo-apk, Java activity)
+  mobile-web/           vault-mobile-web: the phone app in a browser page (WebAssembly), demo vault
+  server/               vault-server: the self-hosted sync server (AGPL-3.0), Docker files
+  extension/            the Chrome/Edge extension (Manifest V3, plain JavaScript)
 crates/
   core/                 vault-core: cryptography, file format, item model (no UI, no network)
-  platform/             vault-platform: OS integration (Windows first)
+  platform/             vault-platform: OS integration (Windows first, Android)
   import/               vault-import: import from / export to other managers and browsers
-  cli/                  vault-cli: the `vault` command-line client
   browser/              vault-browser: what the extension may ask and get, and its native host
-  desktop/              vault-desktop: the Slint desktop app
-  mobile/               vault-mobile: the phone app's screens and controller (Android first)
-  mobile-web/           vault-mobile-web: the phone app in a browser page (WebAssembly), demo vault
-  mobile-android/       vault-mobile-android: the phone app's Android entry point (APK via cargo-apk)
   sync-wire/            vault-sync-wire: what devices and the sync server say (signed requests)
-  server/               vault-server: the self-hosted sync server (AGPL-3.0), Docker files
-extension/              the Chrome/Edge extension (Manifest V3, plain JavaScript)
 docs/
   THREAT_MODEL.md       who we defend against and the principles that follow
   ARCHITECTURE.md       overall design and decisions
   DESIGN.md             visual system and UI rules
+  ROADMAP.md            phases and where each one stands
   IMPLEMENTATION_PLAN.md  milestones and what is done (keep it current)
   MOBILE.md             the phone app: plan, screens, security on a phone, milestones
   SERVER.md             running your own sync server (Docker, Tailscale), what it can see
-  ROADMAP.md            phases
   spec/CRYPTO.md        exact cryptography (normative)
   spec/VAULT_FORMAT.md  exact file format (normative)
-prototypes/             throwaway experiments (not part of the build)
+  spec/SYNC.md          sync: the merge, the targets, the server protocol
 research/               local notes, git-ignored, never committed
 ```
 
@@ -61,18 +67,22 @@ filesystem policy** beyond atomic writes.
 |---|---|
 | `aead.rs` | Key-committing XChaCha20-Poly1305 (`seal` / `open`) |
 | `kdf.rs` | Password hashing (Argon2id; scrypt and PBKDF2-SHA-256 by choice) with a hard floor and ceiling on parameters |
-| `keys.rs` | Secret Key, Recovery Key, keyfile, vault key, subkeys, device KEK |
+| `keys.rs` | Secret Key, recovery parts (and the Recovery Key of older kits), keyfile, vault key, subkeys, device KEK |
 | `guard.rs` | Item guard: which items ask for a second check, and the guard key wrapped by the PIN or password |
 | `encoding.rs` | Crockford Base32 for the printed keys |
 | `padding.rs` | Length-hiding padding for items and body |
 | `format.rs` | File envelope, header, body, and the layouts of older versions |
 | `vault.rs` | `Vault`: open, create, items, folders, settings, history, save |
-| `item.rs` | `ItemData`, `ItemSummary`, folders, recovery codes, password history |
+| `vault/merge.rs` | Folding another device's copy into this one (`Vault::merge`, SYNC.md §4) |
+| `sync.rs` | What sync needs from the vault: writers, tombstones, devices, revisions |
+| `item.rs` | `ItemData`, `ItemSummary`, folders, recovery codes, password history, attachments |
 | `card.rs` | Payment cards: Luhn, brand detection, expiry, masking |
+| `ssh.rs` | SSH keys: a new Ed25519 key in OpenSSH's format, the public half and fingerprint of any OpenSSH key |
 | `generator.rs` | Passwords and passphrases (uniform sampling, word lists) |
 | `health.rs` | Strength (zxcvbn), reuse, age, and the k-anonymous breach query |
 | `sealed_export.rs` | An export sealed under a password of its own (`.vaultx`) |
 | `drop_box.rs` | Logins saved from the browser while locked, sealed to a public key only the open vault reads |
+| `locked_fill.rs` | Logins the extension may fill while the vault is locked (CRYPTO.md §3.4) |
 | `totp.rs` | RFC 6238 one-time codes |
 | `storage.rs` | Atomic file writes with a `.bak` copy |
 | `random.rs` | OS randomness |
@@ -80,12 +90,15 @@ filesystem policy** beyond atomic writes.
 ### 2.2 `crates/platform` (vault-platform)
 
 Everything that touches the operating system: Secret Key in the credential store
-(`secret_store.rs`), per-device state and rollback detection (`device.rs`), clipboard that stays
-out of history (`clipboard.rs`), screen-capture blocking (`screen.rs`), locked memory for typed
-secrets (`secure_buffer.rs`), Windows Hello quick unlock (`quick_unlock.rs`), DPAPI
-(`dpapi.rs`), installed browsers (`browsers.rs`), the extension's local pipe and host
-registration (`browser_link.rs`), the emergency kit PDF (`kit_pdf.rs`), file
-helpers and secure wiping (`files.rs`), app paths (`paths.rs`), sync targets and one sync
+(`secret_store.rs`; the Android Keystore on a phone), per-device state and rollback detection
+(`device.rs`), clipboard that stays out of history (`clipboard.rs`, `clipboard_android.rs`),
+screen-capture blocking (`screen.rs`), locked memory for typed secrets (`secure_buffer.rs`),
+Windows Hello quick unlock (`quick_unlock.rs`), DPAPI (`dpapi.rs`), keyfiles on disk
+(`keyfile.rs`), the person's language (`locale.rs`), installed browsers (`browsers.rs`), the
+extension's local pipe and host registration (`browser_link.rs`), the emergency kit PDF
+(`kit_pdf.rs`), a recovery part hidden in a picture (`part_picture.rs`), opt-in website icons
+fetched directly from each site with a sealed cache (`website_icons.rs`), file helpers and
+secure wiping (`files.rs`), app paths (`paths.rs`), sync targets and one sync
 round (`sync.rs`: the folder target, fetch, merge, this device joining the vault;
 `sync/server.rs` the sync server client, `sync/webdav.rs` WebDAV, `sync/http.rs` which
 addresses are allowed). The server key and the WebDAV password live in the credential store
@@ -107,32 +120,33 @@ supported file. Readers are named by format, never by product:
 
 Importers only produce `ItemData`; they never touch keys.
 
-### 2.4 `crates/cli` (vault-cli)
+### 2.4 `apps/cli` (vault-cli)
 
 `vault init | info | list | add | show | edit | rm | generate | totp | passwd | recover | kit |
-forget | keyfile | import | sync`. Same vault and device state as the desktop app.
+part-picture | forget | keyfile | import | sync`. Same vault and device state as the desktop
+app. `tests/cli.rs` runs the binary, including sync through a running server.
 
-### 2.4.1 `crates/browser` (vault-browser) and `extension/`
+### 2.4.1 `crates/browser` (vault-browser) and `apps/extension/`
 
 The extension holds no secrets. `origin.rs` decides which saved website belongs to which page
 (exact scheme, host and port; https only), `protocol.rs` is the JSON it exchanges with the
 app, `pairing.rs` is the connection key and the proof on every request, `service.rs` answers
 from an open vault (with the item lock as a `Gate`), `host.rs` + `main.rs` are the native host
-(`vault-browser-host`) that relays between the browser and the app's pipe. In `extension/`,
+(`vault-browser-host`) that relays between the browser and the app's pipe. In `apps/extension/`,
 `popup.js` is the extension's window, `link.js` its connection key and request signing, and
 `fill.js` the function that types a login into a page, `content.js` + `fields.js` the
 content script (sign-in fields, submitted forms), `inline.html`/`inline.js` the frame shown
 under a field, `background.js` the worker between them and the app, `generator.js` the
 reading of a site's password rules, `app.js` the native messaging calls. See
-[extension/README.md](extension/README.md). Tests: `cargo test -p vault-browser` and
-`node --test extension/test/fill.test.mjs extension/test/link.test.mjs extension/test/generator.test.mjs`.
+[apps/extension/README.md](apps/extension/README.md). Tests: `cargo test -p vault-browser` and
+`node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs`.
 
 Rules for this part: UI in a page only as the extension's own frame (`inline.html`), never as
 page DOM, and every click there goes through the visibility check; no new permission without
 a threat-model note; passwords are made, copied and decided on by the app, not the extension;
 the extension stays free of packages and build steps.
 
-### 2.5 `crates/desktop` (vault-desktop)
+### 2.5 `apps/desktop` (vault-desktop)
 
 Slint UI (`ui/*.slint`) driven by a Rust controller.
 
@@ -146,11 +160,12 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/generated.rs` | History of generated passwords (sealed per vault on this computer) |
 | `src/controller/drop_box.rs` | Logins the browser saved while the vault was locked, added at the next unlock |
 | `src/controller/syncing.rs` | Sync through a folder, the server or WebDAV: Settings → Sync (join, add a device with a QR code, remove one), rounds at unlock, after saves, every 5 minutes, on the server's news and on demand (the target read and written off the UI thread) |
+| `src/controller/locked_fill.rs` | Filling from the browser while the vault is locked |
+| `src/controller/attachments.rs` | Files attached to items and SSH key items in the editor and on the item page |
 | `src/tray.rs` | The notification area icon (tray mode) and its menu window (`ui/tray.slint`) |
 | `src/i18n.rs` | The app's language: picks a compiled-in catalogue from `translations/` |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
 | `src/view.rs` | Pure presentation rules (unit-tested): filters, tints, crack times, dates |
-| `src/favicon.rs` | Opt-in website icons, fetched directly from each site |
 | `src/sketch.rs` | Hand-drawn strokes generated in Rust |
 | `src/tests.rs` | Headless end-to-end test of the whole app |
 | `examples/screenshots.rs` | Renders every screen to PNG for visual review |
@@ -159,10 +174,14 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `ui/model.slint` | Structs shared with Rust and **every user-facing message** |
 | `ui/widgets.slint` | Buttons, fields, secure field, dropdown, slider… |
 | `ui/icons.slint` | Field icons (Lucide), card network marks, import source icons |
-| `ui/dialogs.slint` | Dialogs over the whole window (`Modal`, `FolderDialog`) |
+| `ui/dialogs.slint` | Dialogs over the whole window (`Modal`, `FolderDialog`, `PartsUsedDialog`) |
+| `ui/strength.slint` | The strength meter (shared with the phone) |
+| `ui/tray.slint` | The notification area's menu window |
 | `ui/welcome.slint`, `vault.slint`, `pages.slint`, `kit.slint`, `app.slint` | Screens; right-click menus live in `app.slint` |
+| `ui/brand/` | The logo, the lock screen's scene and the open vault's texture |
+| `translations/` | gettext catalogues compiled into the app (see its README) |
 
-### 2.6 `crates/mobile` (vault-mobile)
+### 2.6 `apps/mobile` (vault-mobile)
 
 The phone app (Android first), see [docs/MOBILE.md](docs/MOBILE.md). `ui/app.slint` is the
 phone's layout and imports the desktop's `theme.slint`, `widgets.slint` and `icons.slint`
@@ -170,17 +189,26 @@ phone's layout and imports the desktop's `theme.slint`, `widgets.slint` and `ico
 vault with the same rules as the desktop (secure fields, item lock, `changed_outside`-style
 save check, clipboard cleared). `src/tests.rs` runs it headless;
 `examples/phone_screens.rs` renders every screen to PNG. A change to a shared widget must
-look right in both apps' screenshots. The controller reaches the system only through
+look right in both apps' screenshots. The controller's submodules are `syncing.rs` (sync on
+the phone), `attachments.rs` (files and SSH keys) and `icons.rs` (website icons); `prefs.rs`
+is the phone's own settings file. The controller reaches the system only through
 `src/platform.rs` (the platform crate, or `src/platform/web.rs` in a browser), so the same
-code also runs as the web preview in `crates/mobile-web` (build: `crates/mobile-web/build.ps1`).
+code also runs as the web preview in `apps/mobile-web` (build: `apps/mobile-web/build.ps1`).
 
-### 2.7 `crates/sync-wire` and `crates/server`
+`apps/mobile-android` is the APK: `src/lib.rs` starts Slint's Android backend with the same
+screens, `src/shell.rs` talks to the activity over JNI, and
+`java/org/passwordvault/phone/VaultActivity.java` is the activity (Android's
+`NativeActivity` plus the system's file picker, "save as" and Back). `res/` holds the
+launcher icon. Build: `apps/mobile-android/build.ps1` (docs/MOBILE.md §7.2).
+
+### 2.7 `crates/sync-wire` and `apps/server`
 
 `vault-sync-wire` is the request protocol shared by clients and server (signed messages,
 enrollment, invites, JSON bodies). `vault-server` (AGPL-3.0) stores sealed copies, device
 public keys and invite digests as plain files (`store.rs`) behind the API in `api.rs`
-(signature, time and nonce checks, limits). Tests: `cargo test -p vault-server` runs a real
-server with two devices. Setup: [docs/SERVER.md](docs/SERVER.md).
+(signature, time and nonce checks, limits), with an HTTPS of its own for a home network
+(`tls.rs`). Tests: `cargo test -p vault-server` runs a real server with two devices. Setup:
+[docs/SERVER.md](docs/SERVER.md); Docker files next to the code.
 
 ## 3. Build, run, test
 
@@ -215,15 +243,32 @@ cargo run -p vault-desktop --example screenshots -- target/screenshots
 It writes numbered PNGs, an `index.html` gallery and a demo emergency kit PDF. Open the PNGs
 to review layout; do not drive the real desktop to check UI.
 
+The other apps:
+
+```bash
+cargo run -p vault-mobile                                  # the phone app in a phone-sized window
+cargo run -p vault-mobile --example phone_screens -- target/phone-screens   # its screens as PNGs
+cargo run -p vault-cli -- --help                           # the `vault` command
+cargo run -p vault-server -- serve                         # a sync server (docs/SERVER.md)
+node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs
+```
+
+The APK and the browser build have their own scripts, `apps/mobile-android/build.ps1` and
+`apps/mobile-web/build.ps1` (what each needs is at its top; docs/MOBILE.md §7).
+
 ### 3.1 Tests that matter
 
 - `crates/core/tests/format_v*.rs` — known-answer tests: each committed fixture in
   `crates/core/tests/fixtures/` must keep opening forever. Never regenerate an old fixture.
 - `crates/core/tests/vault.rs`, `robustness.rs` — tampering, swapping, rollback, downgrade,
-  malformed input.
-- `crates/desktop/src/tests.rs` — the whole app flow headless (onboarding, unlock, items, cards,
+  malformed input. `sync.rs` — the merge, with a property test over three devices;
+  `recovery_parts.rs` — the kit's three parts.
+- `apps/desktop/src/tests.rs` — the whole app flow headless (onboarding, unlock, items, cards,
   folders, history, health, generator, import, export, kit, second vault). Slow work runs inline
   there (`Runner::Inline`); dialogs and network are skipped.
+- `apps/mobile/src/tests.rs` — the phone app headless, including sync against a running server.
+- `apps/server/tests/sync.rs` — two devices through a real server; strangers, replays and
+  altered requests refused.
 
 ## 4. Rules
 
@@ -237,11 +282,13 @@ to review layout; do not drive the real desktop to check UI.
 3. **Typed secrets never enter Slint strings.** Password fields are `SecretField`, whose
    keystrokes go straight to Rust (`Secrets` global → `SecretBuffer`); the UI only knows the
    length. A secret is shown as text only while the user asked to see it, and cleared after.
-4. **No `unsafe`** except in `platform` and `desktop` (lint level `deny`), each block with
-   `#[allow(unsafe_code)]` and a `// SAFETY:` comment. `core`, `import` and `cli` forbid it.
+4. **No `unsafe`** except in `platform`, `desktop` and `mobile-android` (lint level `deny`),
+   each block with `#[allow(unsafe_code)]` and a `// SAFETY:` comment. Every other crate
+   forbids it.
 5. **No network in `core`.** Network use anywhere is opt-in and per action: website icons
    (setting, off by default), the leak check (button; k-anonymous, 5 hex chars of SHA-1,
-   padded), an icon site or picture link chosen for an item or folder. Nothing is sent to a
+   padded), an icon site or picture link chosen for an item or folder, and sync to a place the
+   person set up (sealed copies only). Nothing is sent to a
    third-party service for icons. Links handed to the OS to open are `http(s)` only
    (`vault_platform::browsers::web_link`). The browser extension's link is local only (a
    named pipe), off by default.
@@ -275,11 +322,13 @@ to review layout; do not drive the real desktop to check UI.
 ### 4.3 Commits
 
 - Small, focused, **one commit per area**: `Core: …`, `Platform: …`, `Import: …`, `CLI: …`,
-  `Browser: …`, `Extension: …`, `Desktop: …`, `Mobile: …`, `Docs: …`, `Build: …`. A short subject in the imperative-free style used in
-  the log ("Core: format v3 (folder icon and colour, item icon website)"), then a body that says
-  what changed and why.
+  `Browser: …`, `Extension: …`, `Desktop: …`, `Mobile: …`, `Server: …`, `Docs: …`, `Build: …`.
+  A short subject in the imperative-free style used in the log ("Core: format v3 (folder icon
+  and colour, item icon website)"), then a body that says what changed and why.
 - Run fmt, clippy and the tests first. Never commit a failing build.
 - Never commit generated output (`target/`), vault files, exports or kits (see `.gitignore`).
+- Commits carry the author's GitHub no-reply address, never a personal email, and no
+  attribution lines.
 
 ## 5. How to do common things
 
@@ -367,7 +416,7 @@ a field is genuinely unclear (and it says what to type), no decorative badges or
 
 - Something about keys or bytes on disk → `docs/spec/CRYPTO.md`, `docs/spec/VAULT_FORMAT.md`,
   `crates/core`.
-- A screen → `crates/desktop/ui/*.slint`, then the matching handler in `controller.rs` /
+- A screen → `apps/desktop/ui/*.slint`, then the matching handler in `controller.rs` /
   `controller/features.rs`.
 - A message shown to the user → `ui/model.slint` (`Messages`).
 - A setting stored per device → `platform/src/device.rs` (`Settings`); stored in the vault →

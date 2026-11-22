@@ -1,6 +1,6 @@
 # Threat Model
 
-> Status: **draft** (research phase). This document defines what the project protects against
+> Status: **draft**, reviewed as features land. This document defines what the project protects against
 > and, just as honestly, what it **cannot** protect against.
 
 ## 1. Primary security goal

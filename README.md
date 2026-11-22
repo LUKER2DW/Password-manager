@@ -1,53 +1,71 @@
-# password-manager
+# Vault
 
-An open-source, local-first, zero-knowledge password manager focused on security above all.
+An open-source, local-first, zero-knowledge password manager written in Rust, with security
+above all.
 
-> ⚠️ **Early development.** The Windows desktop app and the CLI work, but nothing has been
-> audited. Do not store real passwords with it yet.
+> ⚠️ **Early development.** The Windows desktop app, the browser extension and the CLI work,
+> and the Android app runs, but nothing has been audited. Do not store real passwords in it yet.
 
-## Goal
+## The idea
 
-An attacker who obtains the vault file cannot extract anything from it. The vault key depends on
-factors that are never stored in the file: the master password, a Secret Key and, optionally, a
-hardware security key.
+An attacker who obtains the vault file cannot extract anything from it. The vault is one
+encrypted file, and its key needs two things that are never stored in that file: the master
+password and a 128-bit Secret Key. Each device keeps the whole vault and works offline; sync
+is optional and only ever moves sealed copies.
 
-## Documentation
+## What it does
 
-- [Threat model](docs/THREAT_MODEL.md) and [security policy](SECURITY.md)
-- [Architecture](docs/ARCHITECTURE.md) and [design](docs/DESIGN.md)
-- [Roadmap](docs/ROADMAP.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md)
-- Specifications: [cryptography](docs/spec/CRYPTO.md), [vault file format](docs/spec/VAULT_FORMAT.md)
-- Working on the code: [AGENTS.md](AGENTS.md) (people and AI agents alike) and
-  [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Desktop app (Windows):** logins, payment cards, secure notes, SSH keys and one-time codes,
+  files attached to items, folders, favourites and search. A password generator (characters
+  or words), password history, a health page (weak, reused, old and leaked passwords; the
+  leak check is k-anonymous and runs only when asked), import from browsers and other
+  managers, encrypted and plain exports, an item lock (a PIN or second password before
+  secrets show), Windows Hello, an optional keyfile, and a printable emergency kit with three
+  recovery parts.
+- **Browser extension (Chrome, Edge):** fills logins and one-time codes from the desktop app
+  and offers to save new ones. It holds no passwords of its own.
+- **Android app (early):** opens the vault made on the computer and edits the same items;
+  codes, generator, sync, attached files.
+- **CLI:** the same vault from a terminal (`vault`).
+- **Sync (optional):** through a folder, a WebDAV host or a small server you run yourself
+  (Docker, behind Tailscale or with its own HTTPS). The server never sees anything that opens
+  the vault.
 
-## Development
+## Repository layout
+
+`apps/` holds what people run, `crates/` the libraries the apps share.
+
+| Folder | What it is |
+|---|---|
+| [`apps/desktop`](apps/desktop) | The desktop app (Slint); design notes in [docs/DESIGN.md](docs/DESIGN.md) |
+| [`apps/mobile`](apps/mobile) | The phone app's screens and controller (Slint), see [docs/MOBILE.md](docs/MOBILE.md) |
+| [`apps/mobile-android`](apps/mobile-android) | The phone app as an Android APK |
+| [`apps/mobile-web`](apps/mobile-web) | The phone app in a web page (WebAssembly), with a demo vault |
+| [`apps/extension`](apps/extension) | The Chrome/Edge extension (plain JavaScript); see its [README](apps/extension/README.md) |
+| [`apps/cli`](apps/cli) | The `vault` command-line client |
+| [`apps/server`](apps/server) | The self-hosted sync server; setup in [docs/SERVER.md](docs/SERVER.md) |
+| [`crates/core`](crates/core) | Cryptography, the vault file format, items, merge, generator, TOTP, health (no UI, no network) |
+| [`crates/platform`](crates/platform) | OS integration: credential store, device state, clipboard, capture blocking, secure input, Windows Hello, kit PDF, sync targets |
+| [`crates/import`](crates/import) | Import and export: JSON, CSV and KDBX files, and browsers' own stores on request |
+| [`crates/browser`](crates/browser) | What the extension may ask the app, and its native host |
+| [`crates/sync-wire`](crates/sync-wire) | The signed requests devices and the sync server exchange |
+| [`docs`](docs) | Threat model, architecture, design, plans and the normative specs |
+
+## Building and trying it
+
+Rust's stable toolchain (pinned in `rust-toolchain.toml`) is all the desktop app and the CLI
+need.
 
 ```bash
 cargo test --workspace
+cargo run --release -p vault-desktop
+cargo run -p vault-cli -- --help
 ```
 
-| Crate | Purpose |
-|---|---|
-| [`crates/core`](crates/core) | Cryptography, vault file format, item model, TOTP, generator, password health (no UI, no network) |
-| [`crates/platform`](crates/platform) | OS integration: Secret Key store, device state, secure clipboard, capture blocking, secure input, Windows Hello, emergency kit PDF |
-| [`crates/import`](crates/import) | Import and export: JSON, CSV and KDBX files, and browsers' own stores on request |
-| [`crates/cli`](crates/cli) | `vault` command-line client |
-| [`crates/desktop`](crates/desktop) | Desktop app (Slint); design notes in [docs/DESIGN.md](docs/DESIGN.md) |
-| [`crates/browser`](crates/browser) | What the browser extension may ask the app, and its native host |
-| [`extension`](extension) | Chrome/Edge extension that fills logins (no secrets of its own); see its [README](extension/README.md) |
-
-### Trying the desktop app (test vaults only)
-
-```bash
-cargo run -p vault-desktop
-```
-
-It uses the same vault as the CLI by default. Point both at a test file with
-`VAULT_FILE=C:\path\to\test.vault` (a missing file opens the "new vault" screen).
-`cargo run -p vault-desktop --example screenshots -- target/screenshots` renders every screen
-to PNG for review.
-
-### Trying the CLI (test vaults only)
+Use test vaults only. `VAULT_FILE=C:\path\to\test.vault` points the desktop app and the CLI
+at a test file (a missing file opens the "new vault" screen), and `VAULT_HOME` moves the
+whole app folder. `cargo run -p vault-desktop --example screenshots -- target/screenshots`
+renders every screen to PNG.
 
 ```bash
 cargo run -p vault-cli -- init          # create a vault, prints the emergency kit
@@ -58,17 +76,25 @@ cargo run -p vault-cli -- generate --words 6     # passphrase from the EFF word 
 cargo run -p vault-cli -- import export.csv --dry-run
 ```
 
-The Secret Key is stored in the OS credential store (Windows Credential Manager on Windows).
-`vault forget` removes it from the device.
+The Secret Key is kept in the OS credential store (Windows Credential Manager on Windows);
+`vault forget` removes it from the device. The phone app, its APK and its web build are
+described in [docs/MOBILE.md](docs/MOBILE.md) §7; the extension in its README; the server in
+[docs/SERVER.md](docs/SERVER.md).
 
-## Planned platforms
+## Documentation
 
-Windows → browser extension → Android → Linux, with optional sync to a self-hosted server.
+- [Threat model](docs/THREAT_MODEL.md) and [security policy](SECURITY.md)
+- [Architecture](docs/ARCHITECTURE.md) and [design](docs/DESIGN.md)
+- [Roadmap](docs/ROADMAP.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md)
+- Specifications: [cryptography](docs/spec/CRYPTO.md), [vault file format](docs/spec/VAULT_FORMAT.md),
+  [sync](docs/spec/SYNC.md)
+- Working on the code: [AGENTS.md](AGENTS.md) (people and AI agents alike) and
+  [CONTRIBUTING.md](CONTRIBUTING.md)
 
-## License
+## Licence
 
-GPL-3.0-or-later for the apps and core ([LICENSE](LICENSE)); AGPL-3.0-or-later for the sync
-server (`crates/server`).
+GPL-3.0-or-later for the apps and libraries ([LICENSE](LICENSE)); AGPL-3.0-or-later for the
+sync server ([apps/server/LICENSE](apps/server/LICENSE)).
 
 Bundled third-party data: the [EFF large word list](crates/core/data/README.md)
 (CC BY 3.0 US, © Electronic Frontier Foundation); interface icons from
@@ -78,5 +104,5 @@ import comes from.
 
 ## Language
 
-The codebase and documentation are written in English. The user interface will support
-translations (i18n) from the start.
+The code and documentation are in English. The apps translate every text they show
+(gettext catalogues); Brazilian Portuguese is under way.
