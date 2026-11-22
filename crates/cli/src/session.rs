@@ -80,6 +80,7 @@ impl Session {
             None
         };
 
+        let mut used_parts = false;
         let (secret_key, typed) = match secret_store::load(&info.id_hex)? {
             Some(key) => (key, false),
             None => {
@@ -95,6 +96,7 @@ impl Session {
                         .map_err(explain)?;
                         let key =
                             Vault::recover_secret_key(&bytes, &first, &second).map_err(explain)?;
+                        used_parts = true;
                         (key, true)
                     }
                     Err(_) => (SecretKey::parse(&text).map_err(explain)?, true),
@@ -113,7 +115,7 @@ impl Session {
                 secret_key: &secret_key,
             },
         };
-        let vault = Vault::open(&bytes, unlock).map_err(explain)?;
+        let mut vault = Vault::open(&bytes, unlock).map_err(explain)?;
         if let Some((_, path)) = &keyfile {
             // It worked: next time the path needn't be typed.
             let _ = keyfile::remember_path(&info.id_hex, Some(path));
@@ -142,6 +144,19 @@ impl Session {
             eprintln!("warning: {message}");
         }
         state.record_revision(&info.id_hex, vault.revision());
+
+        // Recovery parts work once: the two just typed stop working.
+        let mut file_hash = storage::fingerprint(&bytes);
+        if used_parts {
+            vault.clear_recovery_parts();
+            let written = vault.to_bytes().map_err(explain)?;
+            storage::write_atomic(path, &written).map_err(explain)?;
+            file_hash = storage::fingerprint(&written);
+            state.record_revision(&info.id_hex, vault.revision());
+            eprintln!(
+                "The two recovery parts you typed no longer work. Make a new kit: vault kit --new-parts"
+            );
+        }
         state.save()?;
 
         Ok(Self {
@@ -150,7 +165,7 @@ impl Session {
             secret_key,
             keyfile: keyfile.map(|(key, _)| key),
             password,
-            file_hash: storage::fingerprint(&bytes),
+            file_hash,
         })
     }
 

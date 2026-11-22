@@ -489,6 +489,16 @@ pub fn recover(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
     vault
         .change_password(&password, &secret_key, None, &kdf)
         .map_err(explain)?;
+    // Recovery parts work once: the ones just typed are replaced by a new set.
+    let new_parts = if info.has_recovery_key {
+        None
+    } else {
+        let parts = RecoveryParts::generate().map_err(explain)?;
+        vault
+            .set_recovery_parts(&parts, &secret_key)
+            .map_err(explain)?;
+        Some(parts)
+    };
     session::ensure_unchanged(&ctx.path, &storage::fingerprint(&bytes))?;
     let bytes = vault.to_bytes().map_err(explain)?;
     storage::write_atomic(&ctx.path, &bytes).map_err(explain)?;
@@ -496,19 +506,19 @@ pub fn recover(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
     session::record_new_vault(&vault)?;
 
     println!(
-        "New master password and Secret Key set. Your {} still work{}.",
+        "{}",
         if info.has_recovery_key {
-            "Recovery Key"
+            "New master password and Secret Key set. Your Recovery Key still works."
         } else {
-            "recovery parts"
-        },
-        if info.has_recovery_key { "s" } else { "" }
+            "New master password and Secret Key set. The recovery parts you typed no longer \
+             work: here are new ones."
+        }
     );
     if had_keyfile {
         let _ = vault_platform::keyfile::remember_path(&vault.id_hex(), None);
         println!("The keyfile is no longer needed; add one again with `vault keyfile create`.");
     }
-    print_kit(&vault.id_hex(), &ctx.path, &secret_key, None);
+    print_kit(&vault.id_hex(), &ctx.path, &secret_key, new_parts.as_ref());
     Ok(())
 }
 
