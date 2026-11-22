@@ -88,8 +88,7 @@ described in [docs/MOBILE.md](docs/MOBILE.md) §7; the extension in its README; 
 - [Roadmap](docs/ROADMAP.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md)
 - Specifications: [cryptography](docs/spec/CRYPTO.md), [vault file format](docs/spec/VAULT_FORMAT.md),
   [sync](docs/spec/SYNC.md)
-- Working on the code: [AGENTS.md](AGENTS.md) (people and AI agents alike) and
-  [CONTRIBUTING.md](CONTRIBUTING.md)
+- Working on the code: [AGENTS.md](AGENTS.md), for people and AI agents alike
 
 ## Licence
 
