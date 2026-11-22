@@ -81,9 +81,21 @@ pub fn export_json(vault: &Vault) -> Result<Zeroizing<String>, vault_core::Error
         .collect();
     let mut items_json = Vec::new();
     for (index, (item, _)) in items(vault)?.iter().enumerate() {
+        // An SSH key's public half and fingerprint go in its own block, not as fields.
+        let ssh_field = |name: &str| {
+            item.custom_fields
+                .iter()
+                .find(|f| f.name == name)
+                .map(|f| f.value.clone())
+        };
         let mut fields: Vec<Value> = item
             .custom_fields
             .iter()
+            .filter(|f| {
+                item.kind != ItemKind::SshKey
+                    || (f.name != vault_core::ssh::PUBLIC_KEY_FIELD
+                        && f.name != vault_core::ssh::FINGERPRINT_FIELD)
+            })
             .map(|f| json!({ "name": f.name, "value": f.value, "type": u8::from(f.sensitive) }))
             .collect();
         if let Some(codes) = codes_text(item) {
@@ -96,6 +108,7 @@ pub fn export_json(vault: &Vault) -> Result<Zeroizing<String>, vault_core::Error
                 ItemKind::Login | ItemKind::Passkey => 1,
                 ItemKind::SecureNote => 2,
                 ItemKind::Card => 3,
+                ItemKind::SshKey => 5,
             },
             "reprompt": u8::from(item.reprompt),
             "name": item.title,
@@ -119,6 +132,13 @@ pub fn export_json(vault: &Vault) -> Result<Zeroizing<String>, vault_core::Error
                 entry["card"] = json!({
                     "cardholderName": item.username,
                     "code": (!item.password.is_empty()).then_some(&item.password),
+                });
+            }
+            ItemKind::SshKey => {
+                entry["sshKey"] = json!({
+                    "privateKey": item.password,
+                    "publicKey": ssh_field(vault_core::ssh::PUBLIC_KEY_FIELD),
+                    "keyFingerprint": ssh_field(vault_core::ssh::FINGERPRINT_FIELD),
                 });
             }
         }

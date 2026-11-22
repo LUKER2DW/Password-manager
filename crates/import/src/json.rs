@@ -110,7 +110,8 @@ pub(crate) fn import_json(bytes: &[u8]) -> Result<ImportReport, ImportError> {
         let kind = match source.kind {
             1 => ItemKind::Login,
             3 => ItemKind::Card,
-            2 | 4 | 5 => ItemKind::SecureNote,
+            5 => ItemKind::SshKey,
+            2 | 4 => ItemKind::SecureNote,
             other => {
                 report.warnings.push(format!(
                     "\"{title}\": unknown item type {other}, imported as a note"
@@ -186,13 +187,31 @@ pub(crate) fn import_json(bytes: &[u8]) -> Result<ImportReport, ImportError> {
             push_field(&mut item, "Brand", card.brand, false);
         }
 
-        for (map, sensitive_keys) in [
-            (
-                source.identity,
-                &["ssn", "passportNumber", "licenseNumber"][..],
-            ),
-            (source.ssh_key, &["privateKey"][..]),
-        ] {
+        // An SSH key: the private key where a login keeps its password, the public key and
+        // its fingerprint in their fields (worked out from the private key when missing).
+        if let Some(mut ssh) = source.ssh_key.filter(|_| kind == ItemKind::SshKey) {
+            let mut take = |key: &str| match ssh.remove(key) {
+                Some(Value::String(text)) => non_empty(Some(text)),
+                _ => None,
+            };
+            item.password = take("privateKey").unwrap_or_default();
+            let public =
+                take("publicKey").or_else(|| vault_core::ssh::public_key_of(&item.password));
+            let fingerprint = take("keyFingerprint")
+                .or_else(|| public.as_deref().and_then(vault_core::ssh::fingerprint));
+            push_field(&mut item, vault_core::ssh::PUBLIC_KEY_FIELD, public, false);
+            push_field(
+                &mut item,
+                vault_core::ssh::FINGERPRINT_FIELD,
+                fingerprint,
+                false,
+            );
+        }
+
+        for (map, sensitive_keys) in [(
+            source.identity,
+            &["ssn", "passportNumber", "licenseNumber"][..],
+        )] {
             for (key, value) in map.into_iter().flatten() {
                 if let Value::String(text) = value {
                     let sensitive = sensitive_keys.contains(&key.as_str());
