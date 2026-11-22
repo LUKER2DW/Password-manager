@@ -58,8 +58,14 @@ pub trait System {
     /// Opens Android's screen for choosing the autofill service.
     fn open_autofill_settings(&self) {}
 
+    /// Whether this system installs updates of the app (Android does).
+    fn installs_updates(&self) -> bool {
+        false
+    }
+
     /// Hands an update of the app (an APK) to the system's installer, which asks the person
-    /// and checks that it is signed like the installed app.
+    /// and checks that it is signed like the installed app. The installer's answer comes back
+    /// to `Controller::update_installing`.
     fn install_update(&self, _package: &[u8]) -> Result<(), String> {
         Err("updates are installed only on a phone".into())
     }

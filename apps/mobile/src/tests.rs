@@ -29,6 +29,8 @@ struct FakeSystem {
     handed: RefCell<Option<Vec<u8>>>,
     off_screenshots: Cell<Option<bool>>,
     forgotten: RefCell<Vec<String>>,
+    /// An update handed to the installer.
+    installed: RefCell<Option<Vec<u8>>>,
 }
 
 impl System for FakeSystem {
@@ -62,6 +64,15 @@ impl System for FakeSystem {
 
     fn autofill(&self) -> Option<bool> {
         Some(false)
+    }
+
+    fn installs_updates(&self) -> bool {
+        true
+    }
+
+    fn install_update(&self, package: &[u8]) -> Result<(), String> {
+        *self.installed.borrow_mut() = Some(package.to_vec());
+        Ok(())
     }
 }
 
@@ -1078,6 +1089,39 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     app.invoke_sync_remove_backup();
     assert_eq!(app.get_sync_backup(), "");
     drop(other);
+    // Settings → Updates: the server's owner published one; the phone fetches it, checks it
+    // and hands it to Android's installer.
+    assert!(app.get_updates_available());
+    app.invoke_check_update();
+    assert_eq!(
+        app.get_update_state(),
+        2,
+        "nothing published yet: the newest"
+    );
+    let package = b"PK a test package, not an app".to_vec();
+    let store = vault_server::Store::open(server.data.path()).unwrap();
+    store.publish_app(&package, "0.0.0").unwrap();
+    app.invoke_check_update();
+    assert_eq!(
+        app.get_update_state(),
+        2,
+        "the same version isn't an update"
+    );
+    store.publish_app(&package, "99.0.0").unwrap();
+    app.invoke_check_update();
+    assert_eq!(
+        (app.get_update_state(), app.get_update_version().as_str()),
+        (3, "99.0.0"),
+        "{}",
+        app.get_error_detail()
+    );
+    app.invoke_install_update();
+    assert_eq!(
+        system.installed.borrow().as_deref(),
+        Some(package.as_slice())
+    );
+    controller.update_installing("");
+    assert_eq!(app.get_update_state(), 6);
 
     // A new phone is set up from the server alone: the invite line on its start screen.
     {

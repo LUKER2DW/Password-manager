@@ -93,7 +93,7 @@ mod error {
     pub const BIOMETRICS: i32 = 24;
     pub const IMPORT: i32 = 25;
     pub const IMPORT_PASSWORD: i32 = 26;
-    #[allow(dead_code)]
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub const UPDATE: i32 = 27;
 }
 
@@ -571,6 +571,8 @@ impl Controller {
         on!(on_sync_change_address, |c| c.sync_change_address());
         on!(on_sync_join_backup, |c| c.sync_join_backup());
         on!(on_sync_remove_backup, |c| c.sync_remove_backup());
+        on!(on_check_update, |c| c.check_update());
+        on!(on_install_update, |c| c.install_update());
         on!(on_change_password, |c| c.change_password());
         on!(on_cancel_password_change, |c| c.close_password_change());
 

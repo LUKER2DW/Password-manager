@@ -6,6 +6,17 @@
 
 use super::Controller;
 
+/// What Settings → Updates shows (`update-state`).
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+pub(super) mod update {
+    pub const ASKING: i32 = 1;
+    pub const NEWEST: i32 = 2;
+    pub const WAITING: i32 = 3;
+    pub const FETCHING: i32 = 4;
+    pub const FAILED: i32 = 5;
+    pub const HANDED: i32 = 6;
+}
+
 /// What the Sync part of Settings shows (`sync-state`).
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub(super) mod state {
@@ -41,6 +52,9 @@ impl Controller {
     pub(super) fn sync_change_address(&self) {}
     pub(super) fn sync_join_backup(&self) {}
     pub(super) fn sync_remove_backup(&self) {}
+    pub(super) fn check_update(&self) {}
+    pub(super) fn install_update(&self) {}
+    pub fn update_installing(&self, _error: &str) {}
     pub fn sync_round(&self) {}
 }
 
@@ -69,8 +83,8 @@ mod native {
     use zeroize::Zeroizing;
 
     use super::{
-        super::{CURRENT, field, size_text},
-        Controller, state,
+        super::{CURRENT, error, field, size_text},
+        Controller, state, update,
     };
     use crate::{ui::DeviceRow, view};
 
@@ -717,6 +731,85 @@ mod native {
             });
         }
 
+        /// Settings → Updates: asks the vault server for the phone app's update (what its
+        /// owner put there with `vault-server publish-app`).
+        pub(in crate::controller) fn check_update(&self) {
+            let Some(place) = self.sync_place() else {
+                return;
+            };
+            let SyncTo::Server { url } = place.place.to.clone() else {
+                return;
+            };
+            let installed = self.app().get_app_version().to_string();
+            self.app().set_update_state(update::ASKING);
+            let job = move || -> Result<Option<String>, String> {
+                let release = Self::server_for(&place, &url, Role::Main)?
+                    .app_release()
+                    .map_err(|err| format!("{err:#}"))?;
+                Ok(release
+                    .filter(|r| vault_sync_wire::is_newer(&r.version, &installed))
+                    .map(|r| r.version))
+            };
+            self.off_thread(job, |controller, result| {
+                let app = controller.app();
+                match result {
+                    Ok(Some(version)) => {
+                        app.set_update_version(version.into());
+                        app.set_update_state(update::WAITING);
+                    }
+                    Ok(None) => app.set_update_state(update::NEWEST),
+                    Err(why) => {
+                        controller.set_error(error::UPDATE, &why);
+                        app.set_update_state(update::FAILED);
+                    }
+                }
+            });
+        }
+
+        /// "Install version …": the package is fetched, checked against its release (size and
+        /// SHA-256) and handed to Android's installer, which asks the person and installs it
+        /// only if it is signed like the app already here.
+        pub(in crate::controller) fn install_update(&self) {
+            let Some(place) = self.sync_place() else {
+                return;
+            };
+            let SyncTo::Server { url } = place.place.to.clone() else {
+                return;
+            };
+            let installed = self.app().get_app_version().to_string();
+            self.app().set_update_state(update::FETCHING);
+            let job = move || -> Result<Vec<u8>, String> {
+                let server = Self::server_for(&place, &url, Role::Main)?;
+                let release = server
+                    .app_release()
+                    .map_err(|err| format!("{err:#}"))?
+                    .filter(|r| vault_sync_wire::is_newer(&r.version, &installed))
+                    .ok_or("the server has no newer version any more")?;
+                server
+                    .app_package(&release)
+                    .map_err(|err| format!("{err:#}"))
+            };
+            self.off_thread(job, |controller, result| {
+                let handed =
+                    result.and_then(|package| controller.system().install_update(&package));
+                if let Err(why) = handed {
+                    controller.set_error(error::UPDATE, &why);
+                    controller.app().set_update_state(update::FAILED);
+                }
+            });
+        }
+
+        /// The installer's answer: it asks the person now (""), or the update can't go in.
+        pub fn update_installing(&self, error: &str) {
+            let app = self.app();
+            if error.is_empty() {
+                app.set_update_state(update::HANDED);
+            } else {
+                self.set_error(error::UPDATE, error);
+                app.set_update_state(update::FAILED);
+            }
+        }
+
         /// Hides the invite (it stays good until used, or for an hour).
         pub(in crate::controller) fn sync_hide_invite(&self) {
             let app = self.app();
@@ -926,6 +1019,11 @@ mod native {
             let app = self.app();
             app.set_sync_available(true);
             self.show_devices();
+            let through_server = self
+                .vault_id()
+                .and_then(|id| DeviceState::load().ok()?.sync_place(&id))
+                .is_some_and(|place| matches!(place.to, SyncTo::Server { .. }));
+            app.set_updates_available(through_server && self.system().installs_updates());
             let place = self
                 .vault_id()
                 .and_then(|id| DeviceState::load().ok()?.sync_place(&id));
