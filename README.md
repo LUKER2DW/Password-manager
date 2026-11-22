@@ -67,8 +67,8 @@ Windows → browser extension → Android → Linux, with optional sync to a sel
 
 ## License
 
-GPL-3.0-or-later for the apps and core; AGPL-3.0-or-later for the sync server.
-(License files will be added with the first release.)
+GPL-3.0-or-later for the apps and core ([LICENSE](LICENSE)); AGPL-3.0-or-later for the sync
+server (`crates/server`).
 
 Bundled third-party data: the [EFF large word list](crates/core/data/README.md)
 (CC BY 3.0 US, © Electronic Frontier Foundation); interface icons from

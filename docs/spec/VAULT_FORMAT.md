@@ -1,6 +1,6 @@
-# Vault File Format — v8
+# Vault File Format — v9
 
-> Status: **draft v8**, not stable. v0–v7 files are still read and upgraded to v8 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
+> Status: **draft v9**, not stable. v0–v8 files are still read and upgraded to v9 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
 > Structures are serialized with [postcard](https://postcard.jamesmunns.com/wire-format) 1.x
 > (stable wire format). Integers in the file envelope are little-endian.
 
@@ -168,7 +168,7 @@ the item count, sizes and ids. Item records are also the unit of future sync.
 
 ```rust
 struct ItemData {
-    kind: ItemKind,          // Login, Card, SecureNote, Passkey
+    kind: ItemKind,          // Login, Card, SecureNote, Passkey, SshKey (v9)
     title: String,
     username: String,
     password: String,
@@ -186,6 +186,13 @@ struct ItemData {
     icon_url: String,                      // v3: website (or picture link) whose image stands for the item; "" = urls[0]
     reprompt: bool,                        // v5: the item is guarded even when `guard.all_items` is off
     sealed: Option<SealedSecrets>,         // v6: present while the item's secrets are encrypted
+    attachments: Vec<Attachment>,          // v9: files kept with the item; empty while sealed
+}
+
+struct Attachment {          // v9
+    name: String,            // the file's name, without a path
+    added_at: i64,           // Unix seconds
+    data: Vec<u8>,           // at most 5 MiB; at most 10 per item
 }
 
 struct SealedSecrets {       // a guarded item under a PIN or password guard
@@ -203,6 +210,7 @@ struct ItemSecrets {         // moved out of the item; those fields are stored e
     fields: Vec<String>,     // values of the `sensitive` custom fields, in order
     recovery_codes: Vec<RecoveryCode>,
     password_history: Vec<PasswordChange>,
+    attachments: Vec<Attachment>,  // v9; sealed secrets written by v6–v8 end before it
 }
 
 struct PasswordChange {
@@ -229,11 +237,23 @@ A v0 file has no `folders` in the body and its items end after `updated_at`; a v
 items after `password_changed_at`; a v3 file's folders end after `color`; v3 and v4 items end
 after `icon_url`. When an older file is opened, every item is decrypted with its old layout and
 re-encrypted with the current layout in memory (same ids and revisions, new item keys); the next
-save writes a v8 file. v5 items end after `reprompt`; a v0–v5 header holds a bare `KdfParams`.
+save writes a v9 file. v5 items end after `reprompt`; a v0–v5 header holds a bare `KdfParams`.
 A v0–v6 body has no `sync`; it is read as never synced (no writer, no tombstones, revisions
 at 0). The item layout is unchanged in v7. A v0–v7 header ends after `slots` (no `parts`); the
 body and items are unchanged in v8. Such a vault keeps its Recovery Key until a new emergency
-kit is made, which replaces the Recovery slot with `parts`.
+kit is made, which replaces the Recovery slot with `parts`. v6–v8 items end after `sealed`
+(no `attachments`) and are re-encrypted in the v9 layout on open; their sealed secrets stay
+sealed as they are and are read in either layout when the guard opens (a v6–v8 `ItemSecrets`
+ends after `password_history`).
+
+**SSH keys (v9).** An `SshKey` item keeps the private key (OpenSSH text, kept exactly as it
+came) in `password`, so the item guard covers it like a password, and its public key and
+fingerprint in the plain custom fields `Public key` and `Fingerprint` (`vault_core::ssh`).
+A key made by the apps is Ed25519.
+
+**Attachments (v9).** Files are part of the item, so they are encrypted with its item key and,
+when the item guard covers the item, sealed with its secrets. The whole vault is one file,
+written and synced whole: the limits keep it small enough for that.
 
 v0–v4 bodies have no `guard` (it defaults to: only marked items, master password). A v5 guard
 ends after `verifier`.

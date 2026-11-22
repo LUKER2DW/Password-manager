@@ -352,6 +352,10 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   item with a website (a card's is its bank's site; "Icon from" is gone)
 - ✅ Generators: at least N capitals, small letters, digits and symbols (Advanced options,
   both apps); on the phone also word case, separator and a digit for passphrases
+- ✅ Format v9 (VAULT_FORMAT.md): SSH key items (a new Ed25519 key, or one loaded or pasted;
+  the public key and fingerprint read from it, `vault_core::ssh`) and files attached to items
+  (5 MiB each, 10 per item, sealed with the item lock); both apps, the JSON export and import
+  (type 5); v8 items upgraded on open, older sealed secrets read in either layout
 - ⬜ M7.3 BiometricPrompt Class 3 quick unlock (StrongBox)
 - ⬜ M7.4 Kotlin Autofill Service; M7.5 Credential Manager provider (passwords, passkeys)
 - ⬜ M7.6 Sync; M7.7 cards, custom fields, folders, health, import, translations
