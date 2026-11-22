@@ -1189,6 +1189,15 @@ impl Vault {
         Ok(())
     }
 
+    /// Retires the recovery parts: once used (typed on a device to bring back the Secret Key,
+    /// or to choose a new master password), a kit's parts stop opening anything, and a new
+    /// kit takes their place. Nothing else changes; without parts, nothing happens.
+    pub fn clear_recovery_parts(&mut self) {
+        if self.header.parts.take().is_some() {
+            self.sync.unlock_revision = self.sync.unlock_revision.saturating_add(1);
+        }
+    }
+
     /// The Secret Key sealed again for the current recovery parts (`None` without parts).
     fn seal_parts_secret_key(&self, secret_key: &SecretKey) -> Result<Option<Vec<u8>>> {
         let Some(slot) = &self.header.parts else {

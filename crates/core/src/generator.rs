@@ -47,6 +47,12 @@ pub struct PasswordOptions {
     pub also_use: String,
     /// Characters that never appear, whatever the sets above say.
     pub never_use: String,
+    /// At least this many of each kind (for sites with such rules). Every kind turned on
+    /// appears at least once anyway; a minimum for a kind turned off is ignored.
+    pub min_lowercase: usize,
+    pub min_uppercase: usize,
+    pub min_digits: usize,
+    pub min_symbols: usize,
 }
 
 impl Default for PasswordOptions {
@@ -61,33 +67,47 @@ impl Default for PasswordOptions {
             avoid_ambiguous: false,
             also_use: String::new(),
             never_use: String::new(),
+            min_lowercase: 0,
+            min_uppercase: 0,
+            min_digits: 0,
+            min_symbols: 0,
         }
     }
 }
 
 impl PasswordOptions {
     /// The enabled character sets, without excluded characters and without characters already
-    /// in an earlier set. Empty sets are dropped.
-    fn sets(&self) -> Vec<Vec<char>> {
+    /// in an earlier set, each with how many of it the password must have (at least one).
+    /// Empty sets are dropped.
+    fn sets(&self) -> Vec<(Vec<char>, usize)> {
         let excluded =
             |c: char| (self.avoid_ambiguous && AMBIGUOUS.contains(c)) || self.never_use.contains(c);
-        let groups: [(bool, Vec<char>); 6] = [
-            (self.lowercase, LOWERCASE.chars().collect()),
-            (self.uppercase, UPPERCASE.chars().collect()),
-            (self.digits, DIGITS.chars().collect()),
-            (self.symbols, SYMBOLS.chars().collect()),
-            (self.extended_ascii, extended_ascii().collect()),
+        let groups: [(bool, Vec<char>, usize); 6] = [
+            (
+                self.lowercase,
+                LOWERCASE.chars().collect(),
+                self.min_lowercase,
+            ),
+            (
+                self.uppercase,
+                UPPERCASE.chars().collect(),
+                self.min_uppercase,
+            ),
+            (self.digits, DIGITS.chars().collect(), self.min_digits),
+            (self.symbols, SYMBOLS.chars().collect(), self.min_symbols),
+            (self.extended_ascii, extended_ascii().collect(), 1),
             (
                 true,
                 self.also_use
                     .chars()
                     .filter(|c| !c.is_control() && !c.is_whitespace())
                     .collect(),
+                1,
             ),
         ];
         let mut seen: Vec<char> = Vec::new();
         let mut sets = Vec::new();
-        for (enabled, chars) in groups {
+        for (enabled, chars, minimum) in groups {
             if !enabled {
                 continue;
             }
@@ -99,7 +119,7 @@ impl PasswordOptions {
             }
             if !set.is_empty() {
                 seen.extend(&set);
-                sets.push(set);
+                sets.push((set, minimum.max(1)));
             }
         }
         sets
@@ -107,20 +127,37 @@ impl PasswordOptions {
 
     /// Number of different characters a password can be made of.
     pub fn alphabet_size(&self) -> usize {
-        self.sets().iter().map(Vec::len).sum()
+        self.sets().iter().map(|(set, _)| set.len()).sum()
     }
 
-    /// Approximate strength: `length × log2(alphabet size)`.
+    /// How many characters the minimums take (every set's at least one included).
+    pub fn required(&self) -> usize {
+        self.sets().iter().map(|(_, minimum)| minimum).sum()
+    }
+
+    /// Approximate strength: `length × log2(alphabet size)`. Characters a minimum above one
+    /// forces into a set count only that set's choices, so strict minimums lower it.
     pub fn entropy_bits(&self) -> f64 {
-        let alphabet = self.alphabet_size();
+        let sets = self.sets();
+        let alphabet: usize = sets.iter().map(|(set, _)| set.len()).sum();
         if alphabet == 0 {
             return 0.0;
         }
-        self.length as f64 * (alphabet as f64).log2()
+        let mut free = self.length;
+        let mut bits = 0.0;
+        for (set, minimum) in &sets {
+            if *minimum > 1 {
+                let forced = (*minimum).min(free);
+                free -= forced;
+                bits += forced as f64 * (set.len() as f64).log2();
+            }
+        }
+        bits + free as f64 * (alphabet as f64).log2()
     }
 }
 
-/// Generates a password containing at least one character from every enabled set.
+/// Generates a password containing at least one character from every enabled set, and at
+/// least each set's minimum. Fails when the minimums don't fit in the length.
 pub fn generate_password(options: &PasswordOptions) -> Result<Zeroizing<String>> {
     if options.also_use.chars().count() > MAX_CUSTOM_CHARS
         || options.never_use.chars().count() > MAX_CUSTOM_CHARS
@@ -128,17 +165,23 @@ pub fn generate_password(options: &PasswordOptions) -> Result<Zeroizing<String>>
         return Err(Error::InvalidGeneratorOptions);
     }
     let sets = options.sets();
+    let required: usize = sets.iter().map(|(_, minimum)| minimum).sum();
     if sets.is_empty()
         || !(MIN_LENGTH..=MAX_LENGTH).contains(&options.length)
-        || options.length < sets.len()
+        || options.length < required
     {
         return Err(Error::InvalidGeneratorOptions);
     }
-    let pool: Vec<char> = sets.concat();
+    let pool: Vec<char> = sets
+        .iter()
+        .flat_map(|(set, _)| set.iter().copied())
+        .collect();
 
     let mut chars: Zeroizing<Vec<char>> = Zeroizing::new(Vec::with_capacity(options.length));
-    for set in &sets {
-        chars.push(set[uniform_index(set.len())?]);
+    for (set, minimum) in &sets {
+        for _ in 0..*minimum {
+            chars.push(set[uniform_index(set.len())?]);
+        }
     }
     while chars.len() < options.length {
         chars.push(pool[uniform_index(pool.len())?]);
@@ -385,6 +428,57 @@ mod tests {
         let words = eff_words();
         assert_eq!(words.len(), EFF_WORD_COUNT);
         assert_eq!((words[0], words[EFF_WORD_COUNT - 1]), ("abacus", "zoom"));
+    }
+
+    #[test]
+    fn minimums_per_kind() {
+        let options = PasswordOptions {
+            length: 12,
+            min_digits: 4,
+            min_symbols: 3,
+            min_uppercase: 2,
+            ..PasswordOptions::default()
+        };
+        assert_eq!(options.required(), 4 + 3 + 2 + 1);
+        for _ in 0..50 {
+            let made = generate_password(&options).unwrap();
+            let count = |set: &str| made.chars().filter(|c| set.contains(*c)).count();
+            assert_eq!(made.chars().count(), 12);
+            assert!(count(DIGITS) >= 4 && count(SYMBOLS) >= 3 && count(UPPERCASE) >= 2);
+            assert!(count(LOWERCASE) >= 1);
+        }
+        // Forced characters count only their own set's choices.
+        assert!(
+            options.entropy_bits()
+                < PasswordOptions {
+                    length: 12,
+                    ..PasswordOptions::default()
+                }
+                .entropy_bits()
+        );
+        // No minimums: the strength is as before.
+        let plain = PasswordOptions::default();
+        assert!((plain.entropy_bits() - 20.0 * (plain.alphabet_size() as f64).log2()).abs() < 1e-9);
+        // Minimums that don't fit, and one for a kind that is off (ignored).
+        assert!(
+            generate_password(&PasswordOptions {
+                length: 8,
+                min_digits: 9,
+                ..PasswordOptions::default()
+            })
+            .is_err()
+        );
+        let digits_off = PasswordOptions {
+            digits: false,
+            min_digits: 30,
+            ..PasswordOptions::default()
+        };
+        assert!(
+            !generate_password(&digits_off)
+                .unwrap()
+                .chars()
+                .any(|c| c.is_ascii_digit())
+        );
     }
 
     #[test]

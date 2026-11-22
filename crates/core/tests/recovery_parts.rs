@@ -111,6 +111,34 @@ fn a_new_password_or_secret_key_keeps_the_parts_working() {
 }
 
 #[test]
+fn used_parts_are_retired() {
+    let mut f = fixture();
+    let before = f.vault.to_bytes().unwrap();
+    let [a, b, c] = PartLabel::ALL.map(|label| f.parts.part(label));
+    let mut opened = Vault::open(&before, Unlock::Parts([a, b, c])).unwrap();
+    opened.clear_recovery_parts();
+    let after = opened.to_bytes().unwrap();
+    assert!(!Vault::inspect(&after).unwrap().has_recovery_parts);
+    assert!(matches!(
+        Vault::open(&after, Unlock::Parts([a, b, c])),
+        Err(Error::NoMatchingSlot)
+    ));
+    assert!(Vault::recover_secret_key(&after, a, b).is_err());
+    // The password and the items are as they were.
+    let vault = Vault::open(
+        &after,
+        Unlock::Password {
+            password: PASSWORD,
+            secret_key: &f.secret_key,
+        },
+    )
+    .unwrap();
+    assert_eq!(vault.len(), 1);
+    // Clearing twice is harmless.
+    opened.clear_recovery_parts();
+}
+
+#[test]
 fn a_new_kit_makes_the_old_parts_useless() {
     let mut f = fixture();
     let old = std::mem::replace(&mut f.parts, RecoveryParts::generate().unwrap());

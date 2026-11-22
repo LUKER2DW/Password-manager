@@ -143,6 +143,71 @@ impl Totp {
     }
 }
 
+/// Who an `otpauth://` link is for: the service (`issuer`) and the account at it, as the
+/// site wrote them (Key Uri Format: the label is `Issuer:account`, and an `issuer=` parameter
+/// wins over the label's). A bare key names nobody. Nothing secret is read.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TotpNames {
+    pub issuer: String,
+    pub account: String,
+}
+
+/// Reads [`TotpNames`] from what was pasted or scanned.
+pub fn names(input: &str) -> TotpNames {
+    let input = input.trim();
+    let prefix = "otpauth://totp/";
+    if !input
+        .get(..prefix.len())
+        .is_some_and(|p| p.eq_ignore_ascii_case(prefix))
+    {
+        return TotpNames::default();
+    }
+    let rest = &input[prefix.len()..];
+    let (label, query) = rest.split_once('?').unwrap_or((rest, ""));
+    let label = percent_decode(label);
+    let (mut issuer, account) = match label.split_once(':') {
+        Some((issuer, account)) => (issuer.trim().to_owned(), account.trim().to_owned()),
+        None => (String::new(), label.trim().to_owned()),
+    };
+    for pair in query.split('&') {
+        if let Some((name, value)) = pair.split_once('=')
+            && name.eq_ignore_ascii_case("issuer")
+        {
+            let value = percent_decode(value);
+            if !value.trim().is_empty() {
+                issuer = value.trim().to_owned();
+            }
+        }
+    }
+    TotpNames { issuer, account }
+}
+
+/// `%XX` escapes and `+` (a space, in a query) decoded; anything malformed is kept as it is.
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' if i + 2 < bytes.len() => {
+                let hex = |b: u8| (b as char).to_digit(16);
+                match (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                    (Some(high), Some(low)) => {
+                        out.push((high * 16 + low) as u8);
+                        i += 3;
+                        continue;
+                    }
+                    _ => out.push(b'%'),
+                }
+            }
+            b'+' => out.push(b' '),
+            byte => out.push(byte),
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// RFC 4648 Base32 (the alphabet authenticator apps use), case-insensitive; spaces, dashes and
 /// `=` padding are ignored.
 fn base32_decode(text: &str) -> Result<Zeroizing<Vec<u8>>> {
@@ -205,6 +270,32 @@ mod tests {
                 "SHA512 at {time}"
             );
         }
+    }
+
+    #[test]
+    fn names_from_a_link() {
+        let link = "otpauth://totp/Example%20Co:me%40example.com?secret=GEZDGNBV&issuer=Example+Co";
+        assert_eq!(
+            names(link),
+            TotpNames {
+                issuer: "Example Co".into(),
+                account: "me@example.com".into()
+            }
+        );
+        // The parameter wins over the label; a label without an issuer is only the account.
+        assert_eq!(
+            names("otpauth://totp/Old:me?secret=GEZDGNBV&issuer=New").issuer,
+            "New"
+        );
+        assert_eq!(
+            names("otpauth://totp/me?secret=GEZDGNBV"),
+            TotpNames {
+                issuer: String::new(),
+                account: "me".into()
+            }
+        );
+        assert_eq!(names("GEZDGNBVGY3TQOJQ"), TotpNames::default());
+        assert_eq!(names("otpauth://totp/100%?secret=X").account, "100%");
     }
 
     #[test]
