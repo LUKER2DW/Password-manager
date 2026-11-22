@@ -1,4 +1,4 @@
-//! OS integration shared by the `vault` CLI and the desktop app.
+//! OS integration shared by the apps (the `vault` CLI, the desktop app, the phone app).
 //!
 //! Everything here is about *where* things live on this device and *how* the OS is asked to
 //! protect them. Cryptography stays in `vault-core`.
@@ -16,6 +16,7 @@ pub mod dpapi;
 pub mod files;
 pub mod keyfile;
 pub mod kit_pdf;
+pub mod leak_check;
 pub mod locale;
 pub mod part_picture;
 pub mod paths;
