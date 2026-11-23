@@ -784,6 +784,24 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_panel(), Panel::Detail);
     assert_eq!(app.get_detail_title(), "GitHub");
     app.set_health_filter(-1);
+    // The leak watch (off until turned on): every login checked once a day; a new leak is told
+    // once and Password health shows it.
+    controller.set_leak_batch(|queries| Ok(queries.iter().map(|(i, _)| (*i, 3)).collect()));
+    assert!(!app.get_leaks_checked());
+    app.set_notice_code(0);
+    app.set_leak_watch(true);
+    app.invoke_settings_changed();
+    assert_eq!(app.get_notice_code(), 67, "{}", app.get_error_detail());
+    assert!(app.get_leaks_checked());
+    app.set_notice_code(0);
+    app.invoke_settings_changed();
+    assert_ne!(
+        app.get_notice_code(),
+        67,
+        "checked today already: nothing new to tell"
+    );
+    app.set_leak_watch(false);
+    app.invoke_settings_changed();
     app.invoke_clear_history();
     assert_eq!(app.get_detail_history_count(), 0);
     assert_eq!(app.get_notice_code(), 24);

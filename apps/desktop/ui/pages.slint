@@ -1836,6 +1836,7 @@ export component SettingsPage inherits Rectangle {
     in-out property <int> auto-lock-minutes;
     in-out property <int> clipboard-seconds;
     in-out property <bool> website-icons;
+    in-out property <bool> leak-watch;
     in-out property <bool> close-to-tray;
     in-out property <bool> browser-locked-fill;
     in-out property <bool> browser-extension;
@@ -2013,6 +2014,21 @@ export component SettingsPage inherits Rectangle {
                         alignment: center;
                         Hint {
                             text: @tr("Closing the window then hides it: nothing is drawn and the app uses very little, the browser extension keeps working, and the vault still locks itself after the idle time above. Open it again from the icon next to the clock; its menu also locks the vault or quits.");
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Check {
+                        text: @tr("Watch for leaked passwords every day");
+                        checked <=> root.leak-watch;
+                        toggled => { root.settings-changed(); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Hint {
+                            text: @tr("Once a day while the vault is open, every login's password is checked against the newest list of data breaches (Have I Been Pwned). Only the first 5 characters of each password's SHA-1 fingerprint leave this computer, never a password. As soon as one turns up in a new breach, the app tells you and Password health shows it. Off until you turn it on, since it uses the network by itself.");
                         }
                     }
                 }

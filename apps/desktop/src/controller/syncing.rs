@@ -85,7 +85,7 @@ pub(super) struct SyncStatus {
 }
 
 /// Runs `job` off the UI thread (inline in the headless tests) and hands its result back.
-fn off_thread<T: Send + 'static>(
+pub(super) fn off_thread<T: Send + 'static>(
     runner: Runner,
     job: impl FnOnce() -> T + Send + 'static,
     done: impl FnOnce(&Controller, T) + Send + 'static,

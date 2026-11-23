@@ -53,6 +53,7 @@ mod locked_fill;
 mod navigation;
 mod protection;
 mod syncing;
+mod watch;
 
 /// What to draw next to an item.
 struct IconVisual {
@@ -216,6 +217,7 @@ mod notice {
     pub const SYNC_BACKUP_DOWN: i32 = 64;
     pub const SYNC_BACKUP_BACK: i32 = 65;
     pub const SYNC_BACKUP_JOINED: i32 = 66;
+    pub const LEAKS_NEW: i32 = 67;
     pub const PICTURE_SAVED: i32 = 60;
     pub const PART_READ: i32 = 61;
 }
@@ -402,6 +404,8 @@ struct State {
     health_generation: u64,
     health_ids: Vec<ItemId>,
     leaks: HashMap<ItemId, u64>,
+    /// The leak watch's check of every login (the tests put a stand-in in its place).
+    leak_batch: watch::Batch,
     sync: syncing::SyncStatus,
     /// Import: the place chosen, and which reviewed entries are ticked.
     import_source: Option<vault_import::Source>,
@@ -457,6 +461,8 @@ struct Timers {
     sync_every: Timer,
     /// Sync: a round a minute after one where a place didn't answer.
     sync_retry: Timer,
+    /// The leak watch: a look every hour whether a day has passed.
+    leak_watch: Timer,
 }
 
 pub struct Controller {
@@ -559,6 +565,7 @@ impl Controller {
                 health_generation: 0,
                 health_ids: Vec::new(),
                 leaks: HashMap::new(),
+                leak_batch: watch::batch_default,
                 sync: syncing::SyncStatus::default(),
                 import_source: None,
                 import_include: Vec::new(),
@@ -2057,6 +2064,7 @@ impl Controller {
         self.record_pending_generated();
         self.open_drop_box();
         self.start_sync();
+        self.start_leak_watch();
     }
 
     /// How many items wait to be sealed under the item lock (for the headless test).
@@ -2143,6 +2151,7 @@ impl Controller {
             &self.timers.totp,
             &self.timers.auth,
             &self.timers.relock,
+            &self.timers.leak_watch,
         ] {
             timer.stop();
         }
@@ -3809,6 +3818,7 @@ impl Controller {
         app.set_auto_lock_minutes(settings.auto_lock_minutes as i32);
         app.set_clipboard_seconds(settings.clipboard_clear_seconds as i32);
         app.set_website_icons(settings.website_icons);
+        app.set_leak_watch(settings.leak_watch);
         app.set_close_to_tray(settings.close_to_tray);
         app.set_browser_locked_fill(settings.browser_locked_fill);
         app.set_browser_extension(settings.browser_extension);
@@ -4387,6 +4397,7 @@ impl Controller {
                 .unwrap_or(20),
             dark_theme: app.global::<Theme>().get_dark(),
             website_icons: app.get_website_icons(),
+            leak_watch: app.get_leak_watch(),
             browser_extension: app.get_browser_extension(),
             close_to_tray: app.get_close_to_tray(),
             browser_locked_fill: app.get_browser_locked_fill(),
@@ -4399,6 +4410,7 @@ impl Controller {
             self.set_error(error::FILE, &err.to_string());
         }
         let icons_were_on = self.state.borrow().settings.website_icons;
+        let watch_was_on = self.state.borrow().settings.leak_watch;
         let browser_was_on = self.state.borrow().settings.browser_extension;
         let locked_fill_was_on = self.state.borrow().settings.browser_locked_fill;
         self.state.borrow_mut().settings = settings.clone();
@@ -4419,6 +4431,9 @@ impl Controller {
             }
         }
         self.restart_auto_lock();
+        if !watch_was_on && settings.leak_watch {
+            self.watch_leaks();
+        }
         match (icons_were_on, settings.website_icons) {
             (false, true) => {
                 self.refresh_list();
