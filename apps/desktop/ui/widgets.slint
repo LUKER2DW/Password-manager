@@ -1121,6 +1121,9 @@ export component ItemIcon inherits Rectangle {
     in property <color> tint: #3D4F6B;
     in property <int> kind;
     in property <length> size: 34px;
+    // A picture chosen for the item (a line icon's name from icons.slint), drawn on its colour
+    // when there is no site icon.
+    in property <string> glyph;
 
     width: root.size;
     height: root.size;
@@ -1136,13 +1139,19 @@ export component ItemIcon inherits Rectangle {
         source: root.icon;
         image-fit: contain;
     }
-    if !root.has-icon && root.kind == 0: Text {
+    if !root.has-icon && root.glyph != "": Glyph {
+        width: parent.width * 0.56;
+        height: parent.height * 0.56;
+        name: root.glyph;
+        tint: #FFFFFFE8;
+    }
+    if !root.has-icon && root.glyph == "" && root.kind == 0: Text {
         text: root.initial;
         font-size: root.size * 0.44;
         font-weight: 600;
         color: #FFFFFF;
     }
-    if !root.has-icon && root.kind != 0: Path {
+    if !root.has-icon && root.glyph == "" && root.kind != 0: Path {
         width: parent.width * 0.58;
         height: parent.height * 0.58;
         viewbox-width: 24;

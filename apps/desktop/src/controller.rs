@@ -4464,7 +4464,9 @@ impl Controller {
     /// earlier version wins over `url` and is shown even when website icons are off, since
     /// the user asked for that icon.
     fn icon_for(&self, kind: ItemKind, url: &str, icon_url: &str, title: &str) -> IconVisual {
-        let chosen = !icon_url.trim().is_empty();
+        // A line icon chosen on the phone (`glyph:name`) isn't a site or a picture to fetch;
+        // the desktop shows the item's own icon for it for now.
+        let chosen = !icon_url.trim().is_empty() && !icon_url.trim().starts_with("glyph:");
         let key = if chosen {
             favicon::IconSource::parse(icon_url).map(|source| source.key())
         } else {
