@@ -1,7 +1,8 @@
-//! Files attached to items and SSH key items (format v9).
+//! Files attached to items and SSH key items (format v9), and a login's passkeys (v10).
 //!
 //! In the editor, the item's files and its SSH private key are kept here, in Rust: the page
-//! shows file names and sizes, and a key's public half and fingerprint. A private key reaches
+//! shows file names and sizes, and a key's public half and fingerprint. Passkeys are listed
+//! (site, account, when made) and can be taken out; a passkey's key never reaches the page. A private key reaches
 //! the screen only on the item page, when the person asks to see it (as a password does). A
 //! file leaves the vault only through Save, to a place the person picks.
 
@@ -12,10 +13,29 @@ use vault_core::{Attachment, CustomField, ItemData, ItemKind, ssh};
 use zeroize::Zeroizing;
 
 use super::{Controller, Runner, error};
-use crate::{ui::FileRow, view};
+use crate::{
+    ui::{FileRow, PasskeyRow},
+    view,
+};
 
 /// The largest key file read: a private key is a few kilobytes.
 const MAX_KEY_FILE: u64 = 64 * 1024;
+
+/// A login's passkeys as the item page and the editor list them.
+fn passkey_rows(passkeys: &[vault_core::Passkey]) -> Vec<PasskeyRow> {
+    passkeys
+        .iter()
+        .map(|passkey| PasskeyRow {
+            site: passkey.rp_id.as_str().into(),
+            user: if passkey.user_name.is_empty() {
+                passkey.display_name.as_str().into()
+            } else {
+                passkey.user_name.as_str().into()
+            },
+            created: view::date(passkey.created_at).into(),
+        })
+        .collect()
+}
 
 fn rows(files: &[Attachment]) -> ModelRc<FileRow> {
     let rows: Vec<FileRow> = files
@@ -50,7 +70,14 @@ impl Controller {
             let mut state = self.state.borrow_mut();
             state.editor_files = item.attachments.clone();
             state.editor_ssh = is_ssh.then(|| Zeroizing::new(item.password.clone()));
+            state.editor_passkeys = item
+                .passkeys
+                .iter()
+                .map(|passkey| passkey.credential_id.clone())
+                .zip(passkey_rows(&item.passkeys))
+                .collect();
         }
+        self.show_editor_passkeys();
         self.show_editor_ssh(
             &field_value(item, ssh::PUBLIC_KEY_FIELD),
             &field_value(item, ssh::FINGERPRINT_FIELD),
@@ -65,9 +92,11 @@ impl Controller {
             let mut state = self.state.borrow_mut();
             state.editor_files.clear();
             state.editor_ssh = None;
+            state.editor_passkeys.clear();
         }
         let app = self.app();
         app.set_ed_files(ModelRc::default());
+        app.set_ed_passkeys(ModelRc::default());
         app.set_ed_ssh_has_key(false);
         app.set_ed_ssh_public(SharedString::new());
         app.set_ed_ssh_fingerprint(SharedString::new());
@@ -187,10 +216,43 @@ impl Controller {
             .set_ed_files(rows(&self.state.borrow().editor_files));
     }
 
-    /// Puts the editor's files and, for an SSH key, the key and its public half into `item`.
+    fn show_editor_passkeys(&self) {
+        let rows: Vec<PasskeyRow> = self
+            .state
+            .borrow()
+            .editor_passkeys
+            .iter()
+            .map(|(_, row)| row.clone())
+            .collect();
+        self.app()
+            .set_ed_passkeys(ModelRc::new(VecModel::from(rows)));
+    }
+
+    /// Takes a passkey out of the edited login (gone when it is saved).
+    pub(super) fn passkey_remove(&self, index: i32) {
+        {
+            let mut state = self.state.borrow_mut();
+            if let Some(index) = usize::try_from(index)
+                .ok()
+                .filter(|i| *i < state.editor_passkeys.len())
+            {
+                state.editor_passkeys.remove(index);
+            }
+        }
+        self.show_editor_passkeys();
+    }
+
+    /// Puts the editor's files, the passkeys it kept and, for an SSH key, the key and its
+    /// public half into `item`.
     pub(super) fn editor_files_into(&self, item: &mut ItemData) {
         let state = self.state.borrow();
         item.attachments = state.editor_files.clone();
+        item.passkeys.retain(|passkey| {
+            state
+                .editor_passkeys
+                .iter()
+                .any(|(id, _)| *id == passkey.credential_id)
+        });
         if item.kind != ItemKind::SshKey {
             return;
         }
@@ -216,10 +278,13 @@ impl Controller {
         }
     }
 
-    /// The item page's list of files (none while the item is locked).
+    /// The item page's list of files (none while the item is locked) and of passkeys (who
+    /// and where show while it is locked too).
     pub(super) fn show_detail_files(&self, item: &ItemData, locked: bool) {
         let files: &[Attachment] = if locked { &[] } else { &item.attachments };
-        self.app().set_detail_files(rows(files));
+        let app = self.app();
+        app.set_detail_files(rows(files));
+        app.set_detail_passkeys(ModelRc::new(VecModel::from(passkey_rows(&item.passkeys))));
     }
 
     /// Saves one of the open item's files where the person picks.

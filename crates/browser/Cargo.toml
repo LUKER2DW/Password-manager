@@ -22,6 +22,8 @@ workspace = true
 [dependencies]
 vault-core = { path = "../core" }
 vault-platform = { path = "../platform" }
+# Passkeys: WebAuthn's ids, challenges and answers travel as base64url.
+base64 = "0.22"
 getrandom = "0.4"
 hmac = "0.13"
 # The Public Suffix List, compiled in (no network): a `*.` entry may not cover a whole

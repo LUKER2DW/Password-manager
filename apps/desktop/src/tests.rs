@@ -683,6 +683,46 @@ fn whole_app_flow_headless() {
     );
     assert!(raw(&replayed).contains("not_paired"));
 
+    // ---- passkeys: made by the app for the extension, shown, and taken out in the editor ----
+    let challenge = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
+    let made = ask(&format!(
+        r#"{{"type":"passkey_create","url":"https://github.com/settings/security","user_id":"aHVib3Q","user_name":"hubot","challenge":"{challenge}"}}"#
+    ));
+    assert!(made.contains(r#""type":"attestation""#), "{made}");
+    assert_eq!(
+        app.get_notice_code(),
+        68,
+        "kept in the GitHub login (that page and username) and saved"
+    );
+    assert_eq!(app.get_notice_arg(), "GitHub");
+    let github = (0..app.get_items().row_count())
+        .find(|&i| app.get_items().row_data(i).unwrap().title == "GitHub")
+        .unwrap();
+    app.invoke_select(github as i32);
+    assert_eq!(app.get_detail_passkeys().row_count(), 1);
+    let row = app.get_detail_passkeys().row_data(0).unwrap();
+    assert_eq!(
+        (row.site.as_str(), row.user.as_str()),
+        ("github.com", "hubot")
+    );
+    let listed = ask(r#"{"type":"passkeys","url":"https://github.com/login"}"#);
+    let signed_in = ask(&format!(
+        r#"{{"type":"passkey_get","url":"https://github.com/login","id":"{}","credential":"{}","challenge":"{challenge}"}}"#,
+        field(&listed, "id"),
+        field(&listed, "credential")
+    ));
+    assert!(signed_in.contains(r#""type":"assertion""#), "{signed_in}");
+    assert_eq!(app.get_notice_code(), 69, "a sign-in with it is told");
+    app.invoke_edit_item();
+    assert_eq!(app.get_ed_passkeys().row_count(), 1);
+    app.invoke_passkey_remove(0);
+    assert_eq!(app.get_ed_passkeys().row_count(), 0);
+    app.invoke_save_item();
+    assert_eq!(app.get_detail_passkeys().row_count(), 0, "gone once saved");
+    assert!(
+        ask(r#"{"type":"passkeys","url":"https://github.com/login"}"#).contains(r#""items":[]"#)
+    );
+
     // ---- extra fields ----
     app.invoke_edit_item();
     app.invoke_field_add();

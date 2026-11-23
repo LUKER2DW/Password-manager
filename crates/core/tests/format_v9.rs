@@ -186,6 +186,27 @@ fn reads_the_committed_v9_fixture() {
 }
 
 #[test]
+fn the_v9_fixture_is_upgraded_on_save() {
+    let bytes = std::fs::read(fixture_dir().join("vault-v9.bin")).unwrap();
+    let (secret_key, [a, b, c]) = credentials();
+    let unlock = || Unlock::Password {
+        password: PASSWORD,
+        secret_key: &secret_key,
+    };
+    let mut vault = Vault::open(&bytes, unlock()).unwrap();
+    let saved = vault.to_bytes().unwrap();
+    assert_eq!(&saved[8..10], &10u16.to_le_bytes());
+    let mut reopened = Vault::open(&saved, unlock()).unwrap();
+    // The guarded item's secrets, sealed in the v9 layout (with its file), still open with
+    // the PIN.
+    assert!(reopened.unlock_secrets(GUARD_PIN).unwrap());
+    let folder = reopened.folders()[0].id;
+    assert_eq!(read(&reopened), expected_items(Some(folder)));
+    assert!(read(&reopened).iter().all(|item| item.passkeys.is_empty()));
+    assert!(Vault::open(&saved, Unlock::Parts([&a, &b, &c])).is_ok());
+}
+
+#[test]
 fn the_fixture_merges_with_a_copy_from_its_other_device() {
     let bytes = std::fs::read(fixture_dir().join("vault-v9.bin")).unwrap();
     let (secret_key, _) = credentials();

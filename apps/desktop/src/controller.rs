@@ -218,6 +218,8 @@ mod notice {
     pub const SYNC_BACKUP_BACK: i32 = 65;
     pub const SYNC_BACKUP_JOINED: i32 = 66;
     pub const LEAKS_NEW: i32 = 67;
+    pub const BROWSER_PASSKEY_SAVED: i32 = 68;
+    pub const BROWSER_PASSKEY_USED: i32 = 69;
     pub const PICTURE_SAVED: i32 = 60;
     pub const PART_READ: i32 = 61;
 }
@@ -376,6 +378,9 @@ struct State {
     edit_fields: Vec<CustomField>,
     /// The editor's files and SSH private key (attachments.rs), never in a Slint string.
     editor_files: Vec<vault_core::Attachment>,
+    /// The edited login's passkeys still kept (credential ids, with their rows): one removed
+    /// in the editor goes when it is saved.
+    editor_passkeys: Vec<(Vec<u8>, crate::ui::PasskeyRow)>,
     editor_ssh: Option<Zeroizing<String>>,
     /// The chooser's rows, in order.
     recent_paths: Vec<PathBuf>,
@@ -549,6 +554,7 @@ impl Controller {
                 recent_paths: Vec::new(),
                 edit_fields: Vec::new(),
                 editor_files: Vec::new(),
+                editor_passkeys: Vec::new(),
                 editor_ssh: None,
                 pending_import: None,
                 settings,
@@ -725,6 +731,7 @@ impl Controller {
         on!(on_ssh_paste, |c| c.ssh_paste());
         on!(on_file_add, |c| c.file_add());
         on!(on_file_remove, |c, index| c.file_remove(index));
+        on!(on_passkey_remove, |c, index| c.passkey_remove(index));
         on!(on_file_save, |c, index| c.file_save(index));
         on!(on_new_parts_now, |c| c.new_parts_now());
         on!(on_choose_part_picture, |c| c.choose_part_picture());

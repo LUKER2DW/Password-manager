@@ -35,6 +35,13 @@ export struct FileRow {
     size: string,
 }
 
+// A login's passkey: the site it signs in to and the account (the browser extension on a
+// computer uses it; who and where show while the item is locked too).
+export struct PasskeyRow {
+    site: string,
+    user: string,
+}
+
 // A vault this phone keeps, for the vault chooser: its name and initial, its colour, where it
 // syncs ("" = it doesn't) and whether it is the one open now.
 export struct VaultRow {
@@ -767,6 +774,7 @@ export component PhoneWindow inherits Window {
     // "save as" (the shell).
     in property <[FileRow]> d-files;
     callback save-file(int);
+    in property <[PasskeyRow]> d-passkeys;
     in property <string> d-code;
     in property <int> d-code-left;
     in property <int> d-code-period;
@@ -2723,6 +2731,11 @@ export component PhoneWindow inherits Window {
                             value: file.name;
                             action: root.can-pick-file ? @tr("Save") : "";
                             acted => { root.save-file(index); }
+                        }
+                        for passkey in root.d-passkeys: Fact {
+                            label: @tr("Passkey for {}", passkey.site);
+                            icon: "key";
+                            value: passkey.user != "" ? passkey.user : @tr("No account name");
                         }
                     }
                 }

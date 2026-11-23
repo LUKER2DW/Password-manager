@@ -109,6 +109,34 @@ pub fn wildcard_base(saved: &str) -> Option<String> {
     }
 }
 
+/// The site (relying party id) a page may make or use passkeys for, in its ASCII form; `None`
+/// when it may not. As WebAuthn rules it (§5.1.4.1, §7.1, the HTML "registrable domain
+/// suffix" check): the page's own host, or a domain its host is under that is not a public
+/// suffix, so `login.example.com` may speak for `example.com` but never for `com`, `co.uk` or
+/// `github.io`, and `evil.example` never for `example.com`. Empty means the page's host. Pages
+/// on an IP address get no passkeys.
+pub fn passkey_site(rp_id: &str, page: &Origin) -> Option<String> {
+    let host = page.host.as_str();
+    if host.starts_with('[') || host.parse::<std::net::Ipv4Addr>().is_ok() {
+        return None;
+    }
+    let rp_id = if rp_id.is_empty() {
+        host.to_owned()
+    } else {
+        match url::Host::parse(rp_id).ok()? {
+            url::Host::Domain(domain) => domain,
+            _ => return None,
+        }
+    };
+    if rp_id.is_empty() || rp_id.len() > 253 || rp_id.ends_with('.') {
+        return None;
+    }
+    let under = host
+        .strip_suffix(rp_id.as_str())
+        .is_some_and(|rest| rest.ends_with('.'));
+    (rp_id == host || (under && rp_id.contains('.') && !is_public_suffix(&rp_id))).then_some(rp_id)
+}
+
 /// Whether anyone can register a name right under `domain` (`co.uk`, `github.io`): a `*.`
 /// entry over it would hand a login to sites of other people.
 fn is_public_suffix(domain: &str) -> bool {
@@ -137,6 +165,60 @@ pub fn item_matches<S: AsRef<str>>(saved: &[S], page: &Origin) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_page_speaks_for_its_own_site_and_the_ones_it_is_under() {
+        let page = |url: &str| Origin::of_page(url).unwrap();
+        let login = page("https://login.example.com/sign-in");
+        assert_eq!(
+            passkey_site("", &login).as_deref(),
+            Some("login.example.com")
+        );
+        assert_eq!(
+            passkey_site("login.example.com", &login).as_deref(),
+            Some("login.example.com")
+        );
+        assert_eq!(
+            passkey_site("example.com", &login).as_deref(),
+            Some("example.com")
+        );
+        assert_eq!(
+            passkey_site("EXAMPLE.com", &login).as_deref(),
+            Some("example.com")
+        );
+        for refused in [
+            "com",
+            "other.example.com",
+            "xample.com",
+            "evil.example",
+            "example.com.",
+            "1.2.3.4",
+            "[::1]",
+            "https://example.com",
+        ] {
+            assert_eq!(passkey_site(refused, &login), None, "{refused}");
+        }
+        // Public suffixes: never a site of one's own.
+        let pages = page("https://someone.github.io");
+        assert_eq!(passkey_site("github.io", &pages), None);
+        assert_eq!(
+            passkey_site("", &pages).as_deref(),
+            Some("someone.github.io")
+        );
+        assert_eq!(passkey_site("co.uk", &page("https://shop.co.uk")), None);
+        assert_eq!(
+            passkey_site("shop.co.uk", &page("https://www.shop.co.uk:8443")).as_deref(),
+            Some("shop.co.uk")
+        );
+        // International names compare in their ASCII form.
+        assert_eq!(
+            passkey_site("bücher.example", &page("https://www.bücher.example")).as_deref(),
+            Some("xn--bcher-kva.example")
+        );
+        // No passkeys on an IP address.
+        assert_eq!(passkey_site("", &page("https://192.168.1.10:8443")), None);
+        assert_eq!(passkey_site("", &page("https://[::1]")), None);
+    }
 
     fn page(url: &str) -> Origin {
         Origin::of_page(url).unwrap()

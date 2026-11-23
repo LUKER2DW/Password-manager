@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vault</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="passkey.css" />
+  </head>
+  <body>
+    <!-- A page asked for a passkey. The site's name is what to read before choosing. -->
+    <header>
+      <span id="icon"></span>
+      <div class="lines">
+        <h1 id="site"></h1>
+        <svg class="stroke" viewBox="0 0 200 8" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M2 5.2 C 28 2.4, 52 6.6, 84 4.1 S 150 2.2, 198 4.8" />
+        </svg>
+      </div>
+    </header>
+    <p id="title"></p>
+
+    <main>
+      <!-- Signing in: the passkeys Vault has for the site. -->
+      <div id="list" role="list" hidden></div>
+
+      <!-- Making one: the account it is for. -->
+      <section id="make" hidden>
+        <div class="account">
+          <span id="make-tile" class="tile" aria-hidden="true"></span>
+          <span id="make-name" class="title"></span>
+          <span id="make-detail" class="detail"></span>
+        </div>
+        <p id="make-text" class="note"></p>
+      </section>
+
+      <!-- The vault is locked in the app. -->
+      <section id="locked" hidden>
+        <p id="locked-text" class="note"></p>
+        <button id="retry" class="plain" type="button"></button>
+      </section>
+
+      <!-- The login is behind the item lock. -->
+      <form id="check" hidden>
+        <p id="check-text" class="note"></p>
+        <div class="row">
+          <input id="check-input" type="password" autocomplete="off" spellcheck="false" />
+          <button id="check-go" class="primary" type="submit"></button>
+        </div>
+        <button id="check-hello" class="plain" type="button" hidden></button>
+      </form>
+
+      <p id="problem" class="problem" role="alert"></p>
+    </main>
+
+    <footer>
+      <button id="other" class="quiet" type="button"></button>
+      <span class="grow"></span>
+      <button id="no" class="plain" type="button"></button>
+      <button id="yes" class="primary" type="button" hidden></button>
+    </footer>
+
+    <script type="module" src="passkey.js"></script>
+  </body>
+</html>

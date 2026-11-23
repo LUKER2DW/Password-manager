@@ -9,11 +9,14 @@
 // - a password goes from the app into the page through `fillLogin` only, and only into the
 //   site the login is saved for (the app checks, and `fillLogin` checks again);
 // - the small frame shown in a page (inline.html) gets names and usernames, never a
-//   password.
+//   password;
+// - a page's passkey request is answered only after the person chose in the extension's own
+//   window, and only for the tab's own origin (passkey-worker.js).
 
 import { ask, originOf, pendingSave, setPendingSave } from "./app.js";
 import { fillCode, fillLogin } from "./fill.js";
 import { fallbacks, patternTest, rulesFor } from "./generator.js";
+import { fromPasskeyWindow, passkeyCancelled, passkeyFromPage, passkeyFromWindow } from "./passkey-worker.js";
 
 const INLINE = chrome.runtime.getURL("inline.html");
 
@@ -211,7 +214,9 @@ async function saveFromFrame(tab) {
 
 async function handle(message, sender) {
   const tab = sender.tab;
-  if (sender.id !== chrome.runtime.id || !tab?.id || typeof message?.kind !== "string") return undefined;
+  if (sender.id !== chrome.runtime.id || typeof message?.kind !== "string") return undefined;
+  if (fromPasskeyWindow(sender)) return message.kind.startsWith("passkey-") ? passkeyFromWindow(message) : undefined;
+  if (!tab?.id) return undefined;
   const fromFrame = typeof sender.url === "string" && sender.url.startsWith(INLINE);
   const fromPage = !fromFrame && sender.frameId === 0;
 
@@ -251,6 +256,11 @@ async function handle(message, sender) {
         return undefined;
       case "pending":
         return { offer: Boolean(await pendingSave(tab.id)) };
+      case "passkey":
+        return passkeyFromPage(tab, String(message.id), message.request);
+      case "passkey-cancel":
+        passkeyCancelled(tab.id, String(message.id));
+        return undefined;
       default:
         return undefined;
     }

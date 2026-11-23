@@ -1,17 +1,21 @@
 //! How the app answers the extension from its (maybe locked) vault.
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use sha2::{Digest as _, Sha256};
 use vault_core::{
-    ItemData, ItemId, ItemKind, Vault,
+    ItemData, ItemId, ItemKind, Passkey, Vault,
     generator::{self, PassphraseOptions, PasswordOptions, WordCase},
+    passkey::{ES256, attestation_object},
     totp::Totp,
 };
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
-    origin::{Origin, PageProblem, item_matches},
+    origin::{Origin, PageProblem, item_matches, passkey_site},
     protocol::{
-        Check, CopyWhat, Credentials, ErrorCode, GeneratedPassword, LoginEntry, OneTimeCode,
-        Request, Response, Revealed, Secret, Symbols, VaultEntry,
+        Assertion, Attestation, Check, CopyWhat, Credentials, ErrorCode, GeneratedPassword,
+        LoginEntry, OneTimeCode, PasskeyEntry, Request, Response, Revealed, Secret, Symbols,
+        VaultEntry,
     },
 };
 
@@ -30,6 +34,10 @@ pub struct Answer {
     pub updated: Option<String>,
     /// A generated password the person used: the app adds it to its history.
     pub kept: Option<Kept>,
+    /// The title of the login a new passkey was kept in: the app saves the file.
+    pub passkey_saved: Option<String>,
+    /// The title of the login whose passkey just signed in to a site.
+    pub passkey_used: Option<String>,
 }
 
 /// A generated password that was used, and the site it was made for ("" when none).
@@ -106,7 +114,9 @@ pub fn wants_hello(message: &[u8]) -> bool {
             | Request::Code { hello: true, .. }
             | Request::Reveal { hello: true, .. }
             | Request::Copy { hello: true, .. }
-            | Request::Update { hello: true, .. })
+            | Request::Update { hello: true, .. }
+            | Request::PasskeyGet { hello: true, .. }
+            | Request::PasskeyCreate { hello: true, .. })
     )
 }
 
@@ -160,6 +170,8 @@ fn finish(outcome: Outcome) -> Answer {
         saved: outcome.saved,
         updated: outcome.updated,
         kept: outcome.kept,
+        passkey_saved: outcome.passkey_saved,
+        passkey_used: outcome.passkey_used,
     }
 }
 
@@ -262,6 +274,8 @@ struct Outcome {
     saved: Option<String>,
     updated: Option<String>,
     kept: Option<Kept>,
+    passkey_saved: Option<String>,
+    passkey_used: Option<String>,
 }
 
 impl From<Response> for Outcome {
@@ -273,6 +287,8 @@ impl From<Response> for Outcome {
             saved: None,
             updated: None,
             kept: None,
+            passkey_saved: None,
+            passkey_used: None,
         }
     }
 }
@@ -431,7 +447,10 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
         | Request::Code { url, .. }
         | Request::Save { url, .. }
         | Request::Changed { url, .. }
-        | Request::Update { url, .. } => match page_origin(url) {
+        | Request::Update { url, .. }
+        | Request::Passkeys { url, .. }
+        | Request::PasskeyGet { url, .. }
+        | Request::PasskeyCreate { url, .. } => match page_origin(url) {
             Ok(origin) => Some(origin),
             Err(response) => return response.into(),
         },
@@ -736,8 +755,301 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
         (request @ (Request::Generate { .. } | Request::Keep { .. }), _) => {
             generator_outcome(request, &mut GateHeld(gate))
         }
+        (
+            Request::Passkeys {
+                rp_id, allow: list, ..
+            },
+            Some(origin),
+        ) => {
+            let Some(rp_id) = passkey_site(&rp_id, &origin) else {
+                return error(ErrorCode::WrongSite).into();
+            };
+            let allow: Vec<Vec<u8>> = list
+                .iter()
+                .take(MAX_LISTED)
+                .filter_map(|id| unbase64(id))
+                .collect();
+            let mut items: Vec<PasskeyEntry> = Vec::new();
+            for id in vault.item_ids() {
+                let Ok(item) = vault.get_item(&id) else {
+                    continue;
+                };
+                if item.kind != ItemKind::Login {
+                    continue;
+                }
+                let locked = item.is_locked() || gate.locked(vault, &item);
+                for passkey in item.passkeys.iter().filter(|p| {
+                    p.rp_id == rp_id && (list.is_empty() || allow.contains(&p.credential_id))
+                }) {
+                    items.push(PasskeyEntry {
+                        id: id.to_hex(),
+                        credential: URL_SAFE_NO_PAD.encode(&passkey.credential_id),
+                        title: item.title.clone(),
+                        user_name: passkey.user_name.clone(),
+                        display_name: passkey.display_name.clone(),
+                        locked,
+                    });
+                }
+            }
+            items.sort_by_key(|entry| (entry.user_name.to_lowercase(), entry.title.to_lowercase()));
+            Response::Passkeys {
+                origin: origin.as_str().to_owned(),
+                rp_id,
+                check: gate.check(vault),
+                hello: gate.hello(vault),
+                items,
+            }
+            .into()
+        }
+        (
+            Request::PasskeyGet {
+                rp_id,
+                id,
+                credential,
+                challenge,
+                check,
+                hello,
+                ..
+            },
+            Some(origin),
+        ) => {
+            let Some(rp_id) = passkey_site(&rp_id, &origin) else {
+                return error(ErrorCode::WrongSite).into();
+            };
+            let (Some(credential), Some(client_data)) = (
+                unbase64(&credential),
+                client_data("webauthn.get", &challenge, &origin),
+            ) else {
+                return error(ErrorCode::BadRequest).into();
+            };
+            let ours = |p: &Passkey| p.rp_id == rp_id && p.credential_id == credential;
+            let signed = with_login(
+                vault,
+                gate,
+                &id,
+                check,
+                hello,
+                |item| item.passkeys.iter().any(ours),
+                |_, _, item| {
+                    let passkey = item.passkeys.iter().find(|p| ours(p))?;
+                    let data = passkey.authenticator_data(false).ok()?;
+                    let hash: [u8; 32] = Sha256::digest(&client_data).into();
+                    let signature = passkey.sign(&data, &hash).ok()?;
+                    Some((
+                        item.title.clone(),
+                        Assertion {
+                            origin: origin.as_str().to_owned(),
+                            credential: URL_SAFE_NO_PAD.encode(&passkey.credential_id),
+                            client_data: URL_SAFE_NO_PAD.encode(&client_data),
+                            authenticator_data: URL_SAFE_NO_PAD.encode(&data),
+                            signature: URL_SAFE_NO_PAD.encode(&signature),
+                            user_handle: URL_SAFE_NO_PAD.encode(&passkey.user_handle),
+                        },
+                    ))
+                },
+            );
+            match signed {
+                Ok(Some((title, assertion))) => Outcome {
+                    passkey_used: Some(title),
+                    ..Response::Assertion(Box::new(assertion)).into()
+                },
+                Ok(None) => error(ErrorCode::BadRequest).into(),
+                Err(response) => response.into(),
+            }
+        }
+        (
+            Request::PasskeyCreate {
+                rp_id,
+                user_id,
+                user_name,
+                display_name,
+                challenge,
+                exclude,
+                algorithms,
+                check,
+                hello,
+                ..
+            },
+            Some(origin),
+        ) => create_passkey(
+            vault,
+            gate,
+            &origin,
+            NewPasskey {
+                rp_id,
+                user_id,
+                user_name,
+                display_name,
+                challenge,
+                exclude,
+                algorithms,
+            },
+            check,
+            hello,
+        ),
         // A page request always has its origin by now.
         _ => error(ErrorCode::BadRequest).into(),
+    }
+}
+
+/// At most this many credential ids are read from a site's list.
+const MAX_LISTED: usize = 64;
+/// The longest challenge a site may send (WebAuthn asks for at least 16 bytes; sites send 32).
+const MAX_CHALLENGE: usize = 1024;
+
+/// Bytes from base64url, with or without padding.
+fn unbase64(text: &str) -> Option<Vec<u8>> {
+    URL_SAFE_NO_PAD.decode(text.trim_end_matches('=')).ok()
+}
+
+/// The client data the passkey signs (WebAuthn §5.8.1), written by the app from the page's
+/// origin, as the browser would. `None` when the challenge isn't base64url or is too long.
+fn client_data(kind: &str, challenge: &str, origin: &Origin) -> Option<Vec<u8>> {
+    #[derive(serde::Serialize)]
+    struct ClientData<'a> {
+        #[serde(rename = "type")]
+        kind: &'a str,
+        challenge: String,
+        origin: &'a str,
+        #[serde(rename = "crossOrigin")]
+        cross_origin: bool,
+    }
+    let challenge = unbase64(challenge).filter(|c| !c.is_empty() && c.len() <= MAX_CHALLENGE)?;
+    serde_json::to_vec(&ClientData {
+        kind,
+        challenge: URL_SAFE_NO_PAD.encode(challenge),
+        origin: origin.as_str(),
+        // Only a page's top frame is answered.
+        cross_origin: false,
+    })
+    .ok()
+}
+
+/// What the page hands the site for a passkey just made.
+fn attestation_for(passkey: &Passkey, client_data: &[u8], origin: &Origin) -> Option<Attestation> {
+    let data = passkey.authenticator_data(true).ok()?;
+    Some(Attestation {
+        origin: origin.as_str().to_owned(),
+        credential: URL_SAFE_NO_PAD.encode(&passkey.credential_id),
+        client_data: URL_SAFE_NO_PAD.encode(client_data),
+        attestation_object: URL_SAFE_NO_PAD.encode(attestation_object(&data)),
+        authenticator_data: URL_SAFE_NO_PAD.encode(&data),
+        public_key: URL_SAFE_NO_PAD.encode(passkey.spki().ok()?),
+        algorithm: ES256,
+    })
+}
+
+/// What a [`Request::PasskeyCreate`] asks for.
+struct NewPasskey {
+    rp_id: String,
+    user_id: String,
+    user_name: String,
+    display_name: String,
+    challenge: String,
+    exclude: Vec<String>,
+    algorithms: Vec<i64>,
+}
+
+/// Makes a passkey and keeps it in the login for that page and username (a new login when
+/// there is none, opening a locked one first). A passkey of that site and account already
+/// there is replaced, as an authenticator does.
+fn create_passkey(
+    vault: &mut Vault,
+    gate: &mut dyn Gate,
+    origin: &Origin,
+    new: NewPasskey,
+    check: Option<Secret>,
+    hello: bool,
+) -> Outcome {
+    let Some(rp_id) = passkey_site(&new.rp_id, origin) else {
+        return error(ErrorCode::WrongSite).into();
+    };
+    if !new.algorithms.is_empty() && !new.algorithms.contains(&ES256) {
+        return error(ErrorCode::Unsupported).into();
+    }
+    let (Some(user_handle), Some(client_data)) = (
+        unbase64(&new.user_id).filter(|h| !h.is_empty() && h.len() <= Passkey::MAX_USER_HANDLE),
+        client_data("webauthn.create", &new.challenge, origin),
+    ) else {
+        return error(ErrorCode::BadRequest).into();
+    };
+    let user_name = new.user_name.trim();
+    let display_name = new.display_name.trim();
+    if user_name.chars().count() > Passkey::MAX_NAME_CHARS
+        || display_name.chars().count() > Passkey::MAX_NAME_CHARS
+    {
+        return error(ErrorCode::BadRequest).into();
+    }
+    let exclude: Vec<Vec<u8>> = new
+        .exclude
+        .iter()
+        .take(MAX_LISTED)
+        .filter_map(|id| unbase64(id))
+        .collect();
+    let mut target = None;
+    for id in vault.item_ids() {
+        let Ok(item) = vault.get_item(&id) else {
+            continue;
+        };
+        if item.kind != ItemKind::Login {
+            continue;
+        }
+        if item
+            .passkeys
+            .iter()
+            .any(|p| p.rp_id == rp_id && exclude.contains(&p.credential_id))
+        {
+            return error(ErrorCode::Exists).into();
+        }
+        if target.is_none() && item.username == user_name && item_matches(&item.urls, origin) {
+            target = Some(id);
+        }
+    }
+    let Ok(passkey) = Passkey::new(&rp_id, &user_handle, user_name, display_name) else {
+        return error(ErrorCode::BadRequest).into();
+    };
+    let Some(attestation) = attestation_for(&passkey, &client_data, origin) else {
+        return error(ErrorCode::BadRequest).into();
+    };
+    let kept = match target {
+        Some(id) => with_login(
+            vault,
+            gate,
+            &id.to_hex(),
+            check,
+            hello,
+            |_| true,
+            |vault, id, mut item| {
+                item.passkeys.retain(|p| {
+                    !(p.rp_id == passkey.rp_id && p.user_handle == passkey.user_handle)
+                });
+                if item.passkeys.len() >= Passkey::MAX_PER_ITEM {
+                    return None;
+                }
+                item.passkeys.push(passkey.clone());
+                item.touch();
+                vault
+                    .update_item(id, &item)
+                    .ok()
+                    .map(|()| item.title.clone())
+            },
+        ),
+        None => {
+            let host = origin.host();
+            let title = host.strip_prefix("www.").unwrap_or(host);
+            let mut item = ItemData::login(title, user_name, "", origin.as_str());
+            item.passkeys.push(passkey.clone());
+            // Like a login saved from a page: the item lock seals it the next time it opens.
+            Ok(vault.add_item(&item).ok().map(|_| item.title.clone()))
+        }
+    };
+    match kept {
+        Ok(Some(title)) => Outcome {
+            passkey_saved: Some(title),
+            ..Response::Attestation(Box::new(attestation)).into()
+        },
+        Ok(None) => error(ErrorCode::BadRequest).into(),
+        Err(response) => response.into(),
     }
 }
 
@@ -858,6 +1170,262 @@ mod tests {
 
     fn ask(vault: Option<&mut Vault>, request: Value) -> (Value, Option<String>) {
         ask_with(vault, &mut TestGate::new(Check::App), request)
+    }
+
+    fn unb64(value: &Value) -> Vec<u8> {
+        URL_SAFE_NO_PAD.decode(value.as_str().unwrap()).unwrap()
+    }
+
+    /// What the site's server checks of a passkey's answer: the client data it expects, its
+    /// own site's hash, the flags, and the signature by the public key it kept.
+    fn site_checks(
+        public_key: &[u8],
+        answer: &Value,
+        kind: &str,
+        challenge: &str,
+        origin: &str,
+        rp_id: &str,
+    ) {
+        let client_data = unb64(&answer["client_data"]);
+        let client: Value = serde_json::from_slice(&client_data).unwrap();
+        assert_eq!(
+            client,
+            json!({"type": kind, "challenge": challenge, "origin": origin, "crossOrigin": false})
+        );
+        let data = unb64(&answer["authenticator_data"]);
+        assert_eq!(&data[..32], Sha256::digest(rp_id.as_bytes()).as_slice());
+        assert_eq!(data[32] & 0x05, 0x05, "present and verified");
+        if kind == "webauthn.get" {
+            let mut message = data;
+            message.extend_from_slice(&Sha256::digest(&client_data));
+            assert!(vault_core::passkey::verify(
+                public_key,
+                &message,
+                &unb64(&answer["signature"])
+            ));
+        }
+    }
+
+    fn passkey_answer(vault: &mut Vault, gate: &mut TestGate, request: Value) -> (Value, Answer) {
+        let answer = answer(request.to_string().as_bytes(), Some(vault), gate);
+        (serde_json::from_slice(&answer.bytes).unwrap(), answer)
+    }
+
+    #[test]
+    fn a_passkey_is_made_and_used_by_its_site_only() {
+        let (mut vault, _, _) = vault();
+        let mut gate = TestGate::new(Check::Pin);
+        let challenge = URL_SAFE_NO_PAD.encode([7u8; 32]);
+        let create = json!({
+            "type": "passkey_create",
+            "url": "https://login.example.com/new",
+            "rp_id": "example.com",
+            "user_id": URL_SAFE_NO_PAD.encode(b"user-42"),
+            "user_name": "me@example.com",
+            "display_name": "Me",
+            "challenge": challenge,
+            "algorithms": [-8, -7, -257],
+        });
+        let (made, answer) = passkey_answer(&mut vault, &mut gate, create.clone());
+        assert_eq!(made["type"], "attestation", "{made}");
+        assert_eq!(answer.passkey_saved.as_deref(), Some("login.example.com"));
+        assert_eq!(
+            (made["algorithm"].as_i64(), made["origin"].as_str()),
+            (Some(-7), Some("https://login.example.com"))
+        );
+        site_checks(
+            &[],
+            &made,
+            "webauthn.create",
+            &challenge,
+            "https://login.example.com",
+            "example.com",
+        );
+        // The attestation object carries the same authenticator data, with the new key.
+        let data = unb64(&made["authenticator_data"]);
+        assert!(unb64(&made["attestation_object"]).ends_with(&data));
+        let spki = unb64(&made["public_key"]);
+        assert_eq!(&data[55..71], unb64(&made["credential"]).as_slice());
+        // Kept in a new login for that page, with the account's name.
+        let login = vault
+            .item_ids()
+            .map(|id| vault.get_item(&id).unwrap())
+            .find(|item| item.title == "login.example.com")
+            .unwrap();
+        assert_eq!(
+            (
+                login.username.as_str(),
+                login.urls.as_slice(),
+                login.passkeys.len()
+            ),
+            (
+                "me@example.com",
+                &["https://login.example.com".to_owned()][..],
+                1
+            )
+        );
+        assert_eq!(login.passkeys[0].public_key().unwrap()[..], spki[26..]);
+
+        // Listed for another page of the site, without any key.
+        let list = |url: &str, rp_id: &str| json!({"type": "passkeys", "url": url, "rp_id": rp_id});
+        let (listed, _) = passkey_answer(
+            &mut vault,
+            &mut gate,
+            list("https://www.example.com/", "example.com"),
+        );
+        assert_eq!(listed["rp_id"], "example.com");
+        let entry = &listed["items"][0];
+        assert_eq!(
+            (entry["user_name"].as_str(), entry["locked"].as_bool()),
+            (Some("me@example.com"), Some(false))
+        );
+        assert_eq!(entry["credential"], made["credential"]);
+        assert!(
+            !listed
+                .to_string()
+                .contains(made["public_key"].as_str().unwrap())
+        );
+        // The site's own list of credentials narrows it.
+        let (narrowed, _) = passkey_answer(
+            &mut vault,
+            &mut gate,
+            json!({"type": "passkeys", "url": "https://example.com/", "rp_id": "example.com", "allow": ["AAAA"]}),
+        );
+        assert_eq!(narrowed["items"], json!([]));
+
+        // Signing in: the app writes the client data from the page's origin, and signs it.
+        let challenge = URL_SAFE_NO_PAD.encode(b"another challenge of the site");
+        let get = |url: &str, rp_id: &str| {
+            json!({
+                "type": "passkey_get",
+                "url": url,
+                "rp_id": rp_id,
+                "id": entry["id"],
+                "credential": made["credential"],
+                "challenge": challenge,
+            })
+        };
+        let (signed, answer) = passkey_answer(
+            &mut vault,
+            &mut gate,
+            get("https://www.example.com/", "example.com"),
+        );
+        assert_eq!(signed["type"], "assertion", "{signed}");
+        assert_eq!(answer.passkey_used.as_deref(), Some("login.example.com"));
+        assert_eq!(unb64(&signed["user_handle"]), b"user-42");
+        site_checks(
+            &spki[26..],
+            &signed,
+            "webauthn.get",
+            &challenge,
+            "https://www.example.com",
+            "example.com",
+        );
+
+        // Another site never lists or uses it, whatever it claims.
+        for (url, rp_id) in [
+            ("https://example.org/", "example.com"),
+            ("https://example.com.evil.example/", "example.com"),
+            ("https://login.example.com/", "com"),
+            ("http://example.com/", "example.com"),
+        ] {
+            for request in [list(url, rp_id), get(url, rp_id)] {
+                let (reply, answer) = passkey_answer(&mut vault, &mut gate, request);
+                assert!(
+                    ["wrong_site", "insecure_page"].contains(&reply["code"].as_str().unwrap()),
+                    "{url} {rp_id}: {reply}"
+                );
+                assert!(answer.passkey_used.is_none());
+            }
+        }
+        // A page that may speak only for its own host doesn't find the site's passkey there.
+        let (reply, _) = passkey_answer(&mut vault, &mut gate, get("https://www.example.com/", ""));
+        assert_eq!(reply["code"], "no_match");
+
+        // Already made (the site lists it): refused; no ES256: refused, the browser may try.
+        let mut again = create.clone();
+        again["exclude"] = json!([made["credential"]]);
+        let (reply, _) = passkey_answer(&mut vault, &mut gate, again);
+        assert_eq!(reply["code"], "exists");
+        let mut rsa_only = create.clone();
+        rsa_only["algorithms"] = json!([-257]);
+        let (reply, _) = passkey_answer(&mut vault, &mut gate, rsa_only);
+        assert_eq!(reply["code"], "unsupported");
+        // Made again for the same account: it takes the old one's place in the same login.
+        let (remade, _) = passkey_answer(&mut vault, &mut gate, create);
+        assert_eq!(remade["type"], "attestation");
+        let logins: Vec<ItemData> = vault
+            .item_ids()
+            .map(|id| vault.get_item(&id).unwrap())
+            .filter(|item| item.title == "login.example.com")
+            .collect();
+        assert_eq!(logins.len(), 1);
+        assert_eq!(logins[0].passkeys.len(), 1);
+        assert_eq!(
+            logins[0].passkeys[0].credential_id,
+            unb64(&remade["credential"])
+        );
+    }
+
+    #[test]
+    fn a_locked_login_asks_for_its_pin_before_its_passkey_is_made_or_signs() {
+        let (mut vault, _, work) = vault();
+        let mut gate = TestGate::new(Check::Pin);
+        let challenge = URL_SAFE_NO_PAD.encode([9u8; 32]);
+        let create = |check: Option<&str>| {
+            let mut request = json!({
+                "type": "passkey_create",
+                "url": "https://github.com/settings/security",
+                "user_id": URL_SAFE_NO_PAD.encode(b"hubot-id"),
+                "user_name": "hubot",
+                "challenge": challenge,
+            });
+            if let Some(pin) = check {
+                request["check"] = json!(pin);
+            }
+            request
+        };
+        // The login for that page and username is behind the item lock.
+        let (reply, answer) = passkey_answer(&mut vault, &mut gate, create(None));
+        assert_eq!(
+            reply,
+            json!({"type": "error", "code": "item_locked", "check": "pin"})
+        );
+        assert!(answer.passkey_saved.is_none());
+        let (made, answer) = passkey_answer(&mut vault, &mut gate, create(Some("4821")));
+        assert_eq!(made["type"], "attestation", "{made}");
+        assert_eq!(answer.passkey_saved.as_deref(), Some("GitHub (work)"));
+        assert!(!gate.open, "closed again");
+        let (listed, _) = passkey_answer(
+            &mut vault,
+            &mut gate,
+            json!({"type": "passkeys", "url": "https://github.com/login"}),
+        );
+        assert_eq!(listed["rp_id"], "github.com");
+        assert_eq!(listed["items"][0]["id"], work);
+        assert_eq!(listed["items"][0]["locked"], true);
+        let get = |check: Option<&str>| {
+            let mut request = json!({
+                "type": "passkey_get",
+                "url": "https://github.com/login",
+                "id": work,
+                "credential": made["credential"],
+                "challenge": challenge,
+            });
+            if let Some(pin) = check {
+                request["check"] = json!(pin);
+            }
+            request
+        };
+        assert!(wants_hello(br#"{"type":"passkey_get","url":"u","id":"i","credential":"c","challenge":"x","hello":true}"#));
+        let (reply, _) = passkey_answer(&mut vault, &mut gate, get(None));
+        assert_eq!(reply["code"], "item_locked");
+        let (reply, _) = passkey_answer(&mut vault, &mut gate, get(Some("0000")));
+        assert_eq!(reply["code"], "wrong_check");
+        let (signed, answer) = passkey_answer(&mut vault, &mut gate, get(Some("4821")));
+        assert_eq!(signed["type"], "assertion", "{signed}");
+        assert_eq!(answer.passkey_used.as_deref(), Some("GitHub (work)"));
+        assert!(!gate.open);
     }
 
     #[test]

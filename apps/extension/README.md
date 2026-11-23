@@ -30,6 +30,14 @@ Status: early development, like the rest of the project. Use a test vault.
   or named like `otp`, `2fa`, `verification`), the card lists the site's logins that have a
   one-time code; pick one and its current code is typed in, spread over one box per digit
   when the site uses those. *Fill the one-time code* in a login's details does the same.
+- **Passkeys.** When a site makes a passkey ("Create a passkey", "Add a security key"), Vault
+  asks in a window of its own: *Save* keeps it with your login for that site and username (a
+  new login when there is none). When a site asks for one, the same window lists the passkeys
+  Vault has for it; pick one to sign in. *Use another device* hands the request to the browser
+  (a phone, a security key, Windows Hello). Sites with no passkey in Vault, the field's
+  autofill list and security keys go to the browser as before. On the item page in the app
+  you see a login's passkeys; the editor takes one out. Turn it off in the extension's
+  Settings: "Vault keeps passkeys, not the browser".
 - **Its window** (the toolbar button or Ctrl+Shift+L) has three tabs:
   - *This site*: the logins for the page in front, to fill; *Details* opens one.
   - *All logins*: search the whole vault; show a password or copy username, password or
@@ -52,6 +60,10 @@ Status: early development, like the rest of the project. Use a test vault.
   default, in the extension's Settings), Chrome's "Offer to save passwords and passkeys" is off,
   and Chrome's settings say the extension controls it. That is what the `privacy` permission
   is for, and nothing else.
+- **Passkeys:** the page's address is the tab's own; the app decides which site the page may
+  use passkeys for (its own host, or a domain above it that is not a public suffix), writes
+  and signs the client data itself, and the answer reaches the page only while it still shows
+  that origin. Nothing is made or signed before you choose in the passkey window.
 
 - Every password comes from the app, which decides whether a page may have it: the exact site
   saved in the login, top frame only, nothing while the vault is locked. Each fill or shown
@@ -102,18 +114,22 @@ The `key` in `manifest.json` fixes the extension's id, which is the only id the 
 
 | File | Role |
 |---|---|
-| `manifest.json` | Manifest V3: `activeTab`, `scripting`, `nativeMessaging`, `storage`, `favicon`; https pages for the content script |
+| `manifest.json` | Manifest V3: `activeTab`, `scripting`, `nativeMessaging`, `storage`, `favicon`, `privacy`; https pages for the content scripts |
 | `popup.html`, `popup.css`, `popup.js` | The extension's window: this site, all logins, generator, new login |
 | `content.js`, `fields.js` | Content script: sign-in and new-password fields, submitted forms, placing the frame |
 | `inline.html`, `inline.css`, `inline.js` | The frame under a field (logins or a new password) and the save offer |
 | `background.js` | The worker between the content script, the frame and the app |
+| `passkeys-page.js` | In the page's own world: stands in front of `navigator.credentials` for passkeys |
+| `passkeys.js` | Content script: relays passkey requests between the page and the worker |
+| `passkey-worker.js` | The worker's side of passkeys: asks the app, opens the passkey window, answers the page |
+| `passkey.html`, `passkey.css`, `passkey.js` | The passkey window: the site, its passkeys or the one to make, the item lock's check |
 | `app.js` | Native messaging calls, and the login waiting to be saved |
 | `link.js` | The connection key (a non-extractable browser key) and the signature on each request |
 | `fill.js` | The function that types a login into the page (top frame, same origin) |
 | `generator.js` | Reads a field's password rules for the app's generator |
 | `tokens.css` | Colours and shared pieces (the desktop app's tokens) |
 | `_locales/en/messages.json` | Every text shown |
-| `test/*.test.mjs` | Tests: `node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs` |
+| `test/*.test.mjs` | Tests: `node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs` |
 | `test/preview.html` | Visual review of the window and the frames with fixed test data |
 | `test/pages/clickjacking.html` | Manual test page that tries to steal a fill |
 

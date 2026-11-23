@@ -114,6 +114,20 @@ On top of that:
   extension controls it and can take it back). It reads and changes no other setting. Two
   password managers offering to save the same login invite saving it in the browser's store,
   which an infostealer reads more easily than the vault.
+- **Passkeys** (extension 0.4): a script in each https page's own world (top frame only)
+  stands in front of `navigator.credentials` and passes a passkey request, as plain data, to the
+  extension. It needs no new permission, and holds nothing of the vault: it gets back only
+  what WebAuthn would give that page. What keeps a page from using another site's passkeys:
+  the page's address is the tab's own, as the browser reports it; the app decides which site
+  (relying party id) that page may speak for (its own host or a domain above it that is not a
+  public suffix) and writes the signed client data with that origin itself; and an answer is
+  handed back only while the tab still shows that origin. Nothing is made or signed until the
+  person chooses in a window of the extension's own (a page can't draw over it or click in it),
+  and a login behind the item lock asks for its check there too. A page can ask again and
+  again, but only one window is open per tab, and closing it says no. A page can also see that
+  something stands in front of `navigator.credentials` (that Vault is installed), as it can
+  with other password managers. Residual risk: a site with an XSS flaw can ask for its own
+  passkey, as it could from the browser's own passkeys, but still needs the person's click.
 - **What a page sends when a form is submitted**: the content script reads the typed username
   and password (in the extension's isolated world) and passes them to the background worker,
   which keeps them in `chrome.storage.session` (memory only, closed to content scripts) for

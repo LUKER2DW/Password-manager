@@ -311,6 +311,16 @@ impl Controller {
                     self.notify(notice::BROWSER_UPDATED, title);
                 }
             }
+        } else if let Some(title) = &answer.passkey_saved {
+            if !locked_out {
+                self.state.borrow_mut().summaries_stale = true;
+                if self.save_vault() {
+                    self.refresh_list();
+                    self.notify(notice::BROWSER_PASSKEY_SAVED, title);
+                }
+            }
+        } else if let Some(title) = &answer.passkey_used {
+            self.notify(notice::BROWSER_PASSKEY_USED, title);
         } else if let Some(copy) = answer.copy {
             // Copied here, by the app: kept out of clipboard history and cleared later, and
             // never handed to the browser.

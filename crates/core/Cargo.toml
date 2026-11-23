@@ -23,6 +23,11 @@ hkdf = "0.13"
 hmac = { version = "0.13", features = ["zeroize"] }
 pbkdf2 = { version = "0.13", default-features = false }
 postcard = { version = "1.1", features = ["use-std"] }
+# Passkeys (passkey.rs): ES256, ECDSA over P-256 with SHA-256, the signature WebAuthn sites expect.
+# Deterministic nonces (RFC 6979); keys come from the OS randomness (random.rs).
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa"] }
+# Only for `der`: the signature is sent DER-encoded, as WebAuthn asks (no other code from it).
+ecdsa = { version = "0.16.9", default-features = false, features = ["der"] }
 scrypt = { version = "0.12.0", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 sha1 = "0.11"  # TOTP only (RFC 6238 default); never used for anything security-critical beyond HMAC

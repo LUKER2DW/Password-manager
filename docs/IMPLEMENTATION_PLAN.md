@@ -263,7 +263,14 @@ Rules:
 - ✅ Extension 0.3: Chrome's own "Offer to save passwords and passkeys" is off while the
   extension's setting leaves saving to Vault (the default; `privacy` permission, for that
   setting only)
-- ⬜ Passkeys: saved by the app, offered by the extension (a WebAuthn provider), format v10
+- ✅ Passkeys (extension 0.4, format v10): the extension stands in front of a page's
+  `navigator.credentials` (top frame, HTTPS), the person chooses in the extension's own window,
+  the app makes the passkey (ES256) in the login for that site and username, or signs in with
+  one; the site check uses the Public Suffix List. A site with no passkey in Vault, a closed
+  app, a security key or the field's autofill list (conditional mediation) go to the browser.
+  Listed on the item page, taken out in the editor (desktop); listed on the phone
+- ⬜ Passkeys in the field's autofill list (conditional mediation), and from the phone (Android's
+  Credential Manager); passkeys in imports and exports
 - ⬜ Firefox
 - ⬜ Installer that puts the app and the host side by side; store listing
 - **Done when:** fills logins on Chromium with confirmation; clickjacking test page fails to leak.

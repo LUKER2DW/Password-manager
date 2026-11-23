@@ -1,5 +1,5 @@
 import { Theme, Sketch, Secrets } from "theme.slint";
-import { FileRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
+import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage } from "pages.slint";
@@ -339,11 +339,14 @@ export component AppWindow inherits Window {
     in property <int> detail-codes-total;
     in property <[FileRow]> detail-files;
     callback file-save(int);
+    in property <[PasskeyRow]> detail-passkeys;
     // The editor's SSH key and files.
     in property <bool> ed-ssh-has-key;
     in property <string> ed-ssh-public;
     in property <string> ed-ssh-fingerprint;
     in property <[FileRow]> ed-files;
+    in property <[PasskeyRow]> ed-passkeys;
+    callback passkey-remove(int);
     callback ssh-generate();
     callback ssh-load();
     callback ssh-paste();
@@ -716,6 +719,7 @@ export component AppWindow inherits Window {
                 codes-total: root.detail-codes-total;
                 files: root.detail-files;
                 file-save(i) => { root.file-save(i); }
+                passkeys: root.detail-passkeys;
                 codes-left: root.detail-codes-left;
                 codes: root.detail-codes;
                 show-codes => { root.show-codes(); }
@@ -761,6 +765,8 @@ export component AppWindow inherits Window {
                 ssh-public: root.ed-ssh-public;
                 ssh-fingerprint: root.ed-ssh-fingerprint;
                 files: root.ed-files;
+                passkeys: root.ed-passkeys;
+                passkey-remove(i) => { root.passkey-remove(i); }
                 ssh-generate => { root.ssh-generate(); }
                 ssh-load => { root.ssh-load(); }
                 ssh-paste => { root.ssh-paste(); }
