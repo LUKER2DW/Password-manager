@@ -27,7 +27,9 @@ use serde::{Deserialize, Serialize};
 
 pub const ICON_SIZE: u32 = 64;
 const MAX_RESPONSE_BYTES: u64 = 512 * 1024;
-const MAX_CANDIDATES: usize = 6;
+/// Icon links tried from the page itself; the usual places (`/favicon.ico`…) are tried after
+/// them in any case.
+const MAX_PAGE_CANDIDATES: usize = 7;
 const RETRY_MISSING_AFTER_SECS: u64 = 7 * 24 * 3600;
 const USER_AGENT: &str = "Mozilla/5.0 (compatible; vault icon fetcher)";
 
@@ -60,19 +62,19 @@ impl Fetched {
     }
 }
 
-/// The picture for a site whose certificate isn't trusted: a globe on a slate tile, with a
-/// small amber mark.
+/// The picture for a site whose certificate isn't trusted (self-signed, expired, for another
+/// name): an amber shield with a warning mark on a slate tile (Lucide's "shield-alert"), so it
+/// reads as "this site's certificate isn't one the system trusts", not as a missing icon.
 fn untrusted_icon() -> &'static [u8] {
     static ICON: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
     ICON.get_or_init(|| {
         const SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-            <rect width="24" height="24" rx="5.5" fill="#465466"/>
-            <g fill="none" stroke="#E3E8EF" stroke-width="1.5" stroke-linecap="round">
-                <circle cx="11" cy="11" r="6.5"/>
-                <path d="M11 4.5a10 10 0 0 0 0 13 10 10 0 0 0 0-13 M4.5 11h13"/>
+            <rect width="24" height="24" rx="5.5" fill="#3E4A5A"/>
+            <g transform="translate(3.6 3.6) scale(0.7)" fill="none" stroke="#E7A33E"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>
+                <path d="M12 8v4 M12 16h.01"/>
             </g>
-            <circle cx="18.5" cy="18.5" r="4.2" fill="#E7A33E" stroke="#465466" stroke-width="1.2"/>
-            <path d="M18.5 16.4v2.4 M18.5 20.5v.1" stroke="#1B212B" stroke-width="1.4" stroke-linecap="round"/>
         </svg>"##;
         decode_svg(SVG.as_bytes()).unwrap_or_else(|| vec![0; (ICON_SIZE * ICON_SIZE * 4) as usize])
     })
@@ -247,17 +249,40 @@ impl IconSource {
             Self::Image(url) => match get(&agent(false), url, false) {
                 Ok(Some((_, bytes))) => decode(&bytes).map_or(Fetched::Missing, Fetched::Icon),
                 Ok(None) => Fetched::Missing,
-                Err(()) => untrusted_or_missing(url),
+                Err(why) => untrusted_or_missing(url, why),
             },
         }
     }
 }
 
-/// After a request that failed before any answer: [`Fetched::Untrusted`] when the address
+/// Why a request got no answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NoAnswer {
+    /// The site's certificate was refused (self-signed, expired, for another name…).
+    Certificate,
+    /// Anything else: no connection, a timeout, a refused or cut connection.
+    Other,
+}
+
+/// Whether a failed request failed on the site's certificate, as rustls words it.
+fn no_answer(err: &ureq::Error) -> NoAnswer {
+    let text = format!("{err} {err:?}").to_ascii_lowercase();
+    if text.contains("certificate")
+        || text.contains("unknownissuer")
+        || text.contains("badsignature")
+    {
+        NoAnswer::Certificate
+    } else {
+        NoAnswer::Other
+    }
+}
+
+/// After a request refused on its certificate: [`Fetched::Untrusted`] when the address
 /// answers once its certificate goes unchecked (nothing of that answer is used), else
-/// [`Fetched::Missing`].
-fn untrusted_or_missing(url: &str) -> Fetched {
-    if agent(true).get(url).call().is_ok() {
+/// [`Fetched::Missing`]. Other failures (a timeout, a cut connection) are only missing: a
+/// site that was slow once isn't marked as untrusted.
+fn untrusted_or_missing(url: &str, why: NoAnswer) -> Fetched {
+    if why == NoAnswer::Certificate && agent(true).get(url).call().is_ok() {
         Fetched::Untrusted
     } else {
         Fetched::Missing
@@ -270,7 +295,7 @@ fn agent(unchecked: bool) -> ureq::Agent {
     let mut config = ureq::Agent::config_builder()
         .https_only(true)
         .max_redirects(5)
-        .timeout_global(Some(Duration::from_secs(8)))
+        .timeout_global(Some(Duration::from_secs(10)))
         // Statuses are judged here: a sign-in page often answers 401 or 403 with a page that
         // still names its icon.
         .http_status_as_error(false)
@@ -289,13 +314,27 @@ fn agent(unchecked: bool) -> ureq::Agent {
 /// from a worker thread.
 pub fn fetch(site: &str) -> Fetched {
     let agent = agent(false);
-    let origin = format!("https://{site}");
+    let mut origin = format!("https://{site}");
     let home = format!("{origin}/");
     let mut candidates: Vec<String> = Vec::new();
     let page = match get(&agent, &home, true) {
         Ok(page) => page,
-        // No answer at all: maybe only the certificate is refused.
-        Err(()) => return untrusted_or_missing(&home),
+        // No answer: the same site under `www.` (or without it) may answer where this didn't;
+        // else maybe only the certificate is refused.
+        Err(why) => {
+            let other = match site.strip_prefix("www.") {
+                Some(bare) => bare.to_owned(),
+                None if site.matches('.').count() == 1 => format!("www.{site}"),
+                None => return untrusted_or_missing(&home, why),
+            };
+            match get(&agent, &format!("https://{other}/"), true) {
+                Ok(page) => {
+                    origin = format!("https://{other}");
+                    page
+                }
+                Err(_) => return untrusted_or_missing(&home, why),
+            }
+        }
     };
     if let Some((page, html)) = page {
         let html = String::from_utf8_lossy(&html);
@@ -305,7 +344,8 @@ pub fn fetch(site: &str) -> Fetched {
         candidates.extend(
             icon_links(&html)
                 .iter()
-                .filter_map(|href| resolve(&base, href)),
+                .filter_map(|href| resolve(&base, href))
+                .take(MAX_PAGE_CANDIDATES),
         );
         // A web app manifest lists icons too (self-hosted apps often have only those).
         if let Some(manifest) = manifest_link(&html).and_then(|href| resolve(&base, &href))
@@ -314,7 +354,8 @@ pub fn fetch(site: &str) -> Fetched {
             candidates.extend(
                 manifest_icons(&json)
                     .iter()
-                    .filter_map(|src| resolve(&manifest_url, src)),
+                    .filter_map(|src| resolve(&manifest_url, src))
+                    .take(3),
             );
         }
     }
@@ -326,7 +367,6 @@ pub fn fetch(site: &str) -> Fetched {
 
     candidates
         .iter()
-        .take(MAX_CANDIDATES)
         .find_map(|url| match get(&agent, url, false) {
             Ok(Some((_, bytes))) => decode(&bytes),
             _ => None,
@@ -337,10 +377,18 @@ pub fn fetch(site: &str) -> Fetched {
 /// The body of `url` and the address it finally came from (after redirects). A page is read
 /// whatever its status below 500; anything else needs a success. `Err` when nothing answered
 /// (no connection, refused certificate, timeout), `Ok(None)` for an answer of no use.
-#[allow(clippy::result_unit_err)]
-fn get(agent: &ureq::Agent, url: &str, page: bool) -> Result<Option<(String, Vec<u8>)>, ()> {
+fn get(agent: &ureq::Agent, url: &str, page: bool) -> Result<Option<(String, Vec<u8>)>, NoAnswer> {
     use ureq::ResponseExt;
-    let mut response = agent.get(url).call().map_err(|_| ())?;
+    let accept = if page {
+        "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5"
+    } else {
+        "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5"
+    };
+    let mut response = agent
+        .get(url)
+        .header("Accept", accept)
+        .call()
+        .map_err(|err| no_answer(&err))?;
     let status = response.status().as_u16();
     let fine = if page {
         status < 500
@@ -571,8 +619,8 @@ pub fn decode(bytes: &[u8]) -> Option<Vec<u8>> {
         .with_guessed_format()
         .ok()?;
     let mut limits = image::Limits::default();
-    limits.max_image_width = Some(1024);
-    limits.max_image_height = Some(1024);
+    limits.max_image_width = Some(2048);
+    limits.max_image_height = Some(2048);
     limits.max_alloc = Some(32 * 1024 * 1024);
     reader.limits(limits);
     let decoded = reader.decode().ok()?;
