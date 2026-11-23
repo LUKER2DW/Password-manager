@@ -22,23 +22,31 @@ fn with_clipboard<T>(f: impl FnOnce(&mut JNIEnv, &JObject, &JObject) -> Result<T
     let mut env = vm
         .attach_current_thread()
         .context("attaching to the Java VM")?;
-    // SAFETY: a global reference to the activity, kept by the glue for the life of the
-    // process; wrapping it doesn't take ownership (a `JObject` deletes nothing on drop).
-    let activity = unsafe { JObject::from_raw(context.context().cast()) };
+    // SAFETY: a global reference to the app's context (the Application), kept by the glue for
+    // the life of the process; wrapping it doesn't take ownership (a `JObject` deletes nothing
+    // on drop). Only `Context` methods are called on it.
+    let context = unsafe { JObject::from_raw(context.context().cast()) };
     env.with_local_frame(16, |env| -> Result<T> {
-        let name = env.new_string("clipboard")?;
-        let manager = env
-            .call_method(
-                &activity,
-                "getSystemService",
-                "(Ljava/lang/String;)Ljava/lang/Object;",
-                &[JValue::Object(&name)],
-            )?
-            .l()?;
-        if manager.is_null() {
-            return Err(anyhow!("no clipboard service"));
+        let result = (|| {
+            let name = env.new_string("clipboard")?;
+            let manager = env
+                .call_method(
+                    &context,
+                    "getSystemService",
+                    "(Ljava/lang/String;)Ljava/lang/Object;",
+                    &[JValue::Object(&name)],
+                )?
+                .l()?;
+            if manager.is_null() {
+                return Err(anyhow!("no clipboard service"));
+            }
+            f(env, &context, &manager)
+        })();
+        // A Java exception left pending makes the next JNI call abort the app.
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_clear();
         }
-        f(env, &activity, &manager)
+        result
     })
 }
 
