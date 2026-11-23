@@ -399,5 +399,59 @@
   },
   "back": {
     "message": "Back"
+  },
+  "passkeyGetTitle": {
+    "message": "Sign in with a passkey saved in Vault"
+  },
+  "passkeyCreateTitle": {
+    "message": "Save a passkey in Vault?"
+  },
+  "passkeyCreateText": {
+    "message": "Vault keeps it with your login for this site. The site gets only its public half, and you sign in with it from Vault next time."
+  },
+  "passkeySave": {
+    "message": "Save"
+  },
+  "passkeyOther": {
+    "message": "Use another device"
+  },
+  "passkeyLockedGet": {
+    "message": "Vault is locked. Unlock it in the app, then try again to sign in with a passkey saved there."
+  },
+  "passkeyLockedCreate": {
+    "message": "Vault is locked. Unlock it in the app, then try again to save the passkey there."
+  },
+  "passkeyRetry": {
+    "message": "Try again"
+  },
+  "passkeyStillLocked": {
+    "message": "Vault is still locked."
+  },
+  "passkeyLockedRow": {
+    "message": "Asks for the item lock first"
+  },
+  "passkeyPin": {
+    "message": "This login is locked. Your PIN opens it for this passkey only."
+  },
+  "passkeyItemPassword": {
+    "message": "This login is locked. Your item password opens it for this passkey only."
+  },
+  "passkeyHello": {
+    "message": "Use Windows Hello"
+  },
+  "passkeyOpenInApp": {
+    "message": "This login is locked. Open it in the app, then choose it here again."
+  },
+  "passkeyPageChanged": {
+    "message": "The page changed meanwhile, so nothing was sent to it."
+  },
+  "passkeyFailed": {
+    "message": "Vault couldn't do that. Try again, or use another device."
+  },
+  "prefsPasskeys": {
+    "message": "Vault keeps passkeys, not the browser"
+  },
+  "prefsPasskeysHint": {
+    "message": "When a site makes or asks for a passkey, Vault offers its own in a window of its own. Choose “Use another device” there for a phone or security key. Turned off, the browser handles passkeys as before."
   }
 }

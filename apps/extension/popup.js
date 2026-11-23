@@ -733,6 +733,13 @@ async function showPrefs(back) {
   $("prefs-title").textContent = t("prefsTitle");
   $("prefs-saving-label").textContent = t("prefsSaving");
   $("prefs-saving-hint").textContent = t("prefsSavingHint");
+  $("prefs-passkeys-label").textContent = t("prefsPasskeys");
+  $("prefs-passkeys-hint").textContent = t("prefsPasskeysHint");
+  const passkeys = $("prefs-passkeys");
+  chrome.storage.local.get("vaultPasskeys").then(({ vaultPasskeys = true }) => {
+    passkeys.checked = vaultPasskeys;
+  });
+  passkeys.onchange = () => chrome.storage.local.set({ vaultPasskeys: passkeys.checked });
   $("prefs-back").textContent = t("back");
   $("prefs-back").onclick = back;
   const box = $("prefs-saving");
