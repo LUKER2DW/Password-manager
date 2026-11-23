@@ -1,15 +1,19 @@
 # Builds the Android app (an APK for 64-bit ARM phones) into target/release/apk.
 # Needs: the Android SDK with platform 35 and NDK 28 (sdkmanager "platforms;android-35"
-# "ndk;28.2.13676358"), Android Studio's Java (for keytool and apksigner),
+# "ndk;28.2.13676358"), Android Studio's Java (JDK 17 or newer, for Gradle and keytool),
 #        rustup target add aarch64-linux-android x86_64-linux-android
-#        cargo install cargo-apk --locked
+# Two steps: cargo builds the Rust library (the app's screens and everything behind them) with
+# the NDK's linker, then Gradle (gradlew, build.gradle) packages it with the Java shell (java/),
+# the manifest and res/, and the one library the Java side uses: Google's code scanner. The
+# first build fetches Gradle and that library; later builds use Gradle's cache.
 # The APK is signed with the Android debug key (~/.android/debug.keystore, made if missing):
 # fine for trying it, never for publishing it.
-# The activity's Java side (java/: the file picker, fingerprint unlock, autofill, updates) is
-# compiled with the JDK's javac and the SDK's d8. cargo-apk can't declare a service, so the APK
-# is packaged again from its manifest with the autofill service and its activity added (same
-# resources, same native libraries), then the code added, aligned and signed.
-param([string]$Target = "aarch64-linux-android")
+# Speed: the Rust library is built with the `fast` profile (Cargo.toml: optimized, parallel,
+# incremental; a rebuild after a change takes a fraction of a full one); -Release uses the
+# release profile (one codegen unit, LTO: smaller and a little faster, much slower to build).
+# It builds in target/android, apart from the computer's builds, so tests or the desktop app can
+# build at the same time.
+param([string]$Target = "aarch64-linux-android", [switch]$Release)
 $ErrorActionPreference = "Stop"
 $sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { "$env:LOCALAPPDATA\Android\Sdk" }
 $ndk = Get-ChildItem "$sdk\ndk" | Sort-Object Name -Descending | Select-Object -First 1
@@ -25,80 +29,45 @@ foreach ($t in @("aarch64-linux-android", "x86_64-linux-android")) {
     Set-Item "Env:AR_$u" "$bin\llvm-ar.exe"
     Set-Item "Env:CARGO_TARGET_$($u.ToUpper())_LINKER" "$bin\${t}28-clang.cmd"
 }
+$abi = @{ "aarch64-linux-android" = "arm64-v8a"; "x86_64-linux-android" = "x86_64" }[$Target]
+if (-not $abi) { throw "unknown target $Target" }
 $keystore = "$HOME\.android\debug.keystore"
 if (-not (Test-Path $keystore)) {
     New-Item -ItemType Directory -Force (Split-Path $keystore) | Out-Null
     keytool -genkeypair -keystore $keystore -storepass android -alias androiddebugkey `
         -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 }
-$env:CARGO_APK_RELEASE_KEYSTORE = $keystore
-$env:CARGO_APK_RELEASE_KEYSTORE_PASSWORD = "android"
 Push-Location "$PSScriptRoot/../.."
 try {
-    cargo apk build -p vault-mobile-android --release --target $Target
-    if ($LASTEXITCODE -ne 0) { throw "cargo apk build failed" }
+    $cargoProfile = if ($Release) { "release" } else { "fast" }
+    $targetDirBefore = $env:CARGO_TARGET_DIR
+    $env:CARGO_TARGET_DIR = "target/android"
+    cargo build -p vault-mobile-android --profile $cargoProfile --target $Target
+    if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 
-    $tools = Get-ChildItem "$sdk\build-tools" | Sort-Object Name -Descending | Select-Object -First 1
-    $platform = Get-ChildItem "$sdk\platforms" | Sort-Object Name -Descending | Select-Object -First 1
-    $androidJar = "$($platform.FullName)\android.jar"
+    # Where build.gradle takes the native library from (jniLibs), one folder per ABI.
+    $libs = "target/android-libs"
+    Remove-Item -Recurse -Force $libs -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force "$libs/$abi" | Out-Null
+    Copy-Item "target/android/$Target/$cargoProfile/libvault_mobile_android.so" "$libs/$abi/"
 
-    # The manifest cargo-apk wrote, with what it can't declare: the autofill service and the
-    # screen that asks for the fingerprint before a fill.
-    $apkDir = "target/release/apk"
-    $extra = '<activity android:name="org.passwordvault.phone.AutofillActivity" android:exported="false" ' +
-        'android:excludeFromRecents="true" android:noHistory="true" ' +
-        'android:theme="@android:style/Theme.Translucent.NoTitleBar"/>' +
-        '<service android:name="org.passwordvault.phone.VaultAutofillService" ' +
-        'android:label="@string/autofill_label" android:exported="true" ' +
-        'android:permission="android.permission.BIND_AUTOFILL_SERVICE">' +
-        '<intent-filter><action android:name="android.service.autofill.AutofillService"/></intent-filter>' +
-        '<meta-data android:name="android.autofill" android:resource="@xml/autofill_service"/></service>'
-    $manifest = (Get-Content "$apkDir/AndroidManifest.xml" -Raw).Replace("</application>", "$extra</application>")
-    New-Item -ItemType Directory -Force "$apkDir/manifest" | Out-Null
-    [IO.File]::WriteAllText((Join-Path (Get-Location) "$apkDir/manifest/AndroidManifest.xml"), $manifest,
-        (New-Object Text.UTF8Encoding $false))
-    $packaged = "$apkDir/vault-mobile-android.apk"
-    & "$($tools.FullName)\aapt.exe" package -f -M "$apkDir/manifest/AndroidManifest.xml" `
-        -S apps/mobile-android/res -I $androidJar -F $packaged | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "aapt package failed" }
-    Push-Location $apkDir
+    Push-Location apps/mobile-android
     try {
-        # The native libraries, at the paths Android loads them from (lib/<abi>/…).
-        $libs = Get-ChildItem -Recurse lib -Filter *.so |
-            ForEach-Object { (Resolve-Path -Relative $_.FullName).TrimStart(".", "\").Replace("\", "/") }
-        & "$($tools.FullName)\aapt.exe" add vault-mobile-android.apk $libs | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "aapt add (libraries) failed" }
+        & ./gradlew.bat --quiet assembleRelease
+        if ($LASTEXITCODE -ne 0) { throw "gradle failed" }
     } finally {
         Pop-Location
     }
-    $work = "target/release/apk/java"
-    Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
-    New-Item -ItemType Directory -Force "$work/classes", "$work/dex" | Out-Null
-    $sources = Get-ChildItem -Recurse "apps/mobile-android/java" -Filter *.java | ForEach-Object { $_.FullName }
-    javac --release 11 -cp $androidJar -d "$work/classes" $sources
-    if ($LASTEXITCODE -ne 0) { throw "javac failed" }
-    $classes = Get-ChildItem -Recurse "$work/classes" -Filter *.class | ForEach-Object { $_.FullName }
-    & "$($tools.FullName)\d8.bat" --release --min-api 28 --lib $androidJar --output "$work/dex" $classes
-    if ($LASTEXITCODE -ne 0) { throw "d8 failed" }
 
-    $apk = (Resolve-Path "target/release/apk/vault-mobile-android.apk").Path
-    Push-Location "$work/dex"
-    try {
-        & "$($tools.FullName)\aapt.exe" add $apk classes.dex | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "aapt add failed" }
-    } finally {
-        Pop-Location
-    }
-    $aligned = "$apk.aligned"
-    & "$($tools.FullName)\zipalign.exe" -f -p 4 $apk $aligned
-    if ($LASTEXITCODE -ne 0) { throw "zipalign failed" }
-    Move-Item -Force $aligned $apk
-    & "$($tools.FullName)\apksigner.bat" sign --ks $keystore --ks-pass pass:android `
-        --ks-key-alias androiddebugkey --key-pass pass:android $apk
-    if ($LASTEXITCODE -ne 0) { throw "apksigner failed" }
-    # Only the APK is kept: the unaligned copy and the Java build are left-overs.
-    Remove-Item -Recurse -Force $work, "target/release/apk/lib", "target/release/apk/manifest", "target/release/apk/vault-mobile-android-unaligned.apk", "$apk.idsig" -ErrorAction SilentlyContinue
+    $out = "target/release/apk"
+    New-Item -ItemType Directory -Force $out | Out-Null
+    Copy-Item -Force "target/gradle/vault-mobile-android/outputs/apk/release/vault-mobile-android-release.apk" `
+        "$out/vault-mobile-android.apk"
+    # Left-overs of the builds made with cargo-apk before.
+    Remove-Item -Recurse -Force "$out/lib", "$out/manifest", "$out/java", "$out/AndroidManifest.xml", `
+        "$out/vault-mobile-android-unaligned.apk" -ErrorAction SilentlyContinue
     Write-Host "Built target/release/apk/vault-mobile-android.apk. Install: adb install -r target/release/apk/vault-mobile-android.apk"
 } finally {
+    $env:CARGO_TARGET_DIR = $targetDirBefore
     Pop-Location
 }

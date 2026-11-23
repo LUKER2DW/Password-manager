@@ -406,10 +406,7 @@ mod native {
             let app = self.app();
             let typed = app.get_setup_invite().trim().to_owned();
             let Some(link) = InviteLink::parse(&typed) else {
-                return self.set_error(
-                    super::super::error::SYNC_SETUP,
-                    "paste the whole line that starts with vaultsync:1? from Add a device on your computer",
-                );
+                return self.set_error(super::super::error::NOT_INVITE, "");
             };
             let address = match sync::check_address(&link.server) {
                 Ok(address) => address,

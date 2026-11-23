@@ -95,6 +95,19 @@ mod error {
     pub const IMPORT_PASSWORD: i32 = 26;
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub const UPDATE: i32 = 27;
+    /// What was pasted or scanned isn't an invite line (`vaultsync:1?…`).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const NOT_INVITE: i32 = 28;
+    /// The QR code can't be scanned ("unavailable": no Google Play services, or the detail).
+    pub const CAMERA: i32 = 29;
+}
+
+/// Where the line of a scanned QR code goes (the screens' `scan-invite` purpose).
+pub mod scan {
+    /// The start screen's "From your vault server".
+    pub const SETUP: i32 = 0;
+    /// Settings, Sync: joining the server with an invite.
+    pub const JOIN: i32 = 1;
 }
 
 /// The editor's kinds (`ed-kind`), the desktop's: an authenticator item is a login kept for
@@ -489,6 +502,7 @@ impl Controller {
         on!(on_unlock, |c| c.unlock());
         on!(on_sync_join, |c| c.sync_join());
         on!(on_setup_from_server, |c| c.setup_from_server());
+        on!(on_scan_invite, |c, purpose| c.scan_invite(purpose));
         on!(on_sync_use_webdav, |c| c.sync_use_webdav());
         on!(on_sync_now, |c| c.sync_round());
         on!(on_sync_stop, |c| c.sync_stop());

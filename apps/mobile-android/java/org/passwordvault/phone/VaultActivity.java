@@ -14,6 +14,9 @@ import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.view.WindowManager;
 import android.view.autofill.AutofillManager;
+import com.google.mlkit.vision.barcode.common.Barcode;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -23,9 +26,9 @@ import java.util.Locale;
 /**
  * The app's activity: Android's NativeActivity, which runs the app (a Rust library, see
  * apps/mobile-android/src/lib.rs), plus what native code can't do on its own: the system's file
- * picker and "save as", fingerprint unlock (Biometrics), keeping the screens out of screenshots,
- * Android's autofill settings, installing an update, and telling the app when it leaves the
- * screen and comes back.
+ * picker and "save as", Google's code scanner for a QR code, fingerprint unlock (Biometrics),
+ * keeping the screens out of screenshots, Android's autofill settings, installing an update, and
+ * telling the app when it leaves the screen and comes back.
  *
  * Files are read and written here, through the content resolver, off the main thread; what was
  * read (or read back after saving) goes to the app as bytes. Nothing here sees a password or the
@@ -91,6 +94,29 @@ public class VaultActivity extends NativeActivity {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    // ---- the camera ----
+
+    /**
+     * Google's code scanner (Play services), for the QR code a computer shows under Add a
+     * device ({@code purpose} says where its line goes). Its camera screen is Play services'
+     * own, so this app needs no camera permission and sees only the code's text. The answer
+     * comes to {@link #scanned}: the text, nothing when cancelled, or "unavailable" when the
+     * phone has no Play services (the line can be pasted instead).
+     */
+    public void scanCode(int purpose) {
+        runOnUiThread(() -> {
+            away = true;
+            GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
+                    .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                    .enableAutoZoom()
+                    .build();
+            GmsBarcodeScanning.getClient(this, options).startScan()
+                    .addOnSuccessListener(code -> scanned(purpose, code.getRawValue(), null))
+                    .addOnCanceledListener(() -> scanned(purpose, null, null))
+                    .addOnFailureListener(e -> scanned(purpose, null, "unavailable"));
+        });
     }
 
     // ---- fingerprint unlock ----
@@ -329,6 +355,9 @@ public class VaultActivity extends NativeActivity {
 
     /** A file was chosen and read ({@code data}), or not ({@code data} null: cancelled, or {@code error}). */
     private static native void opened(String name, byte[] data, String error);
+
+    /** A QR code's text, or none: cancelled, or {@code error} ("unavailable": no Play services). */
+    private static native void scanned(int purpose, String text, String error);
 
     /** A copy was saved at {@code uri} and read back ({@code readBack}), or not. */
     private static native void saved(String uri, String name, byte[] readBack, String error);

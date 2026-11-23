@@ -315,8 +315,8 @@ msgid "No vault on this phone yet"
 msgstr "Nenhum cofre neste celular ainda"
 
 msgctxt "PhoneWindow"
-msgid "Open the vault you made on your computer: from its file, or through your vault server."
-msgstr "Abra o cofre que você criou no computador: pelo arquivo ou pelo seu servidor de cofre."
+msgid "Open the vault you made on your computer: through your vault server, or from its file."
+msgstr "Abra o cofre que você criou no computador: pelo seu servidor de cofre ou pelo arquivo."
 
 msgctxt "PhoneWindow"
 msgid "From its file"
@@ -2199,3 +2199,35 @@ msgstr "Nomes e sobrenomes são fáceis de adivinhar."
 msgctxt "Messages"
 msgid "Too short and predictable."
 msgstr "Curta demais e previsível."
+
+msgctxt "PhoneWindow"
+msgid "On the computer: Settings, Sync, Add a device. Scan the QR code it shows, or paste its line below."
+msgstr "No computador: Configurações, Sincronização, Adicionar um aparelho. Escaneie o QR code que ele mostra ou cole a linha dele abaixo."
+
+msgctxt "PhoneWindow"
+msgid "Scan the QR code"
+msgstr "Escanear o QR code"
+
+msgctxt "PhoneWindow"
+msgid "Set up with the line"
+msgstr "Configurar com a linha"
+
+msgctxt "PhoneWindow"
+msgid "Keep this phone and your computers the same through your vault server. On the computer: Settings, Sync, Add a device. Then scan the QR code it shows, or paste its line here."
+msgstr "Mantenha este celular e seus computadores iguais pelo seu servidor de cofre. No computador: Configurações, Sincronização, Adicionar um aparelho. Depois escaneie o QR code que ele mostra ou cole a linha dele aqui."
+
+msgctxt "Words"
+msgid "The phone couldn't be set up from the server ({})."
+msgstr "Não foi possível configurar o celular pelo servidor ({})."
+
+msgctxt "Words"
+msgid "That isn't an invite. On the computer: Settings, Sync, Add a device; scan its QR code, or paste the whole line that starts with vaultsync:."
+msgstr "Isso não é um convite. No computador: Configurações, Sincronização, Adicionar um aparelho; escaneie o QR code dele ou cole a linha inteira que começa com vaultsync:."
+
+msgctxt "Words"
+msgid "This phone can't scan QR codes: Google's code scanner comes with Google Play services. Paste the line instead."
+msgstr "Este celular não consegue escanear QR codes: o leitor do Google vem com o Google Play services. Cole a linha."
+
+msgctxt "Words"
+msgid "The QR code can't be scanned ({}). Paste the line instead."
+msgstr "Não foi possível escanear o QR code ({}). Cole a linha."

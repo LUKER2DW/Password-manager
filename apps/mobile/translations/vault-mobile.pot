@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: vault-mobile VERSION\n"
-"POT-Creation-Date: 2026-11-23 05:03+0000\n"
+"POT-Creation-Date: 2026-11-23 07:20+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -157,311 +157,334 @@ msgctxt "Words"
 msgid "The update couldn't be fetched ({})."
 msgstr ""
 
+#: ui/app.slint:104
+msgctxt "Words"
+msgid "The phone couldn't be set up from the server ({})."
+msgstr ""
+
+#: ui/app.slint:105
+msgctxt "Words"
+msgid ""
+"That isn't an invite. On the computer: Settings, Sync, Add a device; scan "
+"its QR code, or paste the whole line that starts with vaultsync:."
+msgstr ""
+
+#: ui/app.slint:106
+msgctxt "Words"
+msgid ""
+"This phone can't scan QR codes: Google's code scanner comes with Google Play "
+"services. Paste the line instead."
+msgstr ""
+
 #: ui/app.slint:107
 msgctxt "Words"
-msgid "Password copied. The clipboard is cleared in {} seconds."
-msgstr ""
-
-#: ui/app.slint:108
-msgctxt "Words"
-msgid "Username copied."
-msgstr ""
-
-#: ui/app.slint:109
-msgctxt "Words"
-msgid "Saved."
-msgstr ""
-
-#: ui/app.slint:110
-msgctxt "Words"
-msgid "“{}” deleted."
+msgid "The QR code can't be scanned ({}). Paste the line instead."
 msgstr ""
 
 #: ui/app.slint:111
 msgctxt "Words"
-msgid "Code copied. The clipboard is cleared in {} seconds."
+msgid "Password copied. The clipboard is cleared in {} seconds."
 msgstr ""
 
 #: ui/app.slint:112
 msgctxt "Words"
-msgid "Website copied."
+msgid "Username copied."
 msgstr ""
 
 #: ui/app.slint:113
 msgctxt "Words"
-msgid "Copied. The clipboard is cleared in {} seconds."
+msgid "Saved."
 msgstr ""
 
 #: ui/app.slint:114
+msgctxt "Words"
+msgid "“{}” deleted."
+msgstr ""
+
+#: ui/app.slint:115
+msgctxt "Words"
+msgid "Code copied. The clipboard is cleared in {} seconds."
+msgstr ""
+
+#: ui/app.slint:116
+msgctxt "Words"
+msgid "Website copied."
+msgstr ""
+
+#: ui/app.slint:117
+msgctxt "Words"
+msgid "Copied. The clipboard is cleared in {} seconds."
+msgstr ""
+
+#: ui/app.slint:118
 msgctxt "Words"
 msgid ""
 "This phone's record of the vault's newest version couldn't be read, so it "
 "started again. The old file was kept."
 msgstr ""
 
-#: ui/app.slint:115
+#: ui/app.slint:119
 msgctxt "Words"
 msgid "Synced: {} changes came from your other devices."
 msgstr ""
 
-#: ui/app.slint:116
+#: ui/app.slint:120
 msgctxt "Words"
 msgid ""
 "Master password changed. Your other devices ask for the new one at their "
 "next unlock."
 msgstr ""
 
-#: ui/app.slint:117
+#: ui/app.slint:121
 msgctxt "Words"
 msgid "Backup confirmed: {}. It was read back and opens with this vault's key."
 msgstr ""
 
-#: ui/app.slint:118
+#: ui/app.slint:122
 msgctxt "Words"
 msgid "File saved."
 msgstr ""
 
-#: ui/app.slint:119
+#: ui/app.slint:123
 msgctxt "Words"
 msgid "Copied."
 msgstr ""
 
-#: ui/app.slint:120
+#: ui/app.slint:124
 msgctxt "Words"
 msgid "Fingerprint unlock is on for this vault."
 msgstr ""
 
-#: ui/app.slint:121
+#: ui/app.slint:125
 msgctxt "Words"
 msgid "“{}” removed: it gets nothing new from now on."
 msgstr ""
 
-#: ui/app.slint:122
+#: ui/app.slint:126
 msgctxt "Words"
 msgid ""
 "Fingerprint unlock was turned off because the master password changed. Turn "
 "it on again in Settings, Security."
 msgstr ""
 
-#: ui/app.slint:123
+#: ui/app.slint:127
 msgctxt "Words"
 msgid "“{}” was removed from this phone."
 msgstr ""
 
-#: ui/app.slint:124
+#: ui/app.slint:128
 msgctxt "Words"
 msgid "Backup server added: the vault syncs through both from now on."
 msgstr ""
 
-#: ui/app.slint:125
+#: ui/app.slint:129
 msgctxt "Words"
 msgid "The server's address changed. This phone's key there stays the same."
 msgstr ""
 
-#: ui/app.slint:126
+#: ui/app.slint:130
 msgctxt "Words"
 msgid "{} logins saved from other apps while the vault was locked were added."
 msgstr ""
 
-#: ui/app.slint:127
+#: ui/app.slint:131
 msgctxt "Words"
 msgid ""
 "{} of your passwords turned up in a data breach since the last check. They "
 "are marked in the list: change them where you use them."
 msgstr ""
 
-#: ui/app.slint:317
+#: ui/app.slint:321
 msgctxt "VaultChoice"
 msgid "Unnamed vault"
 msgstr ""
 
-#: ui/app.slint:325
+#: ui/app.slint:329
 msgctxt "VaultChoice"
 msgid "Open, syncs through {}"
 msgstr ""
 
-#: ui/app.slint:325
+#: ui/app.slint:329
 msgctxt "VaultChoice"
 msgid "Open, not syncing"
 msgstr ""
 
-#: ui/app.slint:326
+#: ui/app.slint:330
 msgctxt "VaultChoice"
 msgid "Locked, syncs through {}"
 msgstr ""
 
-#: ui/app.slint:326
+#: ui/app.slint:330
 msgctxt "VaultChoice"
 msgid "Locked, not syncing"
 msgstr ""
 
-#: ui/app.slint:663
+#: ui/app.slint:667
 msgctxt "SecretKeyboard"
 msgid "Delete"
 msgstr ""
 
-#: ui/app.slint:678
+#: ui/app.slint:682
 msgctxt "SecretKeyboard"
 msgid "Paste"
 msgstr ""
 
-#: ui/app.slint:684
+#: ui/app.slint:688
 msgctxt "SecretKeyboard"
 msgid "Space"
 msgstr ""
 
-#: ui/app.slint:691
+#: ui/app.slint:695
 msgctxt "SecretKeyboard"
 msgid "Hide the keyboard"
 msgstr ""
 
-#: ui/app.slint:696
+#: ui/app.slint:700
 msgctxt "SecretKeyboard"
 msgid "Done"
 msgstr ""
 
 #. 0 all, 1 favourites, 2 logins, 3 cards, 4 notes
-#: ui/app.slint:751
+#: ui/app.slint:759
 msgctxt "PhoneWindow"
 msgid "All"
 msgstr ""
 
 #. 0 all, 1 favourites, 2 logins, 3 cards, 4 notes
-#: ui/app.slint:751
+#: ui/app.slint:759
 msgctxt "PhoneWindow"
 msgid "Favourites"
 msgstr ""
 
 #. 0 all, 1 favourites, 2 logins, 3 cards, 4 notes
-#: ui/app.slint:751
+#: ui/app.slint:759
 msgctxt "PhoneWindow"
 msgid "Logins"
 msgstr ""
 
 #. 0 all, 1 favourites, 2 logins, 3 cards, 4 notes
-#: ui/app.slint:751
+#: ui/app.slint:759
 msgctxt "PhoneWindow"
 msgid "Cards"
 msgstr ""
 
 #. 0 all, 1 favourites, 2 logins, 3 cards, 4 notes
-#: ui/app.slint:751 ui/app.slint:2724 ui/app.slint:2921
+#: ui/app.slint:759 ui/app.slint:2768 ui/app.slint:2965
 msgctxt "PhoneWindow"
 msgid "Notes"
 msgstr ""
 
 #. 0 all, 1 favourites, 2 logins, 3 cards, 4 notes
-#: ui/app.slint:751 ui/app.slint:2760
+#: ui/app.slint:759 ui/app.slint:2804
 msgctxt "PhoneWindow"
 msgid "SSH"
 msgstr ""
 
-#: ui/app.slint:876
+#: ui/app.slint:884
 msgctxt "PhoneWindow"
 msgid "Security"
 msgstr ""
 
-#: ui/app.slint:876
+#: ui/app.slint:884
 msgctxt "PhoneWindow"
 msgid "Autofill"
 msgstr ""
 
-#: ui/app.slint:876 ui/app.slint:1281 ui/app.slint:1857 ui/app.slint:2537
-#: ui/app.slint:876 ui/app.slint:1281 ui/app.slint:1857 ui/app.slint:2537
+#: ui/app.slint:884 ui/app.slint:1317 ui/app.slint:1893 ui/app.slint:2581
+#: ui/app.slint:884 ui/app.slint:1317 ui/app.slint:1893 ui/app.slint:2581
 msgctxt "PhoneWindow"
 msgid "Vault"
 msgstr ""
 
-#: ui/app.slint:876
+#: ui/app.slint:884
 msgctxt "PhoneWindow"
 msgid "Import and export"
 msgstr ""
 
-#: ui/app.slint:876
+#: ui/app.slint:884
 msgctxt "PhoneWindow"
 msgid "Sync"
 msgstr ""
 
-#: ui/app.slint:876
+#: ui/app.slint:884
 msgctxt "PhoneWindow"
 msgid "Appearance"
 msgstr ""
 
-#: ui/app.slint:876
+#: ui/app.slint:884
 msgctxt "PhoneWindow"
 msgid "Updates"
 msgstr ""
 
-#: ui/app.slint:876
+#: ui/app.slint:884
 msgctxt "PhoneWindow"
 msgid "About"
 msgstr ""
 
 #. The words of the system's fingerprint prompt.
-#: ui/app.slint:887
+#: ui/app.slint:895
 msgctxt "PhoneWindow"
 msgid "Open your vault"
 msgstr ""
 
-#: ui/app.slint:888
+#: ui/app.slint:896
 msgctxt "PhoneWindow"
 msgid "Turn on fingerprint unlock"
 msgstr ""
 
-#: ui/app.slint:889
+#: ui/app.slint:897
 msgctxt "PhoneWindow"
 msgid "Use the master password"
 msgstr ""
 
-#: ui/app.slint:1067 ui/app.slint:1915 ui/app.slint:3020
+#: ui/app.slint:1083 ui/app.slint:1951 ui/app.slint:3064
 msgctxt "PhoneWindow"
 msgid "Add a vault"
 msgstr ""
 
-#: ui/app.slint:1067
+#: ui/app.slint:1083
 msgctxt "PhoneWindow"
 msgid "No vault on this phone yet"
 msgstr ""
 
-#: ui/app.slint:1074
+#: ui/app.slint:1090
 msgctxt "PhoneWindow"
 msgid ""
-"Open the vault you made on your computer: from its file, or through your "
-"vault server."
+"Open the vault you made on your computer: through your vault server, or from "
+"its file."
 msgstr ""
 
-#: ui/app.slint:1089
-msgctxt "PhoneWindow"
-msgid "From its file"
-msgstr ""
-
-#: ui/app.slint:1091
-msgctxt "PhoneWindow"
-msgid ""
-"Copy the .vault file to the phone (a USB cable, Quick Share, a folder you "
-"sync) and choose it. It works offline; sync can be turned on later in "
-"Settings."
-msgstr ""
-
-#: ui/app.slint:1097
-msgctxt "PhoneWindow"
-msgid "Choose the vault file"
-msgstr ""
-
-#: ui/app.slint:1112
+#: ui/app.slint:1105
 msgctxt "PhoneWindow"
 msgid "From your vault server"
 msgstr ""
 
-#: ui/app.slint:1114
+#: ui/app.slint:1108
+msgctxt "PhoneWindow"
+msgid ""
+"On the computer: Settings, Sync, Add a device. Scan the QR code it shows, or "
+"paste its line below."
+msgstr ""
+
+#: ui/app.slint:1109
 msgctxt "PhoneWindow"
 msgid ""
 "On the computer: Settings, Sync, Add a device. Paste the line it shows here."
 msgstr ""
 
-#: ui/app.slint:1126 ui/app.slint:1133
+#: ui/app.slint:1115 ui/app.slint:1126 ui/app.slint:1133
 msgctxt "PhoneWindow"
 msgid "Fetching the vault…"
+msgstr ""
+
+#: ui/app.slint:1115 ui/app.slint:2139
+msgctxt "PhoneWindow"
+msgid "Scan the QR code"
+msgstr ""
+
+#: ui/app.slint:1126
+msgctxt "PhoneWindow"
+msgid "Set up with the line"
 msgstr ""
 
 #: ui/app.slint:1126 ui/app.slint:1133
@@ -469,373 +492,391 @@ msgctxt "PhoneWindow"
 msgid "Set up from the server"
 msgstr ""
 
-#: ui/app.slint:1141
+#: ui/app.slint:1153
+msgctxt "PhoneWindow"
+msgid "From its file"
+msgstr ""
+
+#: ui/app.slint:1155
+msgctxt "PhoneWindow"
+msgid ""
+"Copy the .vault file to the phone (a USB cable, Quick Share, a folder you "
+"sync) and choose it. It works offline; sync can be turned on later in "
+"Settings."
+msgstr ""
+
+#: ui/app.slint:1161
+msgctxt "PhoneWindow"
+msgid "Choose the vault file"
+msgstr ""
+
+#: ui/app.slint:1173
 msgctxt "PhoneWindow"
 msgid "Back to my vault"
 msgstr ""
 
-#: ui/app.slint:1145
+#: ui/app.slint:1177
 msgctxt "PhoneWindow"
 msgid ""
 "Neither the server nor the file opens the vault on its own: it also needs "
 "your master password and the Secret Key from your emergency kit."
 msgstr ""
 
-#: ui/app.slint:1177
+#: ui/app.slint:1213
 msgctxt "PhoneWindow"
 msgid "Your vault"
 msgstr ""
 
-#: ui/app.slint:1185
+#: ui/app.slint:1221
 msgctxt "PhoneWindow"
 msgid ""
 "First time on this phone: it needs the Secret Key from your emergency kit, "
 "once."
 msgstr ""
 
-#: ui/app.slint:1187
+#: ui/app.slint:1223
 msgctxt "PhoneWindow"
 msgid ""
 "Type your master password. The file you chose replaces the phone's copy once "
 "it opens."
 msgstr ""
 
-#: ui/app.slint:1188
+#: ui/app.slint:1224
 msgctxt "PhoneWindow"
 msgid "Locked. Type your master password to open it."
 msgstr ""
 
-#: ui/app.slint:1195
+#: ui/app.slint:1231
 msgctxt "PhoneWindow"
 msgid "Secret Key"
 msgstr ""
 
-#: ui/app.slint:1204 ui/app.slint:1792 ui/app.slint:2633
+#: ui/app.slint:1240 ui/app.slint:1828 ui/app.slint:2677
 msgctxt "PhoneWindow"
 msgid "Master password"
 msgstr ""
 
-#: ui/app.slint:1212
+#: ui/app.slint:1248
 msgctxt "PhoneWindow"
 msgid "Open my vault"
 msgstr ""
 
-#: ui/app.slint:1214
+#: ui/app.slint:1250
 msgctxt "PhoneWindow"
 msgid "Opening…"
 msgstr ""
 
-#: ui/app.slint:1218
+#: ui/app.slint:1254
 msgctxt "PhoneWindow"
 msgid "Unlock with fingerprint"
 msgstr ""
 
-#: ui/app.slint:1224
+#: ui/app.slint:1260
 msgctxt "PhoneWindow"
 msgid ""
 "Fingerprint unlock comes back once you type the master password: it is asked "
 "every 14 days."
 msgstr ""
 
-#: ui/app.slint:1234
+#: ui/app.slint:1270
 msgctxt "PhoneWindow"
 msgid "Another vault"
 msgstr ""
 
-#: ui/app.slint:1261
+#: ui/app.slint:1297
 msgctxt "PhoneWindow"
 msgid "Another file"
 msgstr ""
 
-#: ui/app.slint:1262 ui/app.slint:1844 ui/app.slint:1955 ui/app.slint:2280
-#: ui/app.slint:1262 ui/app.slint:1844 ui/app.slint:1955 ui/app.slint:2280 ui/app.slint:2371 ui/app.slint:2748
+#: ui/app.slint:1298 ui/app.slint:1880 ui/app.slint:1991 ui/app.slint:2324
+#: ui/app.slint:1298 ui/app.slint:1880 ui/app.slint:1991 ui/app.slint:2324 ui/app.slint:2415 ui/app.slint:2792
 msgctxt "PhoneWindow"
 msgid "Cancel"
 msgstr ""
 
-#: ui/app.slint:1282 ui/app.slint:2747
+#: ui/app.slint:1318 ui/app.slint:2791
 msgctxt "PhoneWindow"
 msgid "New"
 msgstr ""
 
-#: ui/app.slint:1308
+#: ui/app.slint:1344
 msgctxt "PhoneWindow"
 msgid "Search {} items"
 msgstr ""
 
-#: ui/app.slint:1324
+#: ui/app.slint:1360
 msgctxt "PhoneWindow"
 msgid "Search"
 msgstr ""
 
-#: ui/app.slint:1349
+#: ui/app.slint:1385
 msgctxt "PhoneWindow"
 msgid "Nothing saved yet"
 msgstr ""
 
-#: ui/app.slint:1349
+#: ui/app.slint:1385
 msgctxt "PhoneWindow"
 msgid "Nothing matches"
 msgstr ""
 
-#: ui/app.slint:1356
+#: ui/app.slint:1392
 msgctxt "PhoneWindow"
 msgid "Tap New to save your first login or note."
 msgstr ""
 
-#: ui/app.slint:1357
+#: ui/app.slint:1393
 msgctxt "PhoneWindow"
 msgid "Try another word, or look under All."
 msgstr ""
 
-#: ui/app.slint:1430 ui/app.slint:2538
+#: ui/app.slint:1466 ui/app.slint:2582
 msgctxt "PhoneWindow"
 msgid "Codes"
 msgstr ""
 
-#: ui/app.slint:1431
+#: ui/app.slint:1467
 msgctxt "PhoneWindow"
 msgid "Add"
 msgstr ""
 
-#: ui/app.slint:1441
+#: ui/app.slint:1477
 msgctxt "PhoneWindow"
 msgid "No one-time codes yet"
 msgstr ""
 
-#: ui/app.slint:1447
+#: ui/app.slint:1483
 msgctxt "PhoneWindow"
 msgid ""
 "When a site offers two-step sign-in with an authenticator app, tap Add and "
 "paste the setup key it shows. The six digits then show up on this page."
 msgstr ""
 
-#: ui/app.slint:1483
+#: ui/app.slint:1519
 msgctxt "PhoneWindow"
 msgid "Locked: open the login first"
 msgstr ""
 
-#: ui/app.slint:1517 ui/app.slint:2539
+#: ui/app.slint:1553 ui/app.slint:2583
 msgctxt "PhoneWindow"
 msgid "Generator"
 msgstr ""
 
-#: ui/app.slint:1550
+#: ui/app.slint:1586
 msgctxt "PhoneWindow"
 msgid "Characters"
 msgstr ""
 
-#: ui/app.slint:1550 ui/app.slint:1612 ui/app.slint:1616
+#: ui/app.slint:1586 ui/app.slint:1648 ui/app.slint:1652
 msgctxt "PhoneWindow"
 msgid "Words"
 msgstr ""
 
-#: ui/app.slint:1557 ui/app.slint:1561
+#: ui/app.slint:1593 ui/app.slint:1597
 msgctxt "PhoneWindow"
 msgid "Length"
 msgstr ""
 
-#: ui/app.slint:1567
+#: ui/app.slint:1603
 msgctxt "PhoneWindow"
 msgid "Capital letters"
 msgstr ""
 
-#: ui/app.slint:1568
+#: ui/app.slint:1604
 msgctxt "PhoneWindow"
 msgid "Small letters"
 msgstr ""
 
-#: ui/app.slint:1569
+#: ui/app.slint:1605
 msgctxt "PhoneWindow"
 msgid "Digits"
 msgstr ""
 
-#: ui/app.slint:1570
+#: ui/app.slint:1606
 msgctxt "PhoneWindow"
 msgid "Symbols"
 msgstr ""
 
-#: ui/app.slint:1576
+#: ui/app.slint:1612
 msgctxt "PhoneWindow"
 msgid "Fewer options"
 msgstr ""
 
-#: ui/app.slint:1576
+#: ui/app.slint:1612
 msgctxt "PhoneWindow"
 msgid "Advanced options"
 msgstr ""
 
-#: ui/app.slint:1583
+#: ui/app.slint:1619
 msgctxt "PhoneWindow"
 msgid ""
 "For sites with rules: at least this many of each kind. The length grows if "
 "they need more room."
 msgstr ""
 
-#: ui/app.slint:1588
+#: ui/app.slint:1624
 msgctxt "PhoneWindow"
 msgid "Capitals, at least"
 msgstr ""
 
-#: ui/app.slint:1589
+#: ui/app.slint:1625
 msgctxt "PhoneWindow"
 msgid "Small letters, at least"
 msgstr ""
 
-#: ui/app.slint:1590
+#: ui/app.slint:1626
 msgctxt "PhoneWindow"
 msgid "Digits, at least"
 msgstr ""
 
-#: ui/app.slint:1591
+#: ui/app.slint:1627
 msgctxt "PhoneWindow"
 msgid "Symbols, at least"
 msgstr ""
 
-#: ui/app.slint:1592
+#: ui/app.slint:1628
 msgctxt "PhoneWindow"
 msgid "Leave out look-alikes (I l 1 O 0 o |)"
 msgstr ""
 
-#: ui/app.slint:1594
+#: ui/app.slint:1630
 msgctxt "PhoneWindow"
 msgid "Also use"
 msgstr ""
 
-#: ui/app.slint:1595
+#: ui/app.slint:1631
 msgctxt "PhoneWindow"
 msgid "e.g. ñ€"
 msgstr ""
 
-#: ui/app.slint:1601
+#: ui/app.slint:1637
 msgctxt "PhoneWindow"
 msgid "Never use"
 msgstr ""
 
-#: ui/app.slint:1602
+#: ui/app.slint:1638
 msgctxt "PhoneWindow"
 msgid "e.g. <>'\""
 msgstr ""
 
-#: ui/app.slint:1622
+#: ui/app.slint:1658
 msgctxt "PhoneWindow"
 msgid "Letters"
 msgstr ""
 
-#: ui/app.slint:1624
+#: ui/app.slint:1660
 msgctxt "PhoneWindow"
 msgid "abc"
 msgstr ""
 
-#: ui/app.slint:1624
+#: ui/app.slint:1660
 msgctxt "PhoneWindow"
 msgid "Abc"
 msgstr ""
 
-#: ui/app.slint:1624
+#: ui/app.slint:1660
 msgctxt "PhoneWindow"
 msgid "ABC"
 msgstr ""
 
-#: ui/app.slint:1624
+#: ui/app.slint:1660
 msgctxt "PhoneWindow"
 msgid "Mixed"
 msgstr ""
 
-#: ui/app.slint:1628
+#: ui/app.slint:1664
 msgctxt "PhoneWindow"
 msgid "Between the words"
 msgstr ""
 
-#: ui/app.slint:1630
+#: ui/app.slint:1666
 msgctxt "PhoneWindow"
 msgid "Space"
 msgstr ""
 
-#: ui/app.slint:1634
+#: ui/app.slint:1670
 msgctxt "PhoneWindow"
 msgid "Add a digit to one word"
 msgstr ""
 
-#: ui/app.slint:1647
+#: ui/app.slint:1683
 msgctxt "PhoneWindow"
 msgid "Another"
 msgstr ""
 
-#: ui/app.slint:1655 ui/app.slint:2605 ui/app.slint:2651 ui/app.slint:2659
-#: ui/app.slint:1655 ui/app.slint:2605 ui/app.slint:2651 ui/app.slint:2659 ui/app.slint:2720
+#: ui/app.slint:1691 ui/app.slint:2649 ui/app.slint:2695 ui/app.slint:2703
+#: ui/app.slint:1691 ui/app.slint:2649 ui/app.slint:2695 ui/app.slint:2703 ui/app.slint:2764
 msgctxt "PhoneWindow"
 msgid "Copy"
 msgstr ""
 
-#: ui/app.slint:1665 ui/app.slint:1666 ui/app.slint:2540
+#: ui/app.slint:1701 ui/app.slint:1702 ui/app.slint:2584
 msgctxt "PhoneWindow"
 msgid "Settings"
 msgstr ""
 
-#: ui/app.slint:1683
+#: ui/app.slint:1719
 msgctxt "PhoneWindow"
 msgid "Master password, fingerprint, locking, screenshots, clipboard"
 msgstr ""
 
-#: ui/app.slint:1689
+#: ui/app.slint:1725
 msgctxt "PhoneWindow"
 msgid "On: Android fills in logins from this vault"
 msgstr ""
 
-#: ui/app.slint:1689
+#: ui/app.slint:1725
 msgctxt "PhoneWindow"
 msgid "Off"
 msgstr ""
 
-#: ui/app.slint:1695
+#: ui/app.slint:1731
 msgctxt "PhoneWindow"
 msgid "{n} vault on this phone"
 msgid_plural "{n} vaults on this phone"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/app.slint:1701
+#: ui/app.slint:1737
 msgctxt "PhoneWindow"
 msgid "A copy of the vault, a newer copy, another manager's export"
 msgstr ""
 
-#: ui/app.slint:1707
+#: ui/app.slint:1743
 msgctxt "PhoneWindow"
 msgid "Off: this vault works offline"
 msgstr ""
 
-#: ui/app.slint:1713
+#: ui/app.slint:1749
 msgctxt "PhoneWindow"
 msgid "Theme, language, background, website icons"
 msgstr ""
 
-#: ui/app.slint:1719
+#: ui/app.slint:1755
 msgctxt "PhoneWindow"
 msgid "Version {} is ready"
 msgstr ""
 
-#: ui/app.slint:1719 ui/app.slint:2465
+#: ui/app.slint:1755 ui/app.slint:2509
 msgctxt "PhoneWindow"
 msgid "Version {}"
 msgstr ""
 
-#: ui/app.slint:1725
+#: ui/app.slint:1761
 msgctxt "PhoneWindow"
 msgid "Version {}, licence, what is still to come"
 msgstr ""
 
-#: ui/app.slint:1733
+#: ui/app.slint:1769
 msgctxt "PhoneWindow"
 msgid "Fingerprint unlock"
 msgstr ""
 
-#: ui/app.slint:1735
+#: ui/app.slint:1771
 msgctxt "PhoneWindow"
 msgid "Unlock with a fingerprint or face"
 msgstr ""
 
-#: ui/app.slint:1741
+#: ui/app.slint:1777
 msgctxt "PhoneWindow"
 msgid ""
 "The phone's secure hardware keeps a key that only your fingerprint (or face) "
@@ -843,59 +884,59 @@ msgid ""
 "every 14 days, and after it changes."
 msgstr ""
 
-#: ui/app.slint:1742
+#: ui/app.slint:1778
 msgctxt "PhoneWindow"
 msgid ""
 "This phone has no fingerprint or face unlock that Android counts as strong. "
 "Set one up in Android's settings to use it here."
 msgstr ""
 
-#: ui/app.slint:1749
+#: ui/app.slint:1785
 msgctxt "PhoneWindow"
 msgid "Lock by itself after"
 msgstr ""
 
-#: ui/app.slint:1751 ui/app.slint:1763
+#: ui/app.slint:1787 ui/app.slint:1799
 msgctxt "PhoneWindow"
 msgid "1 minute"
 msgstr ""
 
-#: ui/app.slint:1751
+#: ui/app.slint:1787
 msgctxt "PhoneWindow"
 msgid "5 minutes"
 msgstr ""
 
-#: ui/app.slint:1751
+#: ui/app.slint:1787
 msgctxt "PhoneWindow"
 msgid "15 minutes"
 msgstr ""
 
-#: ui/app.slint:1756
+#: ui/app.slint:1792
 msgctxt "PhoneWindow"
 msgid "Lock as soon as I leave the app"
 msgstr ""
 
-#: ui/app.slint:1761
+#: ui/app.slint:1797
 msgctxt "PhoneWindow"
 msgid "Clear a copied secret from the clipboard after"
 msgstr ""
 
-#: ui/app.slint:1763
+#: ui/app.slint:1799
 msgctxt "PhoneWindow"
 msgid "15 seconds"
 msgstr ""
 
-#: ui/app.slint:1763
+#: ui/app.slint:1799
 msgctxt "PhoneWindow"
 msgid "30 seconds"
 msgstr ""
 
-#: ui/app.slint:1769
+#: ui/app.slint:1805
 msgctxt "PhoneWindow"
 msgid "Watch for leaked passwords every day"
 msgstr ""
 
-#: ui/app.slint:1774
+#: ui/app.slint:1810
 msgctxt "PhoneWindow"
 msgid ""
 "Once a day while the vault is open, every login's password is checked "
@@ -905,12 +946,12 @@ msgid ""
 "marks it in the list."
 msgstr ""
 
-#: ui/app.slint:1781
+#: ui/app.slint:1817
 msgctxt "PhoneWindow"
 msgid "Allow screenshots"
 msgstr ""
 
-#: ui/app.slint:1786
+#: ui/app.slint:1822
 msgctxt "PhoneWindow"
 msgid ""
 "While it is off, the app stays out of screenshots, screen recordings and the "
@@ -918,54 +959,54 @@ msgid ""
 "on screen."
 msgstr ""
 
-#: ui/app.slint:1796
+#: ui/app.slint:1832
 msgctxt "PhoneWindow"
 msgid "Change master password"
 msgstr ""
 
-#: ui/app.slint:1806
+#: ui/app.slint:1842
 msgctxt "PhoneWindow"
 msgid ""
 "The Secret Key and your emergency kit's recovery parts stay the same. "
 "Devices that sync this vault ask for the new password at their next unlock."
 msgstr ""
 
-#: ui/app.slint:1814
+#: ui/app.slint:1850
 msgctxt "PhoneWindow"
 msgid "Current master password"
 msgstr ""
 
-#: ui/app.slint:1821
+#: ui/app.slint:1857
 msgctxt "PhoneWindow"
 msgid "New master password"
 msgstr ""
 
-#: ui/app.slint:1827
+#: ui/app.slint:1863
 msgctxt "PhoneWindow"
 msgid "Type it again"
 msgstr ""
 
-#: ui/app.slint:1838
+#: ui/app.slint:1874
 msgctxt "PhoneWindow"
 msgid "Changing…"
 msgstr ""
 
-#: ui/app.slint:1838
+#: ui/app.slint:1874
 msgctxt "PhoneWindow"
 msgid "Change password"
 msgstr ""
 
-#: ui/app.slint:1855
+#: ui/app.slint:1891
 msgctxt "PhoneWindow"
 msgid "Autofill service"
 msgstr ""
 
-#: ui/app.slint:1857
+#: ui/app.slint:1893
 msgctxt "PhoneWindow"
 msgid "Another app, or none"
 msgstr ""
 
-#: ui/app.slint:1860
+#: ui/app.slint:1896
 msgctxt "PhoneWindow"
 msgid ""
 "With Vault as Android's autofill service, a sign-in form in another app or "
@@ -973,7 +1014,7 @@ msgid ""
 "it asks for your fingerprint first, if fingerprint unlock is on."
 msgstr ""
 
-#: ui/app.slint:1866
+#: ui/app.slint:1902
 msgctxt "PhoneWindow"
 msgid ""
 "A website's logins are offered on that site only: its exact address, or "
@@ -982,49 +1023,49 @@ msgid ""
 "com.example.app."
 msgstr ""
 
-#: ui/app.slint:1874
+#: ui/app.slint:1910
 msgctxt "PhoneWindow"
 msgid "Change it in Android's settings"
 msgstr ""
 
-#: ui/app.slint:1874
+#: ui/app.slint:1910
 msgctxt "PhoneWindow"
 msgid "Turn it on in Android's settings"
 msgstr ""
 
-#: ui/app.slint:1881
+#: ui/app.slint:1917
 msgctxt "PhoneWindow"
 msgid ""
 "Some browsers ask for one more step: turn on “Autofill using another "
 "service” in the browser's own settings."
 msgstr ""
 
-#: ui/app.slint:1892
+#: ui/app.slint:1928
 msgctxt "PhoneWindow"
 msgid "This vault"
 msgstr ""
 
-#: ui/app.slint:1894
+#: ui/app.slint:1930
 msgctxt "PhoneWindow"
 msgid "Unnamed vault"
 msgstr ""
 
-#: ui/app.slint:1896
+#: ui/app.slint:1932
 msgctxt "PhoneWindow"
 msgid "Items"
 msgstr ""
 
-#: ui/app.slint:1897
+#: ui/app.slint:1933
 msgctxt "PhoneWindow"
 msgid "File size"
 msgstr ""
 
-#: ui/app.slint:1898
+#: ui/app.slint:1934
 msgctxt "PhoneWindow"
 msgid "Kept in"
 msgstr ""
 
-#: ui/app.slint:1900
+#: ui/app.slint:1936
 msgctxt "PhoneWindow"
 msgid ""
 "The phone keeps its copy in the app's private storage, where other apps "
@@ -1032,24 +1073,24 @@ msgid ""
 "somewhere else, use Save a copy under Import and export."
 msgstr ""
 
-#: ui/app.slint:1906 ui/app.slint:3004
+#: ui/app.slint:1942 ui/app.slint:3048
 msgctxt "PhoneWindow"
 msgid "Vaults on this phone"
 msgstr ""
 
-#: ui/app.slint:1922
+#: ui/app.slint:1958
 msgctxt "PhoneWindow"
 msgid ""
 "Each vault opens with its own master password and Secret Key, and syncs on "
 "its own. The vault's name at the top of the list switches between them."
 msgstr ""
 
-#: ui/app.slint:1931
+#: ui/app.slint:1967
 msgctxt "PhoneWindow"
 msgid "Remove this vault from the phone"
 msgstr ""
 
-#: ui/app.slint:1940
+#: ui/app.slint:1976
 msgctxt "PhoneWindow"
 msgid ""
 "The phone's copy of this vault, its Secret Key and its fingerprint unlock "
@@ -1058,136 +1099,144 @@ msgid ""
 "first if you are unsure."
 msgstr ""
 
-#: ui/app.slint:1949
+#: ui/app.slint:1985
 msgctxt "PhoneWindow"
 msgid "Remove from this phone"
 msgstr ""
 
-#: ui/app.slint:1965
+#: ui/app.slint:2001
 msgctxt "PhoneWindow"
 msgid "A copy of this vault"
 msgstr ""
 
-#: ui/app.slint:1967
+#: ui/app.slint:2003
 msgctxt "PhoneWindow"
 msgid ""
 "This vault doesn't sync: it works offline. Changed it on the computer? Bring "
 "its newest file here, or join your vault server under Sync."
 msgstr ""
 
-#: ui/app.slint:1967
+#: ui/app.slint:2003
 msgctxt "PhoneWindow"
 msgid ""
 "A copy from elsewhere (a backup, another computer) can still be brought in "
 "by hand."
 msgstr ""
 
-#: ui/app.slint:1980
+#: ui/app.slint:2016
 msgctxt "PhoneWindow"
 msgid "Bring a newer copy"
 msgstr ""
 
-#: ui/app.slint:1989
+#: ui/app.slint:2025
 msgctxt "PhoneWindow"
 msgid "Save a copy"
 msgstr ""
 
-#: ui/app.slint:1997
+#: ui/app.slint:2033
 msgctxt "PhoneWindow"
 msgid "Last copy saved and checked: {}"
 msgstr ""
 
-#: ui/app.slint:1998
+#: ui/app.slint:2034
 msgctxt "PhoneWindow"
 msgid ""
 "A saved copy is read back and checked before the app calls it a backup. It "
 "opens only with your master password and Secret Key."
 msgstr ""
 
-#: ui/app.slint:2008
+#: ui/app.slint:2044
 msgctxt "PhoneWindow"
 msgid "From another password manager"
 msgstr ""
 
-#: ui/app.slint:2010
+#: ui/app.slint:2046
 msgctxt "PhoneWindow"
 msgid ""
 "Its export: a JSON or CSV file, a KeePass database (.kdbx), or this app's "
 "protected export (.vaultx). Logins already in the vault are skipped."
 msgstr ""
 
-#: ui/app.slint:2018
+#: ui/app.slint:2054
 msgctxt "PhoneWindow"
 msgid "The file's password, if it has one"
 msgstr ""
 
-#: ui/app.slint:2025
+#: ui/app.slint:2061
 msgctxt "PhoneWindow"
 msgid "Importing…"
 msgstr ""
 
-#: ui/app.slint:2025
+#: ui/app.slint:2061
 msgctxt "PhoneWindow"
 msgid "Choose a file to import"
 msgstr ""
 
-#: ui/app.slint:2034
+#: ui/app.slint:2070
 msgctxt "PhoneWindow"
 msgid "{} imported; {} already in the vault were skipped."
 msgstr ""
 
-#: ui/app.slint:2035
+#: ui/app.slint:2071
 msgctxt "PhoneWindow"
 msgid "{n} item imported."
 msgid_plural "{n} items imported."
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/app.slint:2044
+#: ui/app.slint:2080
 msgctxt "PhoneWindow"
 msgid ""
 "A plain export holds every password unencrypted: delete it once it is "
 "imported."
 msgstr ""
 
-#: ui/app.slint:2057
+#: ui/app.slint:2093
 msgctxt "PhoneWindow"
 msgid ""
 "Or through a WebDAV folder (Nextcloud, a NAS): the same address and user "
 "your computer uses. The password stays in this phone's keystore."
 msgstr ""
 
-#: ui/app.slint:2063
+#: ui/app.slint:2099
 msgctxt "PhoneWindow"
 msgid "WebDAV address"
 msgstr ""
 
-#: ui/app.slint:2068
+#: ui/app.slint:2104
 msgctxt "PhoneWindow"
 msgid "User name"
 msgstr ""
 
-#: ui/app.slint:2073 ui/app.slint:2655 ui/app.slint:2886
+#: ui/app.slint:2109 ui/app.slint:2699 ui/app.slint:2930
 msgctxt "PhoneWindow"
 msgid "Password"
 msgstr ""
 
-#: ui/app.slint:2081
+#: ui/app.slint:2117
 msgctxt "PhoneWindow"
 msgid "Connecting…"
 msgstr ""
 
-#: ui/app.slint:2081
+#: ui/app.slint:2117
 msgctxt "PhoneWindow"
 msgid "Connect"
 msgstr ""
 
-#: ui/app.slint:2087
+#: ui/app.slint:2123
 msgctxt "PhoneWindow"
 msgid "Use an invite"
 msgstr ""
 
-#: ui/app.slint:2095
+#: ui/app.slint:2132
+msgctxt "PhoneWindow"
+msgid ""
+"Keep this phone and your computers the same through your vault server. On "
+"the computer: Settings, Sync, Add a device. Then scan the QR code it shows, "
+"or paste its line here."
+msgstr ""
+
+#: ui/app.slint:2133
 msgctxt "PhoneWindow"
 msgid ""
 "Keep this phone and your computers the same through your vault server. On "
@@ -1195,137 +1244,137 @@ msgid ""
 "here."
 msgstr ""
 
-#: ui/app.slint:2110 ui/app.slint:2318
+#: ui/app.slint:2139 ui/app.slint:2154 ui/app.slint:2362
 msgctxt "PhoneWindow"
 msgid "Joining…"
 msgstr ""
 
-#: ui/app.slint:2110
+#: ui/app.slint:2154
 msgctxt "PhoneWindow"
 msgid "Join"
 msgstr ""
 
-#: ui/app.slint:2116
+#: ui/app.slint:2160
 msgctxt "PhoneWindow"
 msgid "Use WebDAV"
 msgstr ""
 
-#: ui/app.slint:2124
+#: ui/app.slint:2168
 msgctxt "PhoneWindow"
 msgid "WebDAV"
 msgstr ""
 
-#: ui/app.slint:2124
+#: ui/app.slint:2168
 msgctxt "PhoneWindow"
 msgid "Server"
 msgstr ""
 
-#: ui/app.slint:2129
+#: ui/app.slint:2173
 msgctxt "PhoneWindow"
 msgid "Backup server"
 msgstr ""
 
-#: ui/app.slint:2135
+#: ui/app.slint:2179
 msgctxt "PhoneWindow"
 msgid ""
 "The main server isn't answering: the vault syncs through the backup server, "
 "and the main one catches up as soon as it answers."
 msgstr ""
 
-#: ui/app.slint:2137
+#: ui/app.slint:2181
 msgctxt "PhoneWindow"
 msgid ""
 "Neither server is answering. Changes stay on this phone and go out as soon "
 "as one answers."
 msgstr ""
 
-#: ui/app.slint:2138
+#: ui/app.slint:2182
 msgctxt "PhoneWindow"
 msgid ""
 "The backup server isn't answering: the vault syncs through the main one, and "
 "the backup catches up as soon as it answers."
 msgstr ""
 
-#: ui/app.slint:2144
+#: ui/app.slint:2188
 msgctxt "PhoneWindow"
 msgid "Last synced"
 msgstr ""
 
-#: ui/app.slint:2146
+#: ui/app.slint:2190
 msgctxt "PhoneWindow"
 msgid "Syncing…"
 msgstr ""
 
-#: ui/app.slint:2147
+#: ui/app.slint:2191
 msgctxt "PhoneWindow"
 msgid "Failed"
 msgstr ""
 
-#: ui/app.slint:2148
+#: ui/app.slint:2192
 msgctxt "PhoneWindow"
 msgid "Not yet"
 msgstr ""
 
-#: ui/app.slint:2149
+#: ui/app.slint:2193
 msgctxt "PhoneWindow"
 msgid "Just now"
 msgstr ""
 
-#: ui/app.slint:2150
+#: ui/app.slint:2194
 msgctxt "PhoneWindow"
 msgid "{n} minute ago"
 msgid_plural "{n} minutes ago"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/app.slint:2153
+#: ui/app.slint:2197
 msgctxt "PhoneWindow"
 msgid "In the WebDAV folder"
 msgstr ""
 
-#: ui/app.slint:2153
+#: ui/app.slint:2197
 msgctxt "PhoneWindow"
 msgid "On the server"
 msgstr ""
 
-#: ui/app.slint:2155
+#: ui/app.slint:2199
 msgctxt "PhoneWindow"
 msgid "{n} sealed copy, {}"
 msgid_plural "{n} sealed copies, {} in all"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/app.slint:2158
+#: ui/app.slint:2202
 msgctxt "PhoneWindow"
 msgid "One copy per device, each the whole vault, sealed. This phone's is {}."
 msgstr ""
 
-#: ui/app.slint:2167
+#: ui/app.slint:2211
 msgctxt "PhoneWindow"
 msgid "Sync now"
 msgstr ""
 
-#: ui/app.slint:2173
+#: ui/app.slint:2217
 msgctxt "PhoneWindow"
 msgid "Stop syncing"
 msgstr ""
 
-#: ui/app.slint:2182
+#: ui/app.slint:2226
 msgctxt "PhoneWindow"
 msgid "Your vault server"
 msgstr ""
 
-#: ui/app.slint:2186
+#: ui/app.slint:2230
 msgctxt "PhoneWindow"
 msgid "Asking the server…"
 msgstr ""
 
-#: ui/app.slint:2186
+#: ui/app.slint:2230
 msgctxt "PhoneWindow"
 msgid "Add a device"
 msgstr ""
 
-#: ui/app.slint:2202
+#: ui/app.slint:2246
 msgctxt "PhoneWindow"
 msgid ""
 "On the other device: Settings, Sync (or its start screen). Scan this code or "
@@ -1333,22 +1382,22 @@ msgid ""
 "your master password and Secret Key."
 msgstr ""
 
-#: ui/app.slint:2233
+#: ui/app.slint:2277
 msgctxt "PhoneWindow"
 msgid "Copy the line"
 msgstr ""
 
-#: ui/app.slint:2239
+#: ui/app.slint:2283
 msgctxt "PhoneWindow"
 msgid "Done"
 msgstr ""
 
-#: ui/app.slint:2248
+#: ui/app.slint:2292
 msgctxt "PhoneWindow"
 msgid "Change the server's address"
 msgstr ""
 
-#: ui/app.slint:2259
+#: ui/app.slint:2303
 msgctxt "PhoneWindow"
 msgid ""
 "When the server moved (a new name, a new address on your network, a new "
@@ -1356,27 +1405,27 @@ msgid ""
 "knows it before using it."
 msgstr ""
 
-#: ui/app.slint:2265
+#: ui/app.slint:2309
 msgctxt "PhoneWindow"
 msgid "Server address"
 msgstr ""
 
-#: ui/app.slint:2274 ui/app.slint:2642
+#: ui/app.slint:2318 ui/app.slint:2686
 msgctxt "PhoneWindow"
 msgid "Checking…"
 msgstr ""
 
-#: ui/app.slint:2274
+#: ui/app.slint:2318
 msgctxt "PhoneWindow"
 msgid "Save the address"
 msgstr ""
 
-#: ui/app.slint:2288
+#: ui/app.slint:2332
 msgctxt "PhoneWindow"
 msgid "Add a backup server"
 msgstr ""
 
-#: ui/app.slint:2296
+#: ui/app.slint:2340
 msgctxt "PhoneWindow"
 msgid ""
 "A second vault server, synced every round too: while one doesn't answer, the "
@@ -1385,64 +1434,64 @@ msgid ""
 "from vault-server invite with its address below."
 msgstr ""
 
-#: ui/app.slint:2302
+#: ui/app.slint:2346
 msgctxt "PhoneWindow"
 msgid "Invite"
 msgstr ""
 
-#: ui/app.slint:2308
+#: ui/app.slint:2352
 msgctxt "PhoneWindow"
 msgid "Its address, for an invite from vault-server"
 msgstr ""
 
-#: ui/app.slint:2318
+#: ui/app.slint:2362
 msgctxt "PhoneWindow"
 msgid "Add the backup"
 msgstr ""
 
-#: ui/app.slint:2332
+#: ui/app.slint:2376
 msgctxt "PhoneWindow"
 msgid "Remove the backup server"
 msgstr ""
 
-#: ui/app.slint:2344
+#: ui/app.slint:2388
 msgctxt "PhoneWindow"
 msgid "Devices that sync this vault"
 msgstr ""
 
-#: ui/app.slint:2346
+#: ui/app.slint:2390
 msgctxt "PhoneWindow"
 msgid "This phone, since {}"
 msgstr ""
 
-#: ui/app.slint:2346
+#: ui/app.slint:2390
 msgctxt "PhoneWindow"
 msgid "Since {}"
 msgstr ""
 
-#: ui/app.slint:2349 ui/app.slint:2365 ui/app.slint:2942
+#: ui/app.slint:2393 ui/app.slint:2409 ui/app.slint:2986
 msgctxt "PhoneWindow"
 msgid "Remove"
 msgstr ""
 
-#: ui/app.slint:2356
+#: ui/app.slint:2400
 msgctxt "PhoneWindow"
 msgid ""
 "Remove “{}”? It stays out of this vault: every device refuses its copies "
 "from now on. Use it for a lost or sold device."
 msgstr ""
 
-#: ui/app.slint:2383
+#: ui/app.slint:2427
 msgctxt "PhoneWindow"
 msgid "Hide how sync works"
 msgstr ""
 
-#: ui/app.slint:2383
+#: ui/app.slint:2427
 msgctxt "PhoneWindow"
 msgid "How sync works"
 msgstr ""
 
-#: ui/app.slint:2391
+#: ui/app.slint:2435
 msgctxt "PhoneWindow"
 msgid ""
 "Every device keeps the whole vault and works offline. Syncing only moves "
@@ -1451,7 +1500,7 @@ msgid ""
 "the other password goes into the login's history, so nothing is lost."
 msgstr ""
 
-#: ui/app.slint:2397
+#: ui/app.slint:2441
 msgctxt "PhoneWindow"
 msgid ""
 "Your vault server: a small program you run yourself (Docker, reached over "
@@ -1460,21 +1509,21 @@ msgid ""
 "joins with a one-time invite from a device already in."
 msgstr ""
 
-#: ui/app.slint:2403
+#: ui/app.slint:2447
 msgctxt "PhoneWindow"
 msgid ""
 "WebDAV: a folder on a WebDAV host (Nextcloud, a NAS) that keeps the same "
 "sealed copies. Its password stays in this phone's keystore."
 msgstr ""
 
-#: ui/app.slint:2409
+#: ui/app.slint:2453
 msgctxt "PhoneWindow"
 msgid ""
 "By hand: bring a newer copy of the file, or save one, under Import and "
 "export. Nothing then syncs by itself."
 msgstr ""
 
-#: ui/app.slint:2415
+#: ui/app.slint:2459
 msgctxt "PhoneWindow"
 msgid ""
 "Neither place can open the vault, put an older copy back or add a device of "
@@ -1482,89 +1531,89 @@ msgid ""
 "remembers the newest one it saw from every other device."
 msgstr ""
 
-#: ui/app.slint:2427
+#: ui/app.slint:2471
 msgctxt "PhoneWindow"
 msgid "Theme"
 msgstr ""
 
-#: ui/app.slint:2429
+#: ui/app.slint:2473
 msgctxt "PhoneWindow"
 msgid "Dark"
 msgstr ""
 
-#: ui/app.slint:2429
+#: ui/app.slint:2473
 msgctxt "PhoneWindow"
 msgid "Light"
 msgstr ""
 
-#: ui/app.slint:2434
+#: ui/app.slint:2478
 msgctxt "PhoneWindow"
 msgid "Language"
 msgstr ""
 
-#: ui/app.slint:2436
+#: ui/app.slint:2480
 msgctxt "PhoneWindow"
 msgid "The phone's"
 msgstr ""
 
-#: ui/app.slint:2442
+#: ui/app.slint:2486
 msgctxt "PhoneWindow"
 msgid "Background pattern"
 msgstr ""
 
-#: ui/app.slint:2447
+#: ui/app.slint:2491
 msgctxt "PhoneWindow"
 msgid "Website icons"
 msgstr ""
 
-#: ui/app.slint:2452
+#: ui/app.slint:2496
 msgctxt "PhoneWindow"
 msgid ""
 "Each saved site is asked once for its icon, directly. Someone watching the "
 "network can see which sites were asked, so it is off until you turn it on."
 msgstr ""
 
-#: ui/app.slint:2463
+#: ui/app.slint:2507
 msgctxt "PhoneWindow"
 msgid "Installed"
 msgstr ""
 
-#: ui/app.slint:2468
+#: ui/app.slint:2512
 msgctxt "PhoneWindow"
 msgid "Asking your vault server…"
 msgstr ""
 
-#: ui/app.slint:2469
+#: ui/app.slint:2513
 msgctxt "PhoneWindow"
 msgid "This is the newest version on your vault server."
 msgstr ""
 
-#: ui/app.slint:2470
+#: ui/app.slint:2514
 msgctxt "PhoneWindow"
 msgid "Version {} is on your vault server."
 msgstr ""
 
-#: ui/app.slint:2471
+#: ui/app.slint:2515
 msgctxt "PhoneWindow"
 msgid "Fetching version {}…"
 msgstr ""
 
-#: ui/app.slint:2472
+#: ui/app.slint:2516
 msgctxt "PhoneWindow"
 msgid "Android asks you to confirm the update. The vault stays as it is."
 msgstr ""
 
-#: ui/app.slint:2483
+#: ui/app.slint:2527
 msgctxt "PhoneWindow"
 msgid "Install version {}"
 msgstr ""
 
-#: ui/app.slint:2489
+#: ui/app.slint:2533
 msgctxt "PhoneWindow"
 msgid "Check for updates"
 msgstr ""
 
-#: ui/app.slint:2497
+#: ui/app.slint:2541
 msgctxt "PhoneWindow"
 msgid ""
 "Updates come from your own vault server, where a computer puts them (vault-"
@@ -1572,204 +1621,204 @@ msgid ""
 "key as the app already here, and asks you first."
 msgstr ""
 
-#: ui/app.slint:2508
+#: ui/app.slint:2552
 msgctxt "PhoneWindow"
 msgid "App"
 msgstr ""
 
-#: ui/app.slint:2510
+#: ui/app.slint:2554
 msgctxt "PhoneWindow"
 msgid "Version {}. Free software under the GPL, version 3 or later."
 msgstr ""
 
-#: ui/app.slint:2513
+#: ui/app.slint:2557
 msgctxt "PhoneWindow"
 msgid ""
 "Nothing here has been audited yet: keep your real passwords in it only once "
 "it has been."
 msgstr ""
 
-#: ui/app.slint:2519
+#: ui/app.slint:2563
 msgctxt "PhoneWindow"
 msgid ""
 "Still to come on the phone: scanning QR codes, saving new logins from other "
 "apps, and passkeys."
 msgstr ""
 
-#: ui/app.slint:2531
+#: ui/app.slint:2575
 msgctxt "PhoneWindow"
 msgid "Lock now"
 msgstr ""
 
-#: ui/app.slint:2548 ui/app.slint:2747
+#: ui/app.slint:2592 ui/app.slint:2791
 msgctxt "PhoneWindow"
 msgid "Edit"
 msgstr ""
 
-#: ui/app.slint:2585
+#: ui/app.slint:2629
 msgctxt "PhoneWindow"
 msgid "Remove from favourites"
 msgstr ""
 
-#: ui/app.slint:2585
+#: ui/app.slint:2629
 msgctxt "PhoneWindow"
 msgid "Add to favourites"
 msgstr ""
 
-#: ui/app.slint:2602 ui/app.slint:2786
+#: ui/app.slint:2646 ui/app.slint:2830
 msgctxt "PhoneWindow"
 msgid "Username"
 msgstr ""
 
-#: ui/app.slint:2609 ui/app.slint:2760
+#: ui/app.slint:2653 ui/app.slint:2804
 msgctxt "PhoneWindow"
 msgid "Card"
 msgstr ""
 
-#: ui/app.slint:2614 ui/app.slint:2811
+#: ui/app.slint:2658 ui/app.slint:2855
 msgctxt "PhoneWindow"
 msgid "Expires"
 msgstr ""
 
-#: ui/app.slint:2624
+#: ui/app.slint:2668
 msgctxt "PhoneWindow"
 msgid ""
 "The password and codes of this item are locked. Type your master password to "
 "see them."
 msgstr ""
 
-#: ui/app.slint:2625
+#: ui/app.slint:2669
 msgctxt "PhoneWindow"
 msgid ""
 "The password and codes of this item are locked. Type the item PIN to see "
 "them."
 msgstr ""
 
-#: ui/app.slint:2626
+#: ui/app.slint:2670
 msgctxt "PhoneWindow"
 msgid ""
 "The password and codes of this item are locked. Type the item password to "
 "see them."
 msgstr ""
 
-#: ui/app.slint:2633
+#: ui/app.slint:2677
 msgctxt "PhoneWindow"
 msgid "Item PIN"
 msgstr ""
 
-#: ui/app.slint:2633
+#: ui/app.slint:2677
 msgctxt "PhoneWindow"
 msgid "Item password"
 msgstr ""
 
-#: ui/app.slint:2640
+#: ui/app.slint:2684
 msgctxt "PhoneWindow"
 msgid "Show the secrets"
 msgstr ""
 
-#: ui/app.slint:2647 ui/app.slint:2847
+#: ui/app.slint:2691 ui/app.slint:2891
 msgctxt "PhoneWindow"
 msgid "Public key"
 msgstr ""
 
-#: ui/app.slint:2655 ui/app.slint:2833
+#: ui/app.slint:2699 ui/app.slint:2877
 msgctxt "PhoneWindow"
 msgid "PIN"
 msgstr ""
 
-#: ui/app.slint:2655
+#: ui/app.slint:2699
 msgctxt "PhoneWindow"
 msgid "Private key"
 msgstr ""
 
-#: ui/app.slint:2673
+#: ui/app.slint:2717
 msgctxt "PhoneWindow"
 msgid "Check this password"
 msgstr ""
 
-#: ui/app.slint:2688
+#: ui/app.slint:2732
 msgctxt "PhoneWindow"
 msgid "Asking the leak check…"
 msgstr ""
 
-#: ui/app.slint:2689
+#: ui/app.slint:2733
 msgctxt "PhoneWindow"
 msgid "The leak check didn't answer. Check the connection and try again."
 msgstr ""
 
-#: ui/app.slint:2690
+#: ui/app.slint:2734
 msgctxt "PhoneWindow"
 msgid "Not found in any known data breach."
 msgstr ""
 
-#: ui/app.slint:2691
+#: ui/app.slint:2735
 msgctxt "PhoneWindow"
 msgid "Found {} times in data breaches. Change it wherever you use it."
 msgstr ""
 
-#: ui/app.slint:2698
+#: ui/app.slint:2742
 msgctxt "PhoneWindow"
 msgid "Try again"
 msgstr ""
 
-#: ui/app.slint:2701
+#: ui/app.slint:2745
 msgctxt "PhoneWindow"
 msgid ""
 "Only the first 5 characters of the password's SHA-1 fingerprint went to the "
 "breach service (Have I Been Pwned), never the password."
 msgstr ""
 
-#: ui/app.slint:2708
+#: ui/app.slint:2752
 msgctxt "PhoneWindow"
 msgid "One-time code, {} s left"
 msgstr ""
 
-#: ui/app.slint:2717 ui/app.slint:2907
+#: ui/app.slint:2761 ui/app.slint:2951
 msgctxt "PhoneWindow"
 msgid "Website"
 msgstr ""
 
-#: ui/app.slint:2729
+#: ui/app.slint:2773
 msgctxt "PhoneWindow"
 msgid "File, {}"
 msgstr ""
 
-#: ui/app.slint:2732 ui/app.slint:2966
+#: ui/app.slint:2776 ui/app.slint:3010
 msgctxt "PhoneWindow"
 msgid "Save"
 msgstr ""
 
-#: ui/app.slint:2736
+#: ui/app.slint:2780
 msgctxt "PhoneWindow"
 msgid "Passkey for {}"
 msgstr ""
 
-#: ui/app.slint:2738
+#: ui/app.slint:2782
 msgctxt "PhoneWindow"
 msgid "No account name"
 msgstr ""
 
-#: ui/app.slint:2760
+#: ui/app.slint:2804
 msgctxt "PhoneWindow"
 msgid "Login"
 msgstr ""
 
-#: ui/app.slint:2760
+#: ui/app.slint:2804
 msgctxt "PhoneWindow"
 msgid "Note"
 msgstr ""
 
-#: ui/app.slint:2760
+#: ui/app.slint:2804
 msgctxt "PhoneWindow"
 msgid "2FA"
 msgstr ""
 
-#: ui/app.slint:2765
+#: ui/app.slint:2809
 msgctxt "PhoneWindow"
 msgid "Setup key"
 msgstr ""
 
-#: ui/app.slint:2768
+#: ui/app.slint:2812
 msgctxt "PhoneWindow"
 msgid ""
 "When you turn on two-step sign-in, the site shows a QR code and a text key, "
@@ -1777,149 +1826,149 @@ msgid ""
 "link. The codes then show on the Codes page."
 msgstr ""
 
-#: ui/app.slint:2769
+#: ui/app.slint:2813
 msgctxt "PhoneWindow"
 msgid "otpauth:// link or key"
 msgstr ""
 
-#: ui/app.slint:2775
+#: ui/app.slint:2819
 msgctxt "PhoneWindow"
 msgid "Name"
 msgstr ""
 
-#: ui/app.slint:2778
+#: ui/app.slint:2822
 msgctxt "PhoneWindow"
 msgid "The site or app"
 msgstr ""
 
-#: ui/app.slint:2779
+#: ui/app.slint:2823
 msgctxt "PhoneWindow"
 msgid "Visa ending 4242"
 msgstr ""
 
-#: ui/app.slint:2780
+#: ui/app.slint:2824
 msgctxt "PhoneWindow"
 msgid "Taken from the setup key"
 msgstr ""
 
-#: ui/app.slint:2781
+#: ui/app.slint:2825
 msgctxt "PhoneWindow"
 msgid "What the note is about"
 msgstr ""
 
-#: ui/app.slint:2786
+#: ui/app.slint:2830
 msgctxt "PhoneWindow"
 msgid "Name on card"
 msgstr ""
 
-#: ui/app.slint:2786
+#: ui/app.slint:2830
 msgctxt "PhoneWindow"
 msgid "Account"
 msgstr ""
 
-#: ui/app.slint:2786
+#: ui/app.slint:2830
 msgctxt "PhoneWindow"
 msgid "User or comment"
 msgstr ""
 
-#: ui/app.slint:2793
+#: ui/app.slint:2837
 msgctxt "PhoneWindow"
 msgid "Card number"
 msgstr ""
 
-#: ui/app.slint:2813
+#: ui/app.slint:2857
 msgctxt "PhoneWindow"
 msgid "MM/YY"
 msgstr ""
 
-#: ui/app.slint:2820
+#: ui/app.slint:2864
 msgctxt "PhoneWindow"
 msgid "Security code"
 msgstr ""
 
-#: ui/app.slint:2835
+#: ui/app.slint:2879
 msgctxt "PhoneWindow"
 msgid "Digits only, as the bank gave it"
 msgstr ""
 
-#: ui/app.slint:2847
+#: ui/app.slint:2891
 msgctxt "PhoneWindow"
 msgid "No key yet: make one here, or bring yours from a file or the clipboard."
 msgstr ""
 
-#: ui/app.slint:2853
+#: ui/app.slint:2897
 msgctxt "PhoneWindow"
 msgid "Kept as it is; its public half couldn't be read."
 msgstr ""
 
-#: ui/app.slint:2872
+#: ui/app.slint:2916
 msgctxt "PhoneWindow"
 msgid "New key"
 msgstr ""
 
-#: ui/app.slint:2872
+#: ui/app.slint:2916
 msgctxt "PhoneWindow"
 msgid "Make a key"
 msgstr ""
 
-#: ui/app.slint:2875
+#: ui/app.slint:2919
 msgctxt "PhoneWindow"
 msgid "Paste"
 msgstr ""
 
-#: ui/app.slint:2876
+#: ui/app.slint:2920
 msgctxt "PhoneWindow"
 msgid "From a file"
 msgstr ""
 
-#: ui/app.slint:2898
+#: ui/app.slint:2942
 msgctxt "PhoneWindow"
 msgid "Make a strong one"
 msgstr ""
 
-#: ui/app.slint:2909
+#: ui/app.slint:2953
 msgctxt "PhoneWindow"
 msgid "The bank's site, for its icon"
 msgstr ""
 
-#: ui/app.slint:2913
+#: ui/app.slint:2957
 msgctxt "PhoneWindow"
 msgid "One-time code key"
 msgstr ""
 
-#: ui/app.slint:2915
+#: ui/app.slint:2959
 msgctxt "PhoneWindow"
 msgid ""
 "Paste the setup key the site shows for its authenticator app, often under "
 "“Can't scan it?”. Leave it empty if the site has none."
 msgstr ""
 
-#: ui/app.slint:2929
+#: ui/app.slint:2973
 msgctxt "PhoneWindow"
 msgid "Files"
 msgstr ""
 
-#: ui/app.slint:2946
+#: ui/app.slint:2990
 msgctxt "PhoneWindow"
 msgid "Attach a file"
 msgstr ""
 
-#: ui/app.slint:2949
+#: ui/app.slint:2993
 msgctxt "PhoneWindow"
 msgid "Favourite"
 msgstr ""
 
-#: ui/app.slint:2954
+#: ui/app.slint:2998
 msgctxt "PhoneWindow"
 msgid "Tap again to delete it for good"
 msgstr ""
 
-#: ui/app.slint:2954
+#: ui/app.slint:2998
 msgctxt "PhoneWindow"
 msgid "Delete"
 msgstr ""
 
-#: ui/app.slint:3028
+#: ui/app.slint:3072
 msgctxt "PhoneWindow"
 msgid "Manage vaults"
 msgstr ""

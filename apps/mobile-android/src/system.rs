@@ -150,6 +150,14 @@ impl System for AndroidSystem {
     fn language(&self) -> Option<String> {
         self.text("language")
     }
+
+    fn scans_codes(&self) -> bool {
+        true
+    }
+
+    fn scan_code(&self, purpose: i32) -> Result<(), String> {
+        crate::scan::scan(purpose)
+    }
 }
 
 /// `VaultActivity.bioDone`: what a fingerprint prompt sealed (1) or opened (2), or why not.

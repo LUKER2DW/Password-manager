@@ -269,6 +269,8 @@ mod tests {
     /// The entries of a `.po` or `.pot` file (its header left out).
     fn entries_of(po: &str) -> Vec<Entry> {
         let mut entries = Vec::new();
+        // A Windows checkout has CRLF line ends: entries are still apart by an empty line.
+        let po = po.replace("\r\n", "\n");
         for block in po.split("\n\n") {
             let mut context = None;
             let mut text = None;

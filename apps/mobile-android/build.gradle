@@ -1,0 +1,70 @@
+// The phone app's APK: the Java shell (java/), its words and icon (res/), the manifest, and the
+// Rust library cargo builds (build.ps1 puts it in target/android-libs/<abi>/). Gradle is used
+// for packaging only, and for the one library the Java side needs: Google's code scanner.
+plugins {
+    id 'com.android.application' version '8.13.0'
+}
+
+// The version comes from Cargo.toml, so the app, the update check and the APK agree. The code
+// is cargo-apk's (1 << 24 | major << 16 | minor << 8 | patch), so an APK built here installs
+// over one built before.
+def cargoVersion = (file('Cargo.toml').text =~ /(?m)^version = "(\d+)\.(\d+)\.(\d+)"/)[0]
+def (major, minor, patch) = [cargoVersion[1], cargoVersion[2], cargoVersion[3]].collect { it as int }
+
+layout.buildDirectory = file('../../target/gradle/vault-mobile-android')
+
+android {
+    namespace 'org.passwordvault.phone'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'org.passwordvault.phone'
+        minSdk 28
+        targetSdk 35
+        versionCode((1 << 24) | (major << 16) | (minor << 8) | patch)
+        versionName "${major}.${minor}.${patch}"
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = ['java']
+            res.srcDirs = ['res']
+            jniLibs.srcDirs = ['../../target/android-libs']
+        }
+    }
+
+    // Signed with the Android debug key (~/.android/debug.keystore, made by build.ps1 if
+    // missing): fine for trying it, never for publishing it.
+    signingConfigs {
+        trial {
+            storeFile file("${System.getProperty('user.home')}/.android/debug.keystore")
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.trial
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    lint {
+        // Lint would fetch its own checks from the network; the build stays offline.
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    // Google's QR code scanner, run by Play services: it shows its own camera screen and hands
+    // back only the code's text, so the app needs no camera permission.
+    implementation 'com.google.android.gms:play-services-code-scanner:16.1.0'
+}

@@ -101,6 +101,10 @@ export global Words {
         if (code == 25) { return @tr("That file can't be imported ({}).", detail); }
         if (code == 26) { return @tr("That isn't the file's password. Type it in the field above and choose the file again."); }
         if (code == 27) { return @tr("The update couldn't be fetched ({}).", detail); }
+        if (code == 12) { return @tr("The phone couldn't be set up from the server ({}).", detail); }
+        if (code == 28) { return @tr("That isn't an invite. On the computer: Settings, Sync, Add a device; scan its QR code, or paste the whole line that starts with vaultsync:."); }
+        if (code == 29 && detail == "unavailable") { return @tr("This phone can't scan QR codes: Google's code scanner comes with Google Play services. Paste the line instead."); }
+        if (code == 29) { return @tr("The QR code can't be scanned ({}). Paste the line instead.", detail); }
         return detail;
     }
     pure public function notice(code: int, arg: string) -> string {
@@ -738,6 +742,10 @@ export component PhoneWindow inherits Window {
     // Setting the phone up from the vault server with the invite line a computer shows.
     in-out property <string> setup-invite;
     callback setup-from-server();
+    // The camera reads the QR code the computer shows (a phone with one); the purpose says
+    // where its line goes: 0 the start screen, 1 Settings, Sync.
+    in property <bool> can-scan;
+    callback scan-invite(int);
     // The app's own keyboard for secret fields (on a phone; a computer has a real one).
     in property <bool> drawn-keyboard;
     callback cancel-incoming();
@@ -1057,97 +1065,125 @@ export component PhoneWindow inherits Window {
         padding-bottom: root.inset-bottom;
 
         // ---------------------------------------------------------------- no vault yet
-        // The vault is made on the computer; the phone opens a copy of its file.
-        if root.screen == Screen.start: VerticalLayout {
-            padding: root.gutter;
-            padding-top: 72px;
-            spacing: 14px;
-            HorizontalLayout { alignment: start; Logo { width: 72px; height: 72px; } }
-            Text {
-                text: root.adding-vault ? @tr("Add a vault") : @tr("No vault on this phone yet");
-                font-size: Theme.headline;
-                font-weight: 300;
-                color: Theme.ink;
-                wrap: word-wrap;
+        // The vault is made on the computer; the phone opens a copy of it: through the vault
+        // server (the QR code the computer shows, or its line), or from its file.
+        if root.screen == Screen.start: Rectangle {
+            // The doodle texture of the open vault (the desktop's), unless turned off.
+            if Theme.backdrop != 0: Backdrop {
+                width: parent.width;
+                height: parent.height;
+                strength: 0.6;
             }
-            Text {
-                text: @tr("Open the vault you made on your computer: from its file, or through your vault server.");
-                font-size: Theme.body;
-                color: Theme.graphite;
-                wrap: word-wrap;
-            }
-            // From the file: it works offline; sync can be turned on later in Settings.
-            if root.can-pick-file: Rectangle {
-                vertical-stretch: 0;
-                border-radius: Theme.radius;
-                border-width: 1px;
-                border-color: Theme.rule;
-                background: Theme.panel;
-                VerticalLayout {
-                    padding: 14px;
-                    spacing: 10px;
-                    Text { text: @tr("From its file"); font-size: Theme.lead; font-weight: 600; color: Theme.ink; }
-                    Text {
-                        text: @tr("Copy the .vault file to the phone (a USB cable, Quick Share, a folder you sync) and choose it. It works offline; sync can be turned on later in Settings.");
-                        font-size: Theme.small;
-                        color: Theme.graphite;
-                        wrap: word-wrap;
-                    }
-                    Button {
-                        text: @tr("Choose the vault file");
-                        clicked => { root.pick-vault(); }
+            VerticalLayout {
+                padding: root.gutter;
+                padding-top: 56px;
+                spacing: 14px;
+                HorizontalLayout { alignment: start; Logo { width: 64px; height: 64px; } }
+                Text {
+                    text: root.adding-vault ? @tr("Add a vault") : @tr("No vault on this phone yet");
+                    font-size: Theme.headline;
+                    font-weight: 300;
+                    color: Theme.ink;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: @tr("Open the vault you made on your computer: through your vault server, or from its file.");
+                    font-size: Theme.body;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
+                }
+                Rectangle {
+                    vertical-stretch: 0;
+                    border-radius: Theme.radius;
+                    border-width: 1px;
+                    border-color: Theme.rule;
+                    background: Theme.panel;
+                    VerticalLayout {
+                        padding: 14px;
+                        spacing: 10px;
+                        alignment: start;
+                        Text { text: @tr("From your vault server"); font-size: Theme.lead; font-weight: 600; color: Theme.ink; }
+                        Text {
+                            text: root.can-scan
+                                ? @tr("On the computer: Settings, Sync, Add a device. Scan the QR code it shows, or paste its line below.")
+                                : @tr("On the computer: Settings, Sync, Add a device. Paste the line it shows here.");
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            wrap: word-wrap;
+                        }
+                        if root.can-scan: Button {
+                            text: root.sync-busy ? @tr("Fetching the vault…") : @tr("Scan the QR code");
+                            enabled: !root.sync-busy;
+                            clicked => { root.scan-invite(0); }
+                        }
+                        LineField {
+                            placeholder: "vaultsync:1?server=…";
+                            mono: true;
+                            text <=> root.setup-invite;
+                            accepted => { root.setup-from-server(); }
+                        }
+                        if root.can-scan || root.can-pick-file: QuietButton {
+                            text: root.can-scan ? @tr("Set up with the line") : root.sync-busy ? @tr("Fetching the vault…") : @tr("Set up from the server");
+                            icon: "globe";
+                            outlined: true;
+                            enabled: !root.sync-busy;
+                            clicked => { root.setup-from-server(); }
+                        }
+                        if !root.can-scan && !root.can-pick-file: Button {
+                            text: root.sync-busy ? @tr("Fetching the vault…") : @tr("Set up from the server");
+                            enabled: !root.sync-busy;
+                            clicked => { root.setup-from-server(); }
+                        }
+                        // Right under the field, so the keyboard doesn't cover it.
+                        if root.error-code == 12 || root.error-code == 28 || root.error-code == 29: ErrorLine {
+                            text: Words.error(root.error-code, root.error-detail);
+                        }
                     }
                 }
-            }
-            Rectangle {
-                vertical-stretch: 0;
-                border-radius: Theme.radius;
-                border-width: 1px;
-                border-color: Theme.rule;
-                background: Theme.panel;
-                VerticalLayout {
-                    padding: 14px;
-                    spacing: 10px;
+                // From the file: it works offline; sync can be turned on later in Settings.
+                if root.can-pick-file: Rectangle {
+                    vertical-stretch: 0;
+                    border-radius: Theme.radius;
+                    border-width: 1px;
+                    border-color: Theme.rule;
+                    background: Theme.panel;
+                    VerticalLayout {
+                        padding: 14px;
+                        spacing: 10px;
+                        Text { text: @tr("From its file"); font-size: Theme.lead; font-weight: 600; color: Theme.ink; }
+                        Text {
+                            text: @tr("Copy the .vault file to the phone (a USB cable, Quick Share, a folder you sync) and choose it. It works offline; sync can be turned on later in Settings.");
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            wrap: word-wrap;
+                        }
+                        QuietButton {
+                            text: @tr("Choose the vault file");
+                            icon: "folder";
+                            outlined: true;
+                            clicked => { root.pick-vault(); }
+                        }
+                        if root.error-code == 2 || root.error-code == 4 || root.error-code == 8 || root.error-code == 9: ErrorLine {
+                            text: Words.error(root.error-code, root.error-detail);
+                        }
+                    }
+                }
+                if root.adding-vault: HorizontalLayout {
                     alignment: start;
-                    Text { text: @tr("From your vault server"); font-size: Theme.lead; font-weight: 600; color: Theme.ink; }
-                    Text {
-                        text: @tr("On the computer: Settings, Sync, Add a device. Paste the line it shows here.");
-                        font-size: Theme.small;
-                        color: Theme.graphite;
-                        wrap: word-wrap;
-                    }
-                    LineField {
-                        placeholder: "vaultsync:1?server=…";
-                        mono: true;
-                        text <=> root.setup-invite;
-                        accepted => { root.setup-from-server(); }
-                    }
-                    if root.can-pick-file: QuietButton {
-                        text: root.sync-busy ? @tr("Fetching the vault…") : @tr("Set up from the server");
-                        icon: "globe";
-                        outlined: true;
-                        enabled: !root.sync-busy;
-                        clicked => { root.setup-from-server(); }
-                    }
-                    if !root.can-pick-file: Button {
-                        text: root.sync-busy ? @tr("Fetching the vault…") : @tr("Set up from the server");
-                        enabled: !root.sync-busy;
-                        clicked => { root.setup-from-server(); }
-                    }
+                    QuietButton { text: @tr("Back to my vault"); clicked => { root.cancel-add-vault(); } }
+                }
+                Rectangle { vertical-stretch: 1; }
+                Text {
+                    text: @tr("Neither the server nor the file opens the vault on its own: it also needs your master password and the Secret Key from your emergency kit.");
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
+                }
+                if root.error-code != 0 && root.error-code != 12 && root.error-code != 28 && root.error-code != 29
+                    && root.error-code != 2 && root.error-code != 4 && root.error-code != 8 && root.error-code != 9: ErrorLine {
+                    text: Words.error(root.error-code, root.error-detail);
                 }
             }
-            if root.adding-vault: HorizontalLayout {
-                alignment: start;
-                QuietButton { text: @tr("Back to my vault"); clicked => { root.cancel-add-vault(); } }
-            }
-            Rectangle { vertical-stretch: 1; }
-            Text {
-                text: @tr("Neither the server nor the file opens the vault on its own: it also needs your master password and the Secret Key from your emergency kit.");
-                font-size: Theme.small;
-                color: Theme.graphite;
-                wrap: word-wrap;
-            }
-            if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
         }
 
         // ---------------------------------------------------------------- unlock
@@ -2092,11 +2128,19 @@ export component PhoneWindow inherits Window {
                                 if root.sync-place == "" && root.sync-form == 0: VerticalLayout {
                                     spacing: 8px;
                                     Text {
-                                        text: @tr("Keep this phone and your computers the same through your vault server. On the computer: Settings, Sync, Add a device. Then paste the line it shows here.");
+                                        text: root.can-scan
+                                            ? @tr("Keep this phone and your computers the same through your vault server. On the computer: Settings, Sync, Add a device. Then scan the QR code it shows, or paste its line here.")
+                                            : @tr("Keep this phone and your computers the same through your vault server. On the computer: Settings, Sync, Add a device. Then paste the line it shows here.");
                                         font-size: Theme.small;
                                         color: Theme.ink;
                                         wrap: word-wrap;
                                     }
+                                    if root.can-scan: Button {
+                                        text: root.sync-busy ? @tr("Joining…") : @tr("Scan the QR code");
+                                        enabled: !root.sync-busy;
+                                        clicked => { root.scan-invite(1); }
+                                    }
+                                    if root.error-code == 29: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
                                     LineField {
                                         placeholder: "vaultsync:1?server=…";
                                         mono: true;

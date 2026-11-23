@@ -12,6 +12,7 @@ use slint::ComponentHandle;
 use vault_mobile::{Controller, ui::PhoneWindow};
 
 mod autofill;
+mod scan;
 mod shell;
 mod system;
 
@@ -29,6 +30,9 @@ fn android_main(app: slint::android::AndroidApp) {
     unsafe {
         std::env::set_var("VAULT_HOME", &home);
     }
+    // The activity's own methods (pickers, fingerprint, screenshots, autofill, updates) need
+    // the activity, which the app gives only here.
+    let _ = shell::remember_activity(&app);
     if slint::android::init(app).is_err() {
         return;
     }

@@ -189,6 +189,24 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     // The phone's own language may be Portuguese (this computer's): the test starts in English.
     app.invoke_language_changed(1);
 
+    // ---- a QR code scanned on the start screen ----
+    // No scanner here (a computer's window): no Scan button.
+    assert!(!app.get_can_scan());
+    // A code that isn't an invite is said so, with its own message, under the field.
+    controller.code_scanned(crate::controller::scan::SETUP, "https://example.com/menu");
+    assert_eq!(app.get_setup_invite(), "https://example.com/menu");
+    assert_eq!(app.get_error_code(), 28);
+    // No Play services on the phone: the message says to paste the line instead.
+    controller.scan_failed("unavailable");
+    assert_eq!(app.get_error_code(), 29);
+    assert!(
+        app.global::<Words>()
+            .invoke_error(29, "unavailable".into())
+            .contains("Paste the line")
+    );
+    app.set_setup_invite("".into());
+    app.set_error_code(0);
+
     // ---- the system keyboard (Android): the hidden input only ever holds stand-ins ----
     {
         let secrets = app.global::<Secrets>();
@@ -1082,7 +1100,12 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         (passkey.site.as_str(), passkey.user.as_str()),
         ("pc.example", "pc-user@pc.example")
     );
+    // The vault locks every item with the PIN (above): the computer's login too.
+    assert_eq!(app.get_d_check(), 2);
+    type_secret(&app, 2, "4821");
+    app.invoke_unlock_item();
     app.invoke_edit_item();
+    assert_eq!(app.get_page(), Page::Editor);
     app.invoke_save_item();
     assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
     app.invoke_close_item();
@@ -1213,7 +1236,7 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         assert_eq!(fresh.get_screen(), Screen::Start);
         fresh.set_setup_invite("not an invite".into());
         fresh.invoke_setup_from_server();
-        assert_eq!(fresh.get_error_code(), 12);
+        assert_eq!(fresh.get_error_code(), 28, "not an invite: its own message");
         let link = pc_server
             .invite_link(&pc_server.invite().unwrap())
             .to_text()

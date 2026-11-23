@@ -80,6 +80,18 @@ pub trait System {
     fn language(&self) -> Option<String> {
         None
     }
+
+    /// Whether the phone can read a QR code (the invite a computer shows): Google's code
+    /// scanner on Android.
+    fn scans_codes(&self) -> bool {
+        false
+    }
+
+    /// Opens the code scanner; the code's text comes back to the controller's `code_scanned`
+    /// with `purpose` (see `scan::*` in the controller), or to `scan_failed`.
+    fn scan_code(&self, _purpose: i32) -> Result<(), String> {
+        Err("no camera here".into())
+    }
 }
 
 /// No system services: a computer's window, the web preview, most tests.

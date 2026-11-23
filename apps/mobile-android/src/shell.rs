@@ -6,11 +6,12 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Weak,
+    sync::{Mutex, PoisonError},
 };
 
 use jni::{
     JNIEnv, JavaVM,
-    objects::{JByteArray, JClass, JObject, JString, JValue},
+    objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue},
 };
 use vault_mobile::Controller;
 
@@ -35,21 +36,55 @@ pub(crate) fn save(name: &str, data: &[u8], item_file: bool) -> Result<(), Strin
     create_document(name, data)
 }
 
-/// Runs `f` with this thread's JNI environment and the activity.
+/// The activity (`VaultActivity`), as a global reference of this library's own. The context
+/// `ndk_context` gives is the Application, which has none of the activity's methods.
+static ACTIVITY: Mutex<Option<GlobalRef>> = Mutex::new(None);
+
+/// The process's JavaVM.
 #[allow(unsafe_code)]
-pub(crate) fn with_activity<T>(
-    f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<T>,
-) -> Result<T, String> {
+fn java_vm() -> Result<JavaVM, String> {
     let context = ndk_context::android_context();
     // SAFETY: the pointer is the process's JavaVM, registered by the activity glue (Slint's
     // Android backend) before any app code runs, and valid for the life of the process.
-    let vm = unsafe { JavaVM::from_raw(context.vm().cast()) }.map_err(|e| e.to_string())?;
+    unsafe { JavaVM::from_raw(context.vm().cast()) }.map_err(|e| e.to_string())
+}
+
+/// Keeps the activity of this run of `android_main` for [`with_activity`]. Called again on
+/// every run, since Android may start the activity anew in the same process.
+#[allow(unsafe_code)]
+pub(crate) fn remember_activity(app: &slint::android::AndroidApp) -> Result<(), String> {
+    let vm = java_vm()?;
+    let env = vm.attach_current_thread().map_err(|e| e.to_string())?;
+    // SAFETY: the glue's global reference to the activity, valid while `app` lives (it is
+    // borrowed for this call); wrapping it doesn't take ownership (a `JObject` deletes
+    // nothing on drop), and the reference kept is a new one of this library's own.
+    let borrowed = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
+    let activity = env.new_global_ref(&borrowed).map_err(|e| e.to_string())?;
+    *ACTIVITY.lock().unwrap_or_else(PoisonError::into_inner) = Some(activity);
+    Ok(())
+}
+
+/// Runs `f` with this thread's JNI environment and the activity. A Java exception thrown on
+/// the way is cleared and comes back as an error: one left pending makes the next JNI call
+/// abort the whole app.
+pub(crate) fn with_activity<T>(
+    f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<T>,
+) -> Result<T, String> {
+    let activity = ACTIVITY
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+        .ok_or_else(|| "the activity isn't there yet".to_owned())?;
+    let vm = java_vm()?;
     let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
-    // SAFETY: a global reference to the activity, kept by the glue for the life of the
-    // process; wrapping it doesn't take ownership (a `JObject` deletes nothing on drop).
-    let activity = unsafe { JObject::from_raw(context.context().cast()) };
-    env.with_local_frame(8, |env| f(env, &activity))
-        .map_err(|e| e.to_string())
+    let result = env.with_local_frame(8, |env| {
+        let result = f(env, activity.as_obj());
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_clear();
+        }
+        result
+    });
+    result.map_err(|e| e.to_string())
 }
 
 /// Shows the picker for a file to open; the file comes back to [`Controller::bring_vault`].

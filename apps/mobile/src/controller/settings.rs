@@ -11,7 +11,7 @@ use slint::{ModelRc, SharedString, VecModel};
 use vault_core::{Vault, health};
 use zeroize::Zeroizing;
 
-use super::{Controller, Opened, error, field, fingerprint, notice};
+use super::{Controller, Opened, error, field, fingerprint, notice, scan};
 use crate::{
     bio::{self, BioUnlock},
     i18n,
@@ -100,6 +100,7 @@ impl Controller {
             self.app().set_app_version(version.into());
         }
         self.apply_language(&language);
+        self.app().set_can_scan(self.system().scans_codes());
         self.refresh_autofill();
         self.refresh_security();
         if self.app().get_screen() == Screen::Unlock {
@@ -139,6 +140,38 @@ impl Controller {
     pub(super) fn allow_capture_changed(&self, on: bool) {
         self.change_prefs(|prefs| prefs.allow_capture = on);
         self.system().keep_off_screenshots(!on);
+    }
+
+    /// "Scan the QR code": the system's code scanner, for the invite line a computer shows under
+    /// Add a device.
+    pub(super) fn scan_invite(&self, purpose: i32) {
+        self.set_error(0, "");
+        if let Err(detail) = self.system().scan_code(purpose) {
+            self.set_error(error::CAMERA, &detail);
+        }
+    }
+
+    /// The camera read a QR code: its line goes where the scan was asked for, and is used at
+    /// once, as if pasted and confirmed.
+    pub fn code_scanned(&self, purpose: i32, text: &str) {
+        let app = self.app();
+        let line = SharedString::from(text.trim());
+        match purpose {
+            scan::SETUP => {
+                app.set_setup_invite(line);
+                self.setup_from_server();
+            }
+            scan::JOIN => {
+                app.set_sync_invite_typed(line);
+                self.sync_join();
+            }
+            _ => {}
+        }
+    }
+
+    /// The QR code couldn't be scanned ("unavailable": the phone has no Google Play services).
+    pub fn scan_failed(&self, detail: &str) {
+        self.set_error(error::CAMERA, detail);
     }
 
     pub(super) fn refresh_autofill(&self) {
