@@ -78,6 +78,38 @@ impl Camera {
         self.shots.push((file, caption.to_owned()));
     }
 
+    /// A finger drag from (x, `from_y`) to (x, `to_y`) in logical pixels, in small steps, as a
+    /// phone sends it: scrolls what is under it.
+    fn drag(&self, from_y: f32, to_y: f32) {
+        let scale = self.window.scale_factor();
+        let at = |y: f32| slint::LogicalPosition::new(WIDTH as f32 / 2.0, y);
+        let _ = scale;
+        self.window.dispatch_event(WindowEvent::PointerPressed {
+            position: at(from_y),
+            button: slint::platform::PointerEventButton::Left,
+        });
+        let steps = 12;
+        for step in 1..=steps {
+            let y = from_y + (to_y - from_y) * step as f32 / steps as f32;
+            advance(16);
+            self.window
+                .dispatch_event(WindowEvent::PointerMoved { position: at(y) });
+        }
+        self.window.dispatch_event(WindowEvent::PointerReleased {
+            position: at(to_y),
+            button: slint::platform::PointerEventButton::Left,
+        });
+        advance(1200);
+    }
+
+    /// Scrolls the page to its end (several drags) and takes a shot at the phone's height.
+    fn shot_scrolled(&mut self, name: &str, caption: &str) {
+        for _ in 0..14 {
+            self.drag(700.0, 140.0);
+        }
+        self.shot(name, caption);
+    }
+
     fn write_gallery(&self) {
         let mut html = String::from(
             "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
@@ -105,6 +137,7 @@ impl Camera {
 fn demo_vaults(first_open: bool) -> slint::ModelRc<vault_mobile::ui::VaultRow> {
     slint::ModelRc::new(slint::VecModel::from(vec![
         vault_mobile::ui::VaultRow {
+            icon: "".into(),
             name: "Personal".into(),
             initial: "P".into(),
             tint: slint::Color::from_rgb_u8(0x3D, 0x6F, 0xD6),
@@ -112,6 +145,7 @@ fn demo_vaults(first_open: bool) -> slint::ModelRc<vault_mobile::ui::VaultRow> {
             open: first_open,
         },
         vault_mobile::ui::VaultRow {
+            icon: "briefcase".into(),
             name: "Work".into(),
             initial: "W".into(),
             tint: slint::Color::from_rgb_u8(0xC0, 0x4A, 0x84),
@@ -297,8 +331,22 @@ fn main() {
     advance(4000);
     app.invoke_edit_item();
     camera.shot("editor", "Editing a login");
-    app.invoke_ed_generate();
-    camera.shot("editor-generated", "A strong password made in the editor");
+    app.invoke_ask(10);
+    camera.shot("editor-ask", "Make a strong one: asked first");
+    app.invoke_confirmed(10);
+    camera.shot(
+        "editor-generator",
+        "The generator, for the login: Use brings it back",
+    );
+    app.invoke_gen_use();
+    camera.shot(
+        "editor-generated",
+        "A strong password made in the generator",
+    );
+    camera.shot_scrolled(
+        "editor-end",
+        "The editor's end: folder, icon, favourite, delete",
+    );
     app.invoke_cancel_edit();
     app.invoke_close_item();
 
@@ -310,6 +358,9 @@ fn main() {
 
     app.set_place(Place::Codes);
     camera.shot("codes", "One-time codes with their countdown");
+    app.set_code_open(0);
+    camera.shot("codes-swiped", "A code swiped to the right: Edit");
+    app.set_code_open(-1);
     app.set_place(Place::Generator);
     app.invoke_gen_changed();
     camera.shot("generator", "The generator: characters");
@@ -317,6 +368,13 @@ fn main() {
     app.invoke_gen_changed();
     camera.shot("generator-words", "The generator: words");
     app.set_gen_mode(0);
+    app.invoke_gen_changed();
+    app.invoke_gen_copy();
+    app.set_notice_code(0);
+    camera.shot_scrolled(
+        "generator-history",
+        "The generator's history: copied or used, masked",
+    );
     // "Check this password" on a login (demo values: no breach service is asked here).
     app.set_place(Place::Items);
     app.invoke_open_item(2);
@@ -374,12 +432,11 @@ fn main() {
         "settings-vaults",
         "Vault: this one, the others, adding and removing",
     );
-    app.set_confirm_remove_vault(true);
-    camera.shot(
-        "settings-vault-remove",
-        "Removing a vault from the phone, asked first",
+    tall(&mut camera, 1.0);
+    camera.shot_scrolled(
+        "settings-vaults-end",
+        "Vaults, at the phone's height, scrolled to the end",
     );
-    app.set_confirm_remove_vault(false);
     app.set_settings_section(3);
     app.set_backup_confirmed("vault-backup-2026-11-21.vault · 24 KB · 2026-11-21 14:03 UTC".into());
     app.set_import_added(12);
@@ -417,16 +474,28 @@ fn main() {
             own: false,
         },
     ])));
+    app.set_sync_pinned(true);
+    tall(&mut camera, 1.0);
+    camera.shot(
+        "settings-synced",
+        "Sync: how it stands, the devices, the server",
+    );
+    camera.shot_scrolled(
+        "settings-synced-end",
+        "Sync, at the phone's height, scrolled to the end",
+    );
     app.set_sync_explained(true);
     tall(&mut camera, 2.2);
     camera.shot(
-        "settings-synced",
-        "Sync: the server, its copies, the devices, how it works",
+        "settings-synced-whole",
+        "Sync: the whole page, how it works open",
     );
     app.set_sync_explained(false);
     app.set_sync_removing(2);
-    tall(&mut camera, 1.4);
+    tall(&mut camera, 1.0);
+    app.invoke_ask(3);
     camera.shot("settings-device-remove", "Removing a device, asked first");
+    app.set_confirming(0);
     app.set_sync_removing(-1);
     app.set_sync_state(3);
     app.set_sync_detail("the sync server can't be reached".into());
@@ -443,14 +512,38 @@ fn main() {
     );
     app.set_updates_available(true);
     app.set_update_state(3);
-    app.set_update_version("0.2.0".into());
+    app.set_update_version("0.3.0".into());
     app.set_settings_section(6);
-    camera.shot("settings-updates", "Updates from the vault server");
-    app.set_settings_section(7);
-    camera.shot("settings-about", "About");
+    camera.shot(
+        "settings-about",
+        "About and updates: the version, updates, what changed",
+    );
     app.set_settings_section(-1);
     app.set_updates_available(false);
     app.set_update_state(0);
+    app.set_settings_section(7);
+    app.invoke_health_opened();
+    camera.shot(
+        "settings-health",
+        "Password health: what needs a look, and why",
+    );
+    app.set_settings_section(8);
+    app.set_folder_editing(-1);
+    app.set_folder_name("Work".into());
+    app.set_folder_icon("briefcase".into());
+    app.invoke_folder_save();
+    camera.shot(
+        "settings-folders",
+        "Folders: made, renamed and given an icon",
+    );
+    app.set_settings_section(2);
+    app.invoke_ask(1);
+    camera.shot(
+        "settings-vault-remove-asked",
+        "Removing a vault from the phone: asked first",
+    );
+    app.set_confirming(0);
+    app.set_settings_section(-1);
 
     app.global::<Theme>().set_dark(false);
     app.set_place(Place::Items);

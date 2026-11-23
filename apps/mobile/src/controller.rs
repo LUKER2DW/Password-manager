@@ -55,8 +55,13 @@ mod field {
     pub const NEW: usize = 6;
     pub const NEW_AGAIN: usize = 7;
     /// Settings → Import and export: the password of the file to import.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub const IMPORT_PASSWORD: usize = 8;
-    pub const COUNT: usize = 9;
+    /// Settings → Import and export: the password a protected export is sealed with.
+    pub const EXPORT_PASSWORD: usize = 9;
+    /// Settings → Import and export: the master password, asked again before any export.
+    pub const EXPORT_MASTER: usize = 10;
+    pub const COUNT: usize = 11;
 }
 
 /// The shortest master password the phone sets (the desktop's rule).
@@ -92,6 +97,7 @@ mod error {
     pub const FILE_TOO_LARGE: i32 = 23;
     pub const BIOMETRICS: i32 = 24;
     pub const IMPORT: i32 = 25;
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub const IMPORT_PASSWORD: i32 = 26;
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub const UPDATE: i32 = 27;
@@ -100,6 +106,12 @@ mod error {
     pub const NOT_INVITE: i32 = 28;
     /// The QR code can't be scanned ("unavailable": no Google Play services, or the detail).
     pub const CAMERA: i32 = 29;
+    /// A protected export needs a password of at least 12 characters.
+    pub const EXPORT_PASSWORD: i32 = 30;
+    /// The export couldn't be made (the detail says why).
+    pub const EXPORT: i32 = 31;
+    /// Some items are behind the item lock: an export would leave their secrets out.
+    pub const EXPORT_LOCKED: i32 = 32;
 }
 
 /// Where the line of a scanned QR code goes (the screens' `scan-invite` purpose).
@@ -108,6 +120,8 @@ pub mod scan {
     pub const SETUP: i32 = 0;
     /// Settings, Sync: joining the server with an invite.
     pub const JOIN: i32 = 1;
+    /// The editor: a one-time code's setup key (an otpauth:// link).
+    pub const OTP: i32 = 2;
 }
 
 /// The editor's kinds (`ed-kind`), the desktop's: an authenticator item is a login kept for
@@ -122,7 +136,11 @@ mod editor {
 
 mod attachments;
 mod filling;
+mod folders;
+mod generated;
+mod health;
 mod icons;
+mod preview;
 mod settings;
 mod syncing;
 mod watch;
@@ -249,6 +267,30 @@ fn grouped(code: &str) -> String {
     format!("{} {}", &code[..half], &code[half..])
 }
 
+/// Notes as the item page shows them: Markdown (bold, italic, code, lists, links). Headings
+/// (`# …`), which the renderer leaves out, show as bold lines; text that isn't valid Markdown
+/// shows as it is.
+fn styled_notes(notes: &str) -> slint::StyledText {
+    if notes.is_empty() {
+        return slint::StyledText::default();
+    }
+    let prepared: String = notes
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            let heading = trimmed.trim_start_matches('#');
+            if trimmed.starts_with('#') && heading.starts_with(' ') && !heading.trim().is_empty() {
+                format!("**{}**", heading.trim())
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    slint::StyledText::from_markdown(&prepared)
+        .unwrap_or_else(|_| slint::StyledText::from_plain_text(notes))
+}
+
 fn editor_kind(item: &ItemData) -> i32 {
     match item.kind {
         ItemKind::Card => editor::CARD,
@@ -314,6 +356,8 @@ struct State {
     /// The master password was just checked for an item the lock covers (no extra encryption).
     master_checked: bool,
     show_password: bool,
+    /// The card's full number and security code are on screen (asked for with the eye).
+    show_card: bool,
     confirm_delete: bool,
     generated: Zeroizing<String>,
     /// What this app put on the clipboard, and when it takes it back.
@@ -346,6 +390,12 @@ struct State {
     leaked: std::collections::HashSet<ItemId>,
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     watch_looked: Option<Instant>,
+    /// The logins on the health page, in order.
+    health_ids: Vec<ItemId>,
+    /// The vault's folders on screen, in order.
+    folder_ids: Vec<vault_core::FolderId>,
+    /// An export made and waiting for the shell to save it (its name and bytes).
+    export_pending: Option<(String, Zeroizing<Vec<u8>>)>,
 }
 
 thread_local! {
@@ -419,6 +469,7 @@ impl Controller {
                 editing: None,
                 master_checked: false,
                 show_password: false,
+                show_card: false,
                 confirm_delete: false,
                 generated: Zeroizing::new(String::new()),
                 copied: None,
@@ -436,6 +487,9 @@ impl Controller {
                 leak_batch: settings::leak_batch_default,
                 leaked: std::collections::HashSet::new(),
                 watch_looked: None,
+                health_ids: Vec::new(),
+                folder_ids: Vec::new(),
+                export_pending: None,
                 lock_after: LOCK_CHOICES[usize::from(prefs.lock_choice).min(2)],
             }),
             tick: Timer::default(),
@@ -519,12 +573,10 @@ impl Controller {
         });
         on!(on_ed_card_number_edited, |c, text| {
             let digits = card::digits(&text);
-            let brand = if digits.is_empty() {
-                ""
-            } else {
-                card::detect_brand(&digits).name()
-            };
-            c.app().set_ed_card_brand(brand.into());
+            let brand = (!digits.is_empty()).then(|| card::detect_brand(&digits));
+            c.app()
+                .set_ed_card_brand(brand.map_or("", card::Brand::name).into());
+            c.app().set_ed_card_mark(brand.map_or(0, view::brand_mark));
         });
         on!(on_close_item, |c| c.close_item());
         on!(on_edit_item, |c| {
@@ -613,6 +665,51 @@ impl Controller {
         on!(on_check_update, |c| c.check_update());
         on!(on_install_update, |c| c.install_update());
         on!(on_change_password, |c| c.change_password());
+        on!(on_health_opened, |c| c.refresh_health());
+        on!(on_health_open, |c, index| c.health_open(index));
+        on!(on_folder_edit, |c, index| c.folder_edit(index));
+        on!(on_folder_save, |c| c.folder_save());
+        on!(on_folder_delete, |c| c.folder_delete());
+        on!(on_vault_icon_changed, |c, name| c.vault_icon_changed(&name));
+        on!(on_export_vault, |c, format| c.export_vault(format));
+        on!(on_toggle_card, |c| {
+            let shown = !c.state.borrow().show_card;
+            c.state.borrow_mut().show_card = shown;
+            c.show_item();
+        });
+        on!(on_next_code, |c| {
+            let selected = c.state.borrow().selected;
+            if let Some(id) = selected {
+                c.next_code(id);
+            }
+        });
+        on!(on_next_code_at, |c, index| {
+            let id = usize::try_from(index)
+                .ok()
+                .and_then(|index| c.state.borrow().code_ids.get(index).copied());
+            if let Some(id) = id {
+                c.next_code(id);
+            }
+        });
+        on!(on_edit_code, |c, index| c.edit_code(index));
+        on!(on_open_website, |c| {
+            let website = c.app().get_d_website();
+            c.open_link(&website);
+        });
+        on!(on_open_link, |c, link| c.open_link(&link));
+        on!(on_preview_file, |c, index| c.preview_file(index));
+        on!(on_close_preview, |c| c.close_preview());
+        on!(on_ed_totp_edited, |c, text| c.otp_names_into_editor(&text));
+        on!(on_scan_otp, |c| c.scan_invite(scan::OTP));
+        on!(on_gen_use, |c| c.generator_use());
+        on!(on_gen_back, |c| c.generator_back());
+        on!(on_gen_new_login, |c| c.generator_new_login());
+        on!(on_gen_history_toggled, |c| c.publish_generated());
+        on!(on_gen_history_copy, |c, index| c
+            .copy_generated_entry(index));
+        on!(on_gen_history_delete, |c, index| c
+            .delete_generated_entry(index));
+        on!(on_gen_history_clear, |c| c.clear_generated());
         on!(on_cancel_password_change, |c| c.close_password_change());
 
         // Secure fields: each key goes straight into its locked buffer.
@@ -1143,7 +1240,10 @@ impl Controller {
         self.add_dropped_logins();
         self.publish_vault_facts();
         self.load_icons();
+        self.publish_folders();
         self.refresh_list();
+        self.refresh_health();
+        self.publish_generated();
         self.fetch_icons();
         self.start_sync();
         self.watch_leaks();
@@ -1198,7 +1298,14 @@ impl Controller {
         app.set_total(0);
         app.set_vault_name(SharedString::new());
         app.set_gen_password(SharedString::new());
+        app.set_gen_for_editor(false);
         app.set_notice_code(0);
+        app.set_folders(ModelRc::default());
+        app.set_folder_filter(-1);
+        app.set_health_rows(ModelRc::default());
+        app.set_health_problems(0);
+        app.set_confirming(0);
+        self.forget_generated_rows();
         self.clear_item_page();
         self.clear_editor();
         self.show_entry();
@@ -1378,6 +1485,7 @@ impl Controller {
             .map(str::to_owned)
             .collect();
         let filter = app.get_filter();
+        let folder = self.folder_at(app.get_folder_filter());
         let (rows, ids, total) = {
             let state = self.state.borrow();
             let Some(vault) = state.vault.as_ref() else {
@@ -1398,7 +1506,10 @@ impl Controller {
                     _ => true,
                 };
                 let text = format!("{} {} {}", item.title, item.username, item.url).to_lowercase();
-                if !fits || !words.iter().all(|word| text.contains(word)) {
+                if !fits
+                    || folder.is_some_and(|folder| item.folder != Some(folder))
+                    || !words.iter().all(|word| text.contains(word))
+                {
                     continue;
                 }
                 let detail = [&item.username, &item.card_hint, &item.url]
@@ -1406,8 +1517,11 @@ impl Controller {
                     .find(|text| !text.is_empty())
                     .cloned()
                     .unwrap_or_default();
-                let (icon, has_icon) = self.picture(&item.url);
+                let (icon, has_icon) = self.picture(&item.url, &item.icon_url);
                 rows.push(ItemRow {
+                    brand: view::brand_mark(item.card_brand),
+                    glyph: icons::glyph_of(&item.icon_url).into(),
+                    http: icons::plain_http(&item.url),
                     icon,
                     has_icon,
                     title: item.title.as_str().into(),
@@ -1506,27 +1620,65 @@ impl Controller {
             },
         ));
         app.set_d_kind(kind_index(item.kind));
-        let (icon, has_icon) = self.picture(&website);
+        let (icon, has_icon) = self.picture(&website, &item.icon_url);
         app.set_d_icon(icon);
         app.set_d_has_icon(has_icon);
+        app.set_d_glyph(icons::glyph_of(&item.icon_url).into());
+        app.set_d_http(icons::plain_http(&website));
+        let folder = item.folder.and_then(|id| {
+            vault
+                .folders()
+                .iter()
+                .find(|folder| folder.id == id)
+                .map(|folder| folder.name.clone())
+        });
+        app.set_d_folder(folder.unwrap_or_default().into());
+        app.set_d_created(if item.created_at > 0 {
+            view::date(item.created_at).into()
+        } else {
+            SharedString::new()
+        });
+        app.set_d_edited(if item.updated_at > item.created_at + 60 {
+            view::date(item.updated_at).into()
+        } else {
+            SharedString::new()
+        });
         app.set_d_favorite(item.favorite);
         app.set_d_username(item.username.as_str().into());
         app.set_d_website(website.into());
         app.set_d_check(check);
         // A note's text is the secret of a note: it waits for the check too.
         let notes_wait = !open && item.kind == ItemKind::SecureNote;
-        app.set_d_notes(if notes_wait { "" } else { item.notes.as_str() }.into());
-        let card = if item.kind == ItemKind::Card {
-            let number = CardDetails::from_item(&item).number;
-            if open && number.len() >= 4 {
-                card::masked(&number)
-            } else {
-                String::new()
+        let notes = if notes_wait { "" } else { item.notes.as_str() };
+        app.set_d_notes(notes.into());
+        app.set_d_notes_styled(styled_notes(notes));
+        let details = (item.kind == ItemKind::Card).then(|| CardDetails::from_item(&item));
+        let card = match &details {
+            Some(details) if open && details.number.len() >= 4 => {
+                if state.show_card {
+                    card::group(&details.number)
+                } else {
+                    card::masked(&details.number)
+                }
             }
-        } else {
-            String::new()
+            _ => String::new(),
         };
         app.set_d_card(card.into());
+        app.set_d_card_shown(state.show_card);
+        app.set_d_brand(details.as_ref().map_or(0, |details| {
+            view::brand_mark(card::detect_brand(&card::digits(&details.number)))
+        }));
+        let code = details
+            .as_ref()
+            .filter(|_| open)
+            .map(|details| details.security_code.clone())
+            .unwrap_or_default();
+        app.set_d_has_card_code(!code.is_empty());
+        app.set_d_card_code(if state.show_card {
+            code.as_str().into()
+        } else {
+            SharedString::new()
+        });
         let expiry = if open && item.kind == ItemKind::Card {
             CardDetails::from_item(&item).expiry
         } else {
@@ -1540,10 +1692,9 @@ impl Controller {
         } else {
             SharedString::new()
         });
-        let code = open
-            .then(|| Totp::parse(&item.totp).ok())
-            .flatten()
-            .map(|totp| (totp.now(), totp.period()));
+        let parsed = open.then(|| Totp::parse(&item.totp).ok()).flatten();
+        app.set_d_counter_based(parsed.as_ref().is_some_and(Totp::is_counter_based));
+        let code = parsed.map(|totp| (totp.now(), totp.period()));
         app.set_d_has_code(code.is_some());
         match code {
             Some(((digits, left), period)) => {
@@ -1573,6 +1724,11 @@ impl Controller {
         app.set_d_has_password(false);
         app.set_d_has_code(false);
         app.set_d_check(0);
+        app.set_d_card_code(SharedString::new());
+        app.set_d_has_card_code(false);
+        app.set_d_card_shown(false);
+        app.set_d_notes_styled(slint::StyledText::default());
+        self.close_preview();
         app.set_d_files(ModelRc::default());
         app.set_d_passkeys(ModelRc::default());
         app.set_d_checked(false);
@@ -1586,6 +1742,7 @@ impl Controller {
             let mut state = self.state.borrow_mut();
             state.selected = None;
             state.show_password = false;
+            state.show_card = false;
             state.master_checked = false;
             if let Some(vault) = state.vault.as_mut() {
                 vault.lock_secrets();
@@ -1753,6 +1910,19 @@ impl Controller {
                     self.copy_secret(&code, notice::CODE_COPIED);
                 }
             }
+            5 | 6 => {
+                let value = self.selected_item().map(|item| {
+                    let details = CardDetails::from_item(&item);
+                    if what == 5 {
+                        card::digits(&details.number)
+                    } else {
+                        details.security_code
+                    }
+                });
+                if let Some(value) = value.filter(|value| !value.is_empty()) {
+                    self.copy_secret(&value, notice::COPIED);
+                }
+            }
             4 => {
                 let public = self.app().get_d_ssh_public();
                 if !public.is_empty() && clipboard::copy_plain(&public).is_ok() {
@@ -1789,8 +1959,10 @@ impl Controller {
                     Some(((digits, left), period)) => (grouped(&digits), left, period),
                     None => (String::new(), 0, 30),
                 };
-                let (icon, has_icon) = self.picture(&summary.url);
+                let (icon, has_icon) = self.picture(&summary.url, &summary.icon_url);
                 rows.push(CodeRow {
+                    glyph: icons::glyph_of(&summary.icon_url).into(),
+                    counter: Totp::parse(&item.totp).is_ok_and(|t| t.is_counter_based()),
                     icon,
                     has_icon,
                     title: summary.title.as_str().into(),
@@ -1855,6 +2027,10 @@ impl Controller {
         }
         app.set_ed_favorite(false);
         app.set_ed_confirm_delete(false);
+        app.set_ed_folder(-1);
+        app.set_ed_glyph(SharedString::new());
+        app.set_ed_counter(false);
+        app.set_ed_card_mark(0);
         self.clear_editor_files();
     }
 
@@ -1886,13 +2062,18 @@ impl Controller {
             app.set_ed_totp(item.totp.as_str().into());
             app.set_ed_notes(item.notes.as_str().into());
             app.set_ed_favorite(item.favorite);
+            app.set_ed_folder(self.folder_index(item.folder));
+            app.set_ed_glyph(icons::glyph_of(&item.icon_url).into());
+            app.set_ed_counter(Totp::parse(&item.totp).is_ok_and(|t| t.is_counter_based()));
             if item.kind == ItemKind::Card {
                 let details = CardDetails::from_item(item);
                 app.set_ed_card_number(card::group(&details.number).into());
                 app.set_ed_card_expiry(details.expiry.as_str().into());
                 app.set_ed_card_code(details.security_code.as_str().into());
                 if !details.number.is_empty() {
-                    app.set_ed_card_brand(card::detect_brand(&details.number).name().into());
+                    let brand = card::detect_brand(&card::digits(&details.number));
+                    app.set_ed_card_brand(brand.name().into());
+                    app.set_ed_card_mark(view::brand_mark(brand));
                 }
             }
         }
@@ -1910,16 +2091,6 @@ impl Controller {
             SharedString::new()
         };
         self.app().set_ed_password(text);
-    }
-
-    fn editor_generate(&self) {
-        let Ok(password) = generate_password(&PasswordOptions::default()) else {
-            return;
-        };
-        self.state.borrow_mut().secrets[field::ITEM_PASSWORD].set(&password);
-        self.publish_lengths();
-        // A password nobody typed is shown, so the person sees what they are saving.
-        self.show_editor_password(true);
     }
 
     fn close_editor(&self) {
@@ -1944,8 +2115,20 @@ impl Controller {
     fn save_item(&self) {
         let app = self.app();
         let kind = app.get_ed_kind();
-        let totp = app.get_ed_totp().trim().to_owned();
-        let website = app.get_ed_website().trim().to_owned();
+        // A bare key asked for as counter-based becomes its otpauth://hotp/ link.
+        let totp = vault_core::totp::with_kind(
+            app.get_ed_totp().trim(),
+            kind == editor::AUTHENTICATOR && app.get_ed_counter(),
+        );
+        // Cards and authenticator items have no website on the phone's editor; what an older
+        // one had is kept.
+        let website = if kind == editor::LOGIN {
+            app.get_ed_website().trim().to_owned()
+        } else {
+            String::new()
+        };
+        let folder = self.folder_at(app.get_ed_folder());
+        let glyph = app.get_ed_glyph().to_string();
         if kind == editor::AUTHENTICATOR && totp.is_empty() {
             return self.set_error(error::SETUP_KEY, "");
         }
@@ -2014,8 +2197,12 @@ impl Controller {
                 if kind != editor::AUTHENTICATOR && kind != editor::SSH {
                     item.password = password.to_string();
                 }
-                // The first website is the one edited here; any others stay.
-                match (item.urls.first_mut(), website.is_empty()) {
+                // The first website is the one edited here (logins); any others stay.
+                match (
+                    item.urls.first_mut(),
+                    website.is_empty() || kind != editor::LOGIN,
+                ) {
+                    (Some(_), true) if kind != editor::LOGIN => {}
                     (Some(first), false) => *first = website,
                     (Some(_), true) => {
                         item.urls.remove(0);
@@ -2031,6 +2218,14 @@ impl Controller {
                 card_details.apply(&mut item);
             }
             extras.apply(&mut item);
+            item.folder = folder;
+            // A chosen line icon is kept where a chosen site or picture is; choosing none
+            // leaves a site or picture chosen on the desktop as it was.
+            if !glyph.is_empty() {
+                item.icon_url = format!("{}{glyph}", icons::GLYPH);
+            } else if item.icon_url.starts_with(icons::GLYPH) {
+                item.icon_url.clear();
+            }
             item.touch();
             match state.editing {
                 Some(id) => vault.update_item(&id, &item).map(|()| id),
@@ -2051,16 +2246,14 @@ impl Controller {
             state.show_password = false;
         }
         self.close_editor();
+        // A password from the generator that this login now uses leaves its history.
+        self.publish_generated();
+        self.publish_folders();
         self.notify(notice::SAVED, "");
     }
 
-    /// Delete, asked twice: the first tap changes the button's words.
+    /// Delete, once the confirmation sheet said yes (app.slint, `ask(5)`).
     fn delete_item(&self) {
-        if !self.state.borrow().confirm_delete {
-            self.state.borrow_mut().confirm_delete = true;
-            self.app().set_ed_confirm_delete(true);
-            return;
-        }
         let removed = {
             let mut state = self.state.borrow_mut();
             let state = &mut *state;
@@ -2212,6 +2405,132 @@ impl Controller {
         let password = self.state.borrow().generated.clone();
         if !password.is_empty() {
             self.copy_secret(&password, notice::COPIED);
+            self.record_generated(&password);
+        }
+    }
+
+    /// "Make a strong one" in the editor, confirmed: the generator opens for it, with the
+    /// person's own settings; the editor waits behind it as it was.
+    fn editor_generate(&self) {
+        let app = self.app();
+        app.set_gen_for_editor(true);
+        app.set_page(Page::None);
+        app.set_place(Place::Generator);
+        self.generate();
+    }
+
+    /// "Use this password": the generator's password goes into the editor's password field,
+    /// shown, and the editor comes back.
+    fn generator_use(&self) {
+        let password = self.state.borrow().generated.clone();
+        if password.is_empty() {
+            return;
+        }
+        self.state.borrow_mut().secrets[field::ITEM_PASSWORD].set(&password);
+        self.record_generated(&password);
+        self.publish_lengths();
+        self.show_editor_password(true);
+        self.generator_back();
+    }
+
+    /// Back from the generator to the editor that asked for it (nothing changed).
+    fn generator_back(&self) {
+        let app = self.app();
+        app.set_gen_for_editor(false);
+        app.set_place(Place::Items);
+        app.set_page(Page::Editor);
+    }
+
+    /// "New login with it": a new login whose password is the generator's.
+    fn generator_new_login(&self) {
+        let password = self.state.borrow().generated.clone();
+        if password.is_empty() {
+            return;
+        }
+        self.open_editor(None);
+        self.state.borrow_mut().secrets[field::ITEM_PASSWORD].set(&password);
+        self.record_generated(&password);
+        self.publish_lengths();
+        self.show_editor_password(true);
+    }
+
+    // ---- codes ----
+
+    /// Next on a counter-based code: its counter moves on (the link in the item changes and
+    /// syncs) and the new code shows.
+    fn next_code(&self, id: ItemId) {
+        let changed = {
+            let mut state = self.state.borrow_mut();
+            let Some(vault) = state.vault.as_mut() else {
+                return;
+            };
+            let Ok(mut item) = vault.get_item(&id) else {
+                return;
+            };
+            if item.is_locked() {
+                return;
+            }
+            let Some(next) = totp::next_counter(&item.totp) else {
+                return;
+            };
+            item.totp = next;
+            item.touch();
+            vault.update_item(&id, &item).is_ok()
+        };
+        if changed && self.save() {
+            self.refresh_codes();
+            if self.state.borrow().selected == Some(id) {
+                self.show_item();
+            }
+        }
+    }
+
+    /// Edit on a swiped code: the login opens in the editor (behind its check, when the item
+    /// lock covers it: then its page asks first).
+    fn edit_code(&self, index: i32) {
+        let id = usize::try_from(index)
+            .ok()
+            .and_then(|index| self.state.borrow().code_ids.get(index).copied());
+        let Some(id) = id else {
+            return;
+        };
+        self.open_item_id(id);
+        if self.selected_item().is_some() {
+            self.open_editor(Some(id));
+        }
+    }
+
+    /// A web address handed to the phone's browser: http and https only; a bare host gets
+    /// https://.
+    fn open_link(&self, link: &str) {
+        let link = link.trim();
+        if link.is_empty() {
+            return;
+        }
+        let lower = link.to_ascii_lowercase();
+        let url = if lower.starts_with("https://") || lower.starts_with("http://") {
+            link.to_owned()
+        } else if link.contains("://") {
+            return;
+        } else {
+            format!("https://{link}")
+        };
+        self.system().open_link(&url);
+    }
+
+    /// A setup key typed or scanned in the editor: an otpauth:// link brings its service and
+    /// account (into empty fields) and its kind (time or counter).
+    fn otp_names_into_editor(&self, text: &str) {
+        let app = self.app();
+        let names = totp::names(text);
+        if app.get_ed_title().trim().is_empty() && !names.issuer.is_empty() {
+            app.set_ed_title(names.issuer.as_str().into());
+        }
+        if app.get_ed_username().trim().is_empty() && !names.account.is_empty() {
+            app.set_ed_username(names.account.as_str().into());
+        }
+        if let Ok(parsed) = Totp::parse(text) {
+            app.set_ed_counter(parsed.is_counter_based());
         }
     }
 

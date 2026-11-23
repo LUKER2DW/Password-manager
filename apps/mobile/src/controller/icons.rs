@@ -14,7 +14,7 @@ mod native {
 
     use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
     use vault_core::storage;
-    use vault_platform::website_icons::{self as icons, Fetched, IconCache};
+    use vault_platform::website_icons::{self as icons, Fetched, IconCache, IconSource};
 
     use super::super::{CURRENT, Controller};
 
@@ -25,9 +25,17 @@ mod native {
         fetching: bool,
     }
 
-    /// The cache key of a website (`www.` and the scheme left out), if it is one.
-    pub(in crate::controller) fn key(url: &str) -> Option<String> {
-        icons::host_of(url).map(|host| icons::cache_key(&host))
+    /// Where an item's icon comes from: the picture chosen for it (a site or a link to a
+    /// picture, `icon_url`), else its website. A chosen line icon (`glyph:`) fetches nothing.
+    pub(in crate::controller) fn source(url: &str, icon_url: &str) -> Option<IconSource> {
+        let chosen = icon_url.trim();
+        if chosen.starts_with(super::GLYPH) {
+            return None;
+        }
+        if !chosen.is_empty() {
+            return IconSource::parse(chosen);
+        }
+        icons::host_of(url).map(IconSource::Site)
     }
 
     impl Controller {
@@ -77,12 +85,13 @@ mod native {
             icons.images.clear();
         }
 
-        /// The icon of a website, when icons are on and one was found for it.
-        pub(in crate::controller) fn icon_for(&self, url: &str) -> Option<Image> {
+        /// An item's icon (its chosen picture or its website's), when icons are on and one
+        /// was found.
+        pub(in crate::controller) fn icon_for(&self, url: &str, icon_url: &str) -> Option<Image> {
             if !self.state.borrow().prefs.website_icons {
                 return None;
             }
-            let key = key(url)?;
+            let key = source(url, icon_url)?.key();
             let mut icons = self.icons.borrow_mut();
             if let Some(image) = icons.images.get(&key) {
                 return Some(image.clone());
@@ -100,7 +109,7 @@ mod native {
         /// Asks the sites that have no icon yet, one after the other, off the UI thread. Not
         /// while testing (`inline`): tests never go out to the network.
         pub(in crate::controller) fn fetch_icons(&self) {
-            let sites: Vec<String> = {
+            let sites: Vec<(String, IconSource)> = {
                 let state = self.state.borrow();
                 let Some(vault) = state.vault.as_ref() else {
                     return;
@@ -109,15 +118,16 @@ mod native {
                     return;
                 }
                 let icons = self.icons.borrow();
-                let mut sites: Vec<String> = vault
+                let mut sites: Vec<(String, IconSource)> = vault
                     .summaries()
                     .unwrap_or_default()
                     .iter()
-                    .filter_map(|item| key(&item.url))
-                    .filter(|key| icons.cache.needs_fetch(key))
+                    .filter_map(|item| source(&item.url, &item.icon_url))
+                    .map(|source| (source.key(), source))
+                    .filter(|(key, _)| icons.cache.needs_fetch(key))
                     .collect();
-                sites.sort();
-                sites.dedup();
+                sites.sort_by(|a, b| a.0.cmp(&b.0));
+                sites.dedup_by(|a, b| a.0 == b.0);
                 sites
             };
             if sites.is_empty() {
@@ -125,8 +135,8 @@ mod native {
             }
             self.icons.borrow_mut().fetching = true;
             std::thread::spawn(move || {
-                for site in sites {
-                    let icon = icons::fetch(&site);
+                for (site, source) in sites {
+                    let icon = source.fetch();
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(c) = CURRENT.with(|current| current.borrow().upgrade()) {
                             c.icon_fetched(site, icon);
@@ -165,14 +175,15 @@ mod native {
 
     use super::super::Controller;
 
+    // Braces, so the controller resets it with `default()` as on a phone.
     #[derive(Debug, Default)]
-    pub(in crate::controller) struct Icons;
+    pub(in crate::controller) struct Icons {}
 
     impl Controller {
         pub(in crate::controller) fn load_icons(&self) {}
         pub(in crate::controller) fn forget_icons(&self) {}
         pub(in crate::controller) fn fetch_icons(&self) {}
-        pub(in crate::controller) fn icon_for(&self, _url: &str) -> Option<Image> {
+        pub(in crate::controller) fn icon_for(&self, _url: &str, _icon_url: &str) -> Option<Image> {
             None
         }
     }
@@ -180,10 +191,29 @@ mod native {
 
 pub(super) use native::Icons;
 
+/// How a chosen line icon is kept in an item's `icon_url` (`glyph:bank`): the field the
+/// desktop keeps a chosen site or picture link in, so it syncs with the item and needs no new
+/// format. Anything without this prefix is a site or a link.
+pub(super) const GLYPH: &str = "glyph:";
+
+/// The line icon chosen for an item ("" = none).
+pub(super) fn glyph_of(icon_url: &str) -> &str {
+    icon_url.trim().strip_prefix(GLYPH).unwrap_or_default()
+}
+
+/// How a website is reached: 0 HTTPS (or nothing to say), 1 plain HTTP (nothing encrypted on
+/// the way: the list shows an open padlock instead of an icon).
+pub(super) fn plain_http(url: &str) -> bool {
+    url.trim()
+        .get(..7)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("http://"))
+}
+
 impl Controller {
-    /// An item's picture: its website's icon, or (`None`) its initial on a colour.
-    pub(super) fn picture(&self, url: &str) -> (Image, bool) {
-        match self.icon_for(url) {
+    /// An item's picture: its chosen picture or its website's icon, or (`None`) its initial
+    /// (or chosen line icon) on a colour.
+    pub(super) fn picture(&self, url: &str, icon_url: &str) -> (Image, bool) {
+        match self.icon_for(url, icon_url) {
             Some(image) => (image, true),
             None => (Image::default(), false),
         }

@@ -49,6 +49,9 @@ pub struct KnownVault {
     /// The vault's id (it is in the file's plain header too), for where it syncs.
     #[serde(default)]
     pub id: String,
+    /// The icon chosen for it on this phone (a line icon's name; "" = its initial).
+    #[serde(default)]
+    pub icon: String,
 }
 
 /// The first vault's file, kept where the phone has always kept its one vault.
@@ -152,6 +155,7 @@ impl Prefs {
                 file: file.to_owned(),
                 name: name.to_owned(),
                 id: id.to_owned(),
+                icon: String::new(),
             }),
         }
     }

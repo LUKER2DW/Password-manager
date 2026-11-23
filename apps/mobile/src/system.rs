@@ -81,6 +81,19 @@ pub trait System {
         None
     }
 
+    /// Opens a web address (http or https only) in the phone's browser.
+    fn open_link(&self, _url: &str) {}
+
+    /// Whether the system can draw a PDF's pages (Android's own renderer).
+    fn renders_pdf(&self) -> bool {
+        false
+    }
+
+    /// A PDF's pages as RGBA pixels (width, height, pixels), drawn inside this app.
+    fn render_pdf(&self, _pdf: &[u8]) -> Result<Vec<(u32, u32, Vec<u8>)>, String> {
+        Err("PDFs are shown on a phone".into())
+    }
+
     /// Whether the phone can read a QR code (the invite a computer shows): Google's code
     /// scanner on Android.
     fn scans_codes(&self) -> bool {

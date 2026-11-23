@@ -824,7 +824,20 @@ mod native {
             if !matches!(place.place.to, SyncTo::Server { .. }) {
                 return;
             }
-            let address = match sync::check_address(app.get_sync_new_address().trim()) {
+            // A new address without a pin keeps the certificate this phone knows: the server's
+            // own certificate authority stays when it moves (docs/SERVER.md).
+            let typed = app.get_sync_new_address().trim().to_owned();
+            let typed = match &place.place.to {
+                SyncTo::Server { url } if !typed.contains("#pin=") => match sync::split_pin(url) {
+                    (_, Some(pin)) => {
+                        let hex: String = pin.iter().map(|b| format!("{b:02x}")).collect();
+                        format!("{typed}#pin={hex}")
+                    }
+                    _ => typed,
+                },
+                _ => typed,
+            };
+            let address = match sync::check_address(&typed) {
                 Ok(address) => address,
                 Err(err) => return self.sync_setup_failed(&format!("{err:#}")),
             };
@@ -1035,7 +1048,17 @@ mod native {
                 }
                 return;
             };
-            app.set_sync_place(SharedString::from(place.to.describe()));
+            // The address as typed, without the certificate's pin (a long hex string kept for
+            // the connection only); that it is pinned shows apart.
+            let (address, pinned) = match &place.to {
+                SyncTo::Server { url } | SyncTo::Webdav { url, .. } => {
+                    let (address, pin) = sync::split_pin(url);
+                    (address.to_owned(), pin.is_some())
+                }
+                other => (other.describe(), false),
+            };
+            app.set_sync_place(SharedString::from(address.as_str()));
+            app.set_sync_pinned(pinned);
             app.set_sync_backup(SharedString::from(
                 place
                     .backup

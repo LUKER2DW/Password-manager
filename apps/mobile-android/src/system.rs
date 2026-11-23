@@ -155,6 +155,59 @@ impl System for AndroidSystem {
         true
     }
 
+    fn open_link(&self, url: &str) {
+        let _ = with_activity(|env, activity| {
+            let url = env.new_string(url)?;
+            env.call_method(
+                activity,
+                "openLink",
+                "(Ljava/lang/String;)V",
+                &[JValue::Object(&url)],
+            )
+            .map(|_| ())
+        });
+    }
+
+    fn renders_pdf(&self) -> bool {
+        true
+    }
+
+    /// At most this many pages, each drawn this many pixels wide.
+    fn render_pdf(&self, pdf: &[u8]) -> Result<Vec<(u32, u32, Vec<u8>)>, String> {
+        const MAX_PAGES: i32 = 40;
+        const WIDTH: i32 = 1080;
+        let pages = with_activity(|env, activity| {
+            let data = env.byte_array_from_slice(pdf)?;
+            let count = env
+                .call_method(activity, "pdfOpen", "([B)I", &[JValue::Object(&data)])?
+                .i()?;
+            let mut pages = Vec::new();
+            for index in 0..count.min(MAX_PAGES) {
+                let page = env
+                    .call_method(
+                        activity,
+                        "pdfPage",
+                        "(II)[B",
+                        &[JValue::Int(index), JValue::Int(WIDTH)],
+                    )?
+                    .l()?;
+                if page.is_null() {
+                    break;
+                }
+                let pixels = env.convert_byte_array(JByteArray::from(page))?;
+                let width = u32::try_from(WIDTH).unwrap_or(1);
+                let height = u32::try_from(pixels.len() / (WIDTH as usize * 4)).unwrap_or(0);
+                pages.push((width, height, pixels));
+            }
+            env.call_method(activity, "pdfClose", "()V", &[])?;
+            Ok((count, pages))
+        })?;
+        match pages {
+            (count, _) if count < 0 => Err("the PDF can't be read".into()),
+            (_, pages) => Ok(pages),
+        }
+    }
+
     fn scan_code(&self, purpose: i32) -> Result<(), String> {
         crate::scan::scan(purpose)
     }

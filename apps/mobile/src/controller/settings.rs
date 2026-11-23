@@ -8,7 +8,7 @@ use std::{
 };
 
 use slint::{ModelRc, SharedString, VecModel};
-use vault_core::{Vault, health};
+use vault_core::{Error as CoreError, SecretKey, Unlock, Vault, health};
 use zeroize::Zeroizing;
 
 use super::{Controller, Opened, error, field, fingerprint, notice, scan};
@@ -165,6 +165,11 @@ impl Controller {
                 app.set_sync_invite_typed(line);
                 self.sync_join();
             }
+            scan::OTP => {
+                let text = line.to_string();
+                app.set_ed_totp(line);
+                self.otp_names_into_editor(&text);
+            }
             _ => {}
         }
     }
@@ -238,6 +243,7 @@ impl Controller {
         let rows: Vec<VaultRow> = kept
             .iter()
             .map(|known| VaultRow {
+                icon: known.icon.as_str().into(),
                 name: known.name.as_str().into(),
                 initial: super::initial(&known.name),
                 tint: super::tint(vault_core::ItemKind::Login, &known.name),
@@ -255,8 +261,109 @@ impl Controller {
                     .unwrap_or_default(),
             );
         }
+        app.set_vault_icon(
+            index
+                .and_then(|i| kept.get(i))
+                .map(|v| v.icon.as_str().into())
+                .unwrap_or_default(),
+        );
         app.set_vaults(ModelRc::new(VecModel::from(rows)));
         app.set_vault_current(index.map_or(-1, |i| i32::try_from(i).unwrap_or(0)));
+    }
+
+    /// Settings → Vaults → Icon on this phone: kept with this phone's list of vaults.
+    pub(super) fn vault_icon_changed(&self, name: &str) {
+        let current = self.current_file();
+        let name = name.chars().take(32).collect::<String>();
+        self.change_prefs(|prefs| {
+            if let Some(known) = prefs.vaults.iter_mut().find(|v| v.file == current) {
+                known.icon = name;
+            }
+        });
+        self.publish_vaults();
+    }
+
+    /// An export, confirmed (app.slint `ask`): 0 protected (.vaultx, sealed under the password
+    /// typed for it), 1 plain JSON, 2 plain CSV. As on the desktop, the master password is
+    /// checked again against the vault file first, and nothing goes out while items are
+    /// behind the item lock (their secrets would be missing). The bytes wait in memory while
+    /// the shell asks where to save them (`save-file` with -1), and are wiped once saved.
+    pub(super) fn export_vault(&self, format: i32) {
+        if self.app().get_busy() {
+            return;
+        }
+        let master = self.secret(field::EXPORT_MASTER);
+        if master.is_empty() {
+            return self.set_error(error::WRONG_CURRENT, "");
+        }
+        let password = self.secret(field::EXPORT_PASSWORD);
+        if format == 0 && password.chars().count() < super::MIN_MASTER_PASSWORD_CHARS {
+            return self.set_error(error::EXPORT_PASSWORD, "");
+        }
+        let locked = self.state.borrow().vault.as_ref().is_some_and(|vault| {
+            vault
+                .summaries()
+                .is_ok_and(|all| all.iter().any(|item| item.locked))
+        });
+        if locked {
+            return self.set_error(error::EXPORT_LOCKED, "");
+        }
+        self.set_error(error::NONE, "");
+        let (vault, secret_key, path) = {
+            let mut state = self.state.borrow_mut();
+            let (Some(vault), Some(secret_key)) = (state.vault.take(), state.secret_key.take())
+            else {
+                return;
+            };
+            (vault, secret_key, state.path.clone())
+        };
+        struct Exported {
+            vault: Vault,
+            secret_key: SecretKey,
+            /// The file's name and bytes, or the error code and detail.
+            outcome: Result<Export, (i32, String)>,
+        }
+        self.run(
+            move || {
+                let outcome = (|| {
+                    let bytes = files::read(&path).map_err(|e| (error::EXPORT, e.to_string()))?;
+                    // The master password, checked against the file itself.
+                    Vault::open(
+                        &bytes,
+                        Unlock::Password {
+                            password: &master,
+                            secret_key: &secret_key,
+                        },
+                    )
+                    .map_err(|err| match err {
+                        CoreError::DecryptionFailed => (error::WRONG_CURRENT, String::new()),
+                        other => (error::EXPORT, other.to_string()),
+                    })?;
+                    make_export(&vault, format, &password).map_err(|detail| (error::EXPORT, detail))
+                })();
+                Exported {
+                    vault,
+                    secret_key,
+                    outcome,
+                }
+            },
+            |c, exported| {
+                {
+                    let mut state = c.state.borrow_mut();
+                    state.vault = Some(exported.vault);
+                    state.secret_key = Some(exported.secret_key);
+                    state.secrets[field::EXPORT_MASTER].clear();
+                }
+                c.publish_lengths();
+                match exported.outcome {
+                    Ok(export) => {
+                        c.state.borrow_mut().export_pending = Some(export);
+                        c.app().invoke_save_file(-1);
+                    }
+                    Err((code, detail)) => c.set_error(code, &detail),
+                }
+            },
+        );
     }
 
     /// The vault that just opened is one this phone keeps, under its name.
@@ -469,7 +576,9 @@ impl Controller {
             && bio.as_ref().is_some_and(|b| b.fresh(unix_now()));
         app.set_bio_ready(ready);
         app.set_bio_stale(available && bio.as_ref().is_some_and(|b| !b.fresh(unix_now())));
-        if ready && ask && !app.get_busy() {
+        // One prompt at a time: while one waits for its answer, it is the one.
+        let waiting = matches!(self.state.borrow().bio, BioPending::Opening(_));
+        if ready && ask && !app.get_busy() && !waiting {
             self.bio_unlock();
         }
     }
@@ -762,4 +871,37 @@ impl Controller {
             },
         );
     }
+}
+
+/// An export's file name and bytes.
+type Export = (String, Zeroizing<Vec<u8>>);
+
+/// An export: 0 protected (.vaultx), 1 plain JSON, 2 plain CSV.
+#[cfg(not(target_arch = "wasm32"))]
+fn make_export(vault: &Vault, format: i32, password: &str) -> Result<Export, String> {
+    use vault_import as export;
+    let day = crate::view::date(crate::view::now_unix());
+    let made = match format {
+        0 => export::export_sealed(vault, password)
+            .map(|bytes| (format!("vault-export-{day}.vaultx"), Zeroizing::new(bytes))),
+        1 => export::export_json(vault).map(|text| {
+            (
+                format!("vault-export-{day}.json"),
+                Zeroizing::new(text.as_bytes().to_vec()),
+            )
+        }),
+        _ => export::export_csv(vault).map(|text| {
+            (
+                format!("vault-export-{day}.csv"),
+                Zeroizing::new(text.as_bytes().to_vec()),
+            )
+        }),
+    };
+    made.map_err(|err| err.to_string())
+}
+
+/// The browser preview makes no exports.
+#[cfg(target_arch = "wasm32")]
+fn make_export(_vault: &Vault, _format: i32, _password: &str) -> Result<Export, String> {
+    Err("the browser preview makes no exports".to_owned())
 }

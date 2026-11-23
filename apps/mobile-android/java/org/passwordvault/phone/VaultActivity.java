@@ -7,8 +7,13 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageInstaller;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.graphics.pdf.PdfRenderer;
+import android.os.ParcelFileDescriptor;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
@@ -18,6 +23,9 @@ import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.ByteBuffer;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Arrays;
@@ -32,7 +40,9 @@ import java.util.Locale;
  *
  * Files are read and written here, through the content resolver, off the main thread; what was
  * read (or read back after saving) goes to the app as bytes. Nothing here sees a password or the
- * vault key: a vault file is encrypted, and fingerprint unlock only seals a device secret.
+ * vault key: a vault file is encrypted, and fingerprint unlock only seals a device secret. The one
+ * decrypted thing that passes through is a PDF attached to an item, while its preview is drawn
+ * (pdfOpen).
  */
 public class VaultActivity extends NativeActivity {
     static {
@@ -51,6 +61,9 @@ public class VaultActivity extends NativeActivity {
     private static final int OPENED = 2;
 
     private byte[] pendingSave;
+    /** A system prompt (the phone's unlock) is on screen, or waits for the window's focus. */
+    private boolean prompting;
+    private Runnable waitingPrompt;
     /** One of the app's own system screens is up (a picker, a settings page, the installer). */
     private boolean away;
     /** The install session this app committed and waits to hear about, or -1. */
@@ -119,29 +132,168 @@ public class VaultActivity extends NativeActivity {
         });
     }
 
+    // ---- links and PDFs ----
+
+    /** A web address in the phone's browser (the app passes http and https only). */
+    public void openLink(String url) {
+        Uri uri = Uri.parse(url);
+        String scheme = uri.getScheme();
+        if (scheme == null || !(scheme.equalsIgnoreCase("https") || scheme.equalsIgnoreCase("http"))) {
+            return;
+        }
+        runOnUiThread(() -> {
+            try {
+                away = true;
+                startActivity(new Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE));
+            } catch (Exception e) {
+                away = false;
+            }
+        });
+    }
+
+    private PdfRenderer pdf;
+    private ParcelFileDescriptor pdfFile;
+    private File pdfPath;
+
+    @Override
+    protected void onCreate(Bundle state) {
+        super.onCreate(state);
+        // A preview's file left behind when the app was stopped while drawing it.
+        File[] left = getCacheDir().listFiles((dir, name) -> name.startsWith("preview") && name.endsWith(".pdf"));
+        if (left != null) {
+            for (File file : left) {
+                wipe(file);
+            }
+        }
+    }
+
+    /** Overwrites a file with zeros, then deletes it. */
+    private static void wipe(File file) {
+        try (FileOutputStream out = new FileOutputStream(file)) {
+            out.write(new byte[(int) Math.min(file.length(), 64L * 1024 * 1024)]);
+        } catch (Exception e) {
+            // Deleted below anyway.
+        }
+        file.delete();
+    }
+
+    /**
+     * Opens a PDF attached to an item for its preview, drawn here by Android's own renderer:
+     * the decrypted file is written to this app's private cache (the renderer reads a file),
+     * read, and deleted by {@link #pdfClose}. Answers how many pages it has, or -1.
+     */
+    public int pdfOpen(byte[] data) {
+        pdfClose();
+        try {
+            pdfPath = File.createTempFile("preview", ".pdf", getCacheDir());
+            try (FileOutputStream out = new FileOutputStream(pdfPath)) {
+                out.write(data);
+            }
+            pdfFile = ParcelFileDescriptor.open(pdfPath, ParcelFileDescriptor.MODE_READ_ONLY);
+            pdf = new PdfRenderer(pdfFile);
+            return pdf.getPageCount();
+        } catch (Exception e) {
+            pdfClose();
+            return -1;
+        }
+    }
+
+    /** Page {@code index} drawn {@code width} pixels wide on white, as RGBA bytes. */
+    public byte[] pdfPage(int index, int width) {
+        if (pdf == null || index < 0 || index >= pdf.getPageCount()) {
+            return null;
+        }
+        try (PdfRenderer.Page page = pdf.openPage(index)) {
+            int height = Math.max(1, (int) ((long) width * page.getHeight() / Math.max(1, page.getWidth())));
+            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            bitmap.eraseColor(Color.WHITE);
+            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+            ByteBuffer pixels = ByteBuffer.allocate(bitmap.getByteCount());
+            bitmap.copyPixelsToBuffer(pixels);
+            bitmap.recycle();
+            return pixels.array();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Closes the PDF and deletes its file (overwritten first). */
+    public void pdfClose() {
+        try {
+            if (pdf != null) {
+                pdf.close();
+            }
+            if (pdfFile != null) {
+                pdfFile.close();
+            }
+        } catch (Exception e) {
+            // Closed already.
+        }
+        pdf = null;
+        pdfFile = null;
+        if (pdfPath != null) {
+            wipe(pdfPath);
+            pdfPath = null;
+        }
+    }
+
     // ---- fingerprint unlock ----
 
     public boolean biometricsAvailable() {
         return Biometrics.available(this);
     }
 
-    /** Seals {@code secret} after a fingerprint; the answer comes to {@link #bioDone}. */
+    /** Seals {@code secret} after the phone's unlock; the answer comes to {@link #bioDone}. */
     public void sealWithBiometrics(String vaultId, byte[] secret, String title, String subtitle,
             String cancel) {
-        runOnUiThread(() -> Biometrics.seal(this, vaultId, secret, title, subtitle, cancel,
-                (data, error) -> bioDone(SEALED, data, error)));
+        whenShown(() -> Biometrics.seal(this, vaultId, secret, title, subtitle, cancel,
+                (data, error) -> {
+                    prompting = false;
+                    bioDone(SEALED, data, error);
+                }));
     }
 
-    /** Opens a sealed secret after a fingerprint; the answer comes to {@link #bioDone}. */
+    /** Opens a sealed secret after the phone's unlock; the answer comes to {@link #bioDone}. */
     public void openWithBiometrics(String vaultId, byte[] sealed, String title, String subtitle,
             String cancel) {
-        runOnUiThread(() -> Biometrics.open(this, vaultId, sealed, title, subtitle, cancel,
+        whenShown(() -> Biometrics.open(this, vaultId, sealed, title, subtitle, cancel,
                 (data, error) -> {
+                    prompting = false;
                     bioDone(OPENED, data, error);
                     if (data != null) {
                         Arrays.fill(data, (byte) 0);
                     }
                 }));
+    }
+
+    /**
+     * Shows a system prompt once this screen is in front with the focus (one asked for while the
+     * app is still starting would be cancelled by Android as the window comes up, and stay on
+     * screen without answering), and only one at a time: while one is up, it answers.
+     */
+    private void whenShown(Runnable prompt) {
+        runOnUiThread(() -> {
+            if (prompting) {
+                return;
+            }
+            if (hasWindowFocus()) {
+                prompting = true;
+                prompt.run();
+            } else {
+                waitingPrompt = prompt;
+            }
+        });
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (focused && waitingPrompt != null && !prompting) {
+            Runnable prompt = waitingPrompt;
+            waitingPrompt = null;
+            prompting = true;
+            prompt.run();
+        }
     }
 
     public void forgetBiometrics(String vaultId) {

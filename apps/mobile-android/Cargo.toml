@@ -1,6 +1,6 @@
 [package]
 name = "vault-mobile-android"
-version = "0.1.0"
+version = "0.2.0"
 description = "The phone app as an Android app (the native library an APK loads)"
 edition.workspace = true
 rust-version.workspace = true

@@ -21,12 +21,13 @@ mod pick {
     pub const IMPORT: i32 = 3;
 }
 
-fn rows(files: &[Attachment]) -> ModelRc<FileRow> {
+fn rows(files: &[Attachment], pdf: bool) -> ModelRc<FileRow> {
     let rows: Vec<FileRow> = files
         .iter()
         .map(|file| FileRow {
             name: file.name.as_str().into(),
             size: view::file_size(file.data.len()).into(),
+            preview: super::preview::kind_of(&file.name, &file.data, pdf),
         })
         .collect();
     ModelRc::new(VecModel::from(rows))
@@ -102,7 +103,7 @@ impl Controller {
         }
         self.show_editor_key(&public, &fingerprint);
         self.app()
-            .set_ed_files(rows(&self.state.borrow().editor_files));
+            .set_ed_files(rows(&self.state.borrow().editor_files, false));
     }
 
     pub(super) fn clear_editor_files(&self) {
@@ -167,7 +168,7 @@ impl Controller {
                         self.state.borrow_mut().editor_files.push(file);
                         self.set_error(error::NONE, "");
                         self.app()
-                            .set_ed_files(rows(&self.state.borrow().editor_files));
+                            .set_ed_files(rows(&self.state.borrow().editor_files, false));
                     }
                     Err(vault_core::Error::AttachmentTooLarge) => {
                         self.set_error(error::FILE_TOO_LARGE, "");
@@ -191,7 +192,7 @@ impl Controller {
             }
         }
         self.app()
-            .set_ed_files(rows(&self.state.borrow().editor_files));
+            .set_ed_files(rows(&self.state.borrow().editor_files, false));
     }
 
     /// What the editor adds to the item it saves: its files and, for an SSH key, the key and
@@ -210,7 +211,7 @@ impl Controller {
     pub(super) fn show_item_files(&self, item: &ItemData, open: bool) {
         let files: &[Attachment] = if open { &item.attachments } else { &[] };
         let app = self.app();
-        app.set_d_files(rows(files));
+        app.set_d_files(rows(files, self.system().renders_pdf()));
         let passkeys: Vec<PasskeyRow> = item
             .passkeys
             .iter()
@@ -234,6 +235,12 @@ impl Controller {
 
     /// The open item's file `index`, to be saved where the person picks (the shell).
     pub fn file_to_save(&self, index: i32) -> Option<(String, Vec<u8>)> {
+        // -1: an export made in Settings → Import and export (settings.rs, `export_vault`).
+        if index < 0 {
+            let (name, bytes) = self.state.borrow_mut().export_pending.take()?;
+            self.state.borrow_mut().file_expected = Some(super::fingerprint(&bytes));
+            return Some((name, bytes.to_vec()));
+        }
         let item = self.selected_item()?;
         let file = item.attachments.get(usize::try_from(index).ok()?)?;
         self.state.borrow_mut().file_expected = Some(super::fingerprint(&file.data));

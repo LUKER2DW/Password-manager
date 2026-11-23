@@ -7357,7 +7357,7 @@ dependencies = [
 
 [[package]]
 name = "vault-mobile"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "i-slint-backend-testing",
@@ -7383,7 +7383,7 @@ dependencies = [
 
 [[package]]
 name = "vault-mobile-android"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "jni 0.21.1",
  "ndk-context",

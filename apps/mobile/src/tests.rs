@@ -511,10 +511,26 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         "the editor holds the password, not the screen"
     );
     assert_eq!(app.get_ed_password(), "");
+    // "Make a strong one" (after its confirmation) opens the generator for the editor; Use
+    // brings its password back, shown.
     app.invoke_ed_generate();
+    assert_eq!(
+        (app.get_page(), app.get_place(), app.get_gen_for_editor()),
+        (Page::None, Place::Generator, true)
+    );
+    app.invoke_gen_use();
+    assert_eq!(app.get_page(), Page::Editor);
+    assert!(!app.get_gen_for_editor());
     let generated = app.get_ed_password().to_string();
     assert_eq!(generated.chars().count(), 20, "a made password is shown");
+    // It was used: the generator's history keeps it until a login uses it.
+    assert_eq!(app.get_gen_history().row_count(), 1);
     app.invoke_save_item();
+    assert_eq!(
+        app.get_gen_history().row_count(),
+        0,
+        "a password a login uses leaves the history"
+    );
     app.invoke_toggle_password();
     assert_eq!(app.get_d_password(), generated.as_str());
     app.invoke_close_item();
@@ -550,6 +566,133 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     app.invoke_gen_changed();
     assert_eq!(app.get_gen_password().split('-').count(), 6);
     assert_eq!(app.get_error_code(), 0);
+    // A copy goes into the history, masked until shown; it can be deleted.
+    app.invoke_gen_copy();
+    assert_eq!(app.get_gen_history().row_count(), 1);
+    let masked = app.get_gen_history().row_data(0).unwrap().text;
+    assert!(masked.chars().all(|c| c == '•'), "masked until shown");
+    app.set_gen_history_shown(true);
+    app.invoke_gen_history_toggled();
+    assert_eq!(
+        app.get_gen_history().row_data(0).unwrap().text,
+        app.get_gen_password()
+    );
+    app.invoke_gen_history_delete(0);
+    assert_eq!(app.get_gen_history().row_count(), 0);
+    app.set_gen_history_shown(false);
+    // "New login with it": the editor opens with the password in it.
+    app.invoke_gen_new_login();
+    assert_eq!((app.get_page(), app.get_ed_new()), (Page::Editor, true));
+    assert_eq!(
+        length(&app, 3),
+        i32::try_from(app.get_gen_password().chars().count()).unwrap()
+    );
+    app.invoke_cancel_edit();
+    app.set_place(Place::Items);
+
+    // ---- folders: made in Settings, chosen in the editor, a filter on the list ----
+    app.set_folder_editing(-1);
+    app.set_folder_name("Work".into());
+    app.set_folder_icon("briefcase".into());
+    app.invoke_folder_save();
+    assert_eq!(app.get_folders().row_count(), 1);
+    assert_eq!(app.get_folders().row_data(0).unwrap().icon, "briefcase");
+    app.invoke_new_item();
+    app.set_ed_kind(2);
+    app.set_ed_title("Office wifi".into());
+    app.set_ed_notes(
+        "**Network**: guest
+- one
+- two"
+            .into(),
+    );
+    app.set_ed_folder(0);
+    app.set_ed_glyph("wifi".into());
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    assert_eq!(
+        (app.get_d_folder().as_str(), app.get_d_glyph().as_str()),
+        ("Work", "wifi")
+    );
+    assert!(!app.get_d_created().is_empty());
+    app.invoke_close_item();
+    assert_eq!(app.get_folders().row_data(0).unwrap().count, 1);
+    app.set_folder_filter(0);
+    app.invoke_filter_changed(0);
+    assert_eq!(app.get_items().row_count(), 1, "only the folder's items");
+    app.set_folder_filter(-1);
+    app.invoke_filter_changed(0);
+
+    // ---- a counter-based code: Next moves it on, in the item (it syncs) ----
+    app.invoke_new_code();
+    app.set_ed_totp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ".into());
+    app.set_ed_counter(true);
+    app.set_ed_title("Bank token".into());
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    assert!(app.get_d_counter_based());
+    assert_eq!(app.get_d_code(), "755 224", "RFC 4226, counter 0");
+    app.invoke_next_code();
+    assert_eq!(app.get_d_code(), "287 082", "counter 1");
+    app.invoke_close_item();
+    let codes = app.get_codes();
+    let bank = (0..codes.row_count())
+        .find(|&i| codes.row_data(i).unwrap().title == "Bank token")
+        .unwrap();
+    assert!(codes.row_data(bank).unwrap().counter);
+
+    // ---- password health: the weak and reused ones, the worst first ----
+    app.invoke_health_opened();
+    assert!(app.get_health_logins() >= 1);
+    assert_eq!(
+        app.get_health_rows().row_count(),
+        app.get_health_score() as usize
+    );
+
+    // ---- export: the master password first, checked against the file; a protected one
+    // needs a password of its own; the bytes wait to be saved ----
+    app.invoke_export_vault(1);
+    assert_eq!(app.get_error_code(), 13, "no master password");
+    type_secret(&app, 10, "not the master password");
+    app.invoke_export_vault(1);
+    assert_eq!(app.get_error_code(), 13, "a wrong one");
+    assert!(controller.file_to_save(-1).is_none());
+    assert_eq!(length(&app, 10), 0, "cleared after the check");
+    type_secret(&app, 10, PASSWORD);
+    app.invoke_export_vault(0);
+    assert_eq!(app.get_error_code(), 30);
+    type_secret(&app, 9, "an export password");
+    app.invoke_export_vault(0);
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    let (name, sealed) = controller.file_to_save(-1).unwrap();
+    assert!(name.ends_with(".vaultx"));
+    assert!(!sealed.is_empty());
+    type_secret(&app, 10, PASSWORD);
+    app.invoke_export_vault(1);
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    let (name, json) = controller.file_to_save(-1).unwrap();
+    assert!(name.ends_with(".json"));
+    assert!(String::from_utf8_lossy(&json).contains("Office wifi"));
+    assert!(controller.file_to_save(-1).is_none(), "handed out once");
+    type_secret(&app, 9, "");
+
+    // ---- the vault's icon on this phone ----
+    app.invoke_vault_icon_changed("home".into());
+    assert_eq!(app.get_vault_icon(), "home");
+    app.invoke_vault_icon_changed("".into());
+
+    // What these steps made goes again, for what follows: the two items, the folder.
+    for title in ["Office wifi", "Bank token"] {
+        let index = (0..app.get_items().row_count())
+            .find(|&i| app.get_items().row_data(i).unwrap().title == title)
+            .unwrap();
+        app.invoke_open_item(i32::try_from(index).unwrap());
+        app.invoke_edit_item();
+        app.invoke_delete_item();
+    }
+    app.invoke_folder_edit(0);
+    app.invoke_folder_delete();
+    assert_eq!(app.get_folders().row_count(), 0);
 
     // ---- the item lock: a PIN before the secrets ----
     {
@@ -626,14 +769,12 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     assert_eq!(app.get_d_check(), 2, "closed again when the item is left");
     app.invoke_close_item();
 
-    // ---- delete, asked twice ----
+    // ---- delete, once the confirmation sheet said yes ----
     app.invoke_open_item(1);
     type_secret(&app, 2, "4821");
     app.invoke_unlock_item();
     app.invoke_edit_item();
     assert_eq!(app.get_page(), Page::Editor);
-    app.invoke_delete_item();
-    assert!(app.get_ed_confirm_delete());
     assert_eq!(app.get_total(), 2);
     app.invoke_delete_item();
     assert_eq!((app.get_total(), app.get_page()), (1, Page::None));
