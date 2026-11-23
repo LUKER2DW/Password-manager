@@ -174,7 +174,7 @@ struct ItemData {
     password: String,
     urls: Vec<String>,
     notes: String,
-    totp: String,            // otpauth:// URI or base32 secret; empty = none
+    totp: String,            // otpauth://totp/ or otpauth://hotp/ (with &counter=N) URI, or base32 secret; empty = none
     favorite: bool,
     custom_fields: Vec<CustomField>,
     created_at: i64,         // Unix seconds
@@ -183,7 +183,7 @@ struct ItemData {
     recovery_codes: Vec<RecoveryCode>, // v1: the account's two-step backup codes
     password_history: Vec<PasswordChange>, // v2: earlier passwords, oldest first
     password_changed_at: i64,              // v2: when the password was set; 0 = unknown
-    icon_url: String,                      // v3: website (or picture link) whose image stands for the item; "" = urls[0]
+    icon_url: String,                      // v3: website (or picture link) whose image stands for the item; "" = urls[0]; "glyph:<name>" = a preset line icon
     reprompt: bool,                        // v5: the item is guarded even when `guard.all_items` is off
     sealed: Option<SealedSecrets>,         // v6: present while the item's secrets are encrypted
     attachments: Vec<Attachment>,          // v9: files kept with the item; empty while sealed

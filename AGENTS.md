@@ -84,7 +84,7 @@ filesystem policy** beyond atomic writes.
 | `drop_box.rs` | Logins saved from the browser while locked, sealed to a public key only the open vault reads |
 | `locked_fill.rs` | Logins the extension may fill while the vault is locked (CRYPTO.md §3.4) |
 | `passkey.rs` | Passkeys in logins: ES256 keys, authenticator data, attestation, signatures (CRYPTO.md §3.7) |
-| `totp.rs` | RFC 6238 one-time codes |
+| `totp.rs` | RFC 6238 one-time codes, and RFC 4226 counter-based ones (`otpauth://hotp/`) |
 | `storage.rs` | Atomic file writes with a `.bak` copy |
 | `random.rs` | OS randomness |
 
@@ -198,7 +198,9 @@ save check, clipboard cleared). `src/tests.rs` runs it headless;
 look right in both apps' screenshots. The controller's submodules are `syncing.rs` (sync on
 the phone, updates from the server), `settings.rs` (vaults on the phone, fingerprint unlock,
 import, "Check this password"), `filling.rs` (autofill from the open vault),
-`attachments.rs` (files and SSH keys) and `icons.rs` (website icons). `prefs.rs` is the
+`attachments.rs` (files and SSH keys), `preview.rs` (previews of attached pictures, text and
+PDFs), `icons.rs` (website icons and the preset `glyph:` icons), `folders.rs`, `health.rs`
+(password health) and `generated.rs` (the generator's sealed history). `prefs.rs` is the
 phone's own settings file, `bio.rs` a vault's fingerprint unlock file, `autofill.rs` which
 logins belong to the app or site asking (and the drop box for logins saved while locked), and
 `system.rs` the `System` trait: what only Android does, implemented by the Android crate. The controller reaches the system only through

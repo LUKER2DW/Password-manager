@@ -72,15 +72,22 @@ them when an item is open.
 
 | Screen | What it does | State |
 |---|---|---|
-| Start | No vault on this phone: choose its file, or set it up from the server | ✅ (the system's file picker on Android) |
-| Unlock | Master password (and the Secret Key the first time on this phone); a chosen file waits here until it opens | ✅; ⬜ biometrics |
-| Vault | Search, filters (all, favourites, logins, cards, notes, SSH keys), the list | ✅; ⬜ several vaults |
-| Item | Every field with Copy; password and code hidden until asked; item lock; files | ✅ |
-| Editor | New login, card, note, authenticator item or SSH key, edit, delete, attach files | ✅; ⬜ custom fields |
-| Codes | One-time codes with their countdown; tap to copy; Add | ✅; ⬜ scan a QR code |
-| Generator | Characters or words, length, Advanced options, strength; copy | ✅ |
-| Settings | Theme, lock, clipboard, backdrop, website icons, sync, master password, a copy of the vault | ✅; ⬜ groups, biometrics, autofill, updates |
-| Autofill sheet | Android's own picker over another app | ⬜ (Kotlin) |
+| Start | No vault on this phone: scan the computer's QR code (or paste its line) to set it up from the server, or choose its file | ✅ (Google's code scanner, the system's file picker on Android) |
+| Unlock | Master password (and the Secret Key the first time on this phone), or the phone's unlock (fingerprint, face or screen lock); a chooser for the vaults this phone keeps | ✅ |
+| Vault | Search, filters (all, favourites, logins, cards, notes, SSH keys) and folders, the list; swipe between the four places | ✅ |
+| Item | Every field with Copy; password, card number, CVV, PIN and code hidden until asked; item lock; open the website; notes in Markdown; created and last edited; previews of attached pictures, text and PDFs | ✅ |
+| Editor | New login, card, note, authenticator item or SSH key, edit, delete, attach files; a folder and an icon (the site's, or one of the preset line icons); the setup key scanned from a QR code, time- or counter-based; "Make a strong one" opens the generator and Use brings it back | ✅; ⬜ custom fields |
+| Codes | One-time codes with a countdown pie; tap to copy; Next for counter-based ones; swipe a row to edit it; Add | ✅ |
+| Generator | Characters or words, length, Advanced options, strength; copy; "New login with it"; the history of copied passwords (masked, those already used by a login hidden, each deletable) | ✅ |
+| Settings | Security, autofill, vaults (with an icon each), import and export, sync, appearance, about and updates (with short notes for each version), password health, folders | ✅ |
+| Autofill sheet | Android's own picker over another app | ✅ (Java) |
+
+Every page scrolls on its own (`Scroller` in app.slint: one per page, a slight stretch at the
+ends and a thin bar while it moves). Slint measures a block shown with `if` that holds wrapped
+text as if its lines were one, so a page can come out a few lines short: pages are their own
+scrollers, lists of wrapped text are written out, and each page keeps 56 px of room at its end.
+Sensitive actions (removing a vault or a device, stopping sync, deleting an item or a folder, an
+export) ask first in a sheet at the bottom.
 
 Rules carried over from DESIGN.md: one yellow thing per screen (the main button), hand-drawn
 only for small details (the stroke under the chosen place), sentence case, words that say
@@ -92,7 +99,10 @@ thumb (bottom of the form, not the top bar), nothing that needs hover.
 | Topic | Decision |
 |---|---|
 | Secret Key at rest | Android Keystore (StrongBox when the phone has it), wrapped key in app-private storage |
-| Quick unlock | ✅ `BiometricPrompt` Class 3 releasing a Keystore key that opens a device secret, which unwraps the vault key (CRYPTO.md §3.1.1, as Windows Hello does on the desktop); master password again every 14 days and after it changes; a new fingerprint retires the key |
+| Quick unlock | ✅ `BiometricPrompt` releasing a Keystore key that opens a device secret, which unwraps the vault key (CRYPTO.md §3.1.1, as Windows Hello does on the desktop): a Class 3 fingerprint or face, or on Android 11+ the phone's screen lock (PIN, pattern or password); master password again every 14 days and after it changes; a new fingerprint retires the key |
+| Previews | ✅ Pictures and text are decoded in Rust from memory. A PDF is drawn by Android's `PdfRenderer`, which reads a file: the decrypted PDF sits in the app's private cache while its pages are drawn (at most 40), then is overwritten and deleted; a leftover from a stopped app is wiped at the next start. Nothing is handed to another app |
+| Exports | ✅ The master password again (checked against the file), then a confirmation; refused while items are behind the item lock. The protected export (`.vaultx`) is sealed under a password of its own; a plain JSON or CSV export says it holds every password in plain text |
+| Generated passwords | ✅ The last 50 copied, sealed with the vault key next to the phone's copy (`generated-<vault id>.history`), masked until shown; those a login already uses are left out of the list |
 | Screen | ✅ `FLAG_SECURE` unless "Allow screenshots" is turned on: no screenshots, blank in the app switcher |
 | Clipboard | Marked sensitive (`EXTRA_IS_SENSITIVE`, Android 13+), cleared after the timeout |
 | Background | Locks when the app leaves the screen for longer than the auto-lock time; at once with "Lock as soon as I leave the app" |
@@ -112,7 +122,7 @@ thumb (bottom of the form, not the top bar), nothing that needs hover.
 | M7.4 | **Autofill** — `AutofillService` with app and origin matching, save prompt | ✅ built: offers, a confirmation on every fill, "Save to Vault?", a strong password suggested; ⬜ tried on a device |
 | M7.5 | **Passkeys and Credential Manager** (Android 14+) | ⬜ Depends on passkeys in the core |
 | M7.6 | **Sync** with the self-hosted server or WebDAV (M6) | ✅ The same vault on both devices without copying a file |
-| M7.7 | Cards, authenticator items, SSH keys, files and Brazilian Portuguese (✅); custom fields, folders, health, import (⬜) | Parity with what the desktop edits |
+| M7.7 | Cards, authenticator items (time- and counter-based), SSH keys, files and their previews, folders, password health, import and export, the generator's history, Brazilian Portuguese (✅); custom fields (⬜) | Parity with what the desktop edits |
 
 ## 6. Researched choices
 

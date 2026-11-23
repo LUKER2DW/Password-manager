@@ -139,11 +139,27 @@ On top of that:
   nothing by itself. What is read is treated like a pasted line: an invite works once,
   within an hour, and the phone still needs the master password and the Secret Key. Residual risk: someone who films the computer's screen while
   the invite is shown can use it within the hour to enroll a device, which then still can't
-  open the vault without the master password and the Secret Key.
+  open the vault without the master password and the Secret Key. A one-time code's setup key
+  scanned the same way passes through Play services too, as it would through any authenticator
+  app's scanner.
+- **Unlocking the phone app with the phone's screen lock** (Android 11+, when the person turns
+  on unlock with the phone): the Keystore key that opens the vault answers to a strong
+  fingerprint or face, or to the phone's PIN, pattern or password. Someone who knows that PIN
+  and has the phone in hand can open the vault, for up to 14 days after the
+  last master password; guesses are rate-limited by the phone's secure hardware, but a 4-digit
+  PIN is weaker than a master password. It is the person's choice in Settings, Security, and
+  the master password always works.
+- **Previews of attached files on the phone**: pictures and text are decoded in the app's own
+  memory. A PDF is drawn by Android's renderer, which needs a file: the decrypted PDF sits in
+  the app's private cache (closed to other apps) while its pages are drawn, then is overwritten
+  and deleted, and a leftover is wiped at the next start. Nothing is handed to another app.
+  Residual risk: the renderer is Android's code, run on whatever PDF was attached.
 - **Generated passwords** come from the app's generator, never from the page or the
   extension. A password the person used is kept in the app's history, sealed with the vault
   key on this computer and shown behind the item lock; "Clear history" deletes it. Copying is
-  done by the app, so the clipboard copy stays out of Windows clipboard history.
+  done by the app, so the clipboard copy stays out of Windows clipboard history. The phone
+  keeps its own history the same way (sealed with the vault key next to its copy, masked
+  until shown, the last 50).
 - **Tray mode** keeps an unlocked vault in memory while the window is hidden; the idle lock
   still applies, and the tray menu locks at once.
 - **Saving while the vault is locked**: a login the person saves from the browser is sealed to
@@ -172,7 +188,9 @@ On top of that:
   user's file.
 - Imports: the app offers to overwrite and delete the plain-text export right after importing.
 - Unencrypted export: only after re-checking the master password, with a warning; the encrypted
-  backup copy is offered first.
+  backup copy is offered first. The phone does the same (master password checked against the
+  file, a confirmation, refused while items are behind the item lock), and offers the protected
+  export first.
 
 > **Honest limit:** malware running as the user while the vault is unlocked can, in theory, read
 > whatever the app decrypts. Complementary defenses outside the vault: passkeys or 2FA on important

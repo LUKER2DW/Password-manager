@@ -386,20 +386,34 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   address, a backup server, the devices, the server's copies and their size, how sync
   works); several vaults with a card on the vault's name; import of another manager's
   export; "Check this password" (strength and leak check); ✅ scanning the invite's QR code;
-  ⬜ scanning a one-time code's QR code
+  ✅ scanning a one-time code's QR code
 - ✅ M7.3 Fingerprint unlock (BiometricPrompt Class 3, Keystore/StrongBox, CRYPTO.md
-  §3.1.1), lock as soon as the app is left, screenshots kept out unless allowed
+  §3.1.1), and on Android 11+ the phone's screen lock too; lock as soon as the app is left,
+  screenshots kept out unless allowed; ⬜ the first prompt at start tried on a device
+- ✅ The phone's pages rebuilt (2026-11): each page scrolls on its own with a stretch at the
+  ends and a thin bar, swiping between the four places, sync and the vaults pages redone,
+  "About and updates" with short notes per version, a confirmation sheet before sensitive
+  actions, the vault chosen on the unlock screen, an icon per vault
+- ✅ Phone items: open the website, notes in Markdown, created and last edited, a card's
+  number, CVV and PIN shown and copied, preset line icons (`glyph:<name>` in `icon_url`; the
+  desktop shows the item's own icon for them for now), previews of attached pictures, text and
+  PDFs, counter-based one-time codes (RFC 4226, `otpauth://hotp/`) with Next, website icons
+  that tell an untrusted certificate apart and try the bare and `www.` hosts
+- ✅ Phone generator: "Make a strong one" in the editor opens it and Use brings the password
+  back, "New login with it", the history of copied passwords (sealed, masked, used ones hidden)
 - ✅ M7.4 Autofill Service (exact site or app, a fingerprint or the phone's lock before every
   fill, a strong password suggested, "Save to Vault?" with a drop box while locked);
   ⬜ tried on a device; ⬜ M7.5 Credential Manager provider (passwords, passkeys)
 - ✅ Updates of the app from the person's own server (`vault-server publish-app`, checked
   against the release, installed by Android only when signed like the app)
 - ✅ M7.6 Sync (M6.4)
-- ✅ Brazilian Portuguese: every text of the phone (535, `apps/mobile/translations/`, with the
+- ✅ Brazilian Portuguese: every text of the phone (647, `apps/mobile/translations/`, with the
   desktop's shared widgets), the language from Settings → Appearance or the phone's (the browser's
   in the web preview); `cargo test -p vault-mobile i18n` checks that none is missing
-- 🚧 M7.7 Parity with the desktop: ✅ cards, authenticator items, SSH keys, files, Portuguese;
-  ⬜ custom fields, folders, health, import, a Portuguese word list
+- 🚧 M7.7 Parity with the desktop: ✅ cards, authenticator items, SSH keys, files, Portuguese,
+  folders, password health, import, export (master password again, refused while items are
+  locked); ⬜ custom fields, a Portuguese word list; ⬜ the desktop drawing the phone's preset
+  item icons and counter-based codes with Next
 
 ### M8 — Advanced ⬜
 - Secure sharing (Send-style links, HPKE hybrid X25519 + ML-KEM-768)
