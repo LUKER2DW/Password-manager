@@ -16,6 +16,7 @@ pub mod ui {
 pub mod autofill;
 mod bio;
 mod controller;
+pub mod i18n;
 pub mod platform;
 mod prefs;
 pub mod system;

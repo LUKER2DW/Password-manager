@@ -14,15 +14,13 @@ use zeroize::Zeroizing;
 use super::{Controller, Opened, error, field, fingerprint, notice};
 use crate::{
     bio::{self, BioUnlock},
+    i18n,
     platform::{files, secret_store},
     prefs,
     system::{PromptWords, System},
     ui::{Page, Screen, VaultRow},
     view,
 };
-
-/// The languages Settings → Appearance offers, after "the phone's": their catalogue's tag.
-const LANGUAGES: [&str; 2] = ["en", "pt-BR"];
 
 /// What a fingerprint prompt that is still open was for.
 #[derive(Debug, Default)]
@@ -151,33 +149,20 @@ impl Controller {
     }
 
     pub(super) fn language_changed(&self, index: i32) {
-        let language = usize::try_from(index - 1)
-            .ok()
-            .and_then(|i| LANGUAGES.get(i))
-            .map_or_else(String::new, |tag| (*tag).to_owned());
-        self.change_prefs(|prefs| prefs.language.clone_from(&language));
-        self.apply_language(&language);
+        let language = i18n::setting_of(index);
+        self.change_prefs(|prefs| prefs.language = language.to_owned());
+        self.apply_language(language);
     }
 
-    /// Shows the app in `setting`'s language ("" = the phone's), when its catalogue is
-    /// compiled in; English otherwise.
+    /// Shows the app in `setting`'s language ("" = the phone's): the Settings choice and every
+    /// word on the screens (see `src/i18n.rs`).
     pub(super) fn apply_language(&self, setting: &str) {
-        let choice = LANGUAGES
-            .iter()
-            .position(|tag| *tag == setting)
-            .map_or(0, |i| i32::try_from(i + 1).unwrap_or(0));
-        self.app().set_language_choice(choice);
-        let wanted = if setting.is_empty() {
-            self.system()
-                .language()
-                .or_else(crate::platform::system_language)
-                .unwrap_or_default()
-        } else {
-            setting.to_owned()
-        };
-        let lower = wanted.to_ascii_lowercase();
-        let catalogue = if lower.starts_with("pt") { "pt_BR" } else { "" };
-        let _ = slint::select_bundled_translation(catalogue);
+        self.app().set_language_choice(i18n::choice_of(setting));
+        let system = self
+            .system()
+            .language()
+            .or_else(crate::platform::system_language);
+        i18n::apply(setting, system.as_deref());
     }
 
     // ---- the vaults on this phone ----

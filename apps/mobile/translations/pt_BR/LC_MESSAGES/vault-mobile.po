@@ -1,0 +1,2201 @@
+# Brazilian Portuguese translation of the phone app (vault-mobile).
+# Every text the phone shows is written in English in the .slint files, inside @tr(...).
+# See ../../README.md for how the catalogue is made and checked.
+msgid ""
+msgstr ""
+"Project-Id-Version: vault-mobile\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+msgctxt "Words"
+msgid "That didn't open the vault. Check the master password (and the Secret Key, if you typed it)."
+msgstr "Não foi possível abrir o cofre. Confira a senha mestra (e a chave secreta, se você a digitou)."
+
+msgctxt "Words"
+msgid "That file isn't a vault. Choose the .vault file from your computer."
+msgstr "Este arquivo não é um cofre. Escolha o arquivo .vault do seu computador."
+
+msgctxt "Words"
+msgid "That isn't a Secret Key. It starts with S0- and is printed on your emergency kit."
+msgstr "Isto não é uma chave secreta. Ela começa com S0- e está impressa no seu kit de emergência."
+
+msgctxt "Words"
+msgid "The vault file can't be read ({})."
+msgstr "Não foi possível ler o arquivo do cofre ({})."
+
+msgctxt "Words"
+msgid "Give it a name first."
+msgstr "Dê um nome primeiro."
+
+msgctxt "Words"
+msgid "Not saved ({}). Your change is still on screen: try again."
+msgstr "Não salvo ({}). Sua alteração continua na tela: tente de novo."
+
+msgctxt "Words"
+msgid "That isn't it. Try again."
+msgstr "Não é esse. Tente de novo."
+
+msgctxt "Words"
+msgid "This vault file is older than the one this phone opened last. Bring the newest copy from your computer."
+msgstr "Este arquivo do cofre é mais antigo que o último que este celular abriu. Traga a cópia mais nova do seu computador."
+
+msgctxt "Words"
+msgid "This vault also needs its keyfile, which the phone app can't use yet."
+msgstr "Este cofre também precisa do seu arquivo de chave, que o app do celular ainda não consegue usar."
+
+msgctxt "Words"
+msgid "That isn't a setup key for one-time codes. Paste the key the site shows under “Can't scan it?”."
+msgstr "Isto não é uma chave de configuração para códigos de uso único. Cole a chave que o site mostra em “Não consegue escanear?”."
+
+msgctxt "Words"
+msgid "Pick at least one kind of character."
+msgstr "Escolha pelo menos um tipo de caractere."
+
+msgctxt "Words"
+msgid "That isn't the current master password."
+msgstr "Esta não é a senha mestra atual."
+
+msgctxt "Words"
+msgid "The two new passwords are different. Type them again."
+msgstr "As duas novas senhas são diferentes. Digite-as de novo."
+
+msgctxt "Words"
+msgid "Use at least 12 characters. A few random words are easiest."
+msgstr "Use pelo menos 12 caracteres. Algumas palavras aleatórias são o mais fácil."
+
+msgctxt "Words"
+msgid "The copy didn't pass its check, so it was deleted ({}). Try another place."
+msgstr "A cópia não passou na conferência, então foi excluída ({}). Tente outro lugar."
+
+msgctxt "Words"
+msgid "That card number doesn't check out. Look at the digits again."
+msgstr "Este número de cartão não confere. Veja os números de novo."
+
+msgctxt "Words"
+msgid "Write the expiry as MM/YY, for example 08/29."
+msgstr "Escreva o vencimento como MM/AA, por exemplo 08/29."
+
+msgctxt "Words"
+msgid "The security code is the 3 or 4 digits on the card."
+msgstr "O código de segurança são os 3 ou 4 números do cartão."
+
+msgctxt "Words"
+msgid "A card PIN is 4 to 12 digits."
+msgstr "O PIN do cartão tem de 4 a 12 números."
+
+msgctxt "Words"
+msgid "Paste the setup key first: the codes are made from it."
+msgstr "Cole a chave de configuração primeiro: os códigos são feitos a partir dela."
+
+msgctxt "Words"
+msgid "That isn't an SSH private key. Choose the key file itself (often id_ed25519 or id_rsa), not the .pub one."
+msgstr "Isto não é uma chave privada SSH. Escolha o próprio arquivo da chave (muitas vezes id_ed25519 ou id_rsa), e não o .pub."
+
+msgctxt "Words"
+msgid "That file is too large: an item keeps files of up to 5 MB, and up to 10 of them."
+msgstr "Este arquivo é grande demais: um item guarda arquivos de até 5 MB, e até 10 deles."
+
+msgctxt "Words"
+msgid "Fingerprint unlock didn't work ({})."
+msgstr "O desbloqueio por digital não funcionou ({})."
+
+msgctxt "Words"
+msgid "That file can't be imported ({})."
+msgstr "Não foi possível importar este arquivo ({})."
+
+msgctxt "Words"
+msgid "That isn't the file's password. Type it in the field above and choose the file again."
+msgstr "Esta não é a senha do arquivo. Digite-a no campo acima e escolha o arquivo de novo."
+
+msgctxt "Words"
+msgid "The update couldn't be fetched ({})."
+msgstr "Não foi possível baixar a atualização ({})."
+
+msgctxt "Words"
+msgid "Password copied. The clipboard is cleared in {} seconds."
+msgstr "Senha copiada. A área de transferência será limpa em {} segundos."
+
+msgctxt "Words"
+msgid "Username copied."
+msgstr "Usuário copiado."
+
+msgctxt "Words"
+msgid "Saved."
+msgstr "Salvo."
+
+msgctxt "Words"
+msgid "“{}” deleted."
+msgstr "“{}” excluído."
+
+msgctxt "Words"
+msgid "Code copied. The clipboard is cleared in {} seconds."
+msgstr "Código copiado. A área de transferência será limpa em {} segundos."
+
+msgctxt "Words"
+msgid "Website copied."
+msgstr "Site copiado."
+
+msgctxt "Words"
+msgid "Copied. The clipboard is cleared in {} seconds."
+msgstr "Copiado. A área de transferência será limpa em {} segundos."
+
+msgctxt "Words"
+msgid "This phone's record of the vault's newest version couldn't be read, so it started again. The old file was kept."
+msgstr "O registro deste celular sobre a versão mais nova do cofre não pôde ser lido, então começou de novo. O arquivo antigo foi guardado."
+
+msgctxt "Words"
+msgid "Synced: {} changes came from your other devices."
+msgstr "Sincronizado: {} alterações vieram dos seus outros aparelhos."
+
+msgctxt "Words"
+msgid "Master password changed. Your other devices ask for the new one at their next unlock."
+msgstr "Senha mestra trocada. Seus outros aparelhos pedem a nova no próximo desbloqueio."
+
+msgctxt "Words"
+msgid "Backup confirmed: {}. It was read back and opens with this vault's key."
+msgstr "Cópia confirmada: {}. Foi lida de volta e abre com a chave deste cofre."
+
+msgctxt "Words"
+msgid "File saved."
+msgstr "Arquivo salvo."
+
+msgctxt "Words"
+msgid "Copied."
+msgstr "Copiado."
+
+msgctxt "Words"
+msgid "Fingerprint unlock is on for this vault."
+msgstr "O desbloqueio por digital está ligado para este cofre."
+
+msgctxt "Words"
+msgid "“{}” removed: it gets nothing new from now on."
+msgstr "“{}” removido: ele não recebe mais nada novo a partir de agora."
+
+msgctxt "Words"
+msgid "Fingerprint unlock was turned off because the master password changed. Turn it on again in Settings, Security."
+msgstr "O desbloqueio por digital foi desligado porque a senha mestra mudou. Ligue de novo em Configurações, Segurança."
+
+msgctxt "Words"
+msgid "“{}” was removed from this phone."
+msgstr "“{}” foi removido deste celular."
+
+msgctxt "Words"
+msgid "Backup server added: the vault syncs through both from now on."
+msgstr "Servidor de backup adicionado: a partir de agora o cofre sincroniza pelos dois."
+
+msgctxt "Words"
+msgid "The server's address changed. This phone's key there stays the same."
+msgstr "O endereço do servidor mudou. A chave deste celular lá continua a mesma."
+
+msgctxt "Words"
+msgid "{} logins saved from other apps while the vault was locked were added."
+msgstr "{} logins salvos por outros apps enquanto o cofre estava trancado foram adicionados."
+
+msgctxt "Words"
+msgid "{} of your passwords turned up in a data breach since the last check. They are marked in the list: change them where you use them."
+msgstr "{} das suas senhas apareceram em um vazamento de dados desde a última verificação. Elas estão marcadas na lista: troque-as onde você as usa."
+
+msgctxt "VaultChoice"
+msgid "Unnamed vault"
+msgstr "Cofre sem nome"
+
+msgctxt "VaultChoice"
+msgid "Open, syncs through {}"
+msgstr "Aberto, sincroniza por {}"
+
+msgctxt "VaultChoice"
+msgid "Open, not syncing"
+msgstr "Aberto, sem sincronizar"
+
+msgctxt "VaultChoice"
+msgid "Locked, syncs through {}"
+msgstr "Trancado, sincroniza por {}"
+
+msgctxt "VaultChoice"
+msgid "Locked, not syncing"
+msgstr "Trancado, sem sincronizar"
+
+msgctxt "SecretKeyboard"
+msgid "Delete"
+msgstr "Apagar"
+
+msgctxt "SecretKeyboard"
+msgid "Paste"
+msgstr "Colar"
+
+msgctxt "SecretKeyboard"
+msgid "Space"
+msgstr "Espaço"
+
+msgctxt "SecretKeyboard"
+msgid "Hide the keyboard"
+msgstr "Ocultar o teclado"
+
+msgctxt "SecretKeyboard"
+msgid "Done"
+msgstr "Concluir"
+
+msgctxt "PhoneWindow"
+msgid "All"
+msgstr "Todos"
+
+msgctxt "PhoneWindow"
+msgid "Favourites"
+msgstr "Favoritos"
+
+msgctxt "PhoneWindow"
+msgid "Logins"
+msgstr "Logins"
+
+msgctxt "PhoneWindow"
+msgid "Cards"
+msgstr "Cartões"
+
+msgctxt "PhoneWindow"
+msgid "Notes"
+msgstr "Notas"
+
+msgctxt "PhoneWindow"
+msgid "SSH"
+msgstr "SSH"
+
+msgctxt "PhoneWindow"
+msgid "Security"
+msgstr "Segurança"
+
+msgctxt "PhoneWindow"
+msgid "Autofill"
+msgstr "Preenchimento"
+
+msgctxt "PhoneWindow"
+msgid "Vault"
+msgstr "Cofre"
+
+msgctxt "PhoneWindow"
+msgid "Import and export"
+msgstr "Importar e exportar"
+
+msgctxt "PhoneWindow"
+msgid "Sync"
+msgstr "Sincronização"
+
+msgctxt "PhoneWindow"
+msgid "Appearance"
+msgstr "Aparência"
+
+msgctxt "PhoneWindow"
+msgid "Updates"
+msgstr "Atualizações"
+
+msgctxt "PhoneWindow"
+msgid "About"
+msgstr "Sobre"
+
+msgctxt "PhoneWindow"
+msgid "Open your vault"
+msgstr "Abra seu cofre"
+
+msgctxt "PhoneWindow"
+msgid "Turn on fingerprint unlock"
+msgstr "Ligar o desbloqueio por digital"
+
+msgctxt "PhoneWindow"
+msgid "Use the master password"
+msgstr "Usar a senha mestra"
+
+msgctxt "PhoneWindow"
+msgid "Add a vault"
+msgstr "Adicionar um cofre"
+
+msgctxt "PhoneWindow"
+msgid "No vault on this phone yet"
+msgstr "Nenhum cofre neste celular ainda"
+
+msgctxt "PhoneWindow"
+msgid "Open the vault you made on your computer: from its file, or through your vault server."
+msgstr "Abra o cofre que você criou no computador: pelo arquivo ou pelo seu servidor de cofre."
+
+msgctxt "PhoneWindow"
+msgid "From its file"
+msgstr "Do arquivo"
+
+msgctxt "PhoneWindow"
+msgid "Copy the .vault file to the phone (a USB cable, Quick Share, a folder you sync) and choose it. It works offline; sync can be turned on later in Settings."
+msgstr "Copie o arquivo .vault para o celular (cabo USB, Compartilhamento rápido, uma pasta sincronizada) e escolha-o. Ele funciona sem internet; a sincronização pode ser ligada depois em Configurações."
+
+msgctxt "PhoneWindow"
+msgid "Choose the vault file"
+msgstr "Escolher o arquivo do cofre"
+
+msgctxt "PhoneWindow"
+msgid "From your vault server"
+msgstr "Do seu servidor de cofre"
+
+msgctxt "PhoneWindow"
+msgid "On the computer: Settings, Sync, Add a device. Paste the line it shows here."
+msgstr "No computador: Configurações, Sincronização, Adicionar um aparelho. Cole aqui a linha que ele mostra."
+
+msgctxt "PhoneWindow"
+msgid "Fetching the vault…"
+msgstr "Baixando o cofre…"
+
+msgctxt "PhoneWindow"
+msgid "Set up from the server"
+msgstr "Configurar pelo servidor"
+
+msgctxt "PhoneWindow"
+msgid "Back to my vault"
+msgstr "Voltar ao meu cofre"
+
+msgctxt "PhoneWindow"
+msgid "Neither the server nor the file opens the vault on its own: it also needs your master password and the Secret Key from your emergency kit."
+msgstr "Nem o servidor nem o arquivo abrem o cofre sozinhos: ele também precisa da sua senha mestra e da chave secreta do seu kit de emergência."
+
+msgctxt "PhoneWindow"
+msgid "Your vault"
+msgstr "Seu cofre"
+
+msgctxt "PhoneWindow"
+msgid "First time on this phone: it needs the Secret Key from your emergency kit, once."
+msgstr "Primeira vez neste celular: ele precisa da chave secreta do seu kit de emergência, uma vez."
+
+msgctxt "PhoneWindow"
+msgid "Type your master password. The file you chose replaces the phone's copy once it opens."
+msgstr "Digite sua senha mestra. O arquivo que você escolheu substitui a cópia do celular depois que abrir."
+
+msgctxt "PhoneWindow"
+msgid "Locked. Type your master password to open it."
+msgstr "Trancado. Digite sua senha mestra para abrir."
+
+msgctxt "PhoneWindow"
+msgid "Secret Key"
+msgstr "Chave secreta"
+
+msgctxt "PhoneWindow"
+msgid "Master password"
+msgstr "Senha mestra"
+
+msgctxt "PhoneWindow"
+msgid "Open my vault"
+msgstr "Abrir meu cofre"
+
+msgctxt "PhoneWindow"
+msgid "Opening…"
+msgstr "Abrindo…"
+
+msgctxt "PhoneWindow"
+msgid "Unlock with fingerprint"
+msgstr "Destrancar com a digital"
+
+msgctxt "PhoneWindow"
+msgid "Fingerprint unlock comes back once you type the master password: it is asked every 14 days."
+msgstr "O desbloqueio por digital volta quando você digitar a senha mestra: ela é pedida a cada 14 dias."
+
+msgctxt "PhoneWindow"
+msgid "Another vault"
+msgstr "Outro cofre"
+
+msgctxt "PhoneWindow"
+msgid "Another file"
+msgstr "Outro arquivo"
+
+msgctxt "PhoneWindow"
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgctxt "PhoneWindow"
+msgid "New"
+msgstr "Novo"
+
+msgctxt "PhoneWindow"
+msgid "Search {} items"
+msgstr "Pesquisar em {} itens"
+
+msgctxt "PhoneWindow"
+msgid "Search"
+msgstr "Pesquisar"
+
+msgctxt "PhoneWindow"
+msgid "Nothing saved yet"
+msgstr "Nada salvo ainda"
+
+msgctxt "PhoneWindow"
+msgid "Nothing matches"
+msgstr "Nada encontrado"
+
+msgctxt "PhoneWindow"
+msgid "Tap New to save your first login or note."
+msgstr "Toque em Novo para salvar seu primeiro login ou nota."
+
+msgctxt "PhoneWindow"
+msgid "Try another word, or look under All."
+msgstr "Tente outra palavra ou veja em Todos."
+
+msgctxt "PhoneWindow"
+msgid "Codes"
+msgstr "Códigos"
+
+msgctxt "PhoneWindow"
+msgid "Add"
+msgstr "Adicionar"
+
+msgctxt "PhoneWindow"
+msgid "No one-time codes yet"
+msgstr "Nenhum código de uso único ainda"
+
+msgctxt "PhoneWindow"
+msgid "When a site offers two-step sign-in with an authenticator app, tap Add and paste the setup key it shows. The six digits then show up on this page."
+msgstr "Quando um site oferecer login em duas etapas com um app autenticador, toque em Adicionar e cole a chave de configuração que ele mostra. Os seis números então aparecem nesta página."
+
+msgctxt "PhoneWindow"
+msgid "Locked: open the login first"
+msgstr "Trancado: abra o login primeiro"
+
+msgctxt "PhoneWindow"
+msgid "Generator"
+msgstr "Gerador"
+
+msgctxt "PhoneWindow"
+msgid "Characters"
+msgstr "Caracteres"
+
+msgctxt "PhoneWindow"
+msgid "Words"
+msgstr "Palavras"
+
+msgctxt "PhoneWindow"
+msgid "Length"
+msgstr "Tamanho"
+
+msgctxt "PhoneWindow"
+msgid "Capital letters"
+msgstr "Letras maiúsculas"
+
+msgctxt "PhoneWindow"
+msgid "Small letters"
+msgstr "Letras minúsculas"
+
+msgctxt "PhoneWindow"
+msgid "Digits"
+msgstr "Números"
+
+msgctxt "PhoneWindow"
+msgid "Symbols"
+msgstr "Símbolos"
+
+msgctxt "PhoneWindow"
+msgid "Fewer options"
+msgstr "Menos opções"
+
+msgctxt "PhoneWindow"
+msgid "Advanced options"
+msgstr "Opções avançadas"
+
+msgctxt "PhoneWindow"
+msgid "For sites with rules: at least this many of each kind. The length grows if they need more room."
+msgstr "Para sites com regras: pelo menos esta quantidade de cada tipo. O tamanho aumenta se precisarem de mais espaço."
+
+msgctxt "PhoneWindow"
+msgid "Capitals, at least"
+msgstr "Maiúsculas, pelo menos"
+
+msgctxt "PhoneWindow"
+msgid "Small letters, at least"
+msgstr "Minúsculas, pelo menos"
+
+msgctxt "PhoneWindow"
+msgid "Digits, at least"
+msgstr "Números, pelo menos"
+
+msgctxt "PhoneWindow"
+msgid "Symbols, at least"
+msgstr "Símbolos, pelo menos"
+
+msgctxt "PhoneWindow"
+msgid "Leave out look-alikes (I l 1 O 0 o |)"
+msgstr "Deixar de fora os parecidos (I l 1 O 0 o |)"
+
+msgctxt "PhoneWindow"
+msgid "Also use"
+msgstr "Também usar"
+
+msgctxt "PhoneWindow"
+msgid "e.g. ñ€"
+msgstr "ex.: ñ€"
+
+msgctxt "PhoneWindow"
+msgid "Never use"
+msgstr "Nunca usar"
+
+msgctxt "PhoneWindow"
+msgid "e.g. <>'\""
+msgstr "ex.: <>'\""
+
+msgctxt "PhoneWindow"
+msgid "Letters"
+msgstr "Letras"
+
+msgctxt "PhoneWindow"
+msgid "abc"
+msgstr "abc"
+
+msgctxt "PhoneWindow"
+msgid "Abc"
+msgstr "Abc"
+
+msgctxt "PhoneWindow"
+msgid "ABC"
+msgstr "ABC"
+
+msgctxt "PhoneWindow"
+msgid "Mixed"
+msgstr "Misto"
+
+msgctxt "PhoneWindow"
+msgid "Between the words"
+msgstr "Entre as palavras"
+
+msgctxt "PhoneWindow"
+msgid "Space"
+msgstr "Espaço"
+
+msgctxt "PhoneWindow"
+msgid "Add a digit to one word"
+msgstr "Adicionar um número a uma palavra"
+
+msgctxt "PhoneWindow"
+msgid "Another"
+msgstr "Outra"
+
+msgctxt "PhoneWindow"
+msgid "Copy"
+msgstr "Copiar"
+
+msgctxt "PhoneWindow"
+msgid "Settings"
+msgstr "Configurações"
+
+msgctxt "PhoneWindow"
+msgid "Master password, fingerprint, locking, screenshots, clipboard"
+msgstr "Senha mestra, digital, trancamento, capturas de tela, área de transferência"
+
+msgctxt "PhoneWindow"
+msgid "On: Android fills in logins from this vault"
+msgstr "Ligado: o Android preenche os logins deste cofre"
+
+msgctxt "PhoneWindow"
+msgid "Off"
+msgstr "Desligado"
+
+msgctxt "PhoneWindow"
+msgid "{n} vault on this phone"
+msgid_plural "{n} vaults on this phone"
+msgstr[0] "{n} cofre neste celular"
+msgstr[1] "{n} cofres neste celular"
+
+msgctxt "PhoneWindow"
+msgid "A copy of the vault, a newer copy, another manager's export"
+msgstr "Uma cópia do cofre, uma cópia mais nova, a exportação de outro gerenciador"
+
+msgctxt "PhoneWindow"
+msgid "Off: this vault works offline"
+msgstr "Desligado: este cofre funciona sem internet"
+
+msgctxt "PhoneWindow"
+msgid "Theme, language, background, website icons"
+msgstr "Tema, idioma, fundo, ícones dos sites"
+
+msgctxt "PhoneWindow"
+msgid "Version {} is ready"
+msgstr "A versão {} está pronta"
+
+msgctxt "PhoneWindow"
+msgid "Version {}"
+msgstr "Versão {}"
+
+msgctxt "PhoneWindow"
+msgid "Version {}, licence, what is still to come"
+msgstr "Versão {}, licença, o que ainda vem"
+
+msgctxt "PhoneWindow"
+msgid "Fingerprint unlock"
+msgstr "Desbloqueio por digital"
+
+msgctxt "PhoneWindow"
+msgid "Unlock with a fingerprint or face"
+msgstr "Destrancar com digital ou rosto"
+
+msgctxt "PhoneWindow"
+msgid "The phone's secure hardware keeps a key that only your fingerprint (or face) releases, and that key opens this vault. The master password is still asked every 14 days, and after it changes."
+msgstr "O hardware seguro do celular guarda uma chave que só a sua digital (ou rosto) libera, e essa chave abre este cofre. A senha mestra continua sendo pedida a cada 14 dias e depois que ela mudar."
+
+msgctxt "PhoneWindow"
+msgid "This phone has no fingerprint or face unlock that Android counts as strong. Set one up in Android's settings to use it here."
+msgstr "Este celular não tem desbloqueio por digital ou rosto que o Android considere forte. Configure um nas configurações do Android para usar aqui."
+
+msgctxt "PhoneWindow"
+msgid "Lock by itself after"
+msgstr "Trancar sozinho depois de"
+
+msgctxt "PhoneWindow"
+msgid "1 minute"
+msgstr "1 minuto"
+
+msgctxt "PhoneWindow"
+msgid "5 minutes"
+msgstr "5 minutos"
+
+msgctxt "PhoneWindow"
+msgid "15 minutes"
+msgstr "15 minutos"
+
+msgctxt "PhoneWindow"
+msgid "Lock as soon as I leave the app"
+msgstr "Trancar assim que eu sair do app"
+
+msgctxt "PhoneWindow"
+msgid "Clear a copied secret from the clipboard after"
+msgstr "Limpar da área de transferência o segredo copiado depois de"
+
+msgctxt "PhoneWindow"
+msgid "15 seconds"
+msgstr "15 segundos"
+
+msgctxt "PhoneWindow"
+msgid "30 seconds"
+msgstr "30 segundos"
+
+msgctxt "PhoneWindow"
+msgid "Watch for leaked passwords every day"
+msgstr "Vigiar senhas vazadas todo dia"
+
+msgctxt "PhoneWindow"
+msgid "Once a day while the vault is open, every login's password is checked against the newest list of data breaches (Have I Been Pwned). Only the first 5 characters of each password's SHA-1 fingerprint leave the phone, never a password. As soon as one turns up in a new breach, the app tells you and marks it in the list."
+msgstr "Uma vez por dia, enquanto o cofre estiver aberto, a senha de cada login é conferida na lista mais nova de vazamentos de dados (Have I Been Pwned). Só saem do celular os 5 primeiros caracteres da impressão SHA-1 de cada senha, nunca a senha. Assim que uma aparecer em um vazamento novo, o app avisa e a marca na lista."
+
+msgctxt "PhoneWindow"
+msgid "Allow screenshots"
+msgstr "Permitir capturas de tela"
+
+msgctxt "PhoneWindow"
+msgid "While it is off, the app stays out of screenshots, screen recordings and the recent apps view, so nothing else on the phone can capture a password shown on screen."
+msgstr "Enquanto estiver desligado, o app fica fora de capturas de tela, gravações de tela e da lista de apps recentes, para que nada mais no celular possa capturar uma senha mostrada na tela."
+
+msgctxt "PhoneWindow"
+msgid "Change master password"
+msgstr "Trocar a senha mestra"
+
+msgctxt "PhoneWindow"
+msgid "The Secret Key and your emergency kit's recovery parts stay the same. Devices that sync this vault ask for the new password at their next unlock."
+msgstr "A chave secreta e as partes de recuperação do seu kit de emergência continuam as mesmas. Os aparelhos que sincronizam este cofre pedem a nova senha no próximo desbloqueio."
+
+msgctxt "PhoneWindow"
+msgid "Current master password"
+msgstr "Senha mestra atual"
+
+msgctxt "PhoneWindow"
+msgid "New master password"
+msgstr "Nova senha mestra"
+
+msgctxt "PhoneWindow"
+msgid "Type it again"
+msgstr "Digite de novo"
+
+msgctxt "PhoneWindow"
+msgid "Changing…"
+msgstr "Trocando…"
+
+msgctxt "PhoneWindow"
+msgid "Change password"
+msgstr "Trocar a senha"
+
+msgctxt "PhoneWindow"
+msgid "Autofill service"
+msgstr "Serviço de preenchimento automático"
+
+msgctxt "PhoneWindow"
+msgid "Another app, or none"
+msgstr "Outro app, ou nenhum"
+
+msgctxt "PhoneWindow"
+msgid "With Vault as Android's autofill service, a sign-in form in another app or in your browser offers the logins saved for it. While the vault is locked, it asks for your fingerprint first, if fingerprint unlock is on."
+msgstr "Com o Cofre como serviço de preenchimento automático do Android, um formulário de login em outro app ou no seu navegador oferece os logins salvos para ele. Com o cofre trancado, ele pede primeiro a sua digital, se o desbloqueio por digital estiver ligado."
+
+msgctxt "PhoneWindow"
+msgid "A website's logins are offered on that site only: its exact address, or every address under it for *.example.com. For an app, add its address to the login as androidapp:// and the app's package name, for example androidapp://com.example.app."
+msgstr "Os logins de um site são oferecidos só nesse site: o endereço exato, ou todos os endereços abaixo dele para *.example.com. Para um app, adicione o endereço ao login como androidapp:// e o nome do pacote do app, por exemplo androidapp://com.example.app."
+
+msgctxt "PhoneWindow"
+msgid "Change it in Android's settings"
+msgstr "Mude nas configurações do Android"
+
+msgctxt "PhoneWindow"
+msgid "Turn it on in Android's settings"
+msgstr "Ative nas configurações do Android"
+
+msgctxt "PhoneWindow"
+msgid "Some browsers ask for one more step: turn on “Autofill using another service” in the browser's own settings."
+msgstr "Alguns navegadores pedem mais um passo: ative “Preenchimento automático usando outro serviço” nas configurações do próprio navegador."
+
+msgctxt "PhoneWindow"
+msgid "This vault"
+msgstr "Este cofre"
+
+msgctxt "PhoneWindow"
+msgid "Unnamed vault"
+msgstr "Cofre sem nome"
+
+msgctxt "PhoneWindow"
+msgid "Items"
+msgstr "Itens"
+
+msgctxt "PhoneWindow"
+msgid "File size"
+msgstr "Tamanho do arquivo"
+
+msgctxt "PhoneWindow"
+msgid "Kept in"
+msgstr "Guardado em"
+
+msgctxt "PhoneWindow"
+msgid "The phone keeps its copy in the app's private storage, where other apps can't read it and Android encrypts it with the phone. To keep a copy somewhere else, use Save a copy under Import and export."
+msgstr "O celular guarda a sua cópia no armazenamento privado do app, onde outros apps não podem lê-la, e o Android a criptografa com o celular. Para guardar uma cópia em outro lugar, use Salvar uma cópia em Importar e exportar."
+
+msgctxt "PhoneWindow"
+msgid "Vaults on this phone"
+msgstr "Cofres neste celular"
+
+msgctxt "PhoneWindow"
+msgid "Each vault opens with its own master password and Secret Key, and syncs on its own. The vault's name at the top of the list switches between them."
+msgstr "Cada cofre abre com a sua própria senha mestra e chave secreta, e sincroniza por conta própria. O nome do cofre no topo da lista alterna entre eles."
+
+msgctxt "PhoneWindow"
+msgid "Remove this vault from the phone"
+msgstr "Remover este cofre do celular"
+
+msgctxt "PhoneWindow"
+msgid "The phone's copy of this vault, its Secret Key and its fingerprint unlock are deleted from this phone. The vault stays on your computer and your other devices; a change made here that hasn't synced yet is lost. Save a copy first if you are unsure."
+msgstr "A cópia deste cofre no celular, a chave secreta dele e o desbloqueio por digital são apagados deste celular. O cofre continua no seu computador e nos seus outros aparelhos; uma alteração feita aqui que ainda não sincronizou será perdida. Salve uma cópia antes se tiver dúvida."
+
+msgctxt "PhoneWindow"
+msgid "Remove from this phone"
+msgstr "Remover deste celular"
+
+msgctxt "PhoneWindow"
+msgid "A copy of this vault"
+msgstr "Uma cópia deste cofre"
+
+msgctxt "PhoneWindow"
+msgid "This vault doesn't sync: it works offline. Changed it on the computer? Bring its newest file here, or join your vault server under Sync."
+msgstr "Este cofre não sincroniza: ele funciona sem internet. Mudou no computador? Traga o arquivo mais novo para cá, ou entre no seu servidor de cofre em Sincronização."
+
+msgctxt "PhoneWindow"
+msgid "A copy from elsewhere (a backup, another computer) can still be brought in by hand."
+msgstr "Uma cópia de outro lugar (um backup, outro computador) ainda pode ser trazida manualmente."
+
+msgctxt "PhoneWindow"
+msgid "Bring a newer copy"
+msgstr "Trazer uma cópia mais nova"
+
+msgctxt "PhoneWindow"
+msgid "Save a copy"
+msgstr "Salvar uma cópia"
+
+msgctxt "PhoneWindow"
+msgid "Last copy saved and checked: {}"
+msgstr "Última cópia salva e conferida: {}"
+
+msgctxt "PhoneWindow"
+msgid "A saved copy is read back and checked before the app calls it a backup. It opens only with your master password and Secret Key."
+msgstr "Uma cópia salva é lida de volta e conferida antes de o app chamá-la de backup. Ela só abre com sua senha mestra e chave secreta."
+
+msgctxt "PhoneWindow"
+msgid "From another password manager"
+msgstr "De outro gerenciador de senhas"
+
+msgctxt "PhoneWindow"
+msgid "Its export: a JSON or CSV file, a KeePass database (.kdbx), or this app's protected export (.vaultx). Logins already in the vault are skipped."
+msgstr "A exportação dele: um arquivo JSON ou CSV, um banco KeePass (.kdbx) ou a exportação protegida deste app (.vaultx). Os logins que já estão no cofre são pulados."
+
+msgctxt "PhoneWindow"
+msgid "The file's password, if it has one"
+msgstr "A senha do arquivo, se tiver"
+
+msgctxt "PhoneWindow"
+msgid "Importing…"
+msgstr "Importando…"
+
+msgctxt "PhoneWindow"
+msgid "Choose a file to import"
+msgstr "Escolha um arquivo para importar"
+
+msgctxt "PhoneWindow"
+msgid "{} imported; {} already in the vault were skipped."
+msgstr "{} importados; {} que já estavam no cofre foram pulados."
+
+msgctxt "PhoneWindow"
+msgid "{n} item imported."
+msgid_plural "{n} items imported."
+msgstr[0] "{n} item importado."
+msgstr[1] "{n} itens importados."
+
+msgctxt "PhoneWindow"
+msgid "A plain export holds every password unencrypted: delete it once it is imported."
+msgstr "Uma exportação simples guarda todas as senhas sem criptografia: exclua-a depois de importar."
+
+msgctxt "PhoneWindow"
+msgid "Or through a WebDAV folder (Nextcloud, a NAS): the same address and user your computer uses. The password stays in this phone's keystore."
+msgstr "Ou por uma pasta WebDAV (Nextcloud, um NAS): o mesmo endereço e usuário que o seu computador usa. A senha fica no keystore deste celular."
+
+msgctxt "PhoneWindow"
+msgid "WebDAV address"
+msgstr "Endereço WebDAV"
+
+msgctxt "PhoneWindow"
+msgid "User name"
+msgstr "Nome de usuário"
+
+msgctxt "PhoneWindow"
+msgid "Password"
+msgstr "Senha"
+
+msgctxt "PhoneWindow"
+msgid "Connecting…"
+msgstr "Conectando…"
+
+msgctxt "PhoneWindow"
+msgid "Connect"
+msgstr "Conectar"
+
+msgctxt "PhoneWindow"
+msgid "Use an invite"
+msgstr "Usar um convite"
+
+msgctxt "PhoneWindow"
+msgid "Keep this phone and your computers the same through your vault server. On the computer: Settings, Sync, Add a device. Then paste the line it shows here."
+msgstr "Mantenha este celular e seus computadores iguais pelo seu servidor de cofre. No computador: Configurações, Sincronização, Adicionar um aparelho. Depois cole aqui a linha que ele mostra."
+
+msgctxt "PhoneWindow"
+msgid "Joining…"
+msgstr "Entrando…"
+
+msgctxt "PhoneWindow"
+msgid "Join"
+msgstr "Entrar"
+
+msgctxt "PhoneWindow"
+msgid "Use WebDAV"
+msgstr "Usar WebDAV"
+
+msgctxt "PhoneWindow"
+msgid "WebDAV"
+msgstr "WebDAV"
+
+msgctxt "PhoneWindow"
+msgid "Server"
+msgstr "Servidor"
+
+msgctxt "PhoneWindow"
+msgid "Backup server"
+msgstr "Servidor de backup"
+
+msgctxt "PhoneWindow"
+msgid "The main server isn't answering: the vault syncs through the backup server, and the main one catches up as soon as it answers."
+msgstr "O servidor principal não está respondendo: o cofre sincroniza pelo servidor de backup, e o principal se atualiza assim que responder."
+
+msgctxt "PhoneWindow"
+msgid "Neither server is answering. Changes stay on this phone and go out as soon as one answers."
+msgstr "Nenhum dos servidores está respondendo. As alterações ficam neste celular e são enviadas assim que um deles responder."
+
+msgctxt "PhoneWindow"
+msgid "The backup server isn't answering: the vault syncs through the main one, and the backup catches up as soon as it answers."
+msgstr "O servidor de backup não está respondendo: o cofre sincroniza pelo principal, e o backup se atualiza assim que responder."
+
+msgctxt "PhoneWindow"
+msgid "Last synced"
+msgstr "Última sincronização"
+
+msgctxt "PhoneWindow"
+msgid "Syncing…"
+msgstr "Sincronizando…"
+
+msgctxt "PhoneWindow"
+msgid "Failed"
+msgstr "Falhou"
+
+msgctxt "PhoneWindow"
+msgid "Not yet"
+msgstr "Ainda não"
+
+msgctxt "PhoneWindow"
+msgid "Just now"
+msgstr "Agora mesmo"
+
+msgctxt "PhoneWindow"
+msgid "{n} minute ago"
+msgid_plural "{n} minutes ago"
+msgstr[0] "há {n} minuto"
+msgstr[1] "há {n} minutos"
+
+msgctxt "PhoneWindow"
+msgid "In the WebDAV folder"
+msgstr "Na pasta WebDAV"
+
+msgctxt "PhoneWindow"
+msgid "On the server"
+msgstr "No servidor"
+
+msgctxt "PhoneWindow"
+msgid "{n} sealed copy, {}"
+msgid_plural "{n} sealed copies, {} in all"
+msgstr[0] "{n} cópia lacrada, {}"
+msgstr[1] "{n} cópias lacradas, {} no total"
+
+msgctxt "PhoneWindow"
+msgid "One copy per device, each the whole vault, sealed. This phone's is {}."
+msgstr "Uma cópia por aparelho, cada uma com o cofre inteiro, lacrada. A deste celular é {}."
+
+msgctxt "PhoneWindow"
+msgid "Sync now"
+msgstr "Sincronizar agora"
+
+msgctxt "PhoneWindow"
+msgid "Stop syncing"
+msgstr "Parar de sincronizar"
+
+msgctxt "PhoneWindow"
+msgid "Your vault server"
+msgstr "Seu servidor de cofre"
+
+msgctxt "PhoneWindow"
+msgid "Asking the server…"
+msgstr "Consultando o servidor…"
+
+msgctxt "PhoneWindow"
+msgid "Add a device"
+msgstr "Adicionar um aparelho"
+
+msgctxt "PhoneWindow"
+msgid "On the other device: Settings, Sync (or its start screen). Scan this code or paste the line. It works once, within an hour, and the device still needs your master password and Secret Key."
+msgstr "No outro aparelho: Configurações, Sincronização (ou a tela inicial dele). Escaneie este código ou cole a linha. Funciona uma vez, em até uma hora, e o aparelho ainda precisa da sua senha mestra e chave secreta."
+
+msgctxt "PhoneWindow"
+msgid "Copy the line"
+msgstr "Copiar a linha"
+
+msgctxt "PhoneWindow"
+msgid "Done"
+msgstr "Pronto"
+
+msgctxt "PhoneWindow"
+msgid "Change the server's address"
+msgstr "Trocar o endereço do servidor"
+
+msgctxt "PhoneWindow"
+msgid "When the server moved (a new name, a new address on your network, a new certificate), type where it is now. The phone checks that the server there knows it before using it."
+msgstr "Quando o servidor mudou (um nome novo, um endereço novo na sua rede, um certificado novo), digite onde ele está agora. O celular confere que o servidor de lá o reconhece antes de usá-lo."
+
+msgctxt "PhoneWindow"
+msgid "Server address"
+msgstr "Endereço do servidor"
+
+msgctxt "PhoneWindow"
+msgid "Checking…"
+msgstr "Verificando…"
+
+msgctxt "PhoneWindow"
+msgid "Save the address"
+msgstr "Salvar o endereço"
+
+msgctxt "PhoneWindow"
+msgid "Add a backup server"
+msgstr "Adicionar um servidor de backup"
+
+msgctxt "PhoneWindow"
+msgid "A second vault server, synced every round too: while one doesn't answer, the vault keeps syncing through the other. Paste an invite for it: the vaultsync: line from Add a device on a device that already uses it, or one from vault-server invite with its address below."
+msgstr "Um segundo servidor de cofre, sincronizado em todas as rodadas também: enquanto um não responde, o cofre continua sincronizando pelo outro. Cole um convite para ele: a linha vaultsync: de Adicionar um aparelho num aparelho que já o usa, ou um do vault-server invite com o endereço abaixo."
+
+msgctxt "PhoneWindow"
+msgid "Invite"
+msgstr "Convite"
+
+msgctxt "PhoneWindow"
+msgid "Its address, for an invite from vault-server"
+msgstr "O endereço dele, para um convite do vault-server"
+
+msgctxt "PhoneWindow"
+msgid "Add the backup"
+msgstr "Adicionar o backup"
+
+msgctxt "PhoneWindow"
+msgid "Remove the backup server"
+msgstr "Remover o servidor de backup"
+
+msgctxt "PhoneWindow"
+msgid "Devices that sync this vault"
+msgstr "Aparelhos que sincronizam este cofre"
+
+msgctxt "PhoneWindow"
+msgid "This phone, since {}"
+msgstr "Este celular, desde {}"
+
+msgctxt "PhoneWindow"
+msgid "Since {}"
+msgstr "Desde {}"
+
+msgctxt "PhoneWindow"
+msgid "Remove"
+msgstr "Remover"
+
+msgctxt "PhoneWindow"
+msgid "Remove “{}”? It stays out of this vault: every device refuses its copies from now on. Use it for a lost or sold device."
+msgstr "Remover “{}”? Ele fica fora deste cofre: a partir de agora, todo aparelho recusa as cópias dele. Use para um aparelho perdido ou vendido."
+
+msgctxt "PhoneWindow"
+msgid "Hide how sync works"
+msgstr "Ocultar como funciona a sincronização"
+
+msgctxt "PhoneWindow"
+msgid "How sync works"
+msgstr "Como funciona a sincronização"
+
+msgctxt "PhoneWindow"
+msgid "Every device keeps the whole vault and works offline. Syncing only moves sealed copies: each device writes its own copy, reads the others' and merges them in. When two devices changed the same login, the newer change wins and the other password goes into the login's history, so nothing is lost."
+msgstr "Cada aparelho guarda o cofre inteiro e funciona sem internet. A sincronização só move cópias lacradas: cada aparelho escreve a sua cópia, lê as dos outros e as junta. Quando dois aparelhos mudaram o mesmo login, a alteração mais nova vence e a outra senha vai para o histórico do login, então nada se perde."
+
+msgctxt "PhoneWindow"
+msgid "Your vault server: a small program you run yourself (Docker, reached over Tailscale or with its own HTTPS). It keeps one sealed copy per device and the devices' public keys, and never anything that opens the vault. A device joins with a one-time invite from a device already in."
+msgstr "Seu servidor de cofre: um programa pequeno que você mesmo executa (Docker, acessado pelo Tailscale ou com HTTPS próprio). Ele guarda uma cópia lacrada por aparelho e as chaves públicas dos aparelhos, e nunca nada que abra o cofre. Um aparelho entra com um convite de uso único de um aparelho que já está no cofre."
+
+msgctxt "PhoneWindow"
+msgid "WebDAV: a folder on a WebDAV host (Nextcloud, a NAS) that keeps the same sealed copies. Its password stays in this phone's keystore."
+msgstr "WebDAV: uma pasta em um servidor WebDAV (Nextcloud, um NAS) que guarda as mesmas cópias lacradas. A senha dele fica no keystore deste celular."
+
+msgctxt "PhoneWindow"
+msgid "By hand: bring a newer copy of the file, or save one, under Import and export. Nothing then syncs by itself."
+msgstr "Manualmente: traga uma cópia mais nova do arquivo, ou salve uma, em Importar e exportar. Então nada sincroniza sozinho."
+
+msgctxt "PhoneWindow"
+msgid "Neither place can open the vault, put an older copy back or add a device of its own: every device checks each copy with the vault's own key, and remembers the newest one it saw from every other device."
+msgstr "Nenhum desses lugares consegue abrir o cofre, recolocar uma cópia mais antiga ou adicionar um aparelho próprio: todo aparelho confere cada cópia com a chave do próprio cofre e lembra da mais nova que viu de cada outro aparelho."
+
+msgctxt "PhoneWindow"
+msgid "Theme"
+msgstr "Tema"
+
+msgctxt "PhoneWindow"
+msgid "Dark"
+msgstr "Escuro"
+
+msgctxt "PhoneWindow"
+msgid "Light"
+msgstr "Claro"
+
+msgctxt "PhoneWindow"
+msgid "Language"
+msgstr "Idioma"
+
+msgctxt "PhoneWindow"
+msgid "The phone's"
+msgstr "Do celular"
+
+msgctxt "PhoneWindow"
+msgid "Background pattern"
+msgstr "Padrão de fundo"
+
+msgctxt "PhoneWindow"
+msgid "Website icons"
+msgstr "Ícones dos sites"
+
+msgctxt "PhoneWindow"
+msgid "Each saved site is asked once for its icon, directly. Someone watching the network can see which sites were asked, so it is off until you turn it on."
+msgstr "Cada site salvo é consultado uma vez, diretamente, para o ícone. Quem observa a rede pode ver quais sites foram consultados, então ele fica desligado até você ligar."
+
+msgctxt "PhoneWindow"
+msgid "Installed"
+msgstr "Instalada"
+
+msgctxt "PhoneWindow"
+msgid "Asking your vault server…"
+msgstr "Consultando seu servidor de cofre…"
+
+msgctxt "PhoneWindow"
+msgid "This is the newest version on your vault server."
+msgstr "Esta é a versão mais nova no seu servidor de cofre."
+
+msgctxt "PhoneWindow"
+msgid "Version {} is on your vault server."
+msgstr "A versão {} está no seu servidor de cofre."
+
+msgctxt "PhoneWindow"
+msgid "Fetching version {}…"
+msgstr "Baixando a versão {}…"
+
+msgctxt "PhoneWindow"
+msgid "Android asks you to confirm the update. The vault stays as it is."
+msgstr "O Android pede para você confirmar a atualização. O cofre continua como está."
+
+msgctxt "PhoneWindow"
+msgid "Install version {}"
+msgstr "Instalar a versão {}"
+
+msgctxt "PhoneWindow"
+msgid "Check for updates"
+msgstr "Procurar atualizações"
+
+msgctxt "PhoneWindow"
+msgid "Updates come from your own vault server, where a computer puts them (vault-server publish-app). Android installs one only if it is signed with the same key as the app already here, and asks you first."
+msgstr "As atualizações vêm do seu próprio servidor de cofre, onde um computador as publica (vault-server publish-app). O Android instala uma somente se estiver assinada com a mesma chave do app já instalado aqui, e pergunta antes."
+
+msgctxt "PhoneWindow"
+msgid "App"
+msgstr "App"
+
+msgctxt "PhoneWindow"
+msgid "Version {}. Free software under the GPL, version 3 or later."
+msgstr "Versão {}. Software livre sob a GPL, versão 3 ou posterior."
+
+msgctxt "PhoneWindow"
+msgid "Nothing here has been audited yet: keep your real passwords in it only once it has been."
+msgstr "Nada aqui foi auditado ainda: guarde suas senhas reais aqui só depois que for."
+
+msgctxt "PhoneWindow"
+msgid "Still to come on the phone: scanning QR codes, saving new logins from other apps, and passkeys."
+msgstr "Ainda por vir no celular: escanear códigos QR, salvar logins novos de outros apps e chaves de acesso."
+
+msgctxt "PhoneWindow"
+msgid "Lock now"
+msgstr "Trancar agora"
+
+msgctxt "PhoneWindow"
+msgid "Edit"
+msgstr "Editar"
+
+msgctxt "PhoneWindow"
+msgid "Remove from favourites"
+msgstr "Tirar dos favoritos"
+
+msgctxt "PhoneWindow"
+msgid "Add to favourites"
+msgstr "Adicionar aos favoritos"
+
+msgctxt "PhoneWindow"
+msgid "Username"
+msgstr "Usuário"
+
+msgctxt "PhoneWindow"
+msgid "Card"
+msgstr "Cartão"
+
+msgctxt "PhoneWindow"
+msgid "Expires"
+msgstr "Vence em"
+
+msgctxt "PhoneWindow"
+msgid "The password and codes of this item are locked. Type your master password to see them."
+msgstr "A senha e os códigos deste item estão trancados. Digite sua senha mestra para vê-los."
+
+msgctxt "PhoneWindow"
+msgid "The password and codes of this item are locked. Type the item PIN to see them."
+msgstr "A senha e os códigos deste item estão trancados. Digite o PIN do item para vê-los."
+
+msgctxt "PhoneWindow"
+msgid "The password and codes of this item are locked. Type the item password to see them."
+msgstr "A senha e os códigos deste item estão trancados. Digite a senha do item para vê-los."
+
+msgctxt "PhoneWindow"
+msgid "Item PIN"
+msgstr "PIN do item"
+
+msgctxt "PhoneWindow"
+msgid "Item password"
+msgstr "Senha do item"
+
+msgctxt "PhoneWindow"
+msgid "Show the secrets"
+msgstr "Mostrar os segredos"
+
+msgctxt "PhoneWindow"
+msgid "Public key"
+msgstr "Chave pública"
+
+msgctxt "PhoneWindow"
+msgid "PIN"
+msgstr "PIN"
+
+msgctxt "PhoneWindow"
+msgid "Private key"
+msgstr "Chave privada"
+
+msgctxt "PhoneWindow"
+msgid "Check this password"
+msgstr "Verificar esta senha"
+
+msgctxt "PhoneWindow"
+msgid "Asking the leak check…"
+msgstr "Consultando vazamentos…"
+
+msgctxt "PhoneWindow"
+msgid "The leak check didn't answer. Check the connection and try again."
+msgstr "A verificação de vazamentos não respondeu. Confira a conexão e tente de novo."
+
+msgctxt "PhoneWindow"
+msgid "Not found in any known data breach."
+msgstr "Não encontrada em nenhum vazamento conhecido."
+
+msgctxt "PhoneWindow"
+msgid "Found {} times in data breaches. Change it wherever you use it."
+msgstr "Encontrada {} vezes em vazamentos de dados. Troque-a onde você a usa."
+
+msgctxt "PhoneWindow"
+msgid "Try again"
+msgstr "Tentar de novo"
+
+msgctxt "PhoneWindow"
+msgid "Only the first 5 characters of the password's SHA-1 fingerprint went to the breach service (Have I Been Pwned), never the password."
+msgstr "Só os 5 primeiros caracteres da impressão SHA-1 da senha foram enviados ao serviço de vazamentos (Have I Been Pwned), nunca a senha."
+
+msgctxt "PhoneWindow"
+msgid "One-time code, {} s left"
+msgstr "Código de uso único, faltam {} s"
+
+msgctxt "PhoneWindow"
+msgid "Website"
+msgstr "Site"
+
+msgctxt "PhoneWindow"
+msgid "File, {}"
+msgstr "Arquivo, {}"
+
+msgctxt "PhoneWindow"
+msgid "Save"
+msgstr "Salvar"
+
+#: ui/app.slint:2736
+msgctxt "PhoneWindow"
+msgid "Passkey for {}"
+msgstr "Chave de acesso de {}"
+
+#: ui/app.slint:2738
+msgctxt "PhoneWindow"
+msgid "No account name"
+msgstr "Sem nome de usuário"
+
+msgctxt "PhoneWindow"
+msgid "Login"
+msgstr "Login"
+
+msgctxt "PhoneWindow"
+msgid "Note"
+msgstr "Nota"
+
+msgctxt "PhoneWindow"
+msgid "2FA"
+msgstr "2FA"
+
+msgctxt "PhoneWindow"
+msgid "Setup key"
+msgstr "Chave de configuração"
+
+msgctxt "PhoneWindow"
+msgid "When you turn on two-step sign-in, the site shows a QR code and a text key, often under “Can't scan it?”. Paste that key here, or an otpauth:// link. The codes then show on the Codes page."
+msgstr "Ao ligar a confirmação em duas etapas, o site mostra um código QR e uma chave de texto, muitas vezes em “Não consegue escanear?”. Cole essa chave aqui, ou um link otpauth://. Os códigos então aparecem na página Códigos."
+
+msgctxt "PhoneWindow"
+msgid "otpauth:// link or key"
+msgstr "Link otpauth:// ou chave"
+
+msgctxt "PhoneWindow"
+msgid "Name"
+msgstr "Nome"
+
+msgctxt "PhoneWindow"
+msgid "The site or app"
+msgstr "O site ou app"
+
+msgctxt "PhoneWindow"
+msgid "Visa ending 4242"
+msgstr "Visa final 4242"
+
+msgctxt "PhoneWindow"
+msgid "Taken from the setup key"
+msgstr "Tirado da chave de configuração"
+
+msgctxt "PhoneWindow"
+msgid "What the note is about"
+msgstr "Do que trata a nota"
+
+msgctxt "PhoneWindow"
+msgid "Name on card"
+msgstr "Nome no cartão"
+
+msgctxt "PhoneWindow"
+msgid "Account"
+msgstr "Conta"
+
+msgctxt "PhoneWindow"
+msgid "User or comment"
+msgstr "Usuário ou comentário"
+
+msgctxt "PhoneWindow"
+msgid "Card number"
+msgstr "Número do cartão"
+
+msgctxt "PhoneWindow"
+msgid "MM/YY"
+msgstr "MM/AA"
+
+msgctxt "PhoneWindow"
+msgid "Security code"
+msgstr "Código de segurança"
+
+msgctxt "PhoneWindow"
+msgid "Digits only, as the bank gave it"
+msgstr "Só números, como o banco informou"
+
+msgctxt "PhoneWindow"
+msgid "No key yet: make one here, or bring yours from a file or the clipboard."
+msgstr "Ainda sem chave: crie uma aqui ou traga a sua de um arquivo ou da área de transferência."
+
+msgctxt "PhoneWindow"
+msgid "Kept as it is; its public half couldn't be read."
+msgstr "Mantida como está; não foi possível ler a chave pública."
+
+msgctxt "PhoneWindow"
+msgid "New key"
+msgstr "Nova chave"
+
+msgctxt "PhoneWindow"
+msgid "Make a key"
+msgstr "Criar uma chave"
+
+msgctxt "PhoneWindow"
+msgid "Paste"
+msgstr "Colar"
+
+msgctxt "PhoneWindow"
+msgid "From a file"
+msgstr "De um arquivo"
+
+msgctxt "PhoneWindow"
+msgid "Make a strong one"
+msgstr "Criar uma forte"
+
+msgctxt "PhoneWindow"
+msgid "The bank's site, for its icon"
+msgstr "O site do banco, para o ícone"
+
+msgctxt "PhoneWindow"
+msgid "One-time code key"
+msgstr "Chave do código de uso único"
+
+msgctxt "PhoneWindow"
+msgid "Paste the setup key the site shows for its authenticator app, often under “Can't scan it?”. Leave it empty if the site has none."
+msgstr "Cole a chave de configuração que o site mostra para o app autenticador, muitas vezes em “Não consegue escanear?”. Deixe vazio se o site não tiver nenhuma."
+
+msgctxt "PhoneWindow"
+msgid "Files"
+msgstr "Arquivos"
+
+msgctxt "PhoneWindow"
+msgid "Attach a file"
+msgstr "Anexar um arquivo"
+
+msgctxt "PhoneWindow"
+msgid "Favourite"
+msgstr "Favorito"
+
+msgctxt "PhoneWindow"
+msgid "Tap again to delete it for good"
+msgstr "Toque de novo para excluir de vez"
+
+msgctxt "PhoneWindow"
+msgid "Delete"
+msgstr "Excluir"
+
+msgctxt "PhoneWindow"
+msgid "Manage vaults"
+msgstr "Gerenciar cofres"
+
+msgctxt "EyeButton"
+msgid "Hide"
+msgstr "Ocultar"
+
+msgctxt "EyeButton"
+msgid "Show"
+msgstr "Mostrar"
+
+msgctxt "Hint"
+msgid "What is this?"
+msgstr "O que é isto?"
+
+msgctxt "FieldLabel"
+msgid "required"
+msgstr "obrigatório"
+
+msgctxt "SourcePicker"
+msgid "Choose…"
+msgstr "Escolher…"
+
+msgctxt "SourcePicker"
+msgid "on this computer"
+msgstr "neste computador"
+
+msgctxt "StrengthMeter"
+msgid "· {} bits"
+msgstr "· {} bits"
+
+msgctxt "StrengthMeter"
+msgid "Worst realistic case: a site you use is breached and its password list leaks with fast (MD5) hashes. An attacker runs hashcat on six RTX 4090 graphics cards, about a trillion guesses per second, and on average finds the password halfway through. Sites that store passwords properly (bcrypt, Argon2) make this millions of times slower. Each extra bit doubles the time."
+msgstr "Pior caso realista: um site que você usa é invadido e a lista de senhas vaza com hashes rápidos (MD5). Um atacante roda o hashcat em seis placas RTX 4090, cerca de um trilhão de tentativas por segundo, e em média acha a senha na metade do caminho. Sites que guardam senhas direito (bcrypt, Argon2) deixam isso milhões de vezes mais lento. Cada bit a mais dobra o tempo."
+
+msgctxt "Messages"
+msgid "Vault"
+msgstr "Cofre"
+
+msgctxt "Messages"
+msgid "Card"
+msgstr "Cartão"
+
+msgctxt "Messages"
+msgid "Secure note"
+msgstr "Nota segura"
+
+msgctxt "Messages"
+msgid "Passkey"
+msgstr "Chave de acesso"
+
+msgctxt "Messages"
+msgid "Login"
+msgstr "Login"
+
+msgctxt "Messages"
+msgid "That master password doesn't open this vault. Check Caps Lock and try again."
+msgstr "Esta senha mestra não abre este cofre. Confira o Caps Lock e tente de novo."
+
+msgctxt "Messages"
+msgid "That Secret Key has a typo. Compare it with your emergency kit, group by group."
+msgstr "Esta chave secreta tem um erro de digitação. Compare com o seu kit de emergência, grupo por grupo."
+
+msgctxt "Messages"
+msgid "A Secret Key starts with S0- followed by four groups of seven characters."
+msgstr "A chave secreta começa com S0- seguido de quatro grupos de sete caracteres."
+
+msgctxt "Messages"
+msgid "The two passwords are different. Type them again."
+msgstr "As duas senhas são diferentes. Digite-as de novo."
+
+msgctxt "Messages"
+msgid "Use at least 12 characters. A passphrase of random words is easiest."
+msgstr "Use pelo menos 12 caracteres. Uma frase-senha de palavras aleatórias é o mais fácil."
+
+msgctxt "Messages"
+msgid "This vault file is older than one this computer has already opened ({}). Someone may have swapped it for an old copy. Restore the newest file before continuing."
+msgstr "Este arquivo do cofre é mais antigo que um que este computador já abriu ({}). Alguém pode tê-lo trocado por uma cópia antiga. Restaure o arquivo mais novo antes de continuar."
+
+msgctxt "Messages"
+msgid "The vault file couldn't be read or written: {}"
+msgstr "Não foi possível ler nem gravar o arquivo do cofre: {}"
+
+msgctxt "Messages"
+msgid "That Recovery Key doesn't open this vault. It starts with R0- and has nine groups."
+msgstr "Esta chave de recuperação não abre este cofre. Ela começa com R0- e tem nove grupos."
+
+msgctxt "Messages"
+msgid "These parts don't open this vault. Check each one, and that they all come from your latest kit."
+msgstr "Estas partes não abrem este cofre. Confira cada uma e se todas vêm do seu kit mais recente."
+
+msgctxt "Messages"
+msgid "One part has a typo, or isn't a recovery part: each starts with A0-, B0- or C0- followed by four groups of seven characters."
+msgstr "Uma parte tem erro de digitação, ou não é uma parte de recuperação: cada uma começa com A0-, B0- ou C0-, seguido de quatro grupos de sete caracteres."
+
+msgctxt "Messages"
+msgid "Two of these are the same part. Use different ones: A, B or C."
+msgstr "Duas destas são a mesma parte. Use partes diferentes: A, B ou C."
+
+msgctxt "Messages"
+msgid "That picture doesn't give a recovery part: {}"
+msgstr "Esta imagem não traz uma parte de recuperação: {}"
+
+msgctxt "Messages"
+msgid "This vault has no recovery parts: its kit has a Secret Key to type, or the Recovery Key of an older kit."
+msgstr "Este cofre não tem partes de recuperação: o kit dele tem uma chave secreta para digitar, ou a chave de recuperação de um kit mais antigo."
+
+msgctxt "Messages"
+msgid "Part C couldn't be hidden in that picture: {}"
+msgstr "Não foi possível ocultar a parte C nessa imagem: {}"
+
+msgctxt "Messages"
+msgid "The backup didn't pass its check, so it was deleted ({}). Try another place: a full or failing drive may be the cause."
+msgstr "A cópia de backup não passou na conferência, então foi excluída ({}). Tente outro lugar: um disco cheio ou com defeito pode ser a causa."
+
+msgctxt "Messages"
+msgid "That file is too large: an item keeps files of up to 5 MB, and up to 10 of them."
+msgstr "Este arquivo é grande demais: um item guarda arquivos de até 5 MB, e até 10 deles."
+
+msgctxt "Messages"
+msgid "That isn't an SSH private key. Choose the key file itself (often id_ed25519 or id_rsa), not the .pub one."
+msgstr "Isto não é uma chave privada SSH. Escolha o próprio arquivo da chave (muitas vezes id_ed25519 ou id_rsa), e não o .pub."
+
+msgctxt "Messages"
+msgid "Give the item a title."
+msgstr "Dê um título ao item."
+
+msgctxt "Messages"
+msgid "The one-time code secret isn't valid. Paste the otpauth:// link or the key shown by the website."
+msgstr "O segredo do código de uso único não é válido. Cole o link otpauth:// ou a chave que o site mostra."
+
+msgctxt "Messages"
+msgid "The current master password is wrong."
+msgstr "A senha mestra atual está errada."
+
+msgctxt "Messages"
+msgid "The clipboard isn't available right now. Try again."
+msgstr "A área de transferência não está disponível agora. Tente de novo."
+
+msgctxt "Messages"
+msgid "That file couldn't be imported: {}"
+msgstr "Não foi possível importar este arquivo: {}"
+
+msgctxt "Messages"
+msgid "That card number has a typo: check the digits (12 to 19, as printed on the card)."
+msgstr "Este número de cartão tem erro de digitação: confira os números (de 12 a 19, como impressos no cartão)."
+
+msgctxt "Messages"
+msgid "Write the expiry date as MM/YY, for example 08/29."
+msgstr "Escreva a data de vencimento como MM/AA, por exemplo 08/29."
+
+msgctxt "Messages"
+msgid "The security code is the 3 digits on the back (4 on the front for American Express)."
+msgstr "O código de segurança são os 3 números do verso (4 na frente, no American Express)."
+
+msgctxt "Messages"
+msgid "A PIN is 4 to 12 digits, the one your bank gave you."
+msgstr "O PIN tem de 4 a 12 números, o que o seu banco deu a você."
+
+msgctxt "Messages"
+msgid "That word list couldn't be used: it needs at least 500 different words, one per line. {}"
+msgstr "Esta lista de palavras não pôde ser usada: ela precisa de pelo menos 500 palavras diferentes, uma por linha. {}"
+
+msgctxt "Messages"
+msgid "The leak check couldn't reach the service: {}. Nothing was sent except the first five characters of each password's fingerprint."
+msgstr "A verificação de vazamentos não conseguiu acessar o serviço: {}. Só foram enviados os cinco primeiros caracteres da impressão de cada senha."
+
+msgctxt "Messages"
+msgid "A vault name has at most 60 characters."
+msgstr "O nome do cofre tem no máximo 60 caracteres."
+
+msgctxt "Messages"
+msgid "Type a website (example.com) or a link to a picture (https://example.com/logo.png)."
+msgstr "Digite um site (exemplo.com) ou um link para uma imagem (https://exemplo.com/logo.png)."
+
+msgctxt "Messages"
+msgid "Type a folder name."
+msgstr "Digite um nome de pasta."
+
+msgctxt "Messages"
+msgid "This vault also needs its keyfile. Choose the file (plug in the drive it is on first)."
+msgstr "Este cofre também precisa do arquivo de chave. Escolha o arquivo (conecte antes o drive onde ele está)."
+
+msgctxt "Messages"
+msgid "That file can't be used as a keyfile: {}"
+msgstr "Este arquivo não pode ser usado como arquivo de chave: {}"
+
+msgctxt "Messages"
+msgid "That master password and keyfile don't open this vault. Check Caps Lock, and that it is the right file."
+msgstr "Esta senha mestra e este arquivo de chave não abrem este cofre. Confira o Caps Lock e se é o arquivo certo."
+
+msgctxt "Messages"
+msgid "That isn't it. One more wrong try locks the vault."
+msgstr "Não é isso. Mais uma tentativa errada tranca o cofre."
+
+msgctxt "Messages"
+msgid "That isn't it. {} tries left before the vault locks."
+msgstr "Não é isso. Restam {} tentativas antes de o cofre trancar."
+
+msgctxt "Messages"
+msgid "A PIN has 4 to 8 digits; an item password at least 6 characters."
+msgstr "O PIN tem de 4 a 8 números; a senha do item, pelo menos 6 caracteres."
+
+msgctxt "Messages"
+msgid "Paste the setup key the site shows for its authenticator app (often under “Can't scan it?”), or an otpauth:// link."
+msgstr "Cole a chave de configuração que o site mostra para o app autenticador (muitas vezes em “Não consegue escanear?”), ou um link otpauth://."
+
+msgctxt "Messages"
+msgid "Filling while the vault is locked uses Windows Hello: turn it on in Settings → Item lock first (with a PIN or another password)."
+msgstr "Preencher com o cofre trancado usa o Windows Hello: ligue-o primeiro em Configurações → Trava de itens (com um PIN ou outra senha)."
+
+msgctxt "Messages"
+msgid "Windows Hello no longer opens the item lock on this computer (its PIN or password was changed). Use the PIN, then turn Windows Hello on again in Settings → Item lock."
+msgstr "O Windows Hello não abre mais a trava de itens neste computador (o PIN ou a senha dele foi trocado). Use o PIN e depois ligue o Windows Hello de novo em Configurações → Trava de itens."
+
+msgctxt "Messages"
+msgid "The helper program for browsers ({}) is missing next to the app, so the extension can't be connected."
+msgstr "O programa auxiliar para navegadores ({}) está faltando ao lado do app, então a extensão não pode ser conectada."
+
+msgctxt "Messages"
+msgid "That isn't the code the extension shows. Look at the extension's window and type its six digits."
+msgstr "Este não é o código que a extensão mostra. Veja a janela da extensão e digite os seis números."
+
+msgctxt "Messages"
+msgid "The browser extension can't reach this window: its channel is already in use, by another window of the app or by another program. Close the other window, then turn the extension setting off and on again."
+msgstr "A extensão do navegador não consegue alcançar esta janela: o canal dela já está em uso, por outra janela do app ou por outro programa. Feche a outra janela e desligue e ligue de novo a configuração da extensão."
+
+msgctxt "Messages"
+msgid "Locked secrets are in the way. Open the item lock first: type its PIN or password on a locked item or on the Authenticator page, then try again."
+msgstr "Há segredos trancados no caminho. Abra a trava de itens primeiro: digite o PIN ou a senha dela em um item trancado ou na página Autenticador, e tente de novo."
+
+msgctxt "Messages"
+msgid "The vault file was changed outside this window (another window or program). Your last change was not saved: lock and unlock to load the newest version, then make it again."
+msgstr "O arquivo do cofre foi alterado fora desta janela (outra janela ou programa). Sua última alteração não foi salva: tranque e destranque para carregar a versão mais nova e faça-a de novo."
+
+msgctxt "Messages"
+msgid "Windows Hello couldn't open the vault ({}). Use your master password."
+msgstr "O Windows Hello não conseguiu abrir o cofre ({}). Use sua senha mestra."
+
+msgctxt "Messages"
+msgid "The master password changed, so Windows Hello was turned off on this computer. Unlock with the master password, then turn it on again in Settings."
+msgstr "A senha mestra mudou, então o Windows Hello foi desligado neste computador. Destranque com a senha mestra e depois ligue-o de novo em Configurações."
+
+msgctxt "Messages"
+msgid "It's been {} days: type your master password this time, so you keep remembering it. Windows Hello works again right after."
+msgstr "Já se passaram {} dias: digite sua senha mestra desta vez, para continuar lembrando dela. O Windows Hello volta a funcionar logo depois."
+
+msgctxt "Messages"
+msgid "Windows Hello was reset on this computer, so this vault's key is gone. Unlock with the master password, then turn Windows Hello on again in Settings."
+msgstr "O Windows Hello foi redefinido neste computador, então a chave deste cofre se foi. Destranque com a senha mestra e depois ligue o Windows Hello de novo em Configurações."
+
+msgctxt "Messages"
+msgid "Windows Hello isn't set up on this computer. Set it up in Windows Settings → Accounts → Sign-in options, or use your master password."
+msgstr "O Windows Hello não está configurado neste computador. Configure-o em Configurações do Windows → Contas → Opções de entrada, ou use sua senha mestra."
+
+msgctxt "Messages"
+msgid "Something went wrong: {}"
+msgstr "Algo deu errado: {}"
+
+msgctxt "Messages"
+msgid "Cracked almost instantly"
+msgstr "Quebrada quase na hora"
+
+msgctxt "Messages"
+msgid "About {n} second to crack"
+msgid_plural "About {n} seconds to crack"
+msgstr[0] "Cerca de {n} segundo para quebrar"
+msgstr[1] "Cerca de {n} segundos para quebrar"
+
+msgctxt "Messages"
+msgid "About {n} minute to crack"
+msgid_plural "About {n} minutes to crack"
+msgstr[0] "Cerca de {n} minuto para quebrar"
+msgstr[1] "Cerca de {n} minutos para quebrar"
+
+msgctxt "Messages"
+msgid "About {n} hour to crack"
+msgid_plural "About {n} hours to crack"
+msgstr[0] "Cerca de {n} hora para quebrar"
+msgstr[1] "Cerca de {n} horas para quebrar"
+
+msgctxt "Messages"
+msgid "About {n} day to crack"
+msgid_plural "About {n} days to crack"
+msgstr[0] "Cerca de {n} dia para quebrar"
+msgstr[1] "Cerca de {n} dias para quebrar"
+
+msgctxt "Messages"
+msgid "About {n} year to crack"
+msgid_plural "About {n} years to crack"
+msgstr[0] "Cerca de {n} ano para quebrar"
+msgstr[1] "Cerca de {n} anos para quebrar"
+
+msgctxt "Messages"
+msgid "About {n} thousand years to crack"
+msgid_plural "About {n} thousand years to crack"
+msgstr[0] "Cerca de {n} mil anos para quebrar"
+msgstr[1] "Cerca de {n} mil anos para quebrar"
+
+msgctxt "Messages"
+msgid "About {n} million years to crack"
+msgid_plural "About {n} million years to crack"
+msgstr[0] "Cerca de {n} milhões de anos para quebrar"
+msgstr[1] "Cerca de {n} milhões de anos para quebrar"
+
+msgctxt "Messages"
+msgid "About {n} billion years to crack"
+msgid_plural "About {n} billion years to crack"
+msgstr[0] "Cerca de {n} bilhões de anos para quebrar"
+msgstr[1] "Cerca de {n} bilhões de anos para quebrar"
+
+msgctxt "Messages"
+msgid "About as long to crack as the universe has existed"
+msgstr "Tempo para quebrar igual à idade do universo"
+
+msgctxt "Messages"
+msgid "About {} times the age of the universe to crack"
+msgstr "Cerca de {} vezes a idade do universo para quebrar"
+
+msgctxt "Messages"
+msgid "About {} thousand times the age of the universe to crack"
+msgstr "Cerca de {} mil vezes a idade do universo para quebrar"
+
+msgctxt "Messages"
+msgid "About {} million times the age of the universe to crack"
+msgstr "Cerca de {} milhões de vezes a idade do universo para quebrar"
+
+msgctxt "Messages"
+msgid "About {} billion times the age of the universe to crack"
+msgstr "Cerca de {} bilhões de vezes a idade do universo para quebrar"
+
+msgctxt "Messages"
+msgid "About {} trillion times the age of the universe to crack"
+msgstr "Cerca de {} trilhões de vezes a idade do universo para quebrar"
+
+msgctxt "Messages"
+msgid "About a 1 followed by {} zeros times the age of the universe to crack"
+msgstr "Cerca de 1 seguido de {} zeros vezes a idade do universo para quebrar"
+
+msgctxt "Messages"
+msgid "Faster than you can read this."
+msgstr "Mais rápido do que você consegue ler isto."
+
+msgctxt "Messages"
+msgid "Gone before you finish this sentence."
+msgstr "Quebrada antes de você terminar esta frase."
+
+msgctxt "Messages"
+msgid "About one coffee break."
+msgstr "Cerca de uma pausa para o café."
+
+msgctxt "Messages"
+msgid "Done before the end of a workday."
+msgstr "Feito antes do fim do expediente."
+
+msgctxt "Messages"
+msgid "About as long as a holiday. Not great."
+msgstr "Cerca de um feriado. Não é nada bom."
+
+msgctxt "Messages"
+msgid "Years of guessing — but a determined attacker can wait."
+msgstr "Anos de tentativas — mas um atacante determinado pode esperar."
+
+msgctxt "Messages"
+msgid "If they'd started when the first iPhone came out, they'd still be at it."
+msgstr "Se tivessem começado quando o primeiro iPhone saiu, ainda estariam nisso."
+
+msgctxt "Messages"
+msgid "If they'd started when the Web went public, they'd still be at it."
+msgstr "Se tivessem começado quando a Web virou pública, ainda estariam nisso."
+
+msgctxt "Messages"
+msgid "If they'd started at the first Moon landing, they'd still be at it."
+msgstr "Se tivessem começado no primeiro pouso na Lua, ainda estariam nisso."
+
+msgctxt "Messages"
+msgid "If they'd started with the first steam engines, they'd still be at it."
+msgstr "Se tivessem começado com as primeiras máquinas a vapor, ainda estariam nisso."
+
+msgctxt "Messages"
+msgid "If they'd started when Gutenberg printed his first page, they'd still be at it."
+msgstr "Se tivessem começado quando Gutenberg imprimiu sua primeira página, ainda estariam nisso."
+
+msgctxt "Messages"
+msgid "If they'd started when the Vikings reached America, they'd still be at it."
+msgstr "Se tivessem começado quando os vikings chegaram à América, ainda estariam nisso."
+
+msgctxt "Messages"
+msgid "If they'd started while Julius Caesar ruled Rome, they'd still be at it."
+msgstr "Se tivessem começado enquanto Júlio César governava Roma, ainda estariam nisso."
+
+msgctxt "Messages"
+msgid "If they'd started while the pyramids were being built, they'd still be at it."
+msgstr "Se tivessem começado enquanto as pirâmides eram construídas, ainda estariam nisso."
+
+msgctxt "Messages"
+msgid "If they'd started with the very first farmers, they'd still be at it."
+msgstr "Se tivessem começado com os primeiros agricultores, ainda estariam nisso."
+
+msgctxt "Messages"
+msgid "If they'd started with the first humans, they'd still be at it."
+msgstr "Se tivessem começado com os primeiros humanos, ainda estariam nisso."
+
+msgctxt "Messages"
+msgid "If they'd started when the dinosaurs died out, they'd still be at it."
+msgstr "Se tivessem começado quando os dinossauros foram extintos, ainda estariam nisso."
+
+msgctxt "Messages"
+msgid "If they'd started when the Earth formed, they'd still be at it."
+msgstr "Se tivessem começado quando a Terra se formou, ainda estariam nisso."
+
+msgctxt "Messages"
+msgid "The universe is only 13.8 billion years old."
+msgstr "O universo tem apenas 13,8 bilhões de anos."
+
+msgctxt "Messages"
+msgid "The last stars in the sky would burn out before it's found."
+msgstr "As últimas estrelas do céu se apagariam antes de ela ser encontrada."
+
+msgctxt "Messages"
+msgid "Even with computers a billion times faster, it would outlast the universe."
+msgstr "Mesmo com computadores um bilhão de vezes mais rápidos, levaria mais tempo que o universo."
+
+msgctxt "Messages"
+msgid "There are more possible passwords like it than atoms in the whole Earth."
+msgstr "Há mais senhas possíveis assim do que átomos em toda a Terra."
+
+msgctxt "Messages"
+msgid "There are more possible passwords like it than atoms in the observable universe."
+msgstr "Há mais senhas possíveis assim do que átomos no universo observável."
+
+msgctxt "Messages"
+msgid "Password copied. The clipboard clears in {} seconds."
+msgstr "Senha copiada. A área de transferência será limpa em {} segundos."
+
+msgctxt "Messages"
+msgid "Username copied."
+msgstr "Usuário copiado."
+
+msgctxt "Messages"
+msgid "Code copied. The clipboard clears in {} seconds."
+msgstr "Código copiado. A área de transferência será limpa em {} segundos."
+
+msgctxt "Messages"
+msgid "Clipboard cleared."
+msgstr "Área de transferência limpa."
+
+msgctxt "Messages"
+msgid "Saved."
+msgstr "Salvo."
+
+msgctxt "Messages"
+msgid "Deleted {}."
+msgstr "{} excluído."
+
+msgctxt "Messages"
+msgid "Master password changed."
+msgstr "Senha mestra trocada."
+
+msgctxt "Messages"
+msgid "New recovery parts issued. The old ones no longer work: print the new kit now."
+msgstr "Novas partes de recuperação emitidas. As antigas não funcionam mais: imprima o kit novo agora."
+
+msgctxt "Messages"
+msgid "Part C is hidden in {}. It was read back to check. Keep that file as it is: a resized or converted copy loses the part."
+msgstr "A parte C está oculta em {}. Ela foi lida de volta para conferir. Guarde esse arquivo como está: uma cópia redimensionada ou convertida perde a parte."
+
+msgctxt "Messages"
+msgid "Part {} read from the picture."
+msgstr "Parte {} lida da imagem."
+
+msgctxt "Messages"
+msgid "The main sync server isn't answering ({}). The vault keeps syncing through the backup server."
+msgstr "O servidor principal de sincronização não está respondendo ({}). O cofre continua sincronizando pelo servidor de backup."
+
+msgctxt "Messages"
+msgid "The main sync server answers again and has caught up."
+msgstr "O servidor principal de sincronização voltou a responder e está atualizado."
+
+msgctxt "Messages"
+msgid "The backup sync server isn't answering ({}). The vault keeps syncing through the main one."
+msgstr "O servidor de backup não está respondendo ({}). O cofre continua sincronizando pelo principal."
+
+msgctxt "Messages"
+msgid "The backup sync server answers again and has caught up."
+msgstr "O servidor de backup voltou a responder e está atualizado."
+
+msgctxt "Messages"
+msgid "This computer joined the backup server. The vault syncs through both from now on."
+msgstr "Este computador entrou no servidor de backup. A partir de agora, o cofre sincroniza pelos dois."
+
+#: ../desktop/ui/model.slint:272
+msgctxt "Messages"
+msgid "A passkey for “{}” was saved from the browser."
+msgstr "Uma chave de acesso para “{}” foi salva pelo navegador."
+
+#: ../desktop/ui/model.slint:273
+msgctxt "Messages"
+msgid "Signed in with the passkey of “{}” in the browser."
+msgstr "Entrou com a chave de acesso de “{}” no navegador."
+
+msgctxt "Messages"
+msgid "{} of your passwords turned up in a data breach since the last check. See Password health and change them where you use them."
+msgstr "{} das suas senhas apareceram em um vazamento de dados desde a última verificação. Veja Saúde das senhas e troque-as onde você as usa."
+
+msgctxt "Messages"
+msgid "Settings saved."
+msgstr "Configurações salvas."
+
+msgctxt "Messages"
+msgid "Copied. The clipboard clears in {} seconds."
+msgstr "Copiado. A área de transferência será limpa em {} segundos."
+
+msgctxt "Messages"
+msgid "Generated password copied. The clipboard clears in {} seconds."
+msgstr "Senha gerada copiada. A área de transferência será limpa em {} segundos."
+
+msgctxt "Messages"
+msgid "Windows Hello is on. Next time, unlock with your face, fingerprint or PIN."
+msgstr "O Windows Hello está ligado. Da próxima vez, destranque com seu rosto, digital ou PIN."
+
+msgctxt "Messages"
+msgid "Windows Hello is off for this vault."
+msgstr "O Windows Hello está desligado para este cofre."
+
+msgctxt "Messages"
+msgid "Windows Hello wasn't turned on: {}."
+msgstr "O Windows Hello não foi ligado: {}."
+
+msgctxt "Messages"
+msgid "Master password changed. Windows Hello was turned off; turn it on again below."
+msgstr "Senha mestra trocada. O Windows Hello foi desligado; ligue-o de novo abaixo."
+
+msgctxt "Messages"
+msgid "Kit opened for printing. The file is wiped when the vault locks."
+msgstr "Kit aberto para impressão. O arquivo é apagado quando o cofre trancar."
+
+msgctxt "Messages"
+msgid "Imported {} items."
+msgstr "{} itens importados."
+
+msgctxt "Messages"
+msgid "Backup confirmed: {}. It was read back, matches the vault file and opens with this vault's key."
+msgstr "Cópia confirmada: {}. Foi lida de volta, confere com o arquivo do cofre e abre com a chave deste cofre."
+
+msgctxt "Messages"
+msgid "Exported to {}. It isn't encrypted: delete it once it's imported elsewhere."
+msgstr "Exportado para {}. Não está criptografado: exclua-o depois de importá-lo em outro lugar."
+
+msgctxt "Messages"
+msgid "The export file was overwritten and deleted."
+msgstr "O arquivo de exportação foi sobrescrito e excluído."
+
+msgctxt "Messages"
+msgid "Not saved: the vault file was changed outside this window. Lock and unlock to load the newest version."
+msgstr "Não salvo: o arquivo do cofre foi alterado fora desta janela. Tranque e destranque para carregar a versão mais nova."
+
+msgctxt "Messages"
+msgid "Not saved: {}"
+msgstr "Não salvo: {}"
+
+msgctxt "Messages"
+msgid "Recovery code copied. Mark it as used once you've signed in. The clipboard clears in {} seconds."
+msgstr "Código de recuperação copiado. Marque-o como usado depois de entrar. A área de transferência será limpa em {} segundos."
+
+msgctxt "Messages"
+msgid "Kit saved to {}. Keep the file private, or delete it once printed."
+msgstr "Kit salvo em {}. Mantenha o arquivo em segredo, ou exclua-o depois de impresso."
+
+msgctxt "Messages"
+msgid "Password history cleared."
+msgstr "Histórico de senhas limpo."
+
+msgctxt "Messages"
+msgid "Old password copied. The clipboard clears in {} seconds."
+msgstr "Senha antiga copiada. A área de transferência será limpa em {} segundos."
+
+msgctxt "Messages"
+msgid "Vault settings saved."
+msgstr "Configurações do cofre salvas."
+
+msgctxt "Messages"
+msgid "Word list added: {}."
+msgstr "Lista de palavras adicionada: {}."
+
+msgctxt "Messages"
+msgid "Leak check done: none of your passwords is in a known breach."
+msgstr "Verificação de vazamentos concluída: nenhuma das suas senhas está em um vazamento conhecido."
+
+msgctxt "Messages"
+msgid "Leak check done: {} found in known breaches. Change them first."
+msgstr "Verificação de vazamentos concluída: {} encontradas em vazamentos conhecidos. Troque-as primeiro."
+
+msgctxt "Messages"
+msgid "Opened {}. Export the passwords as CSV there, then choose the file here."
+msgstr "{} aberto. Exporte as senhas como CSV lá e depois escolha o arquivo aqui."
+
+msgctxt "Messages"
+msgid "Unlock protection changed. Unlocking now takes about {} s on this computer."
+msgstr "A proteção do destrancamento mudou. Destrancar agora leva cerca de {} s neste computador."
+
+msgctxt "Messages"
+msgid "Unlock protection changed (about {} s per unlock here). Windows Hello was turned off: turn it on again in Settings."
+msgstr "A proteção do destrancamento mudou (cerca de {} s por destrancamento aqui). O Windows Hello foi desligado: ligue-o de novo em Configurações."
+
+msgctxt "Messages"
+msgid "Folder deleted. Its items are still in All items."
+msgstr "Pasta excluída. Os itens dela continuam em Todos os itens."
+
+msgctxt "Messages"
+msgid "Website copied."
+msgstr "Site copiado."
+
+msgctxt "Messages"
+msgid "Couldn't open {} in a browser."
+msgstr "Não foi possível abrir {} no navegador."
+
+msgctxt "Messages"
+msgid "Keyfile set: the vault now needs {} together with your master password. Keep a copy somewhere safe. Windows Hello, if it was on, is off until you turn it on again."
+msgstr "Arquivo de chave definido: o cofre agora precisa de {} junto com sua senha mestra. Guarde uma cópia em um lugar seguro. O Windows Hello, se estava ligado, fica desligado até você ligá-lo de novo."
+
+msgctxt "Messages"
+msgid "The vault no longer needs a keyfile. Windows Hello, if it was on, is off until you turn it on again."
+msgstr "O cofre não precisa mais de arquivo de chave. O Windows Hello, se estava ligado, fica desligado até você ligá-lo de novo."
+
+msgctxt "Messages"
+msgid "Item lock saved."
+msgstr "Trava de itens salva."
+
+msgctxt "Messages"
+msgid "Too many wrong tries: the vault locked itself. Unlock it with your master password."
+msgstr "Muitas tentativas erradas: o cofre se trancou sozinho. Destranque-o com sua senha mestra."
+
+msgctxt "Messages"
+msgid "Secrets locked again."
+msgstr "Segredos trancados de novo."
+
+msgctxt "Messages"
+msgid "“{}” was handed to the browser extension."
+msgstr "“{}” foi entregue à extensão do navegador."
+
+msgctxt "Messages"
+msgid "Browser extension connected."
+msgstr "Extensão do navegador conectada."
+
+msgctxt "Messages"
+msgid "Browser extension disconnected. It has to ask again to connect."
+msgstr "Extensão do navegador desconectada. Ela precisa pedir de novo para conectar."
+
+msgctxt "Messages"
+msgid "Saved “{}” from the browser."
+msgstr "“{}” salvo do navegador."
+
+msgctxt "Messages"
+msgid "History of generated passwords cleared."
+msgstr "Histórico de senhas geradas limpo."
+
+msgctxt "Messages"
+msgid "A login saved from the browser while the vault was locked is in your vault now."
+msgstr "Um login salvo do navegador enquanto o cofre estava trancado agora está no seu cofre."
+
+msgctxt "Messages"
+msgid "{} logins saved from the browser while the vault was locked are in your vault now."
+msgstr "{} logins salvos do navegador enquanto o cofre estava trancado agora estão no seu cofre."
+
+msgctxt "Messages"
+msgid "The browser extension can now fill with Windows Hello while the vault is locked."
+msgstr "A extensão do navegador agora pode preencher com o Windows Hello com o cofre trancado."
+
+msgctxt "Messages"
+msgid "This computer's record of the newest version of each vault couldn't be read, so it started again (the old file was kept as state.json.unreadable). An older copy of a vault is noticed again once its newest version has been opened here."
+msgstr "O registro deste computador sobre a versão mais nova de cada cofre não pôde ser lido, então começou de novo (o arquivo antigo foi guardado como state.json.unreadable). Uma cópia mais antiga de um cofre volta a ser percebida assim que a versão mais nova dele for aberta aqui."
+
+msgctxt "Messages"
+msgid "Leak check: one locked login wasn't checked, because the item lock keeps its password closed. None of the others is in a known breach. Open the item lock, then check again."
+msgstr "Verificação de vazamentos: um login trancado não foi conferido, porque a trava de itens mantém a senha dele fechada. Nenhum dos outros está em um vazamento conhecido. Abra a trava de itens e confira de novo."
+
+msgctxt "Messages"
+msgid "Leak check: {} locked logins weren't checked, because the item lock keeps their passwords closed. None of the others is in a known breach. Open the item lock, then check again."
+msgstr "Verificação de vazamentos: {} logins trancados não foram conferidos, porque a trava de itens mantém as senhas deles fechadas. Nenhum dos outros está em um vazamento conhecido. Abra a trava de itens e confira de novo."
+
+msgctxt "Messages"
+msgid "Leak check done: {} found in known breaches. Change them first. Locked logins weren't checked: open the item lock, then check again."
+msgstr "Verificação de vazamentos concluída: {} encontradas em vazamentos conhecidos. Troque-as primeiro. Logins trancados não foram conferidos: abra a trava de itens e confira de novo."
+
+msgctxt "Messages"
+msgid "Synced: {} changes came from your other devices."
+msgstr "Sincronizado: {} alterações vieram dos seus outros aparelhos."
+
+msgctxt "Messages"
+msgid "{} items were changed here and on another device. The newer version was kept, and the other password is in each item's history."
+msgstr "{} itens foram alterados aqui e em outro aparelho. A versão mais nova foi mantida, e a outra senha está no histórico de cada item."
+
+msgctxt "Messages"
+msgid "{} items were changed here and on another device, behind the item lock. Open the item lock to keep both passwords; until then this computer keeps its own version."
+msgstr "{} itens foram alterados aqui e em outro aparelho, atrás da trava de itens. Abra a trava de itens para manter as duas senhas; até lá, este computador guarda a própria versão."
+
+msgctxt "Messages"
+msgid "The master password, keyfile or Recovery Key was changed on another device. Use that one the next time you unlock."
+msgstr "A senha mestra, o arquivo de chave ou a chave de recuperação foi alterado em outro aparelho. Use esse na próxima vez que destrancar."
+
+msgctxt "Messages"
+msgid "A copy in the sync folder was not used: {}. It may be an older copy put back, or come from a device that was removed."
+msgstr "Uma cópia na pasta de sincronização não foi usada: {}. Pode ser uma cópia antiga recolocada, ou vir de um aparelho que foi removido."
+
+msgctxt "Messages"
+msgid "This computer joined the server. The vault syncs through it from now on."
+msgstr "Este computador entrou no servidor. A partir de agora, o cofre sincroniza por ele."
+
+msgctxt "Messages"
+msgid "{} was removed. Every device refuses its copies from its next sync; it keeps only what it already had, which opens only with your master password and Secret Key."
+msgstr "{} foi removido. Todo aparelho recusa as cópias dele a partir da próxima sincronização; ele guarda só o que já tinha, que só abre com sua senha mestra e chave secreta."
+
+msgctxt "Messages"
+msgid "This computer was removed from the vault on another device, so it no longer syncs."
+msgstr "Este computador foi removido do cofre em outro aparelho, então não sincroniza mais."
+
+msgctxt "Messages"
+msgid "Updated the password of “{}” from the browser. The old one is in its history."
+msgstr "Senha de “{}” atualizada pelo navegador. A antiga está no histórico."
+
+msgctxt "Messages"
+msgid "This computer couldn't record the vault's newest version ({}), so an older copy put in its place may not be noticed."
+msgstr "Este computador não conseguiu registrar a versão mais nova do cofre ({}), então uma cópia mais antiga colocada no lugar pode não ser percebida."
+
+msgctxt "Messages"
+msgid "today"
+msgstr "hoje"
+
+msgctxt "Messages"
+msgid "{n} day ago"
+msgid_plural "{n} days ago"
+msgstr[0] "há {n} dia"
+msgstr[1] "há {n} dias"
+
+msgctxt "Messages"
+msgid "{n} month ago"
+msgid_plural "{n} months ago"
+msgstr[0] "há {n} mês"
+msgstr[1] "há {n} meses"
+
+msgctxt "Messages"
+msgid "{n} year ago"
+msgid_plural "{n} years ago"
+msgstr[0] "há {n} ano"
+msgstr[1] "há {n} anos"
+
+msgctxt "Messages"
+msgid "Keyboard patterns like qwerty are among the first guesses."
+msgstr "Padrões de teclado, como qwerty, estão entre os primeiros palpites."
+
+msgctxt "Messages"
+msgid "Repeats like aaa or abcabc are easy to guess."
+msgstr "Repetições como aaa ou abcabc são fáceis de adivinhar."
+
+msgctxt "Messages"
+msgid "This is one of the most used passwords."
+msgstr "Esta é uma das senhas mais usadas."
+
+msgctxt "Messages"
+msgid "This is a common password with small changes."
+msgstr "Esta é uma senha comum com pequenas mudanças."
+
+msgctxt "Messages"
+msgid "Sequences like abc or 1234 are easy to guess."
+msgstr "Sequências como abc ou 1234 são fáceis de adivinhar."
+
+msgctxt "Messages"
+msgid "Dates and years are easy to guess."
+msgstr "Datas e anos são fáceis de adivinhar."
+
+msgctxt "Messages"
+msgid "A single word is easy to guess."
+msgstr "Uma palavra só é fácil de adivinhar."
+
+msgctxt "Messages"
+msgid "Names and surnames are easy to guess."
+msgstr "Nomes e sobrenomes são fáceis de adivinhar."
+
+msgctxt "Messages"
+msgid "Too short and predictable."
+msgstr "Curta demais e previsível."

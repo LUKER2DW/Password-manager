@@ -392,8 +392,11 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
 - ✅ Updates of the app from the person's own server (`vault-server publish-app`, checked
   against the release, installed by Android only when signed like the app)
 - ✅ M7.6 Sync (M6.4)
-- 🚧 M7.7 Parity with the desktop: ✅ cards, authenticator items, SSH keys, files;
-  ⬜ custom fields, folders, health, import, translations, a Portuguese word list
+- ✅ Brazilian Portuguese: every text of the phone (535, `apps/mobile/translations/`, with the
+  desktop's shared widgets), the language from Settings → Appearance or the phone's (the browser's
+  in the web preview); `cargo test -p vault-mobile i18n` checks that none is missing
+- 🚧 M7.7 Parity with the desktop: ✅ cards, authenticator items, SSH keys, files, Portuguese;
+  ⬜ custom fields, folders, health, import, a Portuguese word list
 
 ### M8 — Advanced ⬜
 - Secure sharing (Send-style links, HPKE hybrid X25519 + ML-KEM-768)

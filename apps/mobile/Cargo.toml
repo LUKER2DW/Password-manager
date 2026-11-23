@@ -55,6 +55,9 @@ qrcode = { version = "0.14", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 anyhow = "1"
+# The browser's language (src/platform/web.rs). The same version as apps/mobile-web, whose
+# build needs the matching wasm-bindgen command-line tool.
+wasm-bindgen = "=0.2.130"
 
 # The computer's file dialog, for the phone-sized window only; Android uses its own picker.
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
