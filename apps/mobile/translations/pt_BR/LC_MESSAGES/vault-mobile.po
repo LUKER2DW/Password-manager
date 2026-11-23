@@ -1274,6 +1274,16 @@ msgctxt "PhoneWindow"
 msgid "Save"
 msgstr "Salvar"
 
+#: ui/app.slint:2736
+msgctxt "PhoneWindow"
+msgid "Passkey for {}"
+msgstr "Chave de acesso de {}"
+
+#: ui/app.slint:2738
+msgctxt "PhoneWindow"
+msgid "No account name"
+msgstr "Sem nome de usuário"
+
 msgctxt "PhoneWindow"
 msgid "Login"
 msgstr "Login"
@@ -1897,6 +1907,16 @@ msgstr "O servidor de backup voltou a responder e está atualizado."
 msgctxt "Messages"
 msgid "This computer joined the backup server. The vault syncs through both from now on."
 msgstr "Este computador entrou no servidor de backup. A partir de agora, o cofre sincroniza pelos dois."
+
+#: ../desktop/ui/model.slint:272
+msgctxt "Messages"
+msgid "A passkey for “{}” was saved from the browser."
+msgstr "Uma chave de acesso para “{}” foi salva pelo navegador."
+
+#: ../desktop/ui/model.slint:273
+msgctxt "Messages"
+msgid "Signed in with the passkey of “{}” in the browser."
+msgstr "Entrou com a chave de acesso de “{}” no navegador."
 
 msgctxt "Messages"
 msgid "{} of your passwords turned up in a data breach since the last check. See Password health and change them where you use them."
