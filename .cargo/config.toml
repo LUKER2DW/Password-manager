@@ -1,0 +1,4 @@
+# Windows builds link with rust-lld (it comes with the Rust toolchain): the test binaries and the
+# desktop app are large, and it links them several times faster than MSVC's link.exe.
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"

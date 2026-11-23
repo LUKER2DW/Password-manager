@@ -59,3 +59,12 @@ opt-level = 3
 [profile.release]
 codegen-units = 1
 lto = "thin"
+
+# For trying a build (the APK, the desktop app): optimized as release, but compiled in parallel,
+# without LTO and incrementally, so a rebuild after a change takes a fraction of the time.
+# `cargo build --profile fast` (output in target/fast/); a build to hand out uses release.
+[profile.fast]
+inherits = "release"
+codegen-units = 16
+lto = false
+incremental = true

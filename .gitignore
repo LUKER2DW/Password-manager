@@ -48,3 +48,7 @@ Desktop.ini
 
 # Exports protected by a password (still: keep them out of the repository)
 *.vaultx
+
+# Gradle (the phone app's APK, apps/mobile-android): its cache and the SDK path it writes
+.gradle/
+local.properties
