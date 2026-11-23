@@ -111,7 +111,7 @@ thumb (bottom of the form, not the top bar), nothing that needs hover.
 | M7.4 | **Autofill** — `AutofillService` with app and origin matching, save prompt | ✅ built: offers, a confirmation on every fill, "Save to Vault?", a strong password suggested; ⬜ tried on a device |
 | M7.5 | **Passkeys and Credential Manager** (Android 14+) | ⬜ Depends on passkeys in the core |
 | M7.6 | **Sync** with the self-hosted server or WebDAV (M6) | ✅ The same vault on both devices without copying a file |
-| M7.7 | Cards, authenticator items, SSH keys and files (✅); custom fields, folders, health, import, translations (⬜) | Parity with what the desktop edits |
+| M7.7 | Cards, authenticator items, SSH keys, files and Brazilian Portuguese (✅); custom fields, folders, health, import (⬜) | Parity with what the desktop edits |
 
 ## 6. Researched choices
 
@@ -241,6 +241,9 @@ VAULT_FILE=target/phone-test.vault cargo run -p vault-mobile
 # Every screen as a PNG, off-screen (fake data), with an index.html gallery:
 cargo run -p vault-mobile --example phone_screens -- target/phone-screens
 
+# The same screens in Brazilian Portuguese (English otherwise, whatever the computer's language):
+VAULT_LANG=pt-BR cargo run -p vault-mobile --example phone_screens -- target/phone-screens-pt
+
 cargo test -p vault-mobile
 ```
 
@@ -348,3 +351,12 @@ What is in this first build (M7.1):
 
 Not yet: scanning QR codes, the bundled fonts (Roboto stands in), checking an app's signing
 certificate before filling it, passkeys.
+
+### 7.3 Languages
+
+Every text of the phone is written in English in the `.slint` files, inside `@tr(...)`, and
+Brazilian Portuguese is compiled in from `apps/mobile/translations/` (gettext, as the desktop's;
+see its README). Settings → Appearance chooses "the phone's" (the phone's language, the
+computer's, or the browser's in the web preview), English or Português, and the words change at
+once. The catalogue is checked by `cargo test -p vault-mobile i18n`: the template lists every
+text of the sources, and every text has a Portuguese one with the same placeholders.
