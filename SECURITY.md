@@ -34,9 +34,9 @@ The full model is in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md). In short:
 | Brute-forces the master password from a stolen file | Infeasible without the Secret Key; with it, Argon2id (256 MiB by default, up to 1 GiB if the user picks a stronger level, a hard floor of 64 MiB) slows every guess |
 | Reads the clipboard history or cloud clipboard | Copied secrets are excluded from Windows clipboard history and cloud sync, and cleared after a delay |
 | Captures the screen | The desktop window asks Windows to exclude it from screen capture |
-| Watches the network | Sees nothing by default: the app contacts no server unless the user turns on website icons, runs the leak check or sets up sync; the leak check sends only 5 hex characters of each password's SHA-1, with padded answers |
+| Watches the network | Sees nothing by default: the app contacts no server unless the user turns on website icons or the leak watch, runs the leak check or sets up sync; the leak check (and the watch, once a day) sends only 5 hex characters of each password's SHA-1, with padded answers |
 | Runs or takes over the sync server | Gets sealed copies and device public keys only: no password, hash or key that opens the vault. Older copies, forks and other vaults' copies are refused by every device ([docs/SERVER.md](docs/SERVER.md)) |
-| Leaks a website's password database | The health page flags weak, reused and leaked passwords so they get changed |
+| Leaks a website's password database | The health page flags weak, reused and leaked passwords so they get changed; with the leak watch on, a password that turns up in a new breach is told within a day |
 
 Out of scope (see the threat model): an attacker with administrator or kernel control of a
 running, unlocked computer; physical coercion; hardware side channels beyond what the
@@ -93,7 +93,10 @@ libraries mitigate.
   Tailscale address.
 - **Phone:** typed secrets go to the same locked buffers through a keyboard input that only
   holds stand-ins; the Secret Key is kept under an Android Keystore key; copied secrets are
-  marked sensitive. Screen-capture blocking and biometrics are not built yet.
+  marked sensitive; the screens stay out of screenshots unless allowed. Fingerprint unlock
+  opens a device secret sealed by a Keystore key that needs a strong biometric for each use.
+  Autofill offers only the logins saved for the exact site or app, and asks for a fingerprint
+  or the phone's lock before every fill.
 
 ## Known limitations
 

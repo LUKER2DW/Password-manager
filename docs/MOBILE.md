@@ -91,11 +91,11 @@ thumb (bottom of the form, not the top bar), nothing that needs hover.
 | Topic | Decision |
 |---|---|
 | Secret Key at rest | Android Keystore (StrongBox when the phone has it), wrapped key in app-private storage |
-| Quick unlock | `BiometricPrompt` Class 3 releasing a Keystore key that unwraps the vault key (as Windows Hello does on the desktop); master password again after a restart and every N days |
-| Screen | `FLAG_SECURE` on every window: no screenshots, blank in the app switcher |
+| Quick unlock | ✅ `BiometricPrompt` Class 3 releasing a Keystore key that opens a device secret, which unwraps the vault key (CRYPTO.md §3.1.1, as Windows Hello does on the desktop); master password again every 14 days and after it changes; a new fingerprint retires the key |
+| Screen | ✅ `FLAG_SECURE` unless "Allow screenshots" is turned on: no screenshots, blank in the app switcher |
 | Clipboard | Marked sensitive (`EXTRA_IS_SENSITIVE`, Android 13+), cleared after the timeout |
-| Background | Locks when the app leaves the screen for longer than the auto-lock time; at once when the screen turns off |
-| Autofill | Answers only for the app's verified package and signing certificate, or the website's exact origin; never fills a field of another app on its word alone |
+| Background | Locks when the app leaves the screen for longer than the auto-lock time; at once with "Lock as soon as I leave the app" |
+| Autofill | ✅ Offers only the logins saved for the website's exact domain (or under a saved `*.example.com`), or for an app by the `androidapp://<package>` saved in the login; none behind the item lock; every fill asks for a fingerprint or the phone's lock first; a phone with no screen lock gets nothing. ⬜ checking the app's signing certificate |
 | Typed secrets | Slint secure field → locked buffer in Rust, through an input connection that keeps no text (§6.1); the keyboard is told the field is a password (no suggestions, no learning) |
 | Backups | The vault file is excluded from Android cloud backup; the wrapped keys never leave the phone |
 | Root / debugger | Not defended against beyond what the Keystore gives: stated in THREAT_MODEL.md |
@@ -106,9 +106,9 @@ thumb (bottom of the form, not the top bar), nothing that needs hover.
 |---|---|---|
 | M7.0 | **Base** — crate, screens, controller, off-screen screenshots, headless test | ✅ |
 | M7.1 | **Runs on a phone** — NDK build (cargo-apk, §7.2), Slint Android backend, the system keyboard for secret fields (§6.1, §7.2), bundled fonts (§6.2), Back | ✅ an APK opens a test vault on a device; ⬜ fonts |
-| M7.2 | **Phone storage** — Keystore-backed Secret Key, app-private vault path, the system file picker and "open with" for `.vault` files (§6.3), `FLAG_SECURE`, sensitive clipboard | ✅ a vault made on Windows opens on the phone; ⬜ "open with", `FLAG_SECURE` |
-| M7.3 | **Biometrics** — Class 3 prompt, key invalidated when biometrics change; an app lock | ⬜ Unlock with a fingerprint after one password unlock |
-| M7.4 | **Autofill** — `AutofillService` with app and origin matching, save prompt | ⬜ A login fills into a browser and an app |
+| M7.2 | **Phone storage** — Keystore-backed Secret Key, app-private vault path, the system file picker and "open with" for `.vault` files (§6.3), `FLAG_SECURE`, sensitive clipboard | ✅ a vault made on Windows opens on the phone; ✅ `FLAG_SECURE`; ⬜ "open with" |
+| M7.3 | **Biometrics** — Class 3 prompt, key invalidated when biometrics change; an app lock | ✅ built (CRYPTO.md §3.1.1); ⬜ tried on a device |
+| M7.4 | **Autofill** — `AutofillService` with app and origin matching, save prompt | ✅ built: offers, a confirmation on every fill, "Save to Vault?", a strong password suggested; ⬜ tried on a device |
 | M7.5 | **Passkeys and Credential Manager** (Android 14+) | ⬜ Depends on passkeys in the core |
 | M7.6 | **Sync** with the self-hosted server or WebDAV (M6) | ✅ The same vault on both devices without copying a file |
 | M7.7 | Cards, authenticator items, SSH keys and files (✅); custom fields, folders, health, import, translations (⬜) | Parity with what the desktop edits |
@@ -329,6 +329,22 @@ What is in this first build (M7.1):
   system's picker; files attached to any item, saved through the system's "save as" and read
   back before they are called saved.
 
-Not yet: `FLAG_SECURE`, biometrics, an app lock and autofill in the shell, settings in
-groups, updates from the person's own server, scanning QR codes, the bundled fonts (Roboto
-stands in).
+- **Settings in groups** (Security, Autofill, Vault, Import and export, Sync, Appearance,
+  Updates, About). **Several vaults:** the vault's name on top of the list opens a card with
+  every vault on the phone (open or locked, where each syncs), Add a vault, Manage vaults.
+- **Fingerprint unlock** (CRYPTO.md §3.1.1), **Lock as soon as I leave the app**, **Allow
+  screenshots** (off: `FLAG_SECURE`).
+- **Autofill** (`VaultAutofillService`, `AutofillActivity`, `src/autofill.rs` in vault-mobile):
+  the logins for exactly the website or app asking; a fingerprint or the phone's lock before
+  every fill; "Use a strong password" on password fields; "Save to Vault?" after a sign-in,
+  into the open vault or, while it is locked, its drop box (CRYPTO.md §3.5). cargo-apk can't
+  declare a service, so `build.ps1` packages the APK again with them added to its manifest.
+- **Sync as on a computer:** Add a device (QR code and line), change the server's address,
+  add or remove a backup server, the devices (remove one), how many copies the server keeps.
+- **Updates** from the vault server (docs/SERVER.md, "Updates of the phone app").
+- **Import** of another manager's export, and **Check this password** (strength, leak check)
+  on the item page. **The leak watch** (Security, off until turned on): every login checked
+  once a day while open; a new leak is told and marked in the list.
+
+Not yet: scanning QR codes, the bundled fonts (Roboto stands in), checking an app's signing
+certificate before filling it, passkeys.

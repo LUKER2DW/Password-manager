@@ -121,6 +121,26 @@ Each server keeps its own list of devices and its own copies; removing a device 
 vault (Settings → Sync → Remove) makes every device refuse its copies wherever they come
 from.
 
+## Updates of the phone app
+
+The server can hand the phone app's updates to the phones that sync through it, so an update
+doesn't have to be copied to each phone by hand. Build the APK
+(`apps/mobile-android/build.ps1`, which takes its version from `apps/mobile-android/Cargo.toml`),
+then on the server:
+
+```bash
+vault-server publish-app vault-mobile-android.apk --version 0.2.0
+# Docker: copy it in first
+docker compose -f apps/server/compose.yaml cp vault-mobile-android.apk vault-server:/data/
+docker compose -f apps/server/compose.yaml exec vault-server vault-server publish-app /data/vault-mobile-android.apk --version 0.2.0
+```
+
+On the phone, **Settings → Updates → Check for updates**, then **Install**. The phone fetches
+the package with its device key, checks its size and SHA-256 against the release, and hands it
+to Android, which asks you and installs it only if it is signed with the same key as the app
+already there. Someone who took the server over can offer an old or a broken package; Android
+refuses one signed with another key, and the phone never installs anything without you.
+
 ## Look after it
 
 - **List devices:** `vault-server list` (in Docker: `docker compose … exec vault-server

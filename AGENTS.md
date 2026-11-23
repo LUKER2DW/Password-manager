@@ -93,6 +93,7 @@ Everything that touches the operating system: Secret Key in the credential store
 (`secret_store.rs`; the Android Keystore on a phone), per-device state and rollback detection
 (`device.rs`), clipboard that stays out of history (`clipboard.rs`, `clipboard_android.rs`),
 screen-capture blocking (`screen.rs`), locked memory for typed secrets (`secure_buffer.rs`),
+the leak check and the leak watch's sealed memory (`leak_check.rs`),
 Windows Hello quick unlock (`quick_unlock.rs`), DPAPI (`dpapi.rs`), keyfiles on disk
 (`keyfile.rs`), the person's language (`locale.rs`), installed browsers (`browsers.rs`), the
 extension's local pipe and host registration (`browser_link.rs`), the emergency kit PDF
@@ -162,6 +163,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/syncing.rs` | Sync through a folder, the server or WebDAV: Settings → Sync (join, add a device with a QR code, remove one), rounds at unlock, after saves, every 5 minutes, on the server's news and on demand (the target read and written off the UI thread) |
 | `src/controller/locked_fill.rs` | Filling from the browser while the vault is locked |
 | `src/controller/attachments.rs` | Files attached to items and SSH key items in the editor and on the item page |
+| `src/controller/watch.rs` | The leak watch: every login checked once a day while open, new leaks told and shown on Password health |
 | `src/tray.rs` | The notification area icon (tray mode) and its menu window (`ui/tray.slint`) |
 | `src/i18n.rs` | The app's language: picks a compiled-in catalogue from `translations/` |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
@@ -190,16 +192,23 @@ vault with the same rules as the desktop (secure fields, item lock, `changed_out
 save check, clipboard cleared). `src/tests.rs` runs it headless;
 `examples/phone_screens.rs` renders every screen to PNG. A change to a shared widget must
 look right in both apps' screenshots. The controller's submodules are `syncing.rs` (sync on
-the phone), `attachments.rs` (files and SSH keys) and `icons.rs` (website icons); `prefs.rs`
-is the phone's own settings file. The controller reaches the system only through
+the phone, updates from the server), `settings.rs` (vaults on the phone, fingerprint unlock,
+import, "Check this password"), `filling.rs` (autofill from the open vault),
+`attachments.rs` (files and SSH keys) and `icons.rs` (website icons). `prefs.rs` is the
+phone's own settings file, `bio.rs` a vault's fingerprint unlock file, `autofill.rs` which
+logins belong to the app or site asking (and the drop box for logins saved while locked), and
+`system.rs` the `System` trait: what only Android does, implemented by the Android crate. The controller reaches the system only through
 `src/platform.rs` (the platform crate, or `src/platform/web.rs` in a browser), so the same
 code also runs as the web preview in `apps/mobile-web` (build: `apps/mobile-web/build.ps1`).
 
 `apps/mobile-android` is the APK: `src/lib.rs` starts Slint's Android backend with the same
-screens, `src/shell.rs` talks to the activity over JNI, and
-`java/org/passwordvault/phone/VaultActivity.java` is the activity (Android's
-`NativeActivity` plus the system's file picker, "save as" and Back). `res/` holds the
-launcher icon. Build: `apps/mobile-android/build.ps1` (docs/MOBILE.md §7.2).
+screens, `src/shell.rs` talks to the activity over JNI, `src/system.rs` is the `System` the
+controller asks, and `src/autofill.rs` answers autofill. The Java side is in
+`java/org/passwordvault/phone/`: `VaultActivity` (Android's `NativeActivity` plus the file
+picker, "save as", Back, screenshots, updates), `Biometrics` (the Keystore key behind the
+fingerprint), `VaultAutofillService`, `AutofillActivity` and `Fields` (autofill). `res/` holds
+the launcher icon and autofill's own words and layout. Build:
+`apps/mobile-android/build.ps1` (docs/MOBILE.md §7.2).
 
 ### 2.7 `crates/sync-wire` and `apps/server`
 
@@ -287,8 +296,9 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
    forbids it.
 5. **No network in `core`.** Network use anywhere is opt-in and per action: website icons
    (setting, off by default), the leak check (button; k-anonymous, 5 hex chars of SHA-1,
-   padded), an icon site or picture link chosen for an item or folder, and sync to a place the
-   person set up (sealed copies only). Nothing is sent to a
+   padded) and the leak watch (the same check once a day; setting, off by default), an icon
+   site or picture link chosen for an item or folder, sync to a place the person set up
+   (sealed copies only), and the phone app's updates from that server. Nothing is sent to a
    third-party service for icons. Links handed to the OS to open are `http(s)` only
    (`vault_platform::browsers::web_link`). The browser extension's link is local only (a
    named pipe), off by default.

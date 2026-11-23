@@ -113,6 +113,12 @@ Rules:
 - ✅ Visual review with off-screen screenshots; dark theme by default (light available)
 - ✅ Item icons (opt-in website icons cached encrypted, type glyphs, initials) and "(?)" hints
   that say what to type in each field
+- ✅ Leak watch (desktop and phone, off until turned on): every login's password checked once
+  a day while the vault is open (k-anonymous), counts kept sealed per vault on the device,
+  a password found in more breaches than before told at once (Password health on the
+  desktop, a mark in the phone's list)
+- ⬜ Leak checks against offline lists (the breach service's downloadable corpus, or other
+  lists), with nothing sent
 - ⬜ Accessibility pass
 - ✅ Windows Hello quick unlock: TPM-signed device secret wraps the vault key, revoked by a
   password change, master password every 14 days (tested with a fake verifier; the real prompt
@@ -254,6 +260,10 @@ Rules:
 - ✅ Fill one-time codes (a card under the code field, spread over one box per digit; only
   for the login's own site); "Update the saved password?" after signing in with another
   password, the old one kept in the history
+- ✅ Extension 0.3: Chrome's own "Offer to save passwords and passkeys" is off while the
+  extension's setting leaves saving to Vault (the default; `privacy` permission, for that
+  setting only)
+- ⬜ Passkeys: saved by the app, offered by the extension (a WebAuthn provider), format v10
 - ⬜ Firefox
 - ⬜ Installer that puts the app and the host side by side; store listing
 - **Done when:** fills logins on Chromium with confirmation; clickjacking test page fails to leak.
@@ -362,13 +372,18 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   the public key and fingerprint read from it, `vault_core::ssh`) and files attached to items
   (5 MiB each, 10 per item, sealed with the item lock); both apps, the JSON export and import
   (type 5); v8 items upgraded on open, older sealed secrets read in either layout
-- ⬜ Settings in groups (account security, autofill, vault, import and export, appearance,
-  sync with the server's copy size and how each way works, devices, screen captures,
-  clipboard, updates); several vaults with a switcher on the vault's name; a leak and
-  strength check for one password; scanning a code's QR with the camera
-- ⬜ M7.3 BiometricPrompt Class 3 quick unlock (StrongBox) and an app lock
-- ⬜ M7.4 Autofill Service; M7.5 Credential Manager provider (passwords, passkeys)
-- ⬜ Updates of the app from the person's own server, without carrying a new APK
+- ✅ Settings in groups (Security, Autofill, Vault, Import and export, Sync, Appearance,
+  Updates, About); sync as on a computer (Add a device with a QR code, change the server's
+  address, a backup server, the devices, the server's copies and their size, how sync
+  works); several vaults with a card on the vault's name; import of another manager's
+  export; "Check this password" (strength and leak check); ⬜ scanning a QR code
+- ✅ M7.3 Fingerprint unlock (BiometricPrompt Class 3, Keystore/StrongBox, CRYPTO.md
+  §3.1.1), lock as soon as the app is left, screenshots kept out unless allowed
+- ✅ M7.4 Autofill Service (exact site or app, a fingerprint or the phone's lock before every
+  fill, a strong password suggested, "Save to Vault?" with a drop box while locked);
+  ⬜ tried on a device; ⬜ M7.5 Credential Manager provider (passwords, passkeys)
+- ✅ Updates of the app from the person's own server (`vault-server publish-app`, checked
+  against the release, installed by Android only when signed like the app)
 - ✅ M7.6 Sync (M6.4)
 - 🚧 M7.7 Parity with the desktop: ✅ cards, authenticator items, SSH keys, files;
   ⬜ custom fields, folders, health, import, translations, a Portuguese word list

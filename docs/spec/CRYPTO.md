@@ -220,6 +220,30 @@ logins          = DPAPI(postcard([(id, title, username, urls, fillable)…]))  (
 - The extension's connection key is kept a second time, DPAPI-protected
   (`browser-pairing-<vault id>.dpapi`), so the locked app can check requests.
 
+### 3.1.1 Device unlock on a phone (fingerprint)
+
+The same `device_unlock` (§3.1), with a device secret the phone's secure hardware keeps
+instead of one it works out:
+
+```
+device_secret = 32 random bytes (Vault::new_device_secret), made when fingerprint unlock is
+                turned on
+hardware      = AES-256-GCM(K_keystore, device_secret)   (IV ‖ ciphertext ‖ tag)
+K_keystore    = Android Keystore key "vault-unlock-" ‖ vault_id_hex (StrongBox when the phone
+                has it): usable only right after a strong (Class 3) biometric check, once per
+                use, and deleted by Android when a fingerprint is added
+file          = unlock-<vault id>.json next to the vault: { sealed_key: device_unlock,
+                hardware, password_at }
+```
+
+- The device secret crosses to the Java side only to be sealed or after the prompt opened it,
+  and is wiped there and in Rust once used.
+- `password_at` is the last master password unlock: after 14 days fingerprint unlock waits for
+  the master password again. A new master password revokes it (the AAD binds the password
+  slot), and the app deletes the file and the key.
+- Autofill's fingerprint path opens the vault file with `device_unlock` for one fill and
+  drops it (`vault_mobile::autofill`).
+
 ### 3.5 Saving from the browser while the vault is locked (drop box)
 
 Kept **outside** the vault file, per vault, in `<app dir>/browser-drop-<vault id>.bin`, made at
@@ -234,6 +258,9 @@ file        = postcard(pk, sealed_key, [entry…])
 
 - The locked app appends an entry for each login saved from the browser, with `pk` alone: it
   asks for nothing and cannot read back what it wrote. At most 200 entries wait.
+- The phone does the same for logins Android's autofill saves while the vault is locked, in
+  `autofill-drop-<vault id>.json` next to the vault (JSON instead of postcard, same keys and
+  sealing).
 - At the next unlock the app opens `sealed_key`, then each entry (checking the vault id
   prefix), adds the logins that aren't there yet as items (§3.2 for the item lock) and empties
   the list. A key that doesn't open (another vault, damage) replaces the file.

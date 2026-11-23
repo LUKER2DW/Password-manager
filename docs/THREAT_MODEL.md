@@ -108,6 +108,12 @@ On top of that:
   on the frame itself would make the browser stop vouching for its visibility (checked:
   `isVisible` turns false), and the click check would refuse every click. Residual risk: a site with
   an XSS flaw can read what is filled into its own page, as it can read what the person types.
+- **The `privacy` permission** (extension 0.3) is used for one browser setting only: Chrome's
+  "Offer to save passwords and passkeys", turned off while the person leaves saving to Vault
+  (the default, changed in the extension's Settings; Chrome's own settings show that the
+  extension controls it and can take it back). It reads and changes no other setting. Two
+  password managers offering to save the same login invite saving it in the browser's store,
+  which an infostealer reads more easily than the vault.
 - **What a page sends when a form is submitted**: the content script reads the typed username
   and password (in the extension's isolated world) and passes them to the background worker,
   which keeps them in `chrome.storage.session` (memory only, closed to content scripts) for

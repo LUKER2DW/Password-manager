@@ -18,14 +18,17 @@ is optional and only ever moves sealed copies.
 - **Desktop app (Windows):** logins, payment cards, secure notes, SSH keys and one-time codes,
   files attached to items, folders, favourites and search. A password generator (characters
   or words), password history, a health page (weak, reused, old and leaked passwords; the
-  leak check is k-anonymous and runs only when asked), import from browsers and other
+  leak check is k-anonymous and runs when asked, or every day with the leak watch on), import from browsers and other
   managers, encrypted and plain exports, an item lock (a PIN or second password before
   secrets show), Windows Hello, an optional keyfile, and a printable emergency kit with three
   recovery parts.
 - **Browser extension (Chrome, Edge):** fills logins and one-time codes from the desktop app
-  and offers to save new ones. It holds no passwords of its own.
+  and offers to save new ones, in place of the browser's own offer. It holds no passwords of
+  its own.
 - **Android app (early):** opens the vault made on the computer and edits the same items;
-  codes, generator, sync, attached files.
+  codes, generator, sync, attached files, several vaults, fingerprint unlock, autofill into
+  other apps and browsers (a fingerprint or the phone's lock before every fill), the leak
+  watch, and updates from your own server.
 - **CLI:** the same vault from a terminal (`vault`).
 - **Sync (optional):** through a folder, a WebDAV host or a small server you run yourself
   (Docker, behind Tailscale or with its own HTTPS). The server never sees anything that opens
