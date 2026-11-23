@@ -114,6 +114,14 @@ export struct CodeRow {
 }
 
 // Every sentence the phone app shows for a code sent by Rust.
+// A password the confirmation sheet asks for (its secure field, label and icon).
+export struct SheetField {
+    field: int,
+    label: string,
+    icon: string,
+    error: bool,
+}
+
 export global Words {
     pure public function error(code: int, detail: string) -> string {
         if (code == 1) { return @tr("That didn't open the vault. Check the master password (and the Secret Key, if you typed it)."); }
@@ -140,13 +148,13 @@ export global Words {
         if (code == 23) { return @tr("That file is too large: an item keeps files of up to 5 MB, and up to 10 of them."); }
         if (code == 24) { return @tr("Unlock with the phone didn't work ({}).", detail); }
         if (code == 25) { return @tr("That file can't be imported ({}).", detail); }
-        if (code == 26) { return @tr("That isn't the file's password. Type it in the field above and choose the file again."); }
+        if (code == 26) { return @tr("That isn't the file's password. Try again."); }
         if (code == 27) { return @tr("The update couldn't be fetched ({}).", detail); }
         if (code == 12) { return @tr("The phone couldn't be set up from the server ({}).", detail); }
         if (code == 28) { return @tr("That isn't an invite. On the computer: Settings, Sync, Add a device; scan its QR code, or paste the whole line that starts with vaultsync:."); }
         if (code == 29 && detail == "unavailable") { return @tr("This phone can't scan QR codes: Google's code scanner comes with Google Play services. Paste the line instead."); }
         if (code == 29) { return @tr("The QR code can't be scanned ({}). Paste the line instead.", detail); }
-        if (code == 30) { return @tr("Give the protected export a password of at least 12 characters, in the field above."); }
+        if (code == 30) { return @tr("Give the export a password of at least 12 characters."); }
         if (code == 31) { return @tr("The export couldn't be made ({}).", detail); }
         if (code == 32) { return @tr("Some items are behind the item lock, and the export would leave their secrets out. Open one of them first (one right answer opens them all for a while), then export."); }
         return detail;
@@ -163,6 +171,9 @@ export global Words {
         if (kind == 8) { return @tr("Export the logins unencrypted?"); }
         if (kind == 9) { return @tr("Delete the folder “{}”?", arg); }
         if (kind == 10) { return @tr("Make a new password?"); }
+        if (kind == 11) { return @tr("“{}” has a password", arg); }
+        if (kind == 12) { return @tr("Change the master password"); }
+        if (kind == 13) { return @tr("“{}” is locked", arg); }
         return "";
     }
     pure public function confirm-text(kind: int, arg: string) -> string {
@@ -172,10 +183,12 @@ export global Words {
         if (kind == 4) { return @tr("The vault keeps syncing through the main server only. The backup's copies stay on it until you delete them there."); }
         if (kind == 5) { return @tr("It is deleted from this vault and, at the next sync, from your other devices. This can't be undone."); }
         if (kind == 6) { return @tr("The JSON file holds every password, note and card in plain text. Anyone or any app that gets the file reads them. Delete it once it has been imported."); }
-        if (kind == 7) { return @tr("The file is encrypted with the password typed under Export. It opens only with that password, in this app or the desktop one."); }
+        if (kind == 7) { return @tr("The file is encrypted with a password you choose here. It opens only with that password, in this app or the desktop one."); }
         if (kind == 8) { return @tr("The CSV file holds the logins' passwords in plain text. Anyone or any app that gets the file reads them. Delete it once it has been imported."); }
         if (kind == 9) { return @tr("Its items stay in the vault, in no folder."); }
         if (kind == 10) { return @tr("The generator opens with your last settings. Change the length and the kinds of characters, then tap Use to bring it back here."); }
+        if (kind == 11) { return @tr("The file is protected. Type the password it was saved with; it is used only to read the file."); }
+        if (kind == 12) { return @tr("The Secret Key and your emergency kit stay the same. Devices that sync this vault ask for the new password at their next unlock."); }
         return "";
     }
     pure public function confirm-action(kind: int) -> string {
@@ -189,6 +202,9 @@ export global Words {
         if (kind == 8) { return @tr("Export"); }
         if (kind == 9) { return @tr("Delete"); }
         if (kind == 10) { return @tr("Open the generator"); }
+        if (kind == 11) { return @tr("Import"); }
+        if (kind == 12) { return @tr("Change password"); }
+        if (kind == 13) { return @tr("Show the secrets"); }
         return "";
     }
     // What the health page says under a login: the worst first.
@@ -666,56 +682,99 @@ component Countdown inherits Rectangle {
 
 // What a sensitive action asks before it happens: a sheet over the screen, its words, Cancel
 // and the action (in red when it can't be undone).
+// The sheet at the bottom that asks before a sensitive action, and for a password where one
+// is needed (`fields`: secure fields, the first focused so the keyboard comes up). Such a sheet
+// stays open while the check runs (`busy`) and shows what went wrong (`error`); the app
+// closes it once the action is done.
 component ConfirmSheet inherits Rectangle {
     in property <string> title;
     in property <string> text;
     in property <string> action;
     in property <bool> danger;
+    in property <length> inset-top;
     in property <length> inset-bottom;
+    in property <[SheetField]> fields;
+    in property <string> error;
+    in property <bool> busy;
+    in property <string> busy-text;
     callback confirmed;
     callback cancelled;
     background: #00000088;
-    TouchArea { clicked => { root.cancelled(); } }
+    TouchArea { clicked => { if (!root.busy) { root.cancelled(); } } }
     Rectangle {
+        // With the keyboard up, a tall sheet scrolls inside the room that is left.
+        property <length> room: parent.height - root.inset-top - 12px;
         y: parent.height - self.height;
-        height: sheet.preferred-height;
+        height: Math.min(sheet.preferred-height, self.room);
         border-radius: 18px;
         background: Theme.sheet;
         border-width: 1px;
         border-color: Theme.rule;
         // Taps on the sheet itself stay on it.
         TouchArea { }
-        sheet := VerticalLayout {
-            padding: 22px;
-            padding-bottom: 22px + root.inset-bottom;
-            spacing: 12px;
-            Text {
-                text: root.title;
-                font-size: Theme.title;
-                font-weight: 300;
-                color: Theme.ink;
-                wrap: word-wrap;
-            }
-            if root.text != "": Text {
-                text: root.text;
-                font-size: Theme.body;
-                color: Theme.graphite;
-                wrap: word-wrap;
-            }
-            HorizontalLayout {
-                padding-top: 8px;
-                spacing: 10px;
-                QuietButton {
-                    horizontal-stretch: 1;
-                    text: @tr("Cancel");
-                    outlined: true;
-                    clicked => { root.cancelled(); }
+        Flickable {
+            content-height: sheet.preferred-height;
+            interactive: sheet.preferred-height > parent.height;
+            // Kept at its end (the buttons and the field being typed) when it is cut.
+            content-y: Math.min(0px, parent.height - sheet.preferred-height);
+            sheet := VerticalLayout {
+                width: parent.width;
+                height: self.preferred-height;
+                padding: 22px;
+                padding-bottom: 22px + root.inset-bottom;
+                spacing: 12px;
+                Text {
+                    text: root.title;
+                    font-size: Theme.title;
+                    font-weight: 300;
+                    color: Theme.ink;
+                    wrap: word-wrap;
                 }
-                Button {
-                    horizontal-stretch: 1;
-                    text: root.action;
-                    danger: root.danger;
-                    clicked => { root.confirmed(); }
+                if root.text != "": Text {
+                    text: root.text;
+                    font-size: Theme.body;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
+                }
+                for f[i] in root.fields: SecretField {
+                    field: f.field;
+                    eye: true;
+                    label: f.label;
+                    icon: f.icon;
+                    error: f.error;
+                    init => {
+                        if (i == 0) { self.focus(); }
+                    }
+                    accepted => {
+                        if (i == root.fields.length - 1 && !root.busy) { root.confirmed(); }
+                    }
+                }
+                if root.error != "": Text {
+                    text: root.error;
+                    font-size: Theme.body;
+                    color: Theme.seal;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    padding-top: 8px;
+                    spacing: 10px;
+                    QuietButton {
+                        horizontal-stretch: 1;
+                        text: @tr("Cancel");
+                        outlined: true;
+                        enabled: !root.busy;
+                        clicked => { root.cancelled(); }
+                    }
+                    Button {
+                        horizontal-stretch: 1;
+                        text: root.action;
+                        danger: root.danger;
+                        busy: root.busy;
+                        busy-text: root.busy-text;
+                        clicked => {
+                            if (!root.busy) { root.confirmed(); }
+                        }
+                    }
                 }
             }
         }
@@ -1506,6 +1565,8 @@ export component PhoneWindow inherits Window {
         : root.confirming == 1 ? root.vault-name
         : root.confirming == 5 ? root.ed-title
         : root.confirming == 9 ? root.folder-name
+        : root.confirming == 11 ? root.import-name
+        : root.confirming == 13 ? root.d-title
         : "";
     // Security: fingerprint (or face) unlock, whether the phone has it, whether this vault uses
     // it; on the unlock screen, whether it can open the vault now, or waits for the master
@@ -1616,21 +1677,33 @@ export component PhoneWindow inherits Window {
     in property <string> sync-backup;
     in property <string> sync-main-down;
     in property <string> sync-backup-down;
-    // Settings → Master password.
-    in-out property <bool> changing-password;
+    // Settings → Master password (asked in the sheet, `ask(12)`).
     callback change-password();
-    callback cancel-password-change();
+    // Import: the chosen file's name while its password is asked (`ask(11)`), and trying it
+    // again with the password typed in the sheet.
+    in property <string> import-name;
+    callback import-retry();
+    // A sheet opened or closed without its action: its secure fields are cleared, and what
+    // waited for it (a file to import) is dropped.
+    callback sheet-opened(int);
+    callback sheet-closed(int);
 
     // Asks before a sensitive action: 1 remove the vault from the phone, 2 stop syncing,
     // 3 remove a device (sync-removing), 4 remove the backup server, 5 delete the item being
     // edited, 6 a plain JSON export, 7 a protected export, 8 a plain CSV export, 9 delete the
     // folder being edited, 10 make a password in the generator for the item being edited.
+    // And for a password: 6–8 the master password (and 7 the export's own), 11 the password
+    // of the file to import, 12 a new master password, 13 the item lock's check. Those stay
+    // open until the app closes them (`confirming` = 0) once the action is done.
     public function ask(kind: int) {
         Secrets.focused = -1;
         root.confirming = kind;
+        root.sheet-opened(kind);
     }
     public function confirmed(kind: int) {
-        root.confirming = 0;
+        if (!root.asks-password(kind)) {
+            root.confirming = 0;
+        }
         if (kind == 1) { root.remove-vault(); }
         if (kind == 2) { root.sync-stop(); }
         if (kind == 3) { root.sync-remove-device(root.sync-removing); }
@@ -1641,7 +1714,33 @@ export component PhoneWindow inherits Window {
         if (kind == 8) { root.export-vault(2); }
         if (kind == 9) { root.folder-delete(); }
         if (kind == 10) { root.ed-generate(); }
+        if (kind == 11) { root.import-retry(); }
+        if (kind == 12) { root.change-password(); }
+        if (kind == 13) { root.unlock-item(); }
     }
+    // Closes the sheet without its action (Cancel, a tap outside, Back).
+    function close-sheet() {
+        let kind = root.confirming;
+        root.confirming = 0;
+        root.sync-removing = -1;
+        Secrets.focused = -1;
+        if (kind != 0) { root.sheet-closed(kind); }
+    }
+    pure function asks-password(kind: int) -> bool {
+        return (kind >= 6 && kind <= 8) || (kind >= 11 && kind <= 13);
+    }
+    // The secure fields of each sheet that asks for a password.
+    property <SheetField> master-field: { field: 10, label: @tr("Your master password"), icon: "lock", error: root.error-code == 13 };
+    property <[SheetField]> sheet-fields: root.confirming == 6 || root.confirming == 8 ? [root.master-field]
+        : root.confirming == 7 ? [root.master-field, { field: 9, label: @tr("A password for the export"), icon: "key", error: root.error-code == 30 }]
+        : root.confirming == 11 ? [{ field: 8, label: @tr("The file's password"), icon: "key", error: root.error-code == 26 }]
+        : root.confirming == 12 ? [
+            { field: 5, label: @tr("Current master password"), icon: "lock", error: root.error-code == 13 },
+            { field: 6, label: @tr("New master password"), icon: "key", error: root.error-code == 14 || root.error-code == 15 },
+            { field: 7, label: @tr("Type it again"), icon: "key", error: root.error-code == 14 },
+        ]
+        : root.confirming == 13 ? [{ field: 2, label: root.d-check == 1 ? @tr("Master password") : root.d-check == 2 ? @tr("Item PIN") : @tr("Item password"), icon: "lock", error: root.error-code == 7 }]
+        : [];
 
     // The place next to this one (1) or before it (-1), as the tabs are ordered.
     function next-place(step: int) {
@@ -1662,8 +1761,7 @@ export component PhoneWindow inherits Window {
     callback leave();
     function go-back() {
         if (root.confirming != 0) {
-            root.confirming = 0;
-            root.sync-removing = -1;
+            if (!root.busy) { root.close-sheet(); }
             return;
         }
         if (root.preview-kind != 0) {
@@ -2826,56 +2924,12 @@ export component PhoneWindow inherits Window {
                                         }
                                         Section {
                                             title: @tr("Master password");
-                                            note: root.changing-password ? "" : @tr("The Secret Key and your emergency kit stay the same. Devices that sync this vault ask for the new password at their next unlock.");
-                                            if !root.changing-password: SetRow {
+                                            note: @tr("The Secret Key and your emergency kit stay the same. Devices that sync this vault ask for the new password at their next unlock.");
+                                            SetRow {
                                                 icon: "key";
                                                 text: @tr("Change master password");
                                                 chevron: true;
-                                                clicked => { root.changing-password = true; }
-                                            }
-                                            if root.changing-password: VerticalLayout {
-                                                padding-top: 12px;
-                                                padding-bottom: 14px;
-                                                spacing: 10px;
-                                                SecretField {
-                                                    field: 5;
-                                                    eye: true;
-                                                    label: @tr("Current master password");
-                                                    icon: "key";
-                                                    error: root.error-code == 13;
-                                                }
-                                                SecretField {
-                                                    field: 6;
-                                                    eye: true;
-                                                    label: @tr("New master password");
-                                                    error: root.error-code == 14 || root.error-code == 15;
-                                                }
-                                                SecretField {
-                                                    field: 7;
-                                                    eye: true;
-                                                    label: @tr("Type it again");
-                                                    error: root.error-code == 14;
-                                                    accepted => { root.change-password(); }
-                                                }
-                                                if root.error-code == 6 || root.error-code == 13 || root.error-code == 14 || root.error-code == 15: ErrorLine {
-                                                    text: Words.error(root.error-code, root.error-detail);
-                                                }
-                                                HorizontalLayout {
-                                                    spacing: 10px;
-                                                    QuietButton {
-                                                        horizontal-stretch: 1;
-                                                        text: @tr("Cancel");
-                                                        outlined: true;
-                                                        clicked => { root.cancel-password-change(); }
-                                                    }
-                                                    Button {
-                                                        horizontal-stretch: 1;
-                                                        text: @tr("Change password");
-                                                        busy: root.busy;
-                                                        busy-text: @tr("Changing…");
-                                                        clicked => { root.change-password(); }
-                                                    }
-                                                }
+                                                clicked => { root.ask(12); }
                                             }
                                         }
                                 }
@@ -3014,11 +3068,11 @@ export component PhoneWindow inherits Window {
                                         }
                                         Section {
                                             title: @tr("Export");
-                                            note: @tr("Type your master password below first. A plain export (JSON or CSV) holds every password unencrypted: anyone who gets the file reads them. The protected export opens only with the password you give it here.");
+                                            note: @tr("Your master password is asked first. A plain export (JSON or CSV) holds every password unencrypted: anyone who gets the file reads them. The protected export opens only with the password you give it.");
                                             SetRow {
                                                 icon: "lock";
                                                 text: @tr("Protected export (.vaultx)");
-                                                detail: @tr("Encrypted with the password typed below");
+                                                detail: @tr("Encrypted with a password you choose");
                                                 chevron: true;
                                                 clicked => { root.ask(7); }
                                             }
@@ -3039,26 +3093,9 @@ export component PhoneWindow inherits Window {
                                                 clicked => { root.ask(8); }
                                             }
                                         }
-                                        SecretField {
-                                            field: 10;
-                                            eye: true;
-                                            label: @tr("Your master password");
-                                            icon: "lock";
-                                            error: root.error-code == 13;
-                                        }
-                                        SecretField {
-                                            field: 9;
-                                            eye: true;
-                                            label: @tr("Password for the protected export");
-                                            icon: "key";
-                                            error: root.error-code == 30;
-                                        }
-                                        if root.error-code == 13 || (root.error-code >= 30 && root.error-code <= 32): ErrorLine {
-                                            text: Words.error(root.error-code, root.error-detail);
-                                        }
                                         Section {
                                             title: @tr("From another password manager");
-                                            note: @tr("Its export: a JSON or CSV file, a KeePass database (.kdbx), or this app's protected export (.vaultx). Logins already in the vault are skipped. Delete a plain export once it is imported.");
+                                            note: @tr("Its export: a JSON or CSV file, a KeePass database (.kdbx), or this app's protected export (.vaultx); a file with a password asks for it. Logins already in the vault are skipped. Delete a plain export once it is imported.");
                                             if root.can-pick-file: SetRow {
                                                 icon: "folder";
                                                 text: root.busy ? @tr("Importing…") : @tr("Choose a file to import");
@@ -3066,13 +3103,6 @@ export component PhoneWindow inherits Window {
                                                 enabled: !root.busy;
                                                 clicked => { root.pick-file(3); }
                                             }
-                                        }
-                                        SecretField {
-                                            field: 8;
-                                            eye: true;
-                                            label: @tr("The file's password, if it has one");
-                                            icon: "key";
-                                            error: root.error-code == 26;
                                         }
                                         if root.import-added >= 0: Text {
                                             text: root.import-skipped > 0
@@ -3082,7 +3112,7 @@ export component PhoneWindow inherits Window {
                                             color: Theme.ink;
                                             wrap: word-wrap;
                                         }
-                                        if root.error-code == 25 || root.error-code == 26: ErrorLine {
+                                        if root.confirming == 0 && root.error-code == 25: ErrorLine {
                                             text: Words.error(root.error-code, root.error-detail);
                                         }
                                 }
@@ -3922,32 +3952,22 @@ export component PhoneWindow inherits Window {
                             action: @tr("Copy");
                             acted => { root.copy(0); }
                         }
-                        // The item lock: what is behind it shows after its check.
+                        // The item lock: what is behind it shows after its check, asked in the
+                        // sheet (`ask(13)`).
+                        if root.d-check != 0: Text {
+                            text: root.d-check == 1 ? @tr("The secrets of this item are locked. Your master password shows them.")
+                                : root.d-check == 2 ? @tr("The secrets of this item are locked. The item PIN shows them.")
+                                : @tr("The secrets of this item are locked. The item password shows them.");
+                            font-size: Theme.body;
+                            color: Theme.graphite;
+                            wrap: word-wrap;
+                        }
                         if root.d-check != 0: VerticalLayout {
-                            padding-top: 16px;
+                            padding-top: 12px;
                             padding-bottom: 16px;
-                            spacing: 12px;
-                            Text {
-                                text: root.d-check == 1 ? @tr("The secrets of this item are locked. Type your master password to see them.")
-                                    : root.d-check == 2 ? @tr("The secrets of this item are locked. Type the item PIN to see them.")
-                                    : @tr("The secrets of this item are locked. Type the item password to see them.");
-                                font-size: Theme.body;
-                                color: Theme.graphite;
-                                wrap: word-wrap;
-                            }
-                            SecretField {
-                                field: 2;
-                                label: root.d-check == 1 ? @tr("Master password") : root.d-check == 2 ? @tr("Item PIN") : @tr("Item password");
-                                icon: "lock";
-                                error: root.error-code == 7;
-                                accepted => { root.unlock-item(); }
-                            }
-                            if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
                             Button {
                                 text: @tr("Show the secrets");
-                                busy: root.busy;
-                                busy-text: @tr("Checking…");
-                                clicked => { root.unlock-item(); }
+                                clicked => { root.ask(13); }
                             }
                         }
                         // A card: its number, expiry, security code and PIN.
@@ -4602,16 +4622,25 @@ export component PhoneWindow inherits Window {
         y: 0px;
         width: root.width;
         height: root.height;
+        inset-top: root.inset-top;
         inset-bottom: root.inset-bottom;
         title: Words.confirm-title(root.confirming, root.confirm-arg);
-        text: Words.confirm-text(root.confirming, root.confirm-arg);
+        text: root.confirming == 13
+            ? (root.d-check == 1 ? @tr("Type your master password to see its secrets.")
+                : root.d-check == 2 ? @tr("Type the item PIN to see its secrets.")
+                : @tr("Type the item password to see its secrets."))
+            : Words.confirm-text(root.confirming, root.confirm-arg);
         action: Words.confirm-action(root.confirming);
         danger: root.confirming <= 5 || root.confirming == 9;
+        fields: root.sheet-fields;
+        error: root.asks-password(root.confirming) && root.error-code != 0 ? Words.error(root.error-code, root.error-detail) : "";
+        busy: root.busy;
+        busy-text: root.confirming == 11 ? @tr("Importing…")
+            : root.confirming == 12 ? @tr("Changing…")
+            : root.confirming == 13 ? @tr("Checking…")
+            : @tr("Exporting…");
         confirmed => { root.confirmed(root.confirming); }
-        cancelled => {
-            root.confirming = 0;
-            root.sync-removing = -1;
-        }
+        cancelled => { root.close-sheet(); }
     }
     }
 }

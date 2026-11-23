@@ -649,32 +649,54 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         app.get_health_score() as usize
     );
 
-    // ---- export: the master password first, checked against the file; a protected one
-    // needs a password of its own; the bytes wait to be saved ----
-    app.invoke_export_vault(1);
+    // ---- export: asked in the sheet, the master password first (checked against the
+    // file); a protected one needs a password of its own; the bytes wait to be saved ----
+    app.invoke_ask(7);
+    assert_eq!(app.get_confirming(), 7);
+    app.invoke_confirmed(7);
     assert_eq!(app.get_error_code(), 13, "no master password");
     type_secret(&app, 10, "not the master password");
-    app.invoke_export_vault(1);
-    assert_eq!(app.get_error_code(), 13, "a wrong one");
+    app.invoke_confirmed(7);
+    assert_eq!(app.get_error_code(), 30, "no password for the export");
+    type_secret(&app, 9, "an export password");
+    app.invoke_confirmed(7);
+    assert_eq!(
+        (app.get_error_code(), app.get_confirming()),
+        (13, 7),
+        "a wrong master password: the sheet stays"
+    );
     assert!(controller.file_to_save(-1).is_none());
     assert_eq!(length(&app, 10), 0, "cleared after the check");
     type_secret(&app, 10, PASSWORD);
-    app.invoke_export_vault(0);
-    assert_eq!(app.get_error_code(), 30);
-    type_secret(&app, 9, "an export password");
-    app.invoke_export_vault(0);
-    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
-    let (name, sealed) = controller.file_to_save(-1).unwrap();
+    app.invoke_confirmed(7);
+    assert_eq!(
+        (app.get_error_code(), app.get_confirming()),
+        (0, 0),
+        "{}",
+        app.get_error_detail()
+    );
+    assert_eq!(
+        (length(&app, 9), length(&app, 10)),
+        (0, 0),
+        "wiped after use"
+    );
+    let (name, protected_export) = controller.file_to_save(-1).unwrap();
     assert!(name.ends_with(".vaultx"));
-    assert!(!sealed.is_empty());
+    assert!(!protected_export.is_empty());
+    app.invoke_ask(6);
     type_secret(&app, 10, PASSWORD);
-    app.invoke_export_vault(1);
+    app.invoke_confirmed(6);
     assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
     let (name, json) = controller.file_to_save(-1).unwrap();
     assert!(name.ends_with(".json"));
     assert!(String::from_utf8_lossy(&json).contains("Office wifi"));
     assert!(controller.file_to_save(-1).is_none(), "handed out once");
-    type_secret(&app, 9, "");
+    // Cancelled: what was typed goes.
+    app.invoke_ask(8);
+    type_secret(&app, 10, PASSWORD);
+    app.set_confirming(0);
+    app.invoke_sheet_closed(8);
+    assert_eq!(length(&app, 10), 0);
 
     // ---- the vault's icon on this phone ----
     app.invoke_vault_icon_changed("home".into());
@@ -757,12 +779,28 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         ("", 0),
         "nothing shown, nothing copied"
     );
+    app.invoke_ask(13);
     type_secret(&app, 2, "0000");
-    app.invoke_unlock_item();
-    assert_eq!((app.get_error_code(), app.get_d_check()), (7, 2));
+    app.invoke_confirmed(13);
+    assert_eq!(
+        (
+            app.get_error_code(),
+            app.get_d_check(),
+            app.get_confirming()
+        ),
+        (7, 2, 13)
+    );
     type_secret(&app, 2, "4821");
-    app.invoke_unlock_item();
-    assert_eq!((app.get_error_code(), app.get_d_check()), (0, 0));
+    app.invoke_confirmed(13);
+    assert_eq!(
+        (
+            app.get_error_code(),
+            app.get_d_check(),
+            app.get_confirming()
+        ),
+        (0, 0, 0),
+        "shown, and the sheet closed"
+    );
     assert!(app.get_d_has_password() && app.get_d_has_code());
     app.invoke_close_item();
     app.invoke_open_item(0);
@@ -783,12 +821,13 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     // ---- the master password changes on the phone (and back, for what follows) ----
     const NEW_PASSWORD: &str = "phone new master passphrase";
     app.set_place(Place::Settings);
-    app.set_changing_password(true);
+    app.invoke_ask(12);
     type_secret(&app, 5, "not the password");
     type_secret(&app, 6, NEW_PASSWORD);
     type_secret(&app, 7, NEW_PASSWORD);
-    app.invoke_change_password();
+    app.invoke_confirmed(12);
     assert_eq!(app.get_error_code(), 13, "{}", app.get_error_detail());
+    assert_eq!(app.get_confirming(), 12, "the sheet stays");
     assert_eq!(length(&app, 5), 0, "a wrong current password is cleared");
     type_secret(&app, 5, PASSWORD);
     type_secret(&app, 7, "phone new master passphrasE");
@@ -802,7 +841,7 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     type_secret(&app, 7, NEW_PASSWORD);
     app.invoke_change_password();
     assert_eq!(app.get_notice_code(), 10, "{}", app.get_error_detail());
-    assert!(!app.get_changing_password());
+    assert_eq!(app.get_confirming(), 0, "the sheet closed");
     assert_eq!(
         (length(&app, 5), length(&app, 6), length(&app, 7)),
         (0, 0, 0),
@@ -824,7 +863,7 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         assert!(with(NEW_PASSWORD).is_ok(), "written to the file");
         assert!(with(PASSWORD).is_err(), "the old one no longer opens it");
     }
-    app.set_changing_password(true);
+    app.invoke_ask(12);
     type_secret(&app, 5, NEW_PASSWORD);
     type_secret(&app, 6, PASSWORD);
     type_secret(&app, 7, PASSWORD);
@@ -895,7 +934,7 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     // A new master password revokes it: it was bound to the old one.
     type_secret(&app, 0, PASSWORD);
     app.invoke_unlock();
-    app.set_changing_password(true);
+    app.invoke_ask(12);
     type_secret(&app, 5, PASSWORD);
     type_secret(&app, 6, NEW_PASSWORD);
     type_secret(&app, 7, NEW_PASSWORD);
@@ -906,7 +945,7 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         system.forgotten.borrow().as_slice(),
         std::slice::from_ref(&vault_id)
     );
-    app.set_changing_password(true);
+    app.invoke_ask(12);
     type_secret(&app, 5, NEW_PASSWORD);
     type_secret(&app, 6, PASSWORD);
     type_secret(&app, 7, PASSWORD);
@@ -1090,10 +1129,22 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     assert_eq!((app.get_import_added(), app.get_import_skipped()), (0, 1));
     controller.picked_file(3, "export.kdbx", vec![0x03, 0xd9, 0xa2, 0x9a, 0, 0]);
     assert_eq!(
-        app.get_error_code(),
-        26,
-        "a protected file needs its password"
+        (app.get_confirming(), app.get_import_name().as_str()),
+        (11, "export.kdbx"),
+        "a protected file: its password is asked for"
     );
+    app.invoke_confirmed(11);
+    assert_eq!(app.get_error_code(), 26, "nothing typed");
+    type_secret(&app, 8, "a password");
+    app.invoke_confirmed(11);
+    assert_eq!(
+        (app.get_error_code(), app.get_confirming()),
+        (25, 11),
+        "not a database after all: told in the sheet"
+    );
+    app.set_confirming(0);
+    app.invoke_sheet_closed(11);
+    assert_eq!(app.get_import_name(), "", "the file is dropped");
 
     // "Check this password": its strength here, the leak check only on the tap.
     controller.set_leak_lookup(|password| {
@@ -1135,6 +1186,24 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         !app.get_items().row_data(0).unwrap().leaked,
         "off: nothing marked"
     );
+
+    // The protected export made above: its password, asked in the sheet; a wrong one is told
+    // there and the file keeps waiting.
+    controller.picked_file(3, "vault-export.vaultx", protected_export);
+    assert_eq!(app.get_confirming(), 11);
+    type_secret(&app, 8, "not the export password");
+    app.invoke_confirmed(11);
+    assert_eq!((app.get_error_code(), app.get_confirming()), (26, 11));
+    assert_eq!(length(&app, 8), 0, "typed again");
+    type_secret(&app, 8, "an export password");
+    app.invoke_confirmed(11);
+    assert_eq!(
+        (app.get_error_code(), app.get_confirming()),
+        (0, 0),
+        "{}",
+        app.get_error_detail()
+    );
+    assert!(app.get_import_added() > 0);
 
     // Switching: the open vault locks, the other one's unlock shows.
     app.invoke_switch_vault(0);

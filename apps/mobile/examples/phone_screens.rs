@@ -415,13 +415,19 @@ fn main() {
         "settings-security",
         "Security: fingerprint, locking, screenshots, clipboard",
     );
-    app.set_changing_password(true);
-    tall(&mut camera, 2.0);
+    tall(&mut camera, 1.0);
+    app.invoke_ask(12);
     camera.shot(
         "settings-password",
-        "Security: changing the master password",
+        "Security: changing the master password, in the sheet",
     );
-    app.set_changing_password(false);
+    app.set_error_code(13);
+    camera.shot(
+        "settings-password-wrong",
+        "The sheet stays open and says what went wrong",
+    );
+    app.set_error_code(0);
+    app.set_confirming(0);
     app.set_settings_section(1);
     tall(&mut camera, 1.0);
     camera.shot("settings-autofill", "Autofill: Android's service");
@@ -447,6 +453,21 @@ fn main() {
         "Import and export: copies, another manager's export",
     );
     app.set_import_added(-1);
+    tall(&mut camera, 1.0);
+    app.invoke_ask(7);
+    camera.shot(
+        "settings-export-protected",
+        "A protected export: the master password, then the export's own, in the sheet",
+    );
+    app.set_confirming(0);
+    app.set_import_name("passwords.kdbx".into());
+    app.invoke_ask(11);
+    camera.shot(
+        "settings-import-password",
+        "A file with a password: asked for when it is chosen",
+    );
+    app.set_confirming(0);
+    app.set_import_name("".into());
     app.set_settings_section(4);
     tall(&mut camera, 1.0);
     camera.shot("settings-sync-off", "Sync: off, an invite line to paste");

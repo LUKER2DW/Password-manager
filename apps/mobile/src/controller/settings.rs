@@ -11,7 +11,7 @@ use slint::{ModelRc, SharedString, VecModel};
 use vault_core::{Error as CoreError, SecretKey, Unlock, Vault, health};
 use zeroize::Zeroizing;
 
-use super::{Controller, Opened, error, field, fingerprint, notice, scan};
+use super::{Controller, Opened, error, field, fingerprint, notice, scan, sheet};
 use crate::{
     bio::{self, BioUnlock},
     i18n,
@@ -352,11 +352,16 @@ impl Controller {
                     let mut state = c.state.borrow_mut();
                     state.vault = Some(exported.vault);
                     state.secret_key = Some(exported.secret_key);
-                    state.secrets[field::EXPORT_MASTER].clear();
                 }
-                c.publish_lengths();
+                // The master password is typed again after every try.
+                c.clear_fields(&[field::EXPORT_MASTER]);
                 match exported.outcome {
                     Ok(export) => {
+                        c.clear_fields(&[field::EXPORT_PASSWORD]);
+                        let open = c.app().get_confirming();
+                        if (sheet::EXPORT_JSON..=sheet::EXPORT_CSV).contains(&open) {
+                            c.close_sheet(open);
+                        }
                         c.state.borrow_mut().export_pending = Some(export);
                         c.app().invoke_save_file(-1);
                     }
@@ -751,18 +756,53 @@ impl Controller {
 
     // ---- import ----
 
-    /// A file to import (Settings → Import and export): read with the file's password, if
-    /// it has one, off the UI thread; logins already in the vault are skipped.
+    /// A file to import (Settings → Import and export), read off the UI thread; logins
+    /// already in the vault are skipped. A file that needs a password (a KeePass database, a
+    /// protected export) waits in memory while the sheet asks for it (`import_retry`).
     #[cfg(not(target_arch = "wasm32"))]
-    pub(super) fn import_file(&self, bytes: Vec<u8>) {
+    pub(super) fn import_file(&self, name: &str, bytes: Vec<u8>) {
         if !self.is_unlocked() || self.app().get_busy() {
             return;
         }
-        let format = vault_import::detect_format(&bytes);
+        let bytes = Zeroizing::new(bytes);
+        if vault_import::detect_format(&bytes).needs_password() {
+            self.state.borrow_mut().import_pending = Some(bytes);
+            let app = self.app();
+            app.set_import_added(-1);
+            app.set_import_name(name.into());
+            app.invoke_ask(sheet::IMPORT);
+            return;
+        }
+        self.start_import(bytes, Zeroizing::new(String::new()));
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn import_file(&self, _name: &str, _bytes: Vec<u8>) {
+        self.set_error(error::IMPORT, "the browser preview imports nothing");
+    }
+
+    /// The file that waits for its password, with the one typed in the sheet.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn import_retry(&self) {
+        if self.app().get_busy() {
+            return;
+        }
         let password = self.secret(field::IMPORT_PASSWORD);
-        if format.needs_password() && password.is_empty() {
+        if password.is_empty() {
             return self.set_error(error::IMPORT_PASSWORD, "");
         }
+        let Some(bytes) = self.state.borrow().import_pending.clone() else {
+            return;
+        };
+        self.start_import(bytes, password);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn import_retry(&self) {}
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start_import(&self, bytes: Zeroizing<Vec<u8>>, password: Zeroizing<String>) {
+        let format = vault_import::detect_format(&bytes);
         self.set_error(error::NONE, "");
         self.app().set_import_added(-1);
         self.run(
@@ -771,14 +811,11 @@ impl Controller {
         );
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub(super) fn import_file(&self, _bytes: Vec<u8>) {
-        self.set_error(error::IMPORT, "the browser preview imports nothing");
-    }
-
     #[cfg(not(target_arch = "wasm32"))]
     fn imported(&self, report: Result<vault_import::ImportReport, vault_import::ImportError>) {
         use vault_import::ImportError;
+        // A wrong password is typed again; the file keeps waiting until the sheet closes.
+        self.clear_fields(&[field::IMPORT_PASSWORD]);
         let report = match report {
             Ok(report) => report,
             Err(ImportError::SealedExport) => return self.set_error(error::IMPORT_PASSWORD, ""),
@@ -798,9 +835,10 @@ impl Controller {
         if outcome.added > 0 && !self.save() {
             return;
         }
-        self.state.borrow_mut().secrets[field::IMPORT_PASSWORD].clear();
-        self.publish_lengths();
+        self.state.borrow_mut().import_pending = None;
+        self.close_sheet(sheet::IMPORT);
         let app = self.app();
+        app.set_import_name(SharedString::new());
         app.set_import_added(i32::try_from(outcome.added).unwrap_or(i32::MAX));
         app.set_import_skipped(i32::try_from(outcome.duplicates).unwrap_or(i32::MAX));
         self.refresh_list();

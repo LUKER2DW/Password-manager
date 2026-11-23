@@ -99,16 +99,8 @@ msgid "That file is too large: an item keeps files of up to 5 MB, and up to 10 o
 msgstr "Este arquivo é grande demais: um item guarda arquivos de até 5 MB, e até 10 deles."
 
 msgctxt "Words"
-msgid "Fingerprint unlock didn't work ({})."
-msgstr "O desbloqueio por digital não funcionou ({})."
-
-msgctxt "Words"
 msgid "That file can't be imported ({})."
 msgstr "Não foi possível importar este arquivo ({})."
-
-msgctxt "Words"
-msgid "That isn't the file's password. Type it in the field above and choose the file again."
-msgstr "Esta não é a senha do arquivo. Digite-a no campo acima e escolha o arquivo de novo."
 
 msgctxt "Words"
 msgid "The update couldn't be fetched ({})."
@@ -167,16 +159,8 @@ msgid "Copied."
 msgstr "Copiado."
 
 msgctxt "Words"
-msgid "Fingerprint unlock is on for this vault."
-msgstr "O desbloqueio por digital está ligado para este cofre."
-
-msgctxt "Words"
 msgid "“{}” removed: it gets nothing new from now on."
 msgstr "“{}” removido: ele não recebe mais nada novo a partir de agora."
-
-msgctxt "Words"
-msgid "Fingerprint unlock was turned off because the master password changed. Turn it on again in Settings, Security."
-msgstr "O desbloqueio por digital foi desligado porque a senha mestra mudou. Ligue de novo em Configurações, Segurança."
 
 msgctxt "Words"
 msgid "“{}” was removed from this phone."
@@ -291,16 +275,8 @@ msgid "Updates"
 msgstr "Atualizações"
 
 msgctxt "PhoneWindow"
-msgid "About"
-msgstr "Sobre"
-
-msgctxt "PhoneWindow"
 msgid "Open your vault"
 msgstr "Abra seu cofre"
-
-msgctxt "PhoneWindow"
-msgid "Turn on fingerprint unlock"
-msgstr "Ligar o desbloqueio por digital"
 
 msgctxt "PhoneWindow"
 msgid "Use the master password"
@@ -315,16 +291,8 @@ msgid "No vault on this phone yet"
 msgstr "Nenhum cofre neste celular ainda"
 
 msgctxt "PhoneWindow"
-msgid "Open the vault you made on your computer: through your vault server, or from its file."
-msgstr "Abra o cofre que você criou no computador: pelo seu servidor de cofre ou pelo arquivo."
-
-msgctxt "PhoneWindow"
 msgid "From its file"
 msgstr "Do arquivo"
-
-msgctxt "PhoneWindow"
-msgid "Copy the .vault file to the phone (a USB cable, Quick Share, a folder you sync) and choose it. It works offline; sync can be turned on later in Settings."
-msgstr "Copie o arquivo .vault para o celular (cabo USB, Compartilhamento rápido, uma pasta sincronizada) e escolha-o. Ele funciona sem internet; a sincronização pode ser ligada depois em Configurações."
 
 msgctxt "PhoneWindow"
 msgid "Choose the vault file"
@@ -335,24 +303,12 @@ msgid "From your vault server"
 msgstr "Do seu servidor de cofre"
 
 msgctxt "PhoneWindow"
-msgid "On the computer: Settings, Sync, Add a device. Paste the line it shows here."
-msgstr "No computador: Configurações, Sincronização, Adicionar um aparelho. Cole aqui a linha que ele mostra."
-
-msgctxt "PhoneWindow"
 msgid "Fetching the vault…"
 msgstr "Baixando o cofre…"
 
 msgctxt "PhoneWindow"
-msgid "Set up from the server"
-msgstr "Configurar pelo servidor"
-
-msgctxt "PhoneWindow"
 msgid "Back to my vault"
 msgstr "Voltar ao meu cofre"
-
-msgctxt "PhoneWindow"
-msgid "Neither the server nor the file opens the vault on its own: it also needs your master password and the Secret Key from your emergency kit."
-msgstr "Nem o servidor nem o arquivo abrem o cofre sozinhos: ele também precisa da sua senha mestra e da chave secreta do seu kit de emergência."
 
 msgctxt "PhoneWindow"
 msgid "Your vault"
@@ -385,18 +341,6 @@ msgstr "Abrir meu cofre"
 msgctxt "PhoneWindow"
 msgid "Opening…"
 msgstr "Abrindo…"
-
-msgctxt "PhoneWindow"
-msgid "Unlock with fingerprint"
-msgstr "Destrancar com a digital"
-
-msgctxt "PhoneWindow"
-msgid "Fingerprint unlock comes back once you type the master password: it is asked every 14 days."
-msgstr "O desbloqueio por digital volta quando você digitar a senha mestra: ela é pedida a cada 14 dias."
-
-msgctxt "PhoneWindow"
-msgid "Another vault"
-msgstr "Outro cofre"
 
 msgctxt "PhoneWindow"
 msgid "Another file"
@@ -445,10 +389,6 @@ msgstr "Adicionar"
 msgctxt "PhoneWindow"
 msgid "No one-time codes yet"
 msgstr "Nenhum código de uso único ainda"
-
-msgctxt "PhoneWindow"
-msgid "When a site offers two-step sign-in with an authenticator app, tap Add and paste the setup key it shows. The six digits then show up on this page."
-msgstr "Quando um site oferecer login em duas etapas com um app autenticador, toque em Adicionar e cole a chave de configuração que ele mostra. Os seis números então aparecem nesta página."
 
 msgctxt "PhoneWindow"
 msgid "Locked: open the login first"
@@ -579,10 +519,6 @@ msgid "Settings"
 msgstr "Configurações"
 
 msgctxt "PhoneWindow"
-msgid "Master password, fingerprint, locking, screenshots, clipboard"
-msgstr "Senha mestra, digital, trancamento, capturas de tela, área de transferência"
-
-msgctxt "PhoneWindow"
 msgid "On: Android fills in logins from this vault"
 msgstr "Ligado: o Android preenche os logins deste cofre"
 
@@ -597,10 +533,6 @@ msgstr[0] "{n} cofre neste celular"
 msgstr[1] "{n} cofres neste celular"
 
 msgctxt "PhoneWindow"
-msgid "A copy of the vault, a newer copy, another manager's export"
-msgstr "Uma cópia do cofre, uma cópia mais nova, a exportação de outro gerenciador"
-
-msgctxt "PhoneWindow"
 msgid "Off: this vault works offline"
 msgstr "Desligado: este cofre funciona sem internet"
 
@@ -609,32 +541,8 @@ msgid "Theme, language, background, website icons"
 msgstr "Tema, idioma, fundo, ícones dos sites"
 
 msgctxt "PhoneWindow"
-msgid "Version {} is ready"
-msgstr "A versão {} está pronta"
-
-msgctxt "PhoneWindow"
 msgid "Version {}"
 msgstr "Versão {}"
-
-msgctxt "PhoneWindow"
-msgid "Version {}, licence, what is still to come"
-msgstr "Versão {}, licença, o que ainda vem"
-
-msgctxt "PhoneWindow"
-msgid "Fingerprint unlock"
-msgstr "Desbloqueio por digital"
-
-msgctxt "PhoneWindow"
-msgid "Unlock with a fingerprint or face"
-msgstr "Destrancar com digital ou rosto"
-
-msgctxt "PhoneWindow"
-msgid "The phone's secure hardware keeps a key that only your fingerprint (or face) releases, and that key opens this vault. The master password is still asked every 14 days, and after it changes."
-msgstr "O hardware seguro do celular guarda uma chave que só a sua digital (ou rosto) libera, e essa chave abre este cofre. A senha mestra continua sendo pedida a cada 14 dias e depois que ela mudar."
-
-msgctxt "PhoneWindow"
-msgid "This phone has no fingerprint or face unlock that Android counts as strong. Set one up in Android's settings to use it here."
-msgstr "Este celular não tem desbloqueio por digital ou rosto que o Android considere forte. Configure um nas configurações do Android para usar aqui."
 
 msgctxt "PhoneWindow"
 msgid "Lock by itself after"
@@ -657,10 +565,6 @@ msgid "Lock as soon as I leave the app"
 msgstr "Trancar assim que eu sair do app"
 
 msgctxt "PhoneWindow"
-msgid "Clear a copied secret from the clipboard after"
-msgstr "Limpar da área de transferência o segredo copiado depois de"
-
-msgctxt "PhoneWindow"
 msgid "15 seconds"
 msgstr "15 segundos"
 
@@ -673,24 +577,12 @@ msgid "Watch for leaked passwords every day"
 msgstr "Vigiar senhas vazadas todo dia"
 
 msgctxt "PhoneWindow"
-msgid "Once a day while the vault is open, every login's password is checked against the newest list of data breaches (Have I Been Pwned). Only the first 5 characters of each password's SHA-1 fingerprint leave the phone, never a password. As soon as one turns up in a new breach, the app tells you and marks it in the list."
-msgstr "Uma vez por dia, enquanto o cofre estiver aberto, a senha de cada login é conferida na lista mais nova de vazamentos de dados (Have I Been Pwned). Só saem do celular os 5 primeiros caracteres da impressão SHA-1 de cada senha, nunca a senha. Assim que uma aparecer em um vazamento novo, o app avisa e a marca na lista."
-
-msgctxt "PhoneWindow"
 msgid "Allow screenshots"
 msgstr "Permitir capturas de tela"
 
 msgctxt "PhoneWindow"
-msgid "While it is off, the app stays out of screenshots, screen recordings and the recent apps view, so nothing else on the phone can capture a password shown on screen."
-msgstr "Enquanto estiver desligado, o app fica fora de capturas de tela, gravações de tela e da lista de apps recentes, para que nada mais no celular possa capturar uma senha mostrada na tela."
-
-msgctxt "PhoneWindow"
 msgid "Change master password"
 msgstr "Trocar a senha mestra"
-
-msgctxt "PhoneWindow"
-msgid "The Secret Key and your emergency kit's recovery parts stay the same. Devices that sync this vault ask for the new password at their next unlock."
-msgstr "A chave secreta e as partes de recuperação do seu kit de emergência continuam as mesmas. Os aparelhos que sincronizam este cofre pedem a nova senha no próximo desbloqueio."
 
 msgctxt "PhoneWindow"
 msgid "Current master password"
@@ -709,20 +601,8 @@ msgid "Changing…"
 msgstr "Trocando…"
 
 msgctxt "PhoneWindow"
-msgid "Change password"
-msgstr "Trocar a senha"
-
-msgctxt "PhoneWindow"
 msgid "Autofill service"
 msgstr "Serviço de preenchimento automático"
-
-msgctxt "PhoneWindow"
-msgid "Another app, or none"
-msgstr "Outro app, ou nenhum"
-
-msgctxt "PhoneWindow"
-msgid "With Vault as Android's autofill service, a sign-in form in another app or in your browser offers the logins saved for it. While the vault is locked, it asks for your fingerprint first, if fingerprint unlock is on."
-msgstr "Com o Cofre como serviço de preenchimento automático do Android, um formulário de login em outro app ou no seu navegador oferece os logins salvos para ele. Com o cofre trancado, ele pede primeiro a sua digital, se o desbloqueio por digital estiver ligado."
 
 msgctxt "PhoneWindow"
 msgid "A website's logins are offered on that site only: its exact address, or every address under it for *.example.com. For an app, add its address to the login as androidapp:// and the app's package name, for example androidapp://com.example.app."
@@ -735,10 +615,6 @@ msgstr "Mude nas configurações do Android"
 msgctxt "PhoneWindow"
 msgid "Turn it on in Android's settings"
 msgstr "Ative nas configurações do Android"
-
-msgctxt "PhoneWindow"
-msgid "Some browsers ask for one more step: turn on “Autofill using another service” in the browser's own settings."
-msgstr "Alguns navegadores pedem mais um passo: ative “Preenchimento automático usando outro serviço” nas configurações do próprio navegador."
 
 msgctxt "PhoneWindow"
 msgid "This vault"
@@ -757,44 +633,16 @@ msgid "File size"
 msgstr "Tamanho do arquivo"
 
 msgctxt "PhoneWindow"
-msgid "Kept in"
-msgstr "Guardado em"
-
-msgctxt "PhoneWindow"
-msgid "The phone keeps its copy in the app's private storage, where other apps can't read it and Android encrypts it with the phone. To keep a copy somewhere else, use Save a copy under Import and export."
-msgstr "O celular guarda a sua cópia no armazenamento privado do app, onde outros apps não podem lê-la, e o Android a criptografa com o celular. Para guardar uma cópia em outro lugar, use Salvar uma cópia em Importar e exportar."
-
-msgctxt "PhoneWindow"
 msgid "Vaults on this phone"
 msgstr "Cofres neste celular"
-
-msgctxt "PhoneWindow"
-msgid "Each vault opens with its own master password and Secret Key, and syncs on its own. The vault's name at the top of the list switches between them."
-msgstr "Cada cofre abre com a sua própria senha mestra e chave secreta, e sincroniza por conta própria. O nome do cofre no topo da lista alterna entre eles."
 
 msgctxt "PhoneWindow"
 msgid "Remove this vault from the phone"
 msgstr "Remover este cofre do celular"
 
 msgctxt "PhoneWindow"
-msgid "The phone's copy of this vault, its Secret Key and its fingerprint unlock are deleted from this phone. The vault stays on your computer and your other devices; a change made here that hasn't synced yet is lost. Save a copy first if you are unsure."
-msgstr "A cópia deste cofre no celular, a chave secreta dele e o desbloqueio por digital são apagados deste celular. O cofre continua no seu computador e nos seus outros aparelhos; uma alteração feita aqui que ainda não sincronizou será perdida. Salve uma cópia antes se tiver dúvida."
-
-msgctxt "PhoneWindow"
-msgid "Remove from this phone"
-msgstr "Remover deste celular"
-
-msgctxt "PhoneWindow"
 msgid "A copy of this vault"
 msgstr "Uma cópia deste cofre"
-
-msgctxt "PhoneWindow"
-msgid "This vault doesn't sync: it works offline. Changed it on the computer? Bring its newest file here, or join your vault server under Sync."
-msgstr "Este cofre não sincroniza: ele funciona sem internet. Mudou no computador? Traga o arquivo mais novo para cá, ou entre no seu servidor de cofre em Sincronização."
-
-msgctxt "PhoneWindow"
-msgid "A copy from elsewhere (a backup, another computer) can still be brought in by hand."
-msgstr "Uma cópia de outro lugar (um backup, outro computador) ainda pode ser trazida manualmente."
 
 msgctxt "PhoneWindow"
 msgid "Bring a newer copy"
@@ -817,14 +665,6 @@ msgid "From another password manager"
 msgstr "De outro gerenciador de senhas"
 
 msgctxt "PhoneWindow"
-msgid "Its export: a JSON or CSV file, a KeePass database (.kdbx), or this app's protected export (.vaultx). Logins already in the vault are skipped."
-msgstr "A exportação dele: um arquivo JSON ou CSV, um banco KeePass (.kdbx) ou a exportação protegida deste app (.vaultx). Os logins que já estão no cofre são pulados."
-
-msgctxt "PhoneWindow"
-msgid "The file's password, if it has one"
-msgstr "A senha do arquivo, se tiver"
-
-msgctxt "PhoneWindow"
 msgid "Importing…"
 msgstr "Importando…"
 
@@ -841,14 +681,6 @@ msgid "{n} item imported."
 msgid_plural "{n} items imported."
 msgstr[0] "{n} item importado."
 msgstr[1] "{n} itens importados."
-
-msgctxt "PhoneWindow"
-msgid "A plain export holds every password unencrypted: delete it once it is imported."
-msgstr "Uma exportação simples guarda todas as senhas sem criptografia: exclua-a depois de importar."
-
-msgctxt "PhoneWindow"
-msgid "Or through a WebDAV folder (Nextcloud, a NAS): the same address and user your computer uses. The password stays in this phone's keystore."
-msgstr "Ou por uma pasta WebDAV (Nextcloud, um NAS): o mesmo endereço e usuário que o seu computador usa. A senha fica no keystore deste celular."
 
 msgctxt "PhoneWindow"
 msgid "WebDAV address"
@@ -871,32 +703,12 @@ msgid "Connect"
 msgstr "Conectar"
 
 msgctxt "PhoneWindow"
-msgid "Use an invite"
-msgstr "Usar um convite"
-
-msgctxt "PhoneWindow"
-msgid "Keep this phone and your computers the same through your vault server. On the computer: Settings, Sync, Add a device. Then paste the line it shows here."
-msgstr "Mantenha este celular e seus computadores iguais pelo seu servidor de cofre. No computador: Configurações, Sincronização, Adicionar um aparelho. Depois cole aqui a linha que ele mostra."
-
-msgctxt "PhoneWindow"
 msgid "Joining…"
 msgstr "Entrando…"
 
 msgctxt "PhoneWindow"
-msgid "Join"
-msgstr "Entrar"
-
-msgctxt "PhoneWindow"
-msgid "Use WebDAV"
-msgstr "Usar WebDAV"
-
-msgctxt "PhoneWindow"
 msgid "WebDAV"
 msgstr "WebDAV"
-
-msgctxt "PhoneWindow"
-msgid "Server"
-msgstr "Servidor"
 
 msgctxt "PhoneWindow"
 msgid "Backup server"
@@ -915,48 +727,12 @@ msgid "The backup server isn't answering: the vault syncs through the main one, 
 msgstr "O servidor de backup não está respondendo: o cofre sincroniza pelo principal, e o backup se atualiza assim que responder."
 
 msgctxt "PhoneWindow"
-msgid "Last synced"
-msgstr "Última sincronização"
-
-msgctxt "PhoneWindow"
 msgid "Syncing…"
 msgstr "Sincronizando…"
 
 msgctxt "PhoneWindow"
-msgid "Failed"
-msgstr "Falhou"
-
-msgctxt "PhoneWindow"
-msgid "Not yet"
-msgstr "Ainda não"
-
-msgctxt "PhoneWindow"
-msgid "Just now"
-msgstr "Agora mesmo"
-
-msgctxt "PhoneWindow"
-msgid "{n} minute ago"
-msgid_plural "{n} minutes ago"
-msgstr[0] "há {n} minuto"
-msgstr[1] "há {n} minutos"
-
-msgctxt "PhoneWindow"
-msgid "In the WebDAV folder"
-msgstr "Na pasta WebDAV"
-
-msgctxt "PhoneWindow"
 msgid "On the server"
 msgstr "No servidor"
-
-msgctxt "PhoneWindow"
-msgid "{n} sealed copy, {}"
-msgid_plural "{n} sealed copies, {} in all"
-msgstr[0] "{n} cópia lacrada, {}"
-msgstr[1] "{n} cópias lacradas, {} no total"
-
-msgctxt "PhoneWindow"
-msgid "One copy per device, each the whole vault, sealed. This phone's is {}."
-msgstr "Uma cópia por aparelho, cada uma com o cofre inteiro, lacrada. A deste celular é {}."
 
 msgctxt "PhoneWindow"
 msgid "Sync now"
@@ -995,10 +771,6 @@ msgid "Change the server's address"
 msgstr "Trocar o endereço do servidor"
 
 msgctxt "PhoneWindow"
-msgid "When the server moved (a new name, a new address on your network, a new certificate), type where it is now. The phone checks that the server there knows it before using it."
-msgstr "Quando o servidor mudou (um nome novo, um endereço novo na sua rede, um certificado novo), digite onde ele está agora. O celular confere que o servidor de lá o reconhece antes de usá-lo."
-
-msgctxt "PhoneWindow"
 msgid "Server address"
 msgstr "Endereço do servidor"
 
@@ -1007,16 +779,8 @@ msgid "Checking…"
 msgstr "Verificando…"
 
 msgctxt "PhoneWindow"
-msgid "Save the address"
-msgstr "Salvar o endereço"
-
-msgctxt "PhoneWindow"
 msgid "Add a backup server"
 msgstr "Adicionar um servidor de backup"
-
-msgctxt "PhoneWindow"
-msgid "A second vault server, synced every round too: while one doesn't answer, the vault keeps syncing through the other. Paste an invite for it: the vaultsync: line from Add a device on a device that already uses it, or one from vault-server invite with its address below."
-msgstr "Um segundo servidor de cofre, sincronizado em todas as rodadas também: enquanto um não responde, o cofre continua sincronizando pelo outro. Cole um convite para ele: a linha vaultsync: de Adicionar um aparelho num aparelho que já o usa, ou um do vault-server invite com o endereço abaixo."
 
 msgctxt "PhoneWindow"
 msgid "Invite"
@@ -1029,10 +793,6 @@ msgstr "O endereço dele, para um convite do vault-server"
 msgctxt "PhoneWindow"
 msgid "Add the backup"
 msgstr "Adicionar o backup"
-
-msgctxt "PhoneWindow"
-msgid "Remove the backup server"
-msgstr "Remover o servidor de backup"
 
 msgctxt "PhoneWindow"
 msgid "Devices that sync this vault"
@@ -1051,10 +811,6 @@ msgid "Remove"
 msgstr "Remover"
 
 msgctxt "PhoneWindow"
-msgid "Remove “{}”? It stays out of this vault: every device refuses its copies from now on. Use it for a lost or sold device."
-msgstr "Remover “{}”? Ele fica fora deste cofre: a partir de agora, todo aparelho recusa as cópias dele. Use para um aparelho perdido ou vendido."
-
-msgctxt "PhoneWindow"
 msgid "Hide how sync works"
 msgstr "Ocultar como funciona a sincronização"
 
@@ -1069,14 +825,6 @@ msgstr "Cada aparelho guarda o cofre inteiro e funciona sem internet. A sincroni
 msgctxt "PhoneWindow"
 msgid "Your vault server: a small program you run yourself (Docker, reached over Tailscale or with its own HTTPS). It keeps one sealed copy per device and the devices' public keys, and never anything that opens the vault. A device joins with a one-time invite from a device already in."
 msgstr "Seu servidor de cofre: um programa pequeno que você mesmo executa (Docker, acessado pelo Tailscale ou com HTTPS próprio). Ele guarda uma cópia lacrada por aparelho e as chaves públicas dos aparelhos, e nunca nada que abra o cofre. Um aparelho entra com um convite de uso único de um aparelho que já está no cofre."
-
-msgctxt "PhoneWindow"
-msgid "WebDAV: a folder on a WebDAV host (Nextcloud, a NAS) that keeps the same sealed copies. Its password stays in this phone's keystore."
-msgstr "WebDAV: uma pasta em um servidor WebDAV (Nextcloud, um NAS) que guarda as mesmas cópias lacradas. A senha dele fica no keystore deste celular."
-
-msgctxt "PhoneWindow"
-msgid "By hand: bring a newer copy of the file, or save one, under Import and export. Nothing then syncs by itself."
-msgstr "Manualmente: traga uma cópia mais nova do arquivo, ou salve uma, em Importar e exportar. Então nada sincroniza sozinho."
 
 msgctxt "PhoneWindow"
 msgid "Neither place can open the vault, put an older copy back or add a device of its own: every device checks each copy with the vault's own key, and remembers the newest one it saw from every other device."
@@ -1115,20 +863,12 @@ msgid "Each saved site is asked once for its icon, directly. Someone watching th
 msgstr "Cada site salvo é consultado uma vez, diretamente, para o ícone. Quem observa a rede pode ver quais sites foram consultados, então ele fica desligado até você ligar."
 
 msgctxt "PhoneWindow"
-msgid "Installed"
-msgstr "Instalada"
-
-msgctxt "PhoneWindow"
 msgid "Asking your vault server…"
 msgstr "Consultando seu servidor de cofre…"
 
 msgctxt "PhoneWindow"
 msgid "This is the newest version on your vault server."
 msgstr "Esta é a versão mais nova no seu servidor de cofre."
-
-msgctxt "PhoneWindow"
-msgid "Version {} is on your vault server."
-msgstr "A versão {} está no seu servidor de cofre."
 
 msgctxt "PhoneWindow"
 msgid "Fetching version {}…"
@@ -1151,20 +891,12 @@ msgid "Updates come from your own vault server, where a computer puts them (vaul
 msgstr "As atualizações vêm do seu próprio servidor de cofre, onde um computador as publica (vault-server publish-app). O Android instala uma somente se estiver assinada com a mesma chave do app já instalado aqui, e pergunta antes."
 
 msgctxt "PhoneWindow"
-msgid "App"
-msgstr "App"
-
-msgctxt "PhoneWindow"
 msgid "Version {}. Free software under the GPL, version 3 or later."
 msgstr "Versão {}. Software livre sob a GPL, versão 3 ou posterior."
 
 msgctxt "PhoneWindow"
 msgid "Nothing here has been audited yet: keep your real passwords in it only once it has been."
 msgstr "Nada aqui foi auditado ainda: guarde suas senhas reais aqui só depois que for."
-
-msgctxt "PhoneWindow"
-msgid "Still to come on the phone: scanning QR codes, saving new logins from other apps, and passkeys."
-msgstr "Ainda por vir no celular: escanear códigos QR, salvar logins novos de outros apps e chaves de acesso."
 
 msgctxt "PhoneWindow"
 msgid "Lock now"
@@ -1193,18 +925,6 @@ msgstr "Cartão"
 msgctxt "PhoneWindow"
 msgid "Expires"
 msgstr "Vence em"
-
-msgctxt "PhoneWindow"
-msgid "The password and codes of this item are locked. Type your master password to see them."
-msgstr "A senha e os códigos deste item estão trancados. Digite sua senha mestra para vê-los."
-
-msgctxt "PhoneWindow"
-msgid "The password and codes of this item are locked. Type the item PIN to see them."
-msgstr "A senha e os códigos deste item estão trancados. Digite o PIN do item para vê-los."
-
-msgctxt "PhoneWindow"
-msgid "The password and codes of this item are locked. Type the item password to see them."
-msgstr "A senha e os códigos deste item estão trancados. Digite a senha do item para vê-los."
 
 msgctxt "PhoneWindow"
 msgid "Item PIN"
@@ -1259,10 +979,6 @@ msgid "Only the first 5 characters of the password's SHA-1 fingerprint went to t
 msgstr "Só os 5 primeiros caracteres da impressão SHA-1 da senha foram enviados ao serviço de vazamentos (Have I Been Pwned), nunca a senha."
 
 msgctxt "PhoneWindow"
-msgid "One-time code, {} s left"
-msgstr "Código de uso único, faltam {} s"
-
-msgctxt "PhoneWindow"
 msgid "Website"
 msgstr "Site"
 
@@ -1301,10 +1017,6 @@ msgid "Setup key"
 msgstr "Chave de configuração"
 
 msgctxt "PhoneWindow"
-msgid "When you turn on two-step sign-in, the site shows a QR code and a text key, often under “Can't scan it?”. Paste that key here, or an otpauth:// link. The codes then show on the Codes page."
-msgstr "Ao ligar a confirmação em duas etapas, o site mostra um código QR e uma chave de texto, muitas vezes em “Não consegue escanear?”. Cole essa chave aqui, ou um link otpauth://. Os códigos então aparecem na página Códigos."
-
-msgctxt "PhoneWindow"
 msgid "otpauth:// link or key"
 msgstr "Link otpauth:// ou chave"
 
@@ -1319,10 +1031,6 @@ msgstr "O site ou app"
 msgctxt "PhoneWindow"
 msgid "Visa ending 4242"
 msgstr "Visa final 4242"
-
-msgctxt "PhoneWindow"
-msgid "Taken from the setup key"
-msgstr "Tirado da chave de configuração"
 
 msgctxt "PhoneWindow"
 msgid "What the note is about"
@@ -1353,10 +1061,6 @@ msgid "Security code"
 msgstr "Código de segurança"
 
 msgctxt "PhoneWindow"
-msgid "Digits only, as the bank gave it"
-msgstr "Só números, como o banco informou"
-
-msgctxt "PhoneWindow"
 msgid "No key yet: make one here, or bring yours from a file or the clipboard."
 msgstr "Ainda sem chave: crie uma aqui ou traga a sua de um arquivo ou da área de transferência."
 
@@ -1385,16 +1089,8 @@ msgid "Make a strong one"
 msgstr "Criar uma forte"
 
 msgctxt "PhoneWindow"
-msgid "The bank's site, for its icon"
-msgstr "O site do banco, para o ícone"
-
-msgctxt "PhoneWindow"
 msgid "One-time code key"
 msgstr "Chave do código de uso único"
-
-msgctxt "PhoneWindow"
-msgid "Paste the setup key the site shows for its authenticator app, often under “Can't scan it?”. Leave it empty if the site has none."
-msgstr "Cole a chave de configuração que o site mostra para o app autenticador, muitas vezes em “Não consegue escanear?”. Deixe vazio se o site não tiver nenhuma."
 
 msgctxt "PhoneWindow"
 msgid "Files"
@@ -1407,10 +1103,6 @@ msgstr "Anexar um arquivo"
 msgctxt "PhoneWindow"
 msgid "Favourite"
 msgstr "Favorito"
-
-msgctxt "PhoneWindow"
-msgid "Tap again to delete it for good"
-msgstr "Toque de novo para excluir de vez"
 
 msgctxt "PhoneWindow"
 msgid "Delete"
@@ -2201,20 +1893,12 @@ msgid "Too short and predictable."
 msgstr "Curta demais e previsível."
 
 msgctxt "PhoneWindow"
-msgid "On the computer: Settings, Sync, Add a device. Scan the QR code it shows, or paste its line below."
-msgstr "No computador: Configurações, Sincronização, Adicionar um aparelho. Escaneie o QR code que ele mostra ou cole a linha dele abaixo."
-
-msgctxt "PhoneWindow"
 msgid "Scan the QR code"
 msgstr "Escanear o QR code"
 
 msgctxt "PhoneWindow"
 msgid "Set up with the line"
 msgstr "Configurar com a linha"
-
-msgctxt "PhoneWindow"
-msgid "Keep this phone and your computers the same through your vault server. On the computer: Settings, Sync, Add a device. Then scan the QR code it shows, or paste its line here."
-msgstr "Mantenha este celular e seus computadores iguais pelo seu servidor de cofre. No computador: Configurações, Sincronização, Adicionar um aparelho. Depois escaneie o QR code que ele mostra ou cole a linha dele aqui."
 
 msgctxt "Words"
 msgid "The phone couldn't be set up from the server ({})."
@@ -2299,10 +1983,6 @@ msgstr "Ele é excluído deste cofre e, na próxima sincronização, dos seus ou
 msgctxt "Words"
 msgid "The JSON file holds every password, note and card in plain text. Anyone or any app that gets the file reads them. Delete it once it has been imported."
 msgstr "O arquivo JSON guarda todas as senhas, notas e cartões em texto puro. Qualquer pessoa ou app que pegar o arquivo consegue lê-los. Apague-o depois de importar."
-
-msgctxt "Words"
-msgid "The file is encrypted with the password typed under Export. It opens only with that password, in this app or the desktop one."
-msgstr "O arquivo é criptografado com a senha digitada em Exportar. Ele só abre com essa senha, neste app ou no do computador."
 
 msgctxt "Words"
 msgid "The CSV file holds the logins' passwords in plain text. Anyone or any app that gets the file reads them. Delete it once it has been imported."
@@ -2641,16 +2321,8 @@ msgid "Export"
 msgstr "Exportar"
 
 msgctxt "PhoneWindow"
-msgid "Type your master password below first. A plain export (JSON or CSV) holds every password unencrypted: anyone who gets the file reads them. The protected export opens only with the password you give it here."
-msgstr "Digite antes sua senha mestra abaixo. Uma exportação simples (JSON ou CSV) guarda todas as senhas sem criptografia: quem pegar o arquivo consegue lê-las. A exportação protegida só abre com a senha que você definir aqui."
-
-msgctxt "PhoneWindow"
 msgid "Protected export (.vaultx)"
 msgstr "Exportação protegida (.vaultx)"
-
-msgctxt "PhoneWindow"
-msgid "Encrypted with the password typed below"
-msgstr "Criptografada com a senha digitada abaixo"
 
 msgctxt "PhoneWindow"
 msgid "Plain JSON"
@@ -2667,14 +2339,6 @@ msgstr "CSV simples"
 msgctxt "PhoneWindow"
 msgid "Logins only, for a browser or a spreadsheet"
 msgstr "Só os logins, para um navegador ou uma planilha"
-
-msgctxt "PhoneWindow"
-msgid "Password for the protected export"
-msgstr "Senha da exportação protegida"
-
-msgctxt "PhoneWindow"
-msgid "Its export: a JSON or CSV file, a KeePass database (.kdbx), or this app's protected export (.vaultx). Logins already in the vault are skipped. Delete a plain export once it is imported."
-msgstr "A exportação dele: um arquivo JSON ou CSV, um banco KeePass (.kdbx) ou a exportação protegida deste app (.vaultx). Os logins que já estão no cofre são pulados. Apague uma exportação simples depois de importar."
 
 msgctxt "PhoneWindow"
 msgid "Join your vault server"
@@ -2829,18 +2493,6 @@ msgid "Back"
 msgstr "Voltar"
 
 msgctxt "PhoneWindow"
-msgid "The secrets of this item are locked. Type your master password to see them."
-msgstr "Os segredos deste item estão trancados. Digite sua senha mestra para vê-los."
-
-msgctxt "PhoneWindow"
-msgid "The secrets of this item are locked. Type the item PIN to see them."
-msgstr "Os segredos deste item estão trancados. Digite o PIN dos itens para vê-los."
-
-msgctxt "PhoneWindow"
-msgid "The secrets of this item are locked. Type the item password to see them."
-msgstr "Os segredos deste item estão trancados. Digite a senha dos itens para vê-los."
-
-msgctxt "PhoneWindow"
 msgid "One-time code (counter)"
 msgstr "Código de uso único (contador)"
 
@@ -2937,13 +2589,101 @@ msgid "Your master password"
 msgstr "Sua senha mestra"
 
 msgctxt "Words"
-msgid "Give the protected export a password of at least 12 characters, in the field above."
-msgstr "Dê à exportação protegida uma senha de pelo menos 12 caracteres, no campo acima."
-
-msgctxt "Words"
 msgid "The export couldn't be made ({})."
 msgstr "Não foi possível fazer a exportação ({})."
 
 msgctxt "Words"
 msgid "Some items are behind the item lock, and the export would leave their secrets out. Open one of them first (one right answer opens them all for a while), then export."
 msgstr "Alguns itens estão atrás do bloqueio de itens, e a exportação deixaria os segredos deles de fora. Abra um deles antes (uma resposta certa abre todos por um tempo) e exporte depois."
+
+msgctxt "Words"
+msgid "That isn't the file's password. Try again."
+msgstr "Essa não é a senha do arquivo. Tente de novo."
+
+msgctxt "Words"
+msgid "Give the export a password of at least 12 characters."
+msgstr "Dê à exportação uma senha de pelo menos 12 caracteres."
+
+msgctxt "Words"
+msgid "“{}” has a password"
+msgstr "“{}” tem senha"
+
+msgctxt "Words"
+msgid "Change the master password"
+msgstr "Trocar a senha mestra"
+
+msgctxt "Words"
+msgid "“{}” is locked"
+msgstr "“{}” está bloqueado"
+
+msgctxt "Words"
+msgid "The file is encrypted with a password you choose here. It opens only with that password, in this app or the desktop one."
+msgstr "O arquivo é criptografado com uma senha que você escolhe aqui. Ele só abre com essa senha, neste app ou no do computador."
+
+msgctxt "Words"
+msgid "The file is protected. Type the password it was saved with; it is used only to read the file."
+msgstr "O arquivo é protegido. Digite a senha com que ele foi salvo; ela é usada só para ler o arquivo."
+
+msgctxt "Words"
+msgid "The Secret Key and your emergency kit stay the same. Devices that sync this vault ask for the new password at their next unlock."
+msgstr "A chave secreta e o seu kit de emergência continuam os mesmos. Os aparelhos que sincronizam este cofre pedem a nova senha no próximo desbloqueio."
+
+msgctxt "Words"
+msgid "Import"
+msgstr "Importar"
+
+msgctxt "Words"
+msgid "Change password"
+msgstr "Trocar senha"
+
+msgctxt "Words"
+msgid "Show the secrets"
+msgstr "Mostrar os segredos"
+
+msgctxt "PhoneWindow"
+msgid "A password for the export"
+msgstr "Uma senha para a exportação"
+
+msgctxt "PhoneWindow"
+msgid "The file's password"
+msgstr "A senha do arquivo"
+
+msgctxt "PhoneWindow"
+msgid "Your master password is asked first. A plain export (JSON or CSV) holds every password unencrypted: anyone who gets the file reads them. The protected export opens only with the password you give it."
+msgstr "Sua senha mestra é pedida antes. Uma exportação simples (JSON ou CSV) guarda todas as senhas sem criptografia: quem pegar o arquivo consegue lê-las. A exportação protegida só abre com a senha que você der a ela."
+
+msgctxt "PhoneWindow"
+msgid "Encrypted with a password you choose"
+msgstr "Criptografada com uma senha que você escolhe"
+
+msgctxt "PhoneWindow"
+msgid "Its export: a JSON or CSV file, a KeePass database (.kdbx), or this app's protected export (.vaultx); a file with a password asks for it. Logins already in the vault are skipped. Delete a plain export once it is imported."
+msgstr "A exportação dele: um arquivo JSON ou CSV, um banco do KeePass (.kdbx) ou a exportação protegida deste app (.vaultx); um arquivo com senha pede por ela. Logins que já estão no cofre são pulados. Apague uma exportação simples depois de importá-la."
+
+msgctxt "PhoneWindow"
+msgid "The secrets of this item are locked. Your master password shows them."
+msgstr "Os segredos deste item estão bloqueados. Sua senha mestra os mostra."
+
+msgctxt "PhoneWindow"
+msgid "The secrets of this item are locked. The item PIN shows them."
+msgstr "Os segredos deste item estão bloqueados. O PIN dos itens os mostra."
+
+msgctxt "PhoneWindow"
+msgid "The secrets of this item are locked. The item password shows them."
+msgstr "Os segredos deste item estão bloqueados. A senha dos itens os mostra."
+
+msgctxt "PhoneWindow"
+msgid "Type your master password to see its secrets."
+msgstr "Digite sua senha mestra para ver os segredos dele."
+
+msgctxt "PhoneWindow"
+msgid "Type the item PIN to see its secrets."
+msgstr "Digite o PIN dos itens para ver os segredos dele."
+
+msgctxt "PhoneWindow"
+msgid "Type the item password to see its secrets."
+msgstr "Digite a senha dos itens para ver os segredos dele."
+
+msgctxt "PhoneWindow"
+msgid "Exporting…"
+msgstr "Exportando…"

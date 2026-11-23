@@ -176,7 +176,7 @@ impl Controller {
                     Err(err) => self.set_error(error::UNREADABLE, &err.to_string()),
                 }
             }
-            pick::IMPORT => self.import_file(bytes),
+            pick::IMPORT => self.import_file(name, bytes),
             _ => {}
         }
     }

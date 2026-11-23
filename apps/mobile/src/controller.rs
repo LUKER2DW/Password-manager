@@ -114,6 +114,15 @@ mod error {
     pub const EXPORT_LOCKED: i32 = 32;
 }
 
+/// The sheets that ask for a password (app.slint `ask`, `confirming`).
+mod sheet {
+    pub const EXPORT_JSON: i32 = 6;
+    pub const EXPORT_CSV: i32 = 8;
+    pub const IMPORT: i32 = 11;
+    pub const MASTER_PASSWORD: i32 = 12;
+    pub const ITEM_CHECK: i32 = 13;
+}
+
 /// Where the line of a scanned QR code goes (the screens' `scan-invite` purpose).
 pub mod scan {
     /// The start screen's "From your vault server".
@@ -396,6 +405,9 @@ struct State {
     folder_ids: Vec<vault_core::FolderId>,
     /// An export made and waiting for the shell to save it (its name and bytes).
     export_pending: Option<(String, Zeroizing<Vec<u8>>)>,
+    /// A file to import that waits for its password (asked in the sheet).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    import_pending: Option<Zeroizing<Vec<u8>>>,
 }
 
 thread_local! {
@@ -490,6 +502,7 @@ impl Controller {
                 health_ids: Vec::new(),
                 folder_ids: Vec::new(),
                 export_pending: None,
+                import_pending: None,
                 lock_after: LOCK_CHOICES[usize::from(prefs.lock_choice).min(2)],
             }),
             tick: Timer::default(),
@@ -710,7 +723,9 @@ impl Controller {
         on!(on_gen_history_delete, |c, index| c
             .delete_generated_entry(index));
         on!(on_gen_history_clear, |c| c.clear_generated());
-        on!(on_cancel_password_change, |c| c.close_password_change());
+        on!(on_import_retry, |c| c.import_retry());
+        on!(on_sheet_opened, |c, kind| c.sheet_opened(kind));
+        on!(on_sheet_closed, |c, kind| c.sheet_closed(kind));
 
         // Secure fields: each key goes straight into its locked buffer.
         let secrets = app.global::<Secrets>();
@@ -1286,10 +1301,12 @@ impl Controller {
             state.generated = Zeroizing::new(String::new());
             state.leaked.clear();
             state.watch_looked = None;
+            state.export_pending = None;
+            state.import_pending = None;
         }
         *self.icons.borrow_mut() = icons::Icons::default();
         let app = self.app();
-        app.set_changing_password(false);
+        app.set_import_name(SharedString::new());
         app.set_choosing_vault(false);
         app.set_confirm_remove_vault(false);
         app.set_import_added(-1);
@@ -1354,15 +1371,65 @@ impl Controller {
         }
     }
 
-    // ---- the master password ----
+    // ---- the sheet that asks for a password (app.slint `ask`) ----
 
-    fn close_password_change(&self) {
-        for index in [field::CURRENT, field::NEW, field::NEW_AGAIN] {
-            self.state.borrow_mut().secrets[index].clear();
+    /// The secure fields each sheet asks for.
+    fn sheet_fields(kind: i32) -> &'static [usize] {
+        match kind {
+            sheet::EXPORT_JSON..=sheet::EXPORT_CSV => {
+                &[field::EXPORT_MASTER, field::EXPORT_PASSWORD]
+            }
+            sheet::IMPORT => &[field::IMPORT_PASSWORD],
+            sheet::MASTER_PASSWORD => &[field::CURRENT, field::NEW, field::NEW_AGAIN],
+            sheet::ITEM_CHECK => &[field::ITEM_CHECK],
+            _ => &[],
+        }
+    }
+
+    fn clear_fields(&self, fields: &[usize]) {
+        {
+            let mut state = self.state.borrow_mut();
+            for &index in fields {
+                state.secrets[index].clear();
+                state.showing[index] = false;
+            }
         }
         self.publish_lengths();
+    }
+
+    /// A sheet opened: nothing from an earlier try stays in its fields or under them.
+    fn sheet_opened(&self, kind: i32) {
+        self.clear_fields(Self::sheet_fields(kind));
         self.set_error(error::NONE, "");
-        self.app().set_changing_password(false);
+    }
+
+    /// A sheet closed without its action: its fields are cleared, and a file that waited
+    /// for its password is dropped.
+    fn sheet_closed(&self, kind: i32) {
+        self.clear_fields(Self::sheet_fields(kind));
+        if kind == sheet::IMPORT {
+            self.state.borrow_mut().import_pending = None;
+            self.app().set_import_name(SharedString::new());
+        }
+        self.set_error(error::NONE, "");
+    }
+
+    /// The sheet's action is done: it closes (if it is still the one open).
+    fn close_sheet(&self, kind: i32) {
+        let app = self.app();
+        if app.get_confirming() == kind {
+            app.set_confirming(0);
+            app.global::<Secrets>().set_focused(-1);
+        }
+    }
+
+    // ---- the master password ----
+
+    /// The change is made (or the vault locked): the sheet's fields are cleared and it closes.
+    fn close_password_change(&self) {
+        self.clear_fields(Self::sheet_fields(sheet::MASTER_PASSWORD));
+        self.set_error(error::NONE, "");
+        self.close_sheet(sheet::MASTER_PASSWORD);
     }
 
     /// Settings → Master password: checked against the file with the current password, then
@@ -1821,8 +1888,7 @@ impl Controller {
     }
 
     fn item_checked(&self, right: bool) {
-        self.state.borrow_mut().secrets[field::ITEM_CHECK].clear();
-        self.publish_lengths();
+        self.clear_fields(&[field::ITEM_CHECK]);
         if !right {
             return self.set_error(error::WRONG_CHECK, "");
         }
@@ -1830,6 +1896,7 @@ impl Controller {
             self.state.borrow_mut().master_checked = true;
         }
         self.set_error(error::NONE, "");
+        self.close_sheet(sheet::ITEM_CHECK);
         self.show_item();
     }
 
