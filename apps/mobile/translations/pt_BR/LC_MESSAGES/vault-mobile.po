@@ -2687,3 +2687,7 @@ msgstr "Digite a senha dos itens para ver os segredos dele."
 msgctxt "PhoneWindow"
 msgid "Exporting…"
 msgstr "Exportando…"
+
+msgctxt "Messages"
+msgid "Password vault"
+msgstr "Cofre de senhas"
