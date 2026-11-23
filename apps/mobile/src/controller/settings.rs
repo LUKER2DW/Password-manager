@@ -7,13 +7,13 @@ use std::{
     rc::Rc,
 };
 
-use serde::{Deserialize, Serialize};
 use slint::{ModelRc, SharedString, VecModel};
 use vault_core::{Vault, health};
 use zeroize::Zeroizing;
 
 use super::{Controller, Opened, error, field, fingerprint, notice};
 use crate::{
+    bio::{self, BioUnlock},
     platform::{files, secret_store},
     prefs,
     system::{PromptWords, System},
@@ -21,29 +21,8 @@ use crate::{
     view,
 };
 
-/// Fingerprint unlock asks for the master password again after this long, as Windows Hello
-/// does on the desktop (CRYPTO.md §3.1).
-const PASSWORD_EVERY: i64 = 14 * 86_400;
-
 /// The languages Settings → Appearance offers, after "the phone's": their catalogue's tag.
 const LANGUAGES: [&str; 2] = ["en", "pt-BR"];
-
-/// A vault's fingerprint unlock on this phone (`unlock-<vault id>.json`, next to the vault):
-/// the vault key sealed under a device secret (`Vault::seal_for_device`), that secret sealed by
-/// the phone's secure hardware (opened only after a fingerprint), and when the master
-/// password was last typed. Nothing in it opens the vault without the hardware's key.
-#[derive(Serialize, Deserialize)]
-struct BioUnlock {
-    sealed_key: Vec<u8>,
-    hardware: Vec<u8>,
-    password_at: i64,
-}
-
-impl BioUnlock {
-    fn fresh(&self, now: i64) -> bool {
-        now - self.password_at < PASSWORD_EVERY
-    }
-}
 
 /// What a fingerprint prompt that is still open was for.
 #[derive(Debug, Default)]
@@ -59,6 +38,13 @@ pub(super) enum BioPending {
 /// The leak check as the app makes it (the tests put a stand-in in its place).
 pub(super) fn leak_lookup_default(password: &str) -> Result<u64, String> {
     crate::platform::leak_check::count(password)
+}
+
+/// The leak watch's check of every login as the app makes it.
+pub(super) fn leak_batch_default(
+    queries: &[(usize, vault_core::health::BreachQuery)],
+) -> Result<Vec<(usize, u64)>, String> {
+    crate::platform::leak_check::lookup(queries)
 }
 
 fn unix_now() -> i64 {
@@ -399,23 +385,16 @@ impl Controller {
 
     // ---- fingerprint unlock ----
 
-    fn unlock_file(&self, vault_id: &str) -> PathBuf {
-        self.folder().join(format!("unlock-{vault_id}.json"))
-    }
-
     fn read_bio(&self, vault_id: &str) -> Option<BioUnlock> {
-        files::read_any(&self.unlock_file(vault_id))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        bio::read(&self.folder(), vault_id)
     }
 
-    fn write_bio(&self, vault_id: &str, bio: &BioUnlock) -> Result<(), String> {
-        let bytes = serde_json::to_vec(bio).map_err(|e| e.to_string())?;
-        files::write_atomic(&self.unlock_file(vault_id), &bytes).map_err(|e| e.to_string())
+    fn write_bio(&self, vault_id: &str, unlock: &BioUnlock) -> Result<(), String> {
+        bio::write(&self.folder(), vault_id, unlock)
     }
 
     pub(super) fn forget_biometrics(&self, vault_id: &str) {
-        let path = self.unlock_file(vault_id);
+        let path = bio::path(&self.folder(), vault_id);
         files::remove(&path);
         files::remove(&bak(&path));
         self.system().forget_biometrics(vault_id);
@@ -707,6 +686,12 @@ impl Controller {
     #[cfg(test)]
     pub(crate) fn set_leak_lookup(&self, lookup: fn(&str) -> Result<u64, String>) {
         self.state.borrow_mut().leak_lookup = lookup;
+    }
+
+    /// The tests' stand-in for the leak watch's check of every login.
+    #[cfg(test)]
+    pub(crate) fn set_leak_batch(&self, lookup: super::LeakBatch) {
+        self.state.borrow_mut().leak_batch = lookup;
     }
 
     /// The open item's password: its strength here, then the leak check (5 hex characters of

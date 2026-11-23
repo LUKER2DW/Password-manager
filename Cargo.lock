@@ -7269,6 +7269,7 @@ dependencies = [
  "ndk-context",
  "slint",
  "vault-mobile",
+ "zeroize",
 ]
 
 [[package]]

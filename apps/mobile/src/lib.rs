@@ -13,6 +13,8 @@ pub mod ui {
     slint::include_modules!();
 }
 
+pub mod autofill;
+mod bio;
 mod controller;
 pub mod platform;
 mod prefs;

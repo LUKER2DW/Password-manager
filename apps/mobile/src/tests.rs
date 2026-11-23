@@ -931,6 +931,26 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     assert_eq!(app.get_d_leak(), -2);
     app.invoke_close_item();
 
+    // The leak watch (off until turned on): once a day, every login checked; a new leak is told
+    // once and marked in the list.
+    controller.set_leak_batch(|queries| Ok(queries.iter().map(|(i, _)| (*i, 7)).collect()));
+    app.set_notice_code(0);
+    app.invoke_leak_watch_changed(true);
+    assert_eq!(app.get_notice_code(), 21, "{}", app.get_error_detail());
+    assert!(app.get_items().row_data(0).unwrap().leaked);
+    app.set_notice_code(0);
+    app.invoke_leak_watch_changed(true);
+    assert_eq!(
+        app.get_notice_code(),
+        0,
+        "checked today already: nothing new to tell"
+    );
+    app.invoke_leak_watch_changed(false);
+    assert!(
+        !app.get_items().row_data(0).unwrap().leaked,
+        "off: nothing marked"
+    );
+
     // Switching: the open vault locks, the other one's unlock shows.
     app.invoke_switch_vault(0);
     assert_eq!(app.get_screen(), Screen::Unlock);

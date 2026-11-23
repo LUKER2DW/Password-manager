@@ -34,6 +34,9 @@ pub struct Prefs {
     pub vaults: Vec<KnownVault>,
     /// The file of the vault opened last ("" = the first one, `vault.vault`).
     pub current: String,
+    /// The leak watch: every login's password checked once a day while the vault is open (it
+    /// uses the network on its own, so it is off until turned on).
+    pub leak_watch: bool,
 }
 
 /// A vault this phone keeps: its file (a bare name, next to `settings.json`) and the name it
@@ -76,6 +79,7 @@ impl Default for Prefs {
             language: String::new(),
             vaults: Vec::new(),
             current: String::new(),
+            leak_watch: false,
         }
     }
 }

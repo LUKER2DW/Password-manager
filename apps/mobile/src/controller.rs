@@ -108,9 +108,11 @@ mod editor {
 }
 
 mod attachments;
+mod filling;
 mod icons;
 mod settings;
 mod syncing;
+mod watch;
 
 /// Notice codes (texts live in app.slint → Words.notice).
 mod notice {
@@ -137,6 +139,9 @@ mod notice {
     pub const BACKUP_JOINED: i32 = 18;
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub const ADDRESS_CHANGED: i32 = 19;
+    pub const DROPPED: i32 = 20;
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const LEAKS_NEW: i32 = 21;
 }
 
 /// How long a copied secret may stay on the clipboard (Settings), in seconds.
@@ -243,6 +248,11 @@ fn editor_kind(item: &ItemData) -> i32 {
     }
 }
 
+/// The leak watch's check of every login (`vault_platform::leak_check::lookup`, or a test's
+/// stand-in).
+type LeakBatch =
+    fn(&[(usize, vault_core::health::BreachQuery)]) -> Result<Vec<(usize, u64)>, String>;
+
 fn fingerprint(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
@@ -316,6 +326,13 @@ struct State {
     /// The leak check ("Check this password"), and the item it was asked for.
     leak_lookup: fn(&str) -> Result<u64, String>,
     leak_for: Option<ItemId>,
+    /// The leak watch: how it asks (the tests put a stand-in in its place), the logins its last
+    /// check found in a breach, and when it last looked whether a day had passed.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    leak_batch: LeakBatch,
+    leaked: std::collections::HashSet<ItemId>,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    watch_looked: Option<Instant>,
 }
 
 thread_local! {
@@ -403,6 +420,9 @@ impl Controller {
                 bio: settings::BioPending::None,
                 leak_lookup: settings::leak_lookup_default,
                 leak_for: None,
+                leak_batch: settings::leak_batch_default,
+                leaked: std::collections::HashSet::new(),
+                watch_looked: None,
                 lock_after: LOCK_CHOICES[usize::from(prefs.lock_choice).min(2)],
             }),
             tick: Timer::default(),
@@ -434,6 +454,7 @@ impl Controller {
         app.set_website_icons(prefs.website_icons);
         app.set_lock_on_leave(prefs.lock_on_leave);
         app.set_allow_capture(prefs.allow_capture);
+        app.set_leak_watch(prefs.leak_watch);
         controller.show_generator(&prefs.generator);
         controller.wire(app);
         controller.apply_language(&prefs.language);
@@ -549,6 +570,10 @@ impl Controller {
             .lock_on_leave_changed(on));
         on!(on_allow_capture_changed, |c, on| c
             .allow_capture_changed(on));
+        on!(on_leak_watch_changed, |c, on| {
+            c.change_prefs(|prefs| prefs.leak_watch = on);
+            c.watch_leaks();
+        });
         on!(on_open_autofill_settings, |c| c
             .system()
             .open_autofill_settings());
@@ -800,6 +825,29 @@ impl Controller {
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(controller) = CURRENT.with(|current| current.borrow().upgrade()) {
                     controller.app().set_busy(false);
+                    done(&controller, result);
+                }
+            });
+        });
+    }
+
+    /// [`Controller::run`] without showing the window as busy: work the person didn't ask for
+    /// just now (the leak watch).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    fn run_quietly<R: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> R + Send + 'static,
+        done: fn(&Controller, R),
+    ) {
+        if self.state.borrow().inline {
+            let result = work();
+            done(self, result);
+            return;
+        }
+        std::thread::spawn(move || {
+            let result = work();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(controller) = CURRENT.with(|current| current.borrow().upgrade()) {
                     done(&controller, result);
                 }
             });
@@ -1078,11 +1126,13 @@ impl Controller {
         app.set_bio_ready(false);
         app.set_bio_stale(false);
         self.remember_open_vault();
+        self.add_dropped_logins();
         self.publish_vault_facts();
         self.load_icons();
         self.refresh_list();
         self.fetch_icons();
         self.start_sync();
+        self.watch_leaks();
     }
 
     /// Items came from another device: the list, and the open item if it is still there.
@@ -1120,6 +1170,8 @@ impl Controller {
             state.master_checked = false;
             state.show_password = false;
             state.generated = Zeroizing::new(String::new());
+            state.leaked.clear();
+            state.watch_looked = None;
         }
         *self.icons.borrow_mut() = icons::Icons::default();
         let app = self.app();
@@ -1358,6 +1410,7 @@ impl Controller {
                     kind: kind_index(item.kind),
                     favorite: item.favorite,
                     locked: item.locked,
+                    leaked: state.leaked.contains(&item.id),
                 });
                 ids.push(item.id);
             }
@@ -2172,6 +2225,7 @@ impl Controller {
         if idle {
             return self.lock();
         }
+        self.watch_tick();
         let app = self.app();
         if app.get_screen() != Screen::Vault {
             return;

@@ -51,6 +51,12 @@ pub mod leak_check {
     pub fn count(_password: &str) -> Result<u64, String> {
         Err("the browser preview doesn't use the network".into())
     }
+
+    pub fn lookup<K: Copy>(
+        _queries: &[(K, vault_core::health::BreachQuery)],
+    ) -> Result<Vec<(K, u64)>, String> {
+        Err("the browser preview doesn't use the network".into())
+    }
 }
 
 /// The page's language is the browser's; the preview stays in English.

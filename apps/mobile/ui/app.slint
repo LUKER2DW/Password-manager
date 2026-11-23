@@ -26,6 +26,7 @@ export struct ItemRow {
     kind: int,          // 0 login, 1 card, 2 note, 3 passkey
     favorite: bool,
     locked: bool,
+    leaked: bool,       // the leak watch found its password in a data breach
 }
 
 // A file attached to an item: its name and size ("12 KB").
@@ -115,6 +116,8 @@ export global Words {
         if (code == 17) { return @tr("“{}” was removed from this phone.", arg); }
         if (code == 18) { return @tr("Backup server added: the vault syncs through both from now on."); }
         if (code == 19) { return @tr("The server's address changed. This phone's key there stays the same."); }
+        if (code == 20) { return @tr("{} logins saved from other apps while the vault was locked were added.", arg); }
+        if (code == 21) { return @tr("{} of your passwords turned up in a data breach since the last check. They are marked in the list: change them where you use them.", arg); }
         return "";
     }
 }
@@ -879,6 +882,8 @@ export component PhoneWindow inherits Window {
     callback lock-on-leave-changed(bool);
     in-out property <bool> allow-capture;
     callback allow-capture-changed(bool);
+    in-out property <bool> leak-watch;
+    callback leak-watch-changed(bool);
     // Autofill: whether this system has it, and whether this app is the service it uses.
     in property <bool> autofill-available;
     in property <bool> autofill-on;
@@ -1395,6 +1400,10 @@ export component PhoneWindow inherits Window {
                                             fill: transparent;
                                         }
                                     }
+                                    if row.leaked: VerticalLayout {
+                                        alignment: center;
+                                        Glyph { width: 18px; height: 18px; name: "leaked"; tint: Theme.seal; }
+                                    }
                                     if row.locked: VerticalLayout {
                                         alignment: center;
                                         Glyph { width: 16px; height: 16px; name: "lock"; tint: Theme.graphite; }
@@ -1745,6 +1754,18 @@ export component PhoneWindow inherits Window {
                                     options: [@tr("15 seconds"), @tr("30 seconds"), @tr("1 minute")];
                                     selected <=> root.clipboard-choice;
                                     changed(index) => { root.clipboard-choice-changed(index); }
+                                }
+                                Rectangle { height: 10px; }
+                                Check {
+                                    text: @tr("Watch for leaked passwords every day");
+                                    checked <=> root.leak-watch;
+                                    toggled(on) => { root.leak-watch-changed(on); }
+                                }
+                                Text {
+                                    text: @tr("Once a day while the vault is open, every login's password is checked against the newest list of data breaches (Have I Been Pwned). Only the first 5 characters of each password's SHA-1 fingerprint leave the phone, never a password. As soon as one turns up in a new breach, the app tells you and marks it in the list.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
                                 }
                                 Rectangle { height: 10px; }
                                 Check {
