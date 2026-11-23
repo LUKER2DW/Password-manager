@@ -65,3 +65,7 @@ msgstr "Escuro"
 msgctxt "SettingsPage"
 msgid "Light"
 msgstr "Claro"
+
+msgctxt "Messages"
+msgid "Password vault"
+msgstr "Cofre de senhas"

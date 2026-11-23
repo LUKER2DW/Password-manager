@@ -141,6 +141,8 @@ export struct DetailField {
 export global Messages {
     // The notification area icon and its menu.
     out property <string> tray-tooltip: @tr("Vault");
+    // What Explorer calls a .vault file (its "Type" column).
+    out property <string> vault-file-type: @tr("Password vault");
 
     public pure function kind-name(kind: int) -> string {
         if (kind == 1) { return @tr("Card"); }

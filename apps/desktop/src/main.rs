@@ -1,23 +1,34 @@
 //! Desktop app entry point.
 //!
-//! Set `VAULT_ALLOW_CAPTURE=1` to allow screenshots of the window (design reviews only).
+//! A `.vault` file given as the first argument (a double-click in Explorer, "Open with") is
+//! the vault the app opens. Set `VAULT_ALLOW_CAPTURE=1` to allow screenshots of the window
+//! (design reviews only).
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use slint::ComponentHandle;
 use vault_desktop::{
     apply_sketches,
     controller::{Controller, Runner},
-    ui::AppWindow,
+    ui::{AppWindow, Messages},
 };
+use vault_platform::file_types;
 
 fn main() -> anyhow::Result<()> {
     let app = AppWindow::new()?;
     apply_sketches(&app);
-    // VAULT_FILE wins; otherwise the vault used last on this computer, if it is still there.
-    let path = if std::env::var_os("VAULT_FILE").is_some() {
+    let opened = std::env::args_os()
+        .nth(1)
+        .map(PathBuf::from)
+        .filter(|path| file_types::is_vault_file(path) && path.is_file())
+        .and_then(|path| std::path::absolute(path).ok());
+    // A file opened from Explorer wins, then VAULT_FILE, then the vault used last on this
+    // computer, if it is still there.
+    let path = if let Some(path) = opened {
+        path
+    } else if std::env::var_os("VAULT_FILE").is_some() {
         vault_platform::paths::default_vault_path()?
     } else {
         match vault_platform::DeviceState::load()
@@ -34,6 +45,17 @@ fn main() -> anyhow::Result<()> {
         Runner::Thread,
         vault_platform::quick_unlock::system_verifier(),
     )?;
+
+    // .vault files show this app's icon and open in it (for this user, pointing at this
+    // program). A development build leaves the registration to the installed app.
+    if !cfg!(debug_assertions)
+        && let Ok(exe) = std::env::current_exe()
+    {
+        let type_name = app.global::<Messages>().get_vault_file_type();
+        std::thread::spawn(move || {
+            let _ = file_types::register_vault_files(&exe, &type_name);
+        });
+    }
 
     // The native window exists once the event loop runs.
     let weak = app.as_weak();
