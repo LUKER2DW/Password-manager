@@ -32,7 +32,7 @@ use slint::{
 use vault_desktop::{
     apply_sketches,
     controller::{Controller, Runner},
-    ui::{AppWindow, Secrets, Theme},
+    ui::{AppWindow, PasskeyRow, Secrets, Theme},
 };
 
 const WIDTH: u32 = 1180;
@@ -400,6 +400,26 @@ fn main() {
     app.set_confirming_delete(true);
     camera.shot("vault-delete-confirm", "Delete confirmation");
     app.set_confirming_delete(false);
+
+    // A login's passkey, made through the browser extension (the rows are set directly here:
+    // a real one needs a site and the extension).
+    let passkeys = || {
+        slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(vec![PasskeyRow {
+            site: "github.com".into(),
+            user: "octocat".into(),
+            created: "12 Nov 2026".into(),
+        }])))
+    };
+    app.set_notes_shown(false);
+    app.set_detail_passkeys(passkeys());
+    camera.shot("vault-passkey", "A login's passkey on the item page");
+    app.invoke_edit_item();
+    app.set_ed_passkeys(passkeys());
+    camera.shot(
+        "editor-passkey",
+        "The editor: a passkey taken out here is gone once saved",
+    );
+    app.invoke_cancel_edit();
 
     // Recovery codes on GitHub: one already used.
     select_title(&app, "GitHub");

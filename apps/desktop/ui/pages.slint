@@ -2,7 +2,7 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { DetailField, FileRow, CodeRow, AuthRow, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
+import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
 import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker } from "icons.slint";
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip } from "kit.slint";
@@ -227,6 +227,8 @@ export component DetailPage inherits Rectangle {
     // Files attached to the item (none while it is locked).
     in property <[FileRow]> files;
     callback file-save(int);
+    // The login's passkeys (who and where show while it is locked too).
+    in property <[PasskeyRow]> passkeys;
     in property <string> folder;
     in property <int> codes-total;
     in property <int> codes-left;
@@ -679,6 +681,44 @@ export component DetailPage inherits Rectangle {
                 }
             }
 
+            // Passkeys: the browser extension signs in to their site with them.
+            if root.passkeys.length > 0: VerticalLayout {
+                spacing: 6px;
+                padding-top: 6px;
+                Text { text: @tr("Passkeys"); font-size: Theme.small; color: Theme.graphite; }
+                for passkey in root.passkeys: HorizontalLayout {
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        Glyph { width: 16px; height: 16px; name: "key"; tint: Theme.graphite; }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        Text {
+                            text: passkey.user != "" ? passkey.user : @tr("No account name");
+                            font-size: Theme.body;
+                            color: Theme.ink;
+                            overflow: elide;
+                            min-width: 0px;
+                        }
+                        Text {
+                            text: passkey.site;
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            overflow: elide;
+                            min-width: 0px;
+                        }
+                    }
+                    Text {
+                        text: @tr("Saved {}", passkey.created);
+                        font-size: Theme.small;
+                        color: Theme.graphite;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
             // Notes read like every other fact: label on the left, the eye on the right, and
             // the text under the row while it is shown.
             if root.notes != "": FieldRow {
@@ -964,6 +1004,9 @@ export component EditorPage inherits Rectangle {
     in property <[FileRow]> files;
     callback file-add();
     callback file-remove(int);
+    // The login's passkeys: one taken out here is gone when the item is saved.
+    in property <[PasskeyRow]> passkeys;
+    callback passkey-remove(int);
     // Strength of the password being typed (logins only; 0 bits = empty).
     in property <int> strength-bits;
     in property <int> crack-unit;
@@ -1258,6 +1301,31 @@ export component EditorPage inherits Rectangle {
                     }
                     Text { text: file.size; font-size: Theme.small; color: Theme.graphite; vertical-alignment: center; }
                     QuietButton { icon: "trash"; text: @tr("Remove"); tint: Theme.graphite; clicked => { root.file-remove(index); } }
+                }
+                if root.passkeys.length > 0: Text { text: @tr("Passkeys"); font-size: Theme.small; color: Theme.graphite; }
+                for passkey[index] in root.passkeys: HorizontalLayout {
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        Glyph { width: 16px; height: 16px; name: "key"; tint: Theme.graphite; }
+                    }
+                    Text {
+                        text: passkey.user != "" ? passkey.user : @tr("No account name");
+                        font-size: Theme.body;
+                        color: Theme.ink;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                    }
+                    Text { text: passkey.site; font-size: Theme.small; color: Theme.graphite; vertical-alignment: center; overflow: elide; }
+                    QuietButton { icon: "trash"; text: @tr("Remove"); tint: Theme.graphite; clicked => { root.passkey-remove(index); } }
+                }
+                if root.passkeys.length > 0: Text {
+                    text: @tr("A passkey removed here is gone once you save. The site still expects it until you remove it in the site's security settings too.");
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
                 }
                 HorizontalLayout {
                     alignment: start;
