@@ -87,7 +87,11 @@ ends and a thin bar while it moves). Slint measures a block shown with `if` that
 text as if its lines were one, so a page can come out a few lines short: pages are their own
 scrollers, lists of wrapped text are written out, and each page keeps 56 px of room at its end.
 Sensitive actions (removing a vault or a device, stopping sync, deleting an item or a folder, an
-export) ask first in a sheet at the bottom.
+export) ask first in a sheet at the bottom. A password an action needs is typed in that same
+sheet, not on the page: the master password (and the export's own) for an export, a file's
+password when the chosen file turns out to have one, a new master password, the item lock's
+check. The sheet stays open while the password is checked and says there what went wrong; it
+closes once the action is done, and its fields are wiped when it closes either way.
 
 Rules carried over from DESIGN.md: one yellow thing per screen (the main button), hand-drawn
 only for small details (the stroke under the chosen place), sentence case, words that say
@@ -101,7 +105,7 @@ thumb (bottom of the form, not the top bar), nothing that needs hover.
 | Secret Key at rest | Android Keystore (StrongBox when the phone has it), wrapped key in app-private storage |
 | Quick unlock | ✅ `BiometricPrompt` releasing a Keystore key that opens a device secret, which unwraps the vault key (CRYPTO.md §3.1.1, as Windows Hello does on the desktop): a Class 3 fingerprint or face, or on Android 11+ the phone's screen lock (PIN, pattern or password); master password again every 14 days and after it changes; a new fingerprint retires the key |
 | Previews | ✅ Pictures and text are decoded in Rust from memory. A PDF is drawn by Android's `PdfRenderer`, which reads a file: the decrypted PDF sits in the app's private cache while its pages are drawn (at most 40), then is overwritten and deleted; a leftover from a stopped app is wiped at the next start. Nothing is handed to another app |
-| Exports | ✅ The master password again (checked against the file), then a confirmation; refused while items are behind the item lock. The protected export (`.vaultx`) is sealed under a password of its own; a plain JSON or CSV export says it holds every password in plain text |
+| Exports | ✅ The master password again (checked against the file), in the confirmation sheet; refused while items are behind the item lock. The protected export (`.vaultx`) is sealed under a password of its own; a plain JSON or CSV export says it holds every password in plain text |
 | Generated passwords | ✅ The last 50 copied, sealed with the vault key next to the phone's copy (`generated-<vault id>.history`), masked until shown; those a login already uses are left out of the list |
 | Screen | ✅ `FLAG_SECURE` unless "Allow screenshots" is turned on: no screenshots, blank in the app switcher |
 | Clipboard | Marked sensitive (`EXTRA_IS_SENSITIVE`, Android 13+), cleared after the timeout |
