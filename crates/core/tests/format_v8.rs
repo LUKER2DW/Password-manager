@@ -157,7 +157,7 @@ fn the_v8_fixture_is_upgraded_on_save() {
     };
     let mut vault = Vault::open(&bytes, unlock()).unwrap();
     let saved = vault.to_bytes().unwrap();
-    assert_eq!(&saved[8..10], &9u16.to_le_bytes());
+    assert_eq!(&saved[8..10], &10u16.to_le_bytes());
     let mut reopened = Vault::open(&saved, unlock()).unwrap();
     // The guarded item's secrets, sealed in the v8 layout, still open with the PIN.
     assert!(reopened.unlock_secrets(GUARD_PIN).unwrap());

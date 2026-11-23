@@ -114,7 +114,7 @@ fn a_v3_vault_is_upgraded_on_save() {
     let upgraded = vault.to_bytes().unwrap();
     assert_eq!(
         &upgraded[8..10],
-        &9u16.to_le_bytes(),
+        &10u16.to_le_bytes(),
         "written as format v9"
     );
     let reopened = Vault::open(&upgraded, unlock()).unwrap();

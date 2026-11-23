@@ -34,6 +34,7 @@ pub mod drop_box;
 pub mod generator;
 pub mod health;
 pub mod locked_fill;
+pub mod passkey;
 pub mod sealed_export;
 pub mod ssh;
 pub mod storage;
@@ -49,6 +50,7 @@ pub use item::{
 };
 pub use kdf::{KdfMethod, KdfParams, KdfStrength, PasswordKdf};
 pub use keys::{Keyfile, PartLabel, RecoveryKey, RecoveryPart, RecoveryParts, SecretKey};
+pub use passkey::Passkey;
 pub use vault::{Unlock, Vault, VaultInfo};
 
 /// Convenience alias used throughout the crate.

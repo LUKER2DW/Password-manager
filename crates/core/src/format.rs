@@ -26,14 +26,16 @@ pub(crate) const MAGIC: &[u8; 8] = b"PMVAULT\0";
 /// v8 = three recovery parts in the header (any two bring back the Secret Key, all three open
 /// the vault) in place of the Recovery Key, which older kits still use;
 /// v9 = SSH key items, and files attached to items (in the item, and in its sealed secrets when
-/// the item lock covers it).
-pub(crate) const FORMAT_VERSION: u16 = 9;
+/// the item lock covers it);
+/// v10 = passkeys in logins (who and where in the item, the private keys with its secrets, so
+/// sealed with them when the item lock covers it).
+pub(crate) const FORMAT_VERSION: u16 = 10;
 /// Last version whose header has Argon2id parameters only.
 const LAST_ARGON2_ONLY_VERSION: u16 = 5;
 /// Last version whose header has no recovery parts.
 const LAST_HEADER_WITHOUT_PARTS: u16 = 7;
 /// Last version that changed the item layout: items of older files are re-encrypted on open.
-pub(crate) const ITEM_LAYOUT_VERSION: u16 = 9;
+pub(crate) const ITEM_LAYOUT_VERSION: u16 = 10;
 /// Oldest version this build still reads (and upgrades on the next save).
 pub(crate) const OLDEST_READABLE_VERSION: u16 = 0;
 const ENVELOPE_PREFIX: usize = 8 + 2 + 4;

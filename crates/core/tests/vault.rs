@@ -706,10 +706,10 @@ fn foreign_files_and_future_versions_are_rejected() {
         Err(Error::NotAVault)
     ));
     let mut bytes = f.vault.to_bytes().unwrap();
-    bytes[8] = 10; // format_version = 10: from the future
+    bytes[8] = 11; // format_version = 11: from the future
     assert!(matches!(
         Vault::open(&bytes, Unlock::Recovery(&f.recovery_key)),
-        Err(Error::UnsupportedVersion(10))
+        Err(Error::UnsupportedVersion(11))
     ));
     // Relabelling a current file as an older version never opens it: the header no longer
     // parses in the old layout, and where it does (v5, same body layout aside) the version is
@@ -943,4 +943,62 @@ fn a_copy_is_checked_with_the_key_in_memory() {
         f.vault.check_copy(&stranger.to_bytes().unwrap()),
         Err(Error::OtherVault)
     ));
+}
+
+#[test]
+fn passkeys_are_sealed_with_their_item_and_kept_in_order() {
+    use vault_core::{GuardCheck, ItemData, KdfParams, Passkey, SecretKey, Vault};
+
+    let secret_key = SecretKey::generate().unwrap();
+    let mut vault = Vault::create("pw", &secret_key, None, KdfParams::minimum().unwrap()).unwrap();
+    let mut login = ItemData::login("Site", "me", "pw", "https://site.example");
+    login.reprompt = true;
+    login.passkeys = vec![
+        Passkey::new("site.example", b"me-1", "me", "").unwrap(),
+        Passkey::new("site.example", b"me-2", "me too", "").unwrap(),
+    ];
+    let id = vault.add_item(&login).unwrap();
+    vault
+        .set_item_guard(false, GuardCheck::Pin, Some("4821"), Some("pw"))
+        .unwrap();
+    // Opened again from the file: the guard starts closed.
+    let bytes = vault.to_bytes().unwrap();
+    let mut vault = Vault::open(
+        &bytes,
+        vault_core::Unlock::Password {
+            password: "pw",
+            secret_key: &secret_key,
+        },
+    )
+    .unwrap();
+    let locked = vault.get_item(&id).unwrap();
+    assert!(locked.is_locked());
+    assert_eq!(locked.passkeys.len(), 2, "who and where still show");
+    assert!(locked.passkeys.iter().all(|p| !p.has_key()));
+    // Written back as read (a new title): kept; with a passkey taken out: refused until open.
+    let mut renamed = locked.clone();
+    renamed.title = "Site (renamed)".into();
+    vault.update_item(&id, &renamed).unwrap();
+    let mut fewer = locked.clone();
+    fewer.passkeys.remove(0);
+    assert!(matches!(
+        vault.update_item(&id, &fewer),
+        Err(vault_core::Error::SecretsLocked)
+    ));
+    assert!(vault.unlock_secrets("4821").unwrap());
+    let open = vault.get_item(&id).unwrap();
+    assert_eq!(open.title, "Site (renamed)");
+    assert_eq!(
+        open.passkeys, login.passkeys,
+        "the keys came back to their own passkeys"
+    );
+    let mut fewer = open.clone();
+    fewer.passkeys.remove(0);
+    vault.update_item(&id, &fewer).unwrap();
+    assert_eq!(vault.get_item(&id).unwrap().passkeys, login.passkeys[1..]);
+    // Never the same credential twice.
+    let mut twice = ItemData::login("Twice", "me", "", "https://site.example");
+    let one = Passkey::new("site.example", b"x", "x", "").unwrap();
+    twice.passkeys = vec![one.clone(), one];
+    assert!(vault.add_item(&twice).is_err());
 }

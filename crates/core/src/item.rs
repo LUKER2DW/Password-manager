@@ -8,7 +8,7 @@ use web_time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::{Result, random};
+use crate::{Result, passkey::Passkey, random};
 
 /// Random 128-bit item identifier.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -384,6 +384,9 @@ pub struct ItemData {
     pub sealed: Option<SealedSecrets>,
     /// Files kept with the item; empty while it is locked. (Format v9.)
     pub attachments: Vec<Attachment>,
+    /// The login's passkeys. While the item is locked their private keys are sealed with its
+    /// other secrets; who and where stay readable. (Format v10.)
+    pub passkeys: Vec<Passkey>,
 }
 
 /// A guarded item's secrets, encrypted under the item guard key, with the few facts a locked
@@ -399,8 +402,8 @@ pub struct SealedSecrets {
 }
 
 /// The part of an item that the item guard encrypts: password, one-time code secret, the
-/// values of hidden fields (in order), recovery codes, earlier passwords, and the text of a
-/// secure note.
+/// values of hidden fields (in order), recovery codes, earlier passwords, the text of a
+/// secure note, attached files, and the private keys of its passkeys (in order).
 #[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub(crate) struct ItemSecrets {
     password: String,
@@ -410,6 +413,21 @@ pub(crate) struct ItemSecrets {
     recovery_codes: Vec<RecoveryCode>,
     password_history: Vec<PasswordChange>,
     /// Format v9: the item's files.
+    attachments: Vec<Attachment>,
+    /// Format v10: the private keys of the item's passkeys, in the order of `passkeys`.
+    passkey_keys: Vec<Vec<u8>>,
+}
+
+/// Sealed secrets as written in format v9 (before passkeys). Read as they are found, like
+/// [`ItemSecretsV6`].
+#[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub(crate) struct ItemSecretsV9 {
+    password: String,
+    totp: String,
+    notes: String,
+    fields: Vec<String>,
+    recovery_codes: Vec<RecoveryCode>,
+    password_history: Vec<PasswordChange>,
     attachments: Vec<Attachment>,
 }
 
@@ -426,10 +444,23 @@ pub(crate) struct ItemSecretsV6 {
 }
 
 impl ItemSecrets {
-    /// Reads sealed secrets in the current layout or the one before attachments.
+    /// Reads sealed secrets in the current layout, the one before passkeys (v9), or the one
+    /// before attachments (v6 to v8).
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self> {
         if let Ok(secrets) = crate::format::decode_exact::<Self>(bytes) {
             return Ok(secrets);
+        }
+        if let Ok(mut old) = crate::format::decode_exact::<ItemSecretsV9>(bytes) {
+            return Ok(Self {
+                password: std::mem::take(&mut old.password),
+                totp: std::mem::take(&mut old.totp),
+                notes: std::mem::take(&mut old.notes),
+                fields: std::mem::take(&mut old.fields),
+                recovery_codes: std::mem::take(&mut old.recovery_codes),
+                password_history: std::mem::take(&mut old.password_history),
+                attachments: std::mem::take(&mut old.attachments),
+                passkey_keys: Vec::new(),
+            });
         }
         let mut old: ItemSecretsV6 = crate::format::decode_exact(bytes)?;
         Ok(Self {
@@ -440,13 +471,15 @@ impl ItemSecrets {
             recovery_codes: std::mem::take(&mut old.recovery_codes),
             password_history: std::mem::take(&mut old.password_history),
             attachments: Vec::new(),
+            passkey_keys: Vec::new(),
         })
     }
 }
 
 impl ItemData {
     /// The item's secrets are still encrypted: password, one-time code, recovery codes, hidden
-    /// fields and history are empty here until the item guard is passed.
+    /// fields, history, files and the passkeys' private keys are empty here until the item
+    /// guard is passed.
     pub fn is_locked(&self) -> bool {
         self.sealed.is_some()
     }
@@ -470,13 +503,18 @@ impl ItemData {
             recovery_codes: std::mem::take(&mut self.recovery_codes),
             password_history: std::mem::take(&mut self.password_history),
             attachments: std::mem::take(&mut self.attachments),
+            passkey_keys: self
+                .passkeys
+                .iter_mut()
+                .map(|passkey| std::mem::take(&mut passkey.key))
+                .collect(),
         }
     }
 
     /// Puts secrets taken by [`ItemData::take_secrets`] back.
     pub(crate) fn put_secrets(&mut self, mut secrets: ItemSecrets) -> Result<()> {
         let hidden = self.custom_fields.iter().filter(|f| f.sensitive).count();
-        if hidden != secrets.fields.len() {
+        if hidden != secrets.fields.len() || self.passkeys.len() != secrets.passkey_keys.len() {
             return Err(crate::Error::Malformed);
         }
         self.password = std::mem::take(&mut secrets.password);
@@ -495,7 +533,48 @@ impl ItemData {
         self.recovery_codes = std::mem::take(&mut secrets.recovery_codes);
         self.password_history = std::mem::take(&mut secrets.password_history);
         self.attachments = std::mem::take(&mut secrets.attachments);
+        for (passkey, key) in self
+            .passkeys
+            .iter_mut()
+            .zip(secrets.passkey_keys.iter_mut())
+        {
+            passkey.key = std::mem::take(key);
+        }
         Ok(())
+    }
+
+    /// Whether the passkeys keep to their limits ([`Passkey::MAX_PER_ITEM`] and those of each
+    /// passkey) and no credential id is there twice. (Only logins offer theirs to sites; an
+    /// item whose kind was changed keeps them rather than losing them.)
+    pub(crate) fn check_passkeys(&self) -> Result<()> {
+        if self.passkeys.is_empty() {
+            return Ok(());
+        }
+        let mut ids: Vec<&[u8]> = self
+            .passkeys
+            .iter()
+            .map(|p| p.credential_id.as_slice())
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        if self.passkeys.len() > Passkey::MAX_PER_ITEM
+            || ids.len() != self.passkeys.len()
+            || !self.passkeys.iter().all(Passkey::fits)
+        {
+            return Err(crate::Error::Malformed);
+        }
+        Ok(())
+    }
+
+    /// Whether `other` has the same passkeys, by credential id and in the same order: what a
+    /// locked item may be written back with, since their keys stay sealed in that order.
+    pub(crate) fn same_passkeys(&self, other: &Self) -> bool {
+        self.passkeys.len() == other.passkeys.len()
+            && self
+                .passkeys
+                .iter()
+                .zip(&other.passkeys)
+                .all(|(a, b)| a.credential_id == b.credential_id)
     }
 
     /// Whether the attached files keep to the limits ([`Attachment::MAX_BYTES`],
@@ -537,6 +616,7 @@ impl ItemData {
             reprompt: false,
             sealed: None,
             attachments: Vec::new(),
+            passkeys: Vec::new(),
         }
     }
 
@@ -599,6 +679,7 @@ impl fmt::Debug for ItemData {
             .field("icon_url", &self.icon_url)
             .field("locked", &self.sealed.is_some())
             .field("attachments", &self.attachments)
+            .field("passkeys", &self.passkeys)
             .finish()
     }
 }
@@ -644,6 +725,7 @@ impl ItemDataV0 {
             folder: None,
             recovery_codes: Vec::new(),
             attachments: Vec::new(),
+            passkeys: Vec::new(),
         }
     }
 }
@@ -692,6 +774,7 @@ impl ItemDataV1 {
             reprompt: false,
             sealed: None,
             attachments: Vec::new(),
+            passkeys: Vec::new(),
         }
     }
 }
@@ -742,6 +825,7 @@ impl ItemDataV2 {
             reprompt: false,
             sealed: None,
             attachments: Vec::new(),
+            passkeys: Vec::new(),
         }
     }
 }
@@ -793,6 +877,7 @@ impl ItemDataV3 {
             reprompt: false,
             sealed: None,
             attachments: Vec::new(),
+            passkeys: Vec::new(),
         }
     }
 }
@@ -846,6 +931,7 @@ impl ItemDataV5 {
             reprompt: self.reprompt,
             sealed: None,
             attachments: Vec::new(),
+            passkeys: Vec::new(),
         }
     }
 }
@@ -901,6 +987,65 @@ impl ItemDataV8 {
             reprompt: self.reprompt,
             sealed: self.sealed.take(),
             attachments: Vec::new(),
+            passkeys: Vec::new(),
+        }
+    }
+}
+
+/// Item data as stored in format v9 (before passkeys). Read-only: such vaults are upgraded
+/// when opened.
+#[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub(crate) struct ItemDataV9 {
+    #[zeroize(skip)]
+    pub(crate) kind: ItemKind,
+    pub(crate) title: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) urls: Vec<String>,
+    pub(crate) notes: String,
+    pub(crate) totp: String,
+    pub(crate) favorite: bool,
+    pub(crate) custom_fields: Vec<CustomField>,
+    pub(crate) created_at: i64,
+    pub(crate) updated_at: i64,
+    #[zeroize(skip)]
+    pub(crate) folder: Option<FolderId>,
+    pub(crate) recovery_codes: Vec<RecoveryCode>,
+    pub(crate) password_history: Vec<PasswordChange>,
+    pub(crate) password_changed_at: i64,
+    pub(crate) icon_url: String,
+    #[zeroize(skip)]
+    pub(crate) reprompt: bool,
+    #[zeroize(skip)]
+    pub(crate) sealed: Option<SealedSecrets>,
+    pub(crate) attachments: Vec<Attachment>,
+}
+
+impl ItemDataV9 {
+    /// Moves the fields into the current item layout; sealed secrets stay sealed as they are
+    /// (they are read in the v9 layout when the guard opens).
+    pub(crate) fn upgrade(mut self) -> ItemData {
+        ItemData {
+            kind: self.kind,
+            title: std::mem::take(&mut self.title),
+            username: std::mem::take(&mut self.username),
+            password: std::mem::take(&mut self.password),
+            urls: std::mem::take(&mut self.urls),
+            notes: std::mem::take(&mut self.notes),
+            totp: std::mem::take(&mut self.totp),
+            favorite: self.favorite,
+            custom_fields: std::mem::take(&mut self.custom_fields),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            folder: self.folder,
+            recovery_codes: std::mem::take(&mut self.recovery_codes),
+            password_history: std::mem::take(&mut self.password_history),
+            password_changed_at: self.password_changed_at,
+            icon_url: std::mem::take(&mut self.icon_url),
+            reprompt: self.reprompt,
+            sealed: self.sealed.take(),
+            attachments: std::mem::take(&mut self.attachments),
+            passkeys: Vec::new(),
         }
     }
 }

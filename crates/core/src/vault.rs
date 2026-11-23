@@ -14,7 +14,7 @@ use crate::{
     guard::{GuardKeySlots, GuardSlot, WrappedGuardKey},
     item::{
         FolderV1, FolderV3, ItemDataV0, ItemDataV1, ItemDataV2, ItemDataV3, ItemDataV5, ItemDataV8,
-        ItemSecrets, PasswordChange, SealedSecrets,
+        ItemDataV9, ItemSecrets, PasswordChange, SealedSecrets,
     },
     keys::{self, Keyfile, VaultKey},
     padding,
@@ -397,6 +397,7 @@ impl Vault {
                 3 | 4 => format::decode_exact::<ItemDataV3>(plain)?.upgrade(),
                 5 => format::decode_exact::<ItemDataV5>(plain)?.upgrade(),
                 6..=8 => format::decode_exact::<ItemDataV8>(plain)?.upgrade(),
+                9 => format::decode_exact::<ItemDataV9>(plain)?.upgrade(),
                 _ => return Err(Error::Malformed),
             };
             let (id, revision) = (self.items[index].id, self.items[index].revision);
@@ -888,6 +889,7 @@ impl Vault {
             }
         };
         data.check_attachments()?;
+        data.check_passkeys()?;
         let mut data = data.clone();
         if data.password_changed_at == 0 && !data.password.is_empty() {
             data.password_changed_at = data.created_at;
@@ -966,6 +968,7 @@ impl Vault {
     /// can be changed while the guard is closed and keeps waiting for its seal.
     pub fn update_item(&mut self, id: &ItemId, data: &ItemData) -> Result<()> {
         data.check_attachments()?;
+        data.check_passkeys()?;
         let index = self.position(id).ok_or(Error::ItemNotFound)?;
         let revision = self.items[index]
             .revision
@@ -974,6 +977,11 @@ impl Vault {
         let mut old = self.open_item(&self.items[index])?;
         let mut data = data.clone();
         if data.is_locked() {
+            // Its passkeys' keys stay sealed in their order: one can't be added or removed
+            // until the item is open.
+            if !data.same_passkeys(&old) {
+                return Err(Error::SecretsLocked);
+            }
             if old.is_locked() {
                 data.sealed.clone_from(&old.sealed);
                 let record = self.seal_item(*id, revision, &data)?;
