@@ -134,6 +134,9 @@ pub struct Settings {
     pub generator: GeneratorPrefs,
     /// The app's language (`pt_BR`); empty follows the system.
     pub language: String,
+    /// The leak watch: every login's password checked once a day while the vault is open (it
+    /// uses the network on its own, so it is off until turned on).
+    pub leak_watch: bool,
 }
 
 impl Default for Settings {
@@ -148,6 +151,7 @@ impl Default for Settings {
             browser_locked_fill: true,
             generator: GeneratorPrefs::default(),
             language: String::new(),
+            leak_watch: false,
         }
     }
 }
