@@ -13,6 +13,7 @@ pub mod clipboard;
 pub mod clipboard;
 pub mod device;
 pub mod dpapi;
+pub mod file_types;
 pub mod files;
 pub mod keyfile;
 pub mod kit_pdf;
