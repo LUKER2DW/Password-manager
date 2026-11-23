@@ -34,7 +34,7 @@ apps/
   cli/                  vault-cli: the `vault` command-line client
   desktop/              vault-desktop: the Slint desktop app (ui/ is vault-desktop-ui)
   mobile/               vault-mobile: the phone app's screens and controller (Android first)
-  mobile-android/       vault-mobile-android: the phone app as an APK (cargo-apk, Java activity)
+  mobile-android/       vault-mobile-android: the phone app as an APK (cargo + Gradle, Java activity)
   mobile-web/           vault-mobile-web: the phone app in a browser page (WebAssembly), demo vault
   server/               vault-server: the self-hosted sync server (AGPL-3.0), Docker files
   extension/            the Chrome/Edge extension (Manifest V3, plain JavaScript)

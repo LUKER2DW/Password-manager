@@ -41,7 +41,8 @@ the emergency kit is printed. The phone keeps a copy of that file (§6.3).
   are Android APIs with no Rust equivalent. The shell is plain Java for now (one small class
   needs no Kotlin compiler or Gradle); its services call the Rust core through a narrow JNI
   bridge and never hold a decrypted vault of their own.
-- **Network only for sync and opt-in website icons.** `INTERNET` is the only permission.
+- **Network only for sync and opt-in website icons.** `INTERNET` is the only permission that
+  reaches out. The app has no camera permission: Google's code scanner reads QR codes.
 
 ### Why not a web view or a second UI toolkit
 
@@ -105,7 +106,7 @@ thumb (bottom of the form, not the top bar), nothing that needs hover.
 | # | Milestone | Done when |
 |---|---|---|
 | M7.0 | **Base** — crate, screens, controller, off-screen screenshots, headless test | ✅ |
-| M7.1 | **Runs on a phone** — NDK build (cargo-apk, §7.2), Slint Android backend, the system keyboard for secret fields (§6.1, §7.2), bundled fonts (§6.2), Back | ✅ an APK opens a test vault on a device; ⬜ fonts |
+| M7.1 | **Runs on a phone** — NDK build (cargo + Gradle, §7.2), Slint Android backend, the system keyboard for secret fields (§6.1, §7.2), bundled fonts (§6.2), Back | ✅ an APK opens a test vault on a device; ⬜ fonts |
 | M7.2 | **Phone storage** — Keystore-backed Secret Key, app-private vault path, the system file picker and "open with" for `.vault` files (§6.3), `FLAG_SECURE`, sensitive clipboard | ✅ a vault made on Windows opens on the phone; ✅ `FLAG_SECURE`; ⬜ "open with" |
 | M7.3 | **Biometrics** — Class 3 prompt, key invalidated when biometrics change; an app lock | ✅ built (CRYPTO.md §3.1.1); ⬜ tried on a device |
 | M7.4 | **Autofill** — `AutofillService` with app and origin matching, save prompt | ✅ built: offers, a confirmation on every fill, "Save to Vault?", a strong password suggested; ⬜ tried on a device |
@@ -271,21 +272,27 @@ vault code is the same: the core uses the browser's clock (`web-time`) and its r
 
 `apps/mobile-android` is the APK's native library: `android_main` points the app folder
 at the app's private storage, starts Slint's Android backend and opens the same screens and
-controller. `cargo-apk` packages it. The activity is `VaultActivity`
+controller. The activity is `VaultActivity`
 (`apps/mobile-android/java/`), Android's `NativeActivity` plus the system's file picker:
 it opens a document (`ACTION_OPEN_DOCUMENT`) or asks where to save one
 (`ACTION_CREATE_DOCUMENT`), reads and writes it through the content resolver off the main
-thread, and hands the bytes to the native library (`src/shell.rs`, JNI). `build.ps1`
-compiles it with the JDK's `javac` and the SDK's `d8`, adds `classes.dex` to the APK
-cargo-apk made, then aligns and signs it again. The launcher icon (`res/`) is the desktop's
-safe, as an adaptive icon. It is plain Java, not Kotlin: one small class needs no Kotlin
-compiler or Gradle in the build.
+thread, and hands the bytes to the native library (`src/shell.rs`, JNI). The launcher icon (`res/`)
+is the desktop's safe, as an adaptive icon. It is plain Java, not Kotlin.
+
+`build.ps1` builds it in two steps: cargo builds the native library with the NDK's linker
+(in `target/android`, apart from the computer's builds, so both can build at once), then
+Gradle (`gradlew`, `build.gradle`, `AndroidManifest.xml`) packages it with the Java shell,
+`res/` and the one library the Java side uses, Google's code scanner, and signs the APK.
+The library is built with the `fast` profile (optimized, parallel, incremental: a rebuild
+after a change takes a fraction of a full one); `build.ps1 -Release` uses the release
+profile (one codegen unit and LTO). The first build fetches Gradle and the scanner's
+libraries from Google's Maven repository; later builds use Gradle's cache.
 
 ```powershell
-# Once: the NDK and platform 35 (sdkmanager), Rust's Android targets, cargo-apk.
+# Once: the NDK and platform 35 (sdkmanager), Rust's Android targets. Gradle runs on
+# Android Studio's Java (JAVA_HOME, or its jbr folder).
 sdkmanager "ndk;28.2.13676358" "platforms;android-35"
 rustup target add aarch64-linux-android x86_64-linux-android
-cargo install cargo-apk --locked
 
 ./apps/mobile-android/build.ps1          # target/release/apk/vault-mobile-android.apk
 adb install -r target/release/apk/vault-mobile-android.apk
@@ -314,8 +321,13 @@ What is in this first build (M7.1):
 - **The credential store** is SharedPreferences encrypted with a key in the Android Keystore
   (`android-native-keyring-store`); **the clipboard** is the system's `ClipboardManager`
   over JNI, with copied secrets marked sensitive.
-- `INTERNET` is the only permission. Android lets plain http through only so a Tailscale
-  address works; the app itself refuses `http://` to anything else.
+- `INTERNET` is the only permission that reaches out. Android lets plain http through only so
+  a Tailscale address works; the app itself refuses `http://` to anything else.
+- **Scan the QR code** (the start screen and Settings → Sync) reads the invite a computer
+  shows under Add a device with Google's code scanner (`play-services-code-scanner`, the
+  same as Sentinela's): the camera screen is Play services' own, so the app has no camera
+  permission and gets back only the code's text, which is used as a pasted line. A phone
+  without Play services gets a message to paste the line instead.
 - **Back** goes one step back: an item or the editor closes, another place goes back to the
   Vault. At the top the app goes to the background (`moveTaskToBack`), never closed by
   mistake. A focus scope around the window takes Back before any field does.
@@ -340,8 +352,8 @@ What is in this first build (M7.1):
 - **Autofill** (`VaultAutofillService`, `AutofillActivity`, `src/autofill.rs` in vault-mobile):
   the logins for exactly the website or app asking; a fingerprint or the phone's lock before
   every fill; "Use a strong password" on password fields; "Save to Vault?" after a sign-in,
-  into the open vault or, while it is locked, its drop box (CRYPTO.md §3.5). cargo-apk can't
-  declare a service, so `build.ps1` packages the APK again with them added to its manifest.
+  into the open vault or, while it is locked, its drop box (CRYPTO.md §3.5). The service and
+  its activity are declared in `AndroidManifest.xml`.
 - **Sync as on a computer:** Add a device (QR code and line), change the server's address,
   add or remove a backup server, the devices (remove one), how many copies the server keeps.
 - **Updates** from the vault server (docs/SERVER.md, "Updates of the phone app").
@@ -349,7 +361,7 @@ What is in this first build (M7.1):
   on the item page. **The leak watch** (Security, off until turned on): every login checked
   once a day while open; a new leak is told and marked in the list.
 
-Not yet: scanning QR codes, the bundled fonts (Roboto stands in), checking an app's signing
+Not yet: scanning a one-time code's QR code, the bundled fonts (Roboto stands in), checking an app's signing
 certificate before filling it, passkeys.
 
 ### 7.3 Languages

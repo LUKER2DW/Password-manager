@@ -14,7 +14,7 @@ password-manager/
 │   ├── cli/                   # vault-cli: the `vault` command
 │   ├── desktop/               # vault-desktop: Slint app (Windows; ui/ is vault-desktop-ui)
 │   ├── mobile/                # vault-mobile: the phone's screens and controller (Slint)
-│   ├── mobile-android/        # vault-mobile-android: the APK (cargo-apk + a Java activity)
+│   ├── mobile-android/        # vault-mobile-android: the APK (cargo + Gradle, a Java activity)
 │   ├── mobile-web/            # vault-mobile-web: the phone app in a web page (WebAssembly)
 │   ├── server/                # vault-server: self-hosted sync (AGPL-3.0), Docker files
 │   └── extension/             # browser extension (Manifest V3, plain JavaScript)
@@ -323,7 +323,9 @@ Rules:
   `<app dir>/phone`, so it syncs as a device of its own
 - ✅ WebDAV on the phone (Settings → Sync → Use WebDAV); the WebDAV target tested end to end
   against a small WebDAV server (authentication, temporary file then MOVE, ETags)
-- ⬜ Scanning the invite's QR code with the camera (M7); on the phone, fetching copies while
+- ✅ Scanning the invite's QR code on the phone with Google's code scanner (start screen,
+  Settings → Sync)
+- ⬜ On the phone, fetching copies while
   the vault is locked so the merge at unlock needs no network
 - ⬜ M6.5 nearby sync over the LAN
 - **Done when:** two devices converge; ZK-AE-Tester style malicious-server tests pass.
@@ -341,12 +343,12 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   keys and is no older than what the phone saw; "Bring a newer copy" in Settings
 - ✅ The phone app in a browser (`apps/mobile-web`, WebAssembly): the real screens and
   controller on a canvas with a demo vault, to try it on a computer (MOBILE.md §7.1)
-- 🚧 M7.1 Runs on a phone: ✅ an APK (`apps/mobile-android`, `cargo-apk`, NDK 28, Slint's
+- 🚧 M7.1 Runs on a phone: ✅ an APK (`apps/mobile-android`, cargo + Gradle, NDK 28, Slint's
   Android backend) with the system keyboard for secret fields (stand-ins only, MOBILE.md
   §7.2), setup from the sync server on the start screen, the Keystore-backed credential
   store and the system clipboard over JNI; tried on a phone; Back; ⬜ bundled fonts
 - 🚧 M7.2 Phone storage: ✅ the activity's Java side (`VaultActivity`, built into the APK
-  by `build.ps1` with javac and d8) with the system's file picker: the start screen opens a
+  by Gradle) with the system's file picker: the start screen opens a
   `.vault` file (offline; sync turned on later) or sets up from the server, "Bring a newer
   copy" takes a file, "Save a copy" saves a backup that is read back and checked; the
   launcher icon; ✅ Keystore-backed credential store, sensitive clipboard; ⬜ "open with"
@@ -383,7 +385,8 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   Updates, About); sync as on a computer (Add a device with a QR code, change the server's
   address, a backup server, the devices, the server's copies and their size, how sync
   works); several vaults with a card on the vault's name; import of another manager's
-  export; "Check this password" (strength and leak check); ⬜ scanning a QR code
+  export; "Check this password" (strength and leak check); ✅ scanning the invite's QR code;
+  ⬜ scanning a one-time code's QR code
 - ✅ M7.3 Fingerprint unlock (BiometricPrompt Class 3, Keystore/StrongBox, CRYPTO.md
   §3.1.1), lock as soon as the app is left, screenshots kept out unless allowed
 - ✅ M7.4 Autofill Service (exact site or app, a fingerprint or the phone's lock before every

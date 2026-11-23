@@ -133,6 +133,13 @@ On top of that:
   which keeps them in `chrome.storage.session` (memory only, closed to content scripts) for
   at most two minutes, until the person answers "Save this login?". They reach the app only if
   the person says Save; a page can't trigger the save by itself (same visibility check).
+- **The phone's QR code scanner** is Google's (Play services' code scanner): the camera
+  screen runs in Play services, the app has no camera permission and gets back only the
+  code's text. That text (the invite) passes through Play services on the phone; it opens
+  nothing by itself. What is read is treated like a pasted line: an invite works once,
+  within an hour, and the phone still needs the master password and the Secret Key. Residual risk: someone who films the computer's screen while
+  the invite is shown can use it within the hour to enroll a device, which then still can't
+  open the vault without the master password and the Secret Key.
 - **Generated passwords** come from the app's generator, never from the page or the
   extension. A password the person used is kept in the app's history, sealed with the vault
   key on this computer and shown behind the item lock; "Clear history" deletes it. Copying is
