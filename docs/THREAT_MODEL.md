@@ -162,6 +162,11 @@ On top of that:
   until shown, the last 50).
 - **Tray mode** keeps an unlocked vault in memory while the window is hidden; the idle lock
   still applies, and the tray menu locks at once.
+- **The `.vault` file type** is registered for the signed-in user (`HKEY_CURRENT_USER`), so a
+  double-click opens the file in the app. A program running as the same user could point it
+  at another program, as it could replace the app's shortcut; the file itself stays
+  encrypted, and the app only ever asks for the master password in its own window. The
+  extension is taken only when no other program has it.
 - **Saving while the vault is locked**: a login the person saves from the browser is sealed to
   a public key (libsodium sealed box) whose private key only the open vault reads, and added
   at the next unlock. Nothing is asked for (no PIN, no Windows Hello) and the locked app can't

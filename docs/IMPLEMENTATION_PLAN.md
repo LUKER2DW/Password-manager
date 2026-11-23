@@ -198,6 +198,10 @@ Rules:
   offers to import passwords, or to skip
 - ✅ Tray mode: closing the window keeps the app in the notification area (nothing drawn,
   timers stopped), with Open, Lock and Quit
+- ✅ `.vault` files show the app's icon and open in it (double-click, "Open with"): the
+  release app registers the file type for this user at start (`file_types.rs`); ⬜ a second
+  copy started by a double-click hands the file to the one already running; ⬜ `.vaultx`
+  opening the import
 - ✅ Attachments (format v9, see M7); ⬜ tags; passkeys
 - **Done when:** daily use on Windows is possible with a test vault.
 

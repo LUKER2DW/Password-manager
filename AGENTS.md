@@ -99,7 +99,8 @@ Windows Hello quick unlock (`quick_unlock.rs`), DPAPI (`dpapi.rs`), keyfiles on 
 (`keyfile.rs`), the person's language (`locale.rs`), installed browsers (`browsers.rs`), the
 extension's local pipe and host registration (`browser_link.rs`), the emergency kit PDF
 (`kit_pdf.rs`), a recovery part hidden in a picture (`part_picture.rs`), opt-in website icons
-fetched directly from each site with a sealed cache (`website_icons.rs`), file helpers and
+fetched directly from each site with a sealed cache (`website_icons.rs`), the `.vault` file
+type for this user on Windows (icon, opens in the app; `file_types.rs`), file helpers and
 secure wiping (`files.rs`), app paths (`paths.rs`), sync targets and one sync
 round (`sync.rs`: the folder target, fetch, merge, this device joining the vault;
 `sync/server.rs` the sync server client, `sync/webdav.rs` WebDAV, `sync/http.rs` which
