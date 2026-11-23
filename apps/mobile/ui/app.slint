@@ -413,14 +413,15 @@ component PlaceTab inherits Rectangle {
 }
 
 // A filter over the list: a word (the star for favourites) that gets a soft pill when chosen.
-// The filters share the row's width, so all of them show without scrolling sideways.
+// The filters share the row's width in proportion to their words, so a long one ("Cartões")
+// has room for all its letters, and all of them show without scrolling sideways.
 component Filter inherits Rectangle {
     in property <string> text;
     in property <bool> star;
     in property <bool> active;
     callback clicked;
     height: 36px;
-    horizontal-stretch: 1;
+    horizontal-stretch: root.star ? 3 : max(4, root.text.character-count);
     min-width: 0px;
     border-radius: 18px;
     background: root.active ? Theme.selected : transparent;
@@ -1960,19 +1961,27 @@ export component PhoneWindow inherits Window {
                                     color: Theme.graphite;
                                     wrap: word-wrap;
                                 }
-                                if root.can-pick-file: HorizontalLayout {
+                                // One button a line: side by side, the two words are too wide for
+                                // a phone in some languages and push the whole page sideways.
+                                if root.can-pick-file: VerticalLayout {
                                     alignment: start;
                                     spacing: 10px;
-                                    QuietButton {
-                                        text: @tr("Bring a newer copy");
-                                        icon: "folder";
-                                        outlined: true;
-                                        clicked => { root.pick-vault(); }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        QuietButton {
+                                            text: @tr("Bring a newer copy");
+                                            icon: "folder";
+                                            outlined: true;
+                                            clicked => { root.pick-vault(); }
+                                        }
                                     }
-                                    QuietButton {
-                                        text: @tr("Save a copy");
-                                        icon: "download";
-                                        clicked => { root.save-copy(); }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        QuietButton {
+                                            text: @tr("Save a copy");
+                                            icon: "download";
+                                            clicked => { root.save-copy(); }
+                                        }
                                     }
                                 }
                                 Text {

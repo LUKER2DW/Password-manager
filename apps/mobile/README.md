@@ -18,5 +18,9 @@ cargo run -p vault-mobile --example phone_screens -- target/phone-screens
 `Theme.touch` on. The controller reaches the system only through `src/platform.rs`, which is
 the platform crate on a phone or a computer and `src/platform/web.rs` in a browser.
 
+The words are written in English in the `.slint` files. `translations/` holds the Brazilian
+Portuguese (gettext, see its README), and `src/i18n.rs` picks the language (Settings →
+Appearance).
+
 What the app does, how it keeps secrets on a phone and what each build needs:
 [docs/MOBILE.md](../../docs/MOBILE.md).

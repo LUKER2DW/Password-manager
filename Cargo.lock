@@ -7257,6 +7257,7 @@ dependencies = [
  "vault-platform",
  "vault-server",
  "vault-sync-wire",
+ "wasm-bindgen",
  "web-time",
  "zeroize",
 ]

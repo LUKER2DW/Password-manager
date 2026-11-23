@@ -18,7 +18,7 @@ use vault_platform::sync::{self, ServerTarget, Target as _};
 use crate::{
     Controller,
     system::{PromptWords, System},
-    ui::{Page, PhoneWindow, Place, Screen, Secrets},
+    ui::{Page, PhoneWindow, Place, Screen, Secrets, Words},
 };
 
 /// The phone's system as the tests see it: a fingerprint that is always the right one, a
@@ -34,6 +34,11 @@ struct FakeSystem {
 }
 
 impl System for FakeSystem {
+    /// This phone is set to Brazilian Portuguese: "the phone's" is Portuguese in Settings.
+    fn language(&self) -> Option<String> {
+        Some("pt-BR".into())
+    }
+
     fn biometrics(&self) -> bool {
         true
     }
@@ -181,6 +186,8 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     let app = PhoneWindow::new().unwrap();
     let path = dir.path().join("phone").join("vault.vault");
     let controller = Controller::start(&app, path.clone(), true);
+    // The phone's own language may be Portuguese (this computer's): the test starts in English.
+    app.invoke_language_changed(1);
 
     // ---- the system keyboard (Android): the hidden input only ever holds stand-ins ----
     {
@@ -756,11 +763,30 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     app.invoke_unlock();
     app.invoke_lock_on_leave_changed(false);
     assert!(controller.is_unlocked());
-    // The language: kept, shown as chosen.
+    // The language: kept, shown as chosen, and the words change with it. "Give it a name
+    // first." is the English text of Words.error(5); its Portuguese is in translations/.
+    let words = app.global::<Words>();
     app.invoke_language_changed(2);
     assert_eq!(app.get_language_choice(), 2);
+    assert_eq!(
+        words.invoke_error(5, "".into()),
+        "Dê um nome primeiro.",
+        "Portuguese chosen"
+    );
+    app.invoke_language_changed(1);
+    assert_eq!(
+        words.invoke_error(5, "".into()),
+        "Give it a name first.",
+        "English chosen"
+    );
+    // "The phone's" follows the phone, which is set to Portuguese in this test.
     app.invoke_language_changed(0);
     assert_eq!(app.get_language_choice(), 0);
+    assert_eq!(
+        words.invoke_error(5, "".into()),
+        "Dê um nome primeiro.",
+        "the phone's language"
+    );
 
     // ---- a copy of the vault: confirmed only after it is read back and checked ----
     let (name, copy) = controller

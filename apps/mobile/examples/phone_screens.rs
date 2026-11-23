@@ -188,6 +188,10 @@ fn main() {
     app.show().expect("show the window");
     let path = home.path().join("phone").join("vault.vault");
     let controller = Controller::start(&app, path.clone(), true);
+    // English, unless VAULT_LANG says otherwise (`VAULT_LANG=pt-BR` for the Portuguese screens),
+    // whatever this computer's language is.
+    let language = std::env::var("VAULT_LANG").unwrap_or_else(|_| "en".to_owned());
+    app.invoke_language_changed(vault_mobile::i18n::choice_of(&language).max(1));
     let mut camera = Camera {
         window,
         dir,

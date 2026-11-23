@@ -9,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use wasm_bindgen::prelude::wasm_bindgen;
 use zeroize::{Zeroize, Zeroizing};
 
 thread_local! {
@@ -59,9 +60,17 @@ pub mod leak_check {
     }
 }
 
-/// The page's language is the browser's; the preview stays in English.
+/// The browser's language (`navigator.language`, "pt-BR"): the preview follows it as the phone
+/// follows Android's, when the setting says "the phone's".
+#[wasm_bindgen(
+    inline_js = "export function browser_language() { return navigator.language || ''; }"
+)]
+extern "C" {
+    fn browser_language() -> String;
+}
+
 pub fn system_language() -> Option<String> {
-    None
+    Some(browser_language()).filter(|tag| !tag.is_empty())
 }
 
 /// The Secret Key "remembered on this device": in this page's memory.
