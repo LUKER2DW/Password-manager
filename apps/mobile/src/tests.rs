@@ -999,8 +999,13 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     let mut pc = open_file(&path, &secret_key);
     let mut pc_seen = vault_core::sync::SeenRevisions::new();
     sync::join(&mut pc, pc_id, "PC").unwrap();
-    pc.add_item(&ItemData::new(ItemKind::SecureNote, "From the computer"))
-        .unwrap();
+    // A login with a passkey the computer's browser made.
+    let mut from_pc = ItemData::login("From the computer", "pc-user", "", "https://pc.example");
+    from_pc.passkeys = vec![
+        vault_core::Passkey::new("pc.example", b"pc-user-id", "pc-user@pc.example", "PC user")
+            .unwrap(),
+    ];
+    pc.add_item(&from_pc).unwrap();
     pc_server.put(pc_id, &pc.to_bytes().unwrap()).unwrap();
     let link = pc_server
         .invite_link(&pc_server.invite().unwrap())
@@ -1035,8 +1040,33 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         "joined and synced"
     );
     assert_eq!(app.get_sync_place(), server.url.as_str());
-    assert_eq!(app.get_total(), 3, "the computer's note came in");
+    assert_eq!(app.get_total(), 3, "the computer's login came in");
     assert_eq!(app.get_notice_code(), 9);
+    // Its passkey shows on the phone, and stays through an edit there.
+    let open_from_pc = || {
+        let index = (0..app.get_items().row_count())
+            .find(|&i| app.get_items().row_data(i).unwrap().title == "From the computer")
+            .unwrap();
+        app.invoke_open_item(i32::try_from(index).unwrap());
+    };
+    open_from_pc();
+    assert_eq!(app.get_d_passkeys().row_count(), 1);
+    let passkey = app.get_d_passkeys().row_data(0).unwrap();
+    assert_eq!(
+        (passkey.site.as_str(), passkey.user.as_str()),
+        ("pc.example", "pc-user@pc.example")
+    );
+    app.invoke_edit_item();
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    app.invoke_close_item();
+    open_from_pc();
+    assert_eq!(
+        app.get_d_passkeys().row_count(),
+        1,
+        "kept through an edit on the phone"
+    );
+    app.invoke_close_item();
     assert_eq!(
         app.get_sync_invite_typed(),
         "",

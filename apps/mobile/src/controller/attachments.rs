@@ -8,7 +8,10 @@ use vault_core::{Attachment, CustomField, ItemData, ItemKind, ssh};
 use zeroize::Zeroizing;
 
 use super::{Controller, error, notice};
-use crate::{ui::FileRow, view};
+use crate::{
+    ui::{FileRow, PasskeyRow},
+    view,
+};
 
 /// What a file chosen in the system's picker is for (the screens' `pick-file` argument).
 mod pick {
@@ -208,6 +211,19 @@ impl Controller {
         let files: &[Attachment] = if open { &item.attachments } else { &[] };
         let app = self.app();
         app.set_d_files(rows(files));
+        let passkeys: Vec<PasskeyRow> = item
+            .passkeys
+            .iter()
+            .map(|passkey| PasskeyRow {
+                site: passkey.rp_id.as_str().into(),
+                user: if passkey.user_name.is_empty() {
+                    passkey.display_name.as_str().into()
+                } else {
+                    passkey.user_name.as_str().into()
+                },
+            })
+            .collect();
+        app.set_d_passkeys(ModelRc::new(VecModel::from(passkeys)));
         let public = if item.kind == ItemKind::SshKey {
             field_value(item, ssh::PUBLIC_KEY_FIELD)
         } else {

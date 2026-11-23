@@ -1560,6 +1560,7 @@ impl Controller {
         app.set_d_has_code(false);
         app.set_d_check(0);
         app.set_d_files(ModelRc::default());
+        app.set_d_passkeys(ModelRc::default());
         app.set_d_checked(false);
         app.set_d_leak(0);
         self.state.borrow_mut().leak_for = None;
