@@ -120,6 +120,55 @@ pub enum Request {
         username: String,
         password: Secret,
     },
+    /// Which passkeys the vault has for the site `rp_id` (empty: the page's host), which the
+    /// page at `url` must be allowed to speak for ([`crate::origin::passkey_site`]). `allow`
+    /// is the site's list of credential ids (base64url), when it gave one. Answered without
+    /// any key, locked logins too.
+    Passkeys {
+        url: String,
+        #[serde(default)]
+        rp_id: String,
+        #[serde(default)]
+        allow: Vec<String>,
+    },
+    /// Signs in with passkey `credential` (base64url) of login `id` on the page at `url`: the
+    /// app writes the client data itself, from the page's origin and the site's `challenge`
+    /// (base64url), and signs it. A locked login is opened first, as for a fill.
+    PasskeyGet {
+        url: String,
+        #[serde(default)]
+        rp_id: String,
+        id: String,
+        credential: String,
+        challenge: String,
+        #[serde(default)]
+        check: Option<Secret>,
+        #[serde(default)]
+        hello: bool,
+    },
+    /// Makes a passkey for the site `rp_id` and the account `user_id` (base64url) named
+    /// `user_name`, for the page at `url`, and keeps it in the login saved for that page with
+    /// that username (a new login when there is none). Refused when a passkey in `exclude`
+    /// (credential ids, base64url) is already in the vault, or when `algorithms` (COSE numbers,
+    /// in the site's order; empty: any) leave out ES256.
+    PasskeyCreate {
+        url: String,
+        #[serde(default)]
+        rp_id: String,
+        user_id: String,
+        user_name: String,
+        #[serde(default)]
+        display_name: String,
+        challenge: String,
+        #[serde(default)]
+        exclude: Vec<String>,
+        #[serde(default)]
+        algorithms: Vec<i64>,
+        #[serde(default)]
+        check: Option<Secret>,
+        #[serde(default)]
+        hello: bool,
+    },
     /// Replaces the password of login `id`, saved for `url`'s origin, with `password`. The old
     /// one goes into the item's password history. A locked login is opened first, as for a
     /// fill.
@@ -245,6 +294,20 @@ pub enum Response {
     Updated {
         changed: bool,
     },
+    /// The passkeys for a site ([`Request::Passkeys`]).
+    Passkeys {
+        origin: String,
+        /// The site they belong to, as the app checked it.
+        rp_id: String,
+        check: Check,
+        hello: bool,
+        items: Vec<PasskeyEntry>,
+    },
+    /// A signature for the site ([`Request::PasskeyGet`]). (Boxed: the largest answers, kept
+    /// out of the size of every other one.)
+    Assertion(Box<Assertion>),
+    /// A passkey made and kept ([`Request::PasskeyCreate`]).
+    Attestation(Box<Attestation>),
     /// The app is asking the person whether to connect this extension. `key` is the shared
     /// key (hex), useless until the person allows it in the app; `code` is shown by both.
     Pairing {
@@ -272,6 +335,49 @@ pub struct LoginEntry {
     pub locked: bool,
     /// It has a one-time code (unknown, and so `false`, while the vault is locked).
     pub has_code: bool,
+}
+
+/// One passkey offered for a site: whose it is, never its key.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PasskeyEntry {
+    /// The login it is kept in.
+    pub id: String,
+    /// Its credential id (base64url).
+    pub credential: String,
+    pub title: String,
+    pub user_name: String,
+    pub display_name: String,
+    /// Behind the item lock: its PIN or password is asked before it signs.
+    pub locked: bool,
+}
+
+/// What a page hands the site when signing in with a passkey (all base64url): the
+/// `AuthenticatorAssertionResponse` of WebAuthn.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Assertion {
+    /// The origin the page must still have when it gets this.
+    pub origin: String,
+    pub credential: String,
+    pub client_data: String,
+    pub authenticator_data: String,
+    pub signature: String,
+    pub user_handle: String,
+}
+
+/// What a page hands the site when a passkey is made (all base64url): the
+/// `AuthenticatorAttestationResponse` of WebAuthn.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Attestation {
+    /// The origin the page must still have when it gets this.
+    pub origin: String,
+    pub credential: String,
+    pub client_data: String,
+    pub attestation_object: String,
+    pub authenticator_data: String,
+    /// The public key as a DER SubjectPublicKeyInfo (`getPublicKey()`).
+    pub public_key: String,
+    /// Its COSE algorithm (ES256, -7).
+    pub algorithm: i64,
 }
 
 /// One login in the extension's view of the vault.
@@ -376,4 +482,11 @@ pub enum ErrorCode {
     NotPaired,
     /// The message was not understood.
     BadRequest,
+    /// The page may not make or use passkeys for that site (another site, a public suffix,
+    /// an IP address).
+    WrongSite,
+    /// One of the passkeys the site listed as already made is in the vault.
+    Exists,
+    /// The site accepts none of the kinds of passkey the app makes (ES256).
+    Unsupported,
 }

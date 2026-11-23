@@ -153,6 +153,8 @@ fn finish(response: Response, filled: Option<String>, copy: Option<Copy>) -> Ans
         saved: None,
         updated: None,
         kept: None,
+        passkey_saved: None,
+        passkey_used: None,
     }
 }
 
@@ -294,7 +296,11 @@ pub fn answer_locked(message: &[u8], logins: &[LockedLogin], gate: &mut dyn Lock
         | Request::Keep { .. }
         | Request::Code { .. }
         | Request::Changed { .. }
-        | Request::Update { .. } => finish(error(ErrorCode::Locked), None, None),
+        | Request::Update { .. }
+        // Passkeys need the open vault: the extension asks the person to unlock it.
+        | Request::Passkeys { .. }
+        | Request::PasskeyGet { .. }
+        | Request::PasskeyCreate { .. } => finish(error(ErrorCode::Locked), None, None),
     }
 }
 
