@@ -26,6 +26,10 @@ SSH key items (format v9) may hold a key the app made for the person: Ed25519 fr
 `ed25519-dalek`, written in OpenSSH's own format. It is data the vault keeps, like a
 password, and plays no part in the vault's own keys.
 
+Passkeys (format v10, §3.7) are ECDSA P-256 keys with SHA-256 (ES256, RFC 6979 nonces) from
+`p256`, made by the app for websites. Like SSH keys, they are data the vault keeps and play no
+part in the vault's own keys.
+
 ## 2. Secrets the user holds
 
 ### 2.1 Master password
@@ -309,6 +313,35 @@ parts.secret_key = seal(K_secret_key, secret_key)
   memory, it is one more thing to forget, in the one place meant for when memory fails. The
   parts' 128 bits each and the kit kept apart from the devices are the protection.
 - Only HKDF-SHA-256 and the AEAD of §5; there is no secret sharing scheme to get wrong.
+
+
+### 3.7 Passkeys (format v10)
+
+A passkey is a WebAuthn credential kept in a login (VAULT_FORMAT.md §4), made and used by the
+app for the browser extension. Only primitives from audited crates are used: ECDSA over
+P-256 with SHA-256 (ES256, COSE algorithm −7) from RustCrypto's `p256` crate, with nonces
+derived deterministically (RFC 6979), and SHA-256.
+
+- **Making one.** The private key is a uniformly random scalar from the OS generator (a 32-byte
+  string is drawn again in the rare case it is not a valid scalar); the credential id is 16
+  random bytes. The site gets the public key as a COSE_Key (kty EC2, crv P-256, x, y, in
+  CTAP2 canonical order) inside the attested credential data, and a `none` attestation (no
+  attestation statement, AAGUID all zeros).
+- **Authenticator data** (WebAuthn §6.1): SHA-256 of the RP id, the flags user present (UP),
+  user verified (UV), backup eligible (BE) and backed up (BS) (plus AT when made), and a sign
+  counter of 0. There is no counter: the same passkey is in every synced copy of the vault,
+  and 0 tells the site that the authenticator keeps none. UV means the vault is open (the
+  master password was given) and, when the item lock covers the login, its check was passed
+  for this request; UP means the person chose it in the extension's own window.
+- **Signing in.** The signature is ES256 over `authenticatorData || SHA-256(clientDataJSON)`,
+  DER-encoded. The client data (`type`, `challenge`, `origin`, `crossOrigin: false`) is
+  written by the app from the page's origin as the browser reports it and the site's
+  challenge, never taken from the page.
+- **Which site.** A page may make or use passkeys only for its own host or a domain its host
+  is under that is not a public suffix (the Public Suffix List compiled into the app), never
+  for an IP address, and only on HTTPS in the top frame (`vault_browser::origin::passkey_site`).
+- **At rest.** The private key is item data: encrypted with the item key, and sealed under the
+  item guard key with the item's other secrets when the guard covers the item (§3.2).
 
 ## 4. Argon2id parameters
 

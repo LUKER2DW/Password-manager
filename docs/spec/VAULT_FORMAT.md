@@ -1,6 +1,6 @@
-# Vault File Format — v9
+# Vault File Format — v10
 
-> Status: **draft v9**, not stable. v0–v8 files are still read and upgraded to v9 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
+> Status: **draft v10**, not stable. v0–v9 files are still read and upgraded to v10 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
 > Structures are serialized with [postcard](https://postcard.jamesmunns.com/wire-format) 1.x
 > (stable wire format). Integers in the file envelope are little-endian.
 
@@ -164,7 +164,7 @@ Items are encrypted twice on disk (item layer + body layer) on purpose: after un
 app keeps items encrypted in memory and decrypts only the one being used; the body layer hides
 the item count, sizes and ids. Item records are also the unit of sync (SYNC.md §4).
 
-## 4. Item data (v9)
+## 4. Item data (v10)
 
 ```rust
 struct ItemData {
@@ -187,6 +187,17 @@ struct ItemData {
     reprompt: bool,                        // v5: the item is guarded even when `guard.all_items` is off
     sealed: Option<SealedSecrets>,         // v6: present while the item's secrets are encrypted
     attachments: Vec<Attachment>,          // v9: files kept with the item; empty while sealed
+    passkeys: Vec<Passkey>,                // v10: the login's passkeys (keys empty while sealed)
+}
+
+struct Passkey {             // v10, CRYPTO.md §3.7
+    credential_id: Vec<u8>,  // as the site knows it; 16 random bytes when made here; 1..=1023
+    rp_id: String,           // the site (relying party id), a domain in ASCII form
+    user_handle: Vec<u8>,    // the site's id for the account, at most 64 bytes
+    user_name: String,       // at most 256 characters
+    display_name: String,    // at most 256 characters
+    created_at: i64,         // Unix seconds
+    key: Vec<u8>,            // the P-256 private scalar (32 bytes, big-endian); empty while sealed
 }
 
 struct Attachment {          // v9
@@ -211,6 +222,7 @@ struct ItemSecrets {         // moved out of the item; those fields are stored e
     recovery_codes: Vec<RecoveryCode>,
     password_history: Vec<PasswordChange>,
     attachments: Vec<Attachment>,  // v9; sealed secrets written by v6–v8 end before it
+    passkey_keys: Vec<Vec<u8>>,    // v10: each passkey's `key`, in order; v9 ones end before it
 }
 
 struct PasswordChange {
@@ -237,14 +249,23 @@ A v0 file has no `folders` in the body and its items end after `updated_at`; a v
 items after `password_changed_at`; a v3 file's folders end after `color`; v3 and v4 items end
 after `icon_url`. When an older file is opened, every item is decrypted with its old layout and
 re-encrypted with the current layout in memory (same ids and revisions, new item keys); the next
-save writes a v9 file. v5 items end after `reprompt`; a v0–v5 header holds a bare `KdfParams`.
+save writes a v10 file. v5 items end after `reprompt`; a v0–v5 header holds a bare `KdfParams`.
 A v0–v6 body has no `sync`; it is read as never synced (no writer, no tombstones, revisions
 at 0). The item layout is unchanged in v7. A v0–v7 header ends after `slots` (no `parts`); the
 body and items are unchanged in v8. Such a vault keeps its Recovery Key until a new emergency
 kit is made, which replaces the Recovery slot with `parts`. v6–v8 items end after `sealed`
 (no `attachments`) and are re-encrypted in the v9 layout on open; their sealed secrets stay
 sealed as they are and are read in either layout when the guard opens (a v6–v8 `ItemSecrets`
-ends after `password_history`).
+ends after `password_history`). v9 items end after `attachments` (no `passkeys`) and are
+re-encrypted in the v10 layout on open; their sealed secrets (ending after `attachments`) are
+read as they are.
+
+**Passkeys (v10).** A login's passkeys are part of the item. Who and where (`credential_id`,
+`rp_id`, `user_handle`, the names, `created_at`) stay readable while the item is sealed, like
+its username; each passkey's `key` moves into the sealed `ItemSecrets` in the order of
+`passkeys`, so a sealed item can be written back only with the same passkeys in the same order
+(adding or removing one needs the guard open). Within an item no `credential_id` appears twice;
+at most 16 passkeys per item.
 
 **SSH keys (v9).** An `SshKey` item keeps the private key (OpenSSH text, kept exactly as it
 came) in `password`, so the item guard covers it like a password, and its public key and

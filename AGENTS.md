@@ -83,6 +83,7 @@ filesystem policy** beyond atomic writes.
 | `sealed_export.rs` | An export sealed under a password of its own (`.vaultx`) |
 | `drop_box.rs` | Logins saved from the browser while locked, sealed to a public key only the open vault reads |
 | `locked_fill.rs` | Logins the extension may fill while the vault is locked (CRYPTO.md §3.4) |
+| `passkey.rs` | Passkeys in logins: ES256 keys, authenticator data, attestation, signatures (CRYPTO.md §3.7) |
 | `totp.rs` | RFC 6238 one-time codes |
 | `storage.rs` | Atomic file writes with a `.bak` copy |
 | `random.rs` | OS randomness |
@@ -130,7 +131,7 @@ app. `tests/cli.rs` runs the binary, including sync through a running server.
 ### 2.4.1 `crates/browser` (vault-browser) and `apps/extension/`
 
 The extension holds no secrets. `origin.rs` decides which saved website belongs to which page
-(exact scheme, host and port; https only), `protocol.rs` is the JSON it exchanges with the
+(exact scheme, host and port; https only) and which site a page may use passkeys for, `protocol.rs` is the JSON it exchanges with the
 app, `pairing.rs` is the connection key and the proof on every request, `service.rs` answers
 from an open vault (with the item lock as a `Gate`), `host.rs` + `main.rs` are the native host
 (`vault-browser-host`) that relays between the browser and the app's pipe. In `apps/extension/`,
@@ -138,9 +139,12 @@ from an open vault (with the item lock as a `Gate`), `host.rs` + `main.rs` are t
 `fill.js` the function that types a login into a page, `content.js` + `fields.js` the
 content script (sign-in fields, submitted forms), `inline.html`/`inline.js` the frame shown
 under a field, `background.js` the worker between them and the app, `generator.js` the
-reading of a site's password rules, `app.js` the native messaging calls. See
+reading of a site's password rules, `app.js` the native messaging calls. Passkeys:
+`passkeys-page.js` (in the page's own world, in front of `navigator.credentials`), `passkeys.js`
+(the relay), `passkey-worker.js` (the worker's side) and `passkey.html`/`passkey.js` (the window
+where the person chooses). See
 [apps/extension/README.md](apps/extension/README.md). Tests: `cargo test -p vault-browser` and
-`node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs`.
+`node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs`.
 
 Rules for this part: UI in a page only as the extension's own frame (`inline.html`), never as
 page DOM, and every click there goes through the visibility check; no new permission without
@@ -259,7 +263,7 @@ cargo run -p vault-mobile                                  # the phone app in a 
 cargo run -p vault-mobile --example phone_screens -- target/phone-screens   # its screens as PNGs
 cargo run -p vault-cli -- --help                           # the `vault` command
 cargo run -p vault-server -- serve                         # a sync server (docs/SERVER.md)
-node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs
+node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs
 ```
 
 The APK and the browser build have their own scripts, `apps/mobile-android/build.ps1` and

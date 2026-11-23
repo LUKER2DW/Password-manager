@@ -23,8 +23,9 @@ is optional and only ever moves sealed copies.
   secrets show), Windows Hello, an optional keyfile, and a printable emergency kit with three
   recovery parts.
 - **Browser extension (Chrome, Edge):** fills logins and one-time codes from the desktop app
-  and offers to save new ones, in place of the browser's own offer. It holds no passwords of
-  its own.
+  and offers to save new ones, in place of the browser's own offer, and keeps passkeys in the
+  vault (made and used by the app, after you choose in the extension's own window). It holds no
+  passwords or keys of its own.
 - **Android app (early):** opens the vault made on the computer and edits the same items;
   codes, generator, sync, attached files, several vaults, fingerprint unlock, autofill into
   other apps and browsers (a fingerprint or the phone's lock before every fill), the leak
