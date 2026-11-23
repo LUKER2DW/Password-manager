@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What Android's autofill settings show for the app: its settings open the app itself. -->
+<autofill-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="org.passwordvault.phone.VaultActivity" />

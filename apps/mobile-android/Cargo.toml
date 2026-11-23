@@ -1,6 +1,6 @@
 [package]
 name = "vault-mobile-android"
-version = "0.0.0"
+version = "0.1.0"
 description = "The phone app as an Android app (the native library an APK loads)"
 edition.workspace = true
 rust-version.workspace = true
@@ -23,16 +23,24 @@ all = { level = "warn", priority = -1 }
 [target.'cfg(target_os = "android")'.dependencies]
 vault-mobile = { path = "../mobile" }
 slint = { version = "1.18", features = ["backend-android-activity-06"] }
-# The system's file picker, through the activity's Java side (java/…/VaultActivity.java).
+# The activity's and autofill's Java side (java/…): the file picker, fingerprint unlock,
+# autofill, updates.
 jni = "0.21"
 ndk-context = "0.1"
+# Device secrets and passwords crossing from Java are wiped once used.
+zeroize = "1.9"
 
 # For cargo-apk: the APK's identity, what it may do, which phones it runs on.
 [package.metadata.android]
 package = "org.passwordvault.phone"
 build_targets = ["aarch64-linux-android", "x86_64-linux-android"]
-# Sync with the person's own server or WebDAV folder.
-uses_permission = [{ name = "android.permission.INTERNET" }]
+# Sync with the person's own server or WebDAV folder; fingerprint unlock; updates of the app
+# from that server (Android still asks the person, and checks the update's signature).
+uses_permission = [
+    { name = "android.permission.INTERNET" },
+    { name = "android.permission.USE_BIOMETRIC" },
+    { name = "android.permission.REQUEST_INSTALL_PACKAGES" },
+]
 # The launcher icon (res/: the desktop's safe, as an adaptive icon and plain PNGs).
 resources = "res"
 

@@ -37,7 +37,7 @@ pub(crate) fn save(name: &str, data: &[u8], item_file: bool) -> Result<(), Strin
 
 /// Runs `f` with this thread's JNI environment and the activity.
 #[allow(unsafe_code)]
-fn with_activity<T>(
+pub(crate) fn with_activity<T>(
     f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<T>,
 ) -> Result<T, String> {
     let context = ndk_context::android_context();
@@ -98,7 +98,7 @@ fn delete_document(uri: &str) -> bool {
 }
 
 /// Runs `f` with the controller on the UI thread.
-fn on_ui(f: impl FnOnce(&Controller) + Send + 'static) {
+pub(crate) fn on_ui(f: impl FnOnce(&Controller) + Send + 'static) {
     let _ = slint::invoke_from_event_loop(move || {
         if let Some(controller) = CONTROLLER.with(|current| current.borrow().upgrade()) {
             f(&controller);
@@ -106,14 +106,14 @@ fn on_ui(f: impl FnOnce(&Controller) + Send + 'static) {
     });
 }
 
-fn string(env: &mut JNIEnv, value: &JString) -> Option<String> {
+pub(crate) fn string(env: &mut JNIEnv, value: &JString) -> Option<String> {
     if value.is_null() {
         return None;
     }
     env.get_string(value).ok().map(Into::into)
 }
 
-fn bytes(env: &mut JNIEnv, value: &JByteArray) -> Option<Vec<u8>> {
+pub(crate) fn bytes(env: &mut JNIEnv, value: &JByteArray) -> Option<Vec<u8>> {
     if value.is_null() {
         return None;
     }

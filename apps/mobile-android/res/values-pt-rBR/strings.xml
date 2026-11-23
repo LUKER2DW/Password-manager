@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="autofill_label">Vault</string>
+    <string name="autofill_unlock">Desbloquear o Vault para preencher</string>
+    <string name="autofill_title">Preencher com o Vault</string>
+    <string name="autofill_cancel">Cancelar</string>
+    <string name="autofill_nothing">Nenhum login no Vault está salvo para este site ou app.</string>
+    <string name="autofill_open_app">Desbloqueie o Vault, volte e toque no campo de novo.</string>
+    <string name="autofill_suggest">Usar uma senha forte</string>
+    <string name="autofill_suggest_detail">Feita pelo Vault; salva quando você se cadastra</string>
+    <string name="autofill_not_saved">O Vault não conseguiu salvar este login. Abra o Vault e tente de novo.</string>
+    <string name="autofill_no_lock">Defina um bloqueio de tela no celular para preencher com o Vault: cada preenchimento pede ele.</string>
+</resources>

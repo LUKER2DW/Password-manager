@@ -5,8 +5,10 @@
 #        cargo install cargo-apk --locked
 # The APK is signed with the Android debug key (~/.android/debug.keystore, made if missing):
 # fine for trying it, never for publishing it.
-# The activity's Java side (java/, the system's file picker) is compiled with the JDK's javac
-# and the SDK's d8, added to the APK cargo-apk made, which is then aligned and signed again.
+# The activity's Java side (java/: the file picker, fingerprint unlock, autofill, updates) is
+# compiled with the JDK's javac and the SDK's d8. cargo-apk can't declare a service, so the APK
+# is packaged again from its manifest with the autofill service and its activity added (same
+# resources, same native libraries), then the code added, aligned and signed.
 param([string]$Target = "aarch64-linux-android")
 $ErrorActionPreference = "Stop"
 $sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { "$env:LOCALAPPDATA\Android\Sdk" }
@@ -39,6 +41,36 @@ try {
     $tools = Get-ChildItem "$sdk\build-tools" | Sort-Object Name -Descending | Select-Object -First 1
     $platform = Get-ChildItem "$sdk\platforms" | Sort-Object Name -Descending | Select-Object -First 1
     $androidJar = "$($platform.FullName)\android.jar"
+
+    # The manifest cargo-apk wrote, with what it can't declare: the autofill service and the
+    # screen that asks for the fingerprint before a fill.
+    $apkDir = "target/release/apk"
+    $extra = '<activity android:name="org.passwordvault.phone.AutofillActivity" android:exported="false" ' +
+        'android:excludeFromRecents="true" android:noHistory="true" ' +
+        'android:theme="@android:style/Theme.Translucent.NoTitleBar"/>' +
+        '<service android:name="org.passwordvault.phone.VaultAutofillService" ' +
+        'android:label="@string/autofill_label" android:exported="true" ' +
+        'android:permission="android.permission.BIND_AUTOFILL_SERVICE">' +
+        '<intent-filter><action android:name="android.service.autofill.AutofillService"/></intent-filter>' +
+        '<meta-data android:name="android.autofill" android:resource="@xml/autofill_service"/></service>'
+    $manifest = (Get-Content "$apkDir/AndroidManifest.xml" -Raw).Replace("</application>", "$extra</application>")
+    New-Item -ItemType Directory -Force "$apkDir/manifest" | Out-Null
+    [IO.File]::WriteAllText((Join-Path (Get-Location) "$apkDir/manifest/AndroidManifest.xml"), $manifest,
+        (New-Object Text.UTF8Encoding $false))
+    $packaged = "$apkDir/vault-mobile-android.apk"
+    & "$($tools.FullName)\aapt.exe" package -f -M "$apkDir/manifest/AndroidManifest.xml" `
+        -S apps/mobile-android/res -I $androidJar -F $packaged | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "aapt package failed" }
+    Push-Location $apkDir
+    try {
+        # The native libraries, at the paths Android loads them from (lib/<abi>/…).
+        $libs = Get-ChildItem -Recurse lib -Filter *.so |
+            ForEach-Object { (Resolve-Path -Relative $_.FullName).TrimStart(".", "\").Replace("\", "/") }
+        & "$($tools.FullName)\aapt.exe" add vault-mobile-android.apk $libs | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "aapt add (libraries) failed" }
+    } finally {
+        Pop-Location
+    }
     $work = "target/release/apk/java"
     Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force "$work/classes", "$work/dex" | Out-Null
@@ -65,7 +97,7 @@ try {
         --ks-key-alias androiddebugkey --key-pass pass:android $apk
     if ($LASTEXITCODE -ne 0) { throw "apksigner failed" }
     # Only the APK is kept: the unaligned copy and the Java build are left-overs.
-    Remove-Item -Recurse -Force $work, "target/release/apk/lib", "target/release/apk/vault-mobile-android-unaligned.apk", "$apk.idsig" -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $work, "target/release/apk/lib", "target/release/apk/manifest", "target/release/apk/vault-mobile-android-unaligned.apk", "$apk.idsig" -ErrorAction SilentlyContinue
     Write-Host "Built target/release/apk/vault-mobile-android.apk. Install: adb install -r target/release/apk/vault-mobile-android.apk"
 } finally {
     Pop-Location

@@ -11,7 +11,9 @@ use std::rc::Rc;
 use slint::ComponentHandle;
 use vault_mobile::{Controller, ui::PhoneWindow};
 
+mod autofill;
 mod shell;
+mod system;
 
 /// Called by the activity on its own thread once the app starts.
 #[allow(unsafe_code)]
@@ -40,6 +42,8 @@ fn android_main(app: slint::android::AndroidApp) {
         .set_system_keyboard(true);
     let controller = Controller::start(&window, home.join("vault.vault"), false);
     shell::CONTROLLER.with(|current| *current.borrow_mut() = Rc::downgrade(&controller));
+    // Fingerprint unlock, screenshots, autofill, updates: the activity's.
+    controller.set_system(Rc::new(system::AndroidSystem));
     // The system's file picker (the activity, VaultActivity.java): a vault file to open, and
     // where to save a copy.
     let weak = Rc::downgrade(&controller);
