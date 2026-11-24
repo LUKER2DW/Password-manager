@@ -103,8 +103,7 @@ described in [docs/MOBILE.md](docs/MOBILE.md) §7; the extension in its README; 
 - [Roadmap](docs/ROADMAP.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md)
 - Specifications: [cryptography](docs/spec/CRYPTO.md), [vault file format](docs/spec/VAULT_FORMAT.md),
   [sync](docs/spec/SYNC.md)
-- Working on the code: [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md), for
-  people and AI agents alike
+- Working on the code: [AGENTS.md](AGENTS.md), for people and AI agents alike
 
 ## Licence
 
@@ -114,8 +113,8 @@ sync server ([apps/server/LICENSE](apps/server/LICENSE)).
 Bundled third-party data: the [EFF large word list](crates/core/data/README.md)
 (CC BY 3.0 US, © Electronic Frontier Foundation); interface icons from
 [Lucide](https://lucide.dev) (ISC); import source icons from [Simple Icons](https://simpleicons.org)
-(CC0); the [JetBrains Mono](apps/desktop/ui/fonts/OFL.txt) font (SIL OFL 1.1). Brand names and logos belong to their owners and are used only to identify where an
-import comes from.
+(CC0); the [JetBrains Mono](apps/desktop/ui/fonts/OFL.txt) font (SIL OFL 1.1). Brand names
+and logos belong to their owners and are used only to identify where an import comes from.
 
 ## Language
 

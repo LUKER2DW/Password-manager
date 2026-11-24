@@ -508,10 +508,12 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
 ## Engineering practices
 
 - Tests: unit + known-answer vectors + property tests (`proptest`) + fuzzing (`cargo-fuzz`).
-- `cargo deny check advisories` passes; the advisories left open, with the reason each one
-  can't be reached, are in `deny.toml`.
-- CI (later, GitHub Actions): `fmt`, `clippy -D warnings`, tests on Windows and Linux,
-  `cargo-deny` (advisories + licenses).
+- `cargo deny check advisories` passes with nothing ignored (`deny.toml`).
+- CI (GitHub Actions, `.github/workflows`): `ci.yml` (fmt, clippy `-D warnings` and tests on
+  Windows, the WebAssembly build, the extension's tests, the core and protocol tests on Linux,
+  the server's Docker image), `security.yml` (cargo-deny every push and every day, gitleaks
+  over the history, zizmor, dependency review on pull requests), `codeql.yml`, `scorecard.yml`;
+  Dependabot for cargo, actions, Gradle and Docker. ⬜ licences in cargo-deny, fuzzing.
 - Every change to the file format bumps the format version; old versions are rejected unless an
   explicit migration exists.
 - Commit messages and code in English.

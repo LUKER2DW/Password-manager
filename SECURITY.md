@@ -121,7 +121,17 @@ libraries mitigate.
 
 Known-answer tests for every vault format version, tamper and rollback tests, headless
 end-to-end tests of the desktop and phone apps, a real server with two devices in the server's
-tests, `cargo clippy -D warnings`, and `cargo deny check advisories` against the RustSec
-database (the advisories left open and why are in [deny.toml](deny.toml)). Planned: CI on
-every push, fuzzing of the parser, reproducible builds and an independent audit before any
+tests, `cargo clippy -D warnings`, and no known vulnerability in any dependency
+(`cargo deny check advisories` against the RustSec database, with nothing ignored in
+[deny.toml](deny.toml)).
+
+On every push ([.github/workflows](.github/workflows)): the format, clippy and every test on
+Windows; the core libraries' tests and the server's Docker image on Linux; the extension's
+tests; the dependency advisories (also once a day); gitleaks over the whole history
+([.gitleaks.toml](.gitleaks.toml) lists the test keys and values it allows); zizmor over the
+workflows; CodeQL over the Rust, JavaScript, Java and the workflows; and OpenSSF Scorecard.
+Actions are pinned to full commits, every job's token can only read, and Dependabot keeps
+dependencies and actions current.
+
+Planned: fuzzing of the parser, reproducible builds and an independent audit before any
 stable release.

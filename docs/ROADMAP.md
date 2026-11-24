@@ -28,8 +28,9 @@
 - ✅ Vault: create, open, items, folders, change master password, recovery
 - ✅ Secret Key, calibrated Argon2id, emergency kit with three recovery parts
 - ✅ Password and passphrase generator (EFF word list), TOTP and HOTP
-- ✅ Property tests and tamper tests; dependency advisories checked (`cargo deny`, `deny.toml`)
-- ⬜ Fuzzing of the file parser, CI on every push
+- ✅ Property tests and tamper tests; no known vulnerability in any dependency (`cargo deny`)
+- ✅ CI on every push: tests, advisories, secret scanning of the history, CodeQL, Scorecard
+- ⬜ Fuzzing of the file parser
 - 🚧 **The CLI is unfinished.** It does: `init`, `info`, `list`, `add`, `show`, `edit`, `rm`
   (logins, cards, secure notes), `generate`, `totp`, `passwd`, `recover`, `kit`,
   `part-picture`, `forget`, `keyfile`, `import` and `sync` (folder, server, WebDAV, invites,

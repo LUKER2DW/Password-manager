@@ -57,6 +57,9 @@ docs/
   spec/VAULT_FORMAT.md  exact file format (normative)
   spec/SYNC.md          sync: the merge, the targets, the server protocol
 research/               local notes, git-ignored, never committed
+.github/                CI and security workflows, Dependabot, secret scanning paths
+deny.toml               cargo-deny: every advisory fails the check, none ignored
+.gitleaks.toml          gitleaks: the test keys and test values the repository keeps on purpose
 ```
 
 ### 2.1 `crates/core` (vault-core)
@@ -240,7 +243,12 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-All four must pass before a commit. Clippy runs with `-D warnings`.
+All four must pass before a commit. Clippy runs with `-D warnings`. `cargo deny check
+advisories` must pass too: a dependency with a known vulnerability is updated (or replaced),
+not ignored. CI (`.github/workflows/ci.yml`, `security.yml`) runs the same checks on every
+push. A key or password a test needs is made for it and kept in a test path that
+`.gitleaks.toml` and `.github/secret_scanning.yml` allow (`tests/`, `tests.rs`,
+`crates/core/testdata/`).
 
 Run the desktop app against a **test** vault (a missing file opens the "new vault" screen):
 
