@@ -699,7 +699,7 @@ mod tests {
         assert_eq!(date(0), "—");
         assert_eq!(date(1_700_000_000), "2023-11-14");
         assert_eq!(date(951_782_400), "2000-02-29");
-        // 1_700_000_000 is 2023-11-14 22:13:20 UTC: in Brasília (UTC-3) the same day at 19:13,
+        // 1_700_000_000 is 2023-11-14 22:13:20 UTC: at UTC-3 the same day at 19:13,
         // in Tokyo (UTC+9) already the next day.
         assert_eq!(date_time(1_700_000_000, 0), "2023-11-14 22:13");
         assert_eq!(date_time(1_700_000_000, -180), "2023-11-14 19:13");

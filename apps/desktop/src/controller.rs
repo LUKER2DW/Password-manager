@@ -558,17 +558,17 @@ impl Controller {
         let quick_available =
             runner == Runner::Inline && verifier.as_ref().is_some_and(|v| v.is_available());
         app.set_quick_unlock_available(quick_available);
-        if runner == Runner::Thread {
-            if let Some(verifier) = verifier.clone() {
-                std::thread::spawn(move || {
-                    let available = verifier.is_available();
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
-                            controller.set_quick_available(available);
-                        }
-                    });
+        if runner == Runner::Thread
+            && let Some(verifier) = verifier.clone()
+        {
+            std::thread::spawn(move || {
+                let available = verifier.is_available();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
+                        controller.set_quick_available(available);
+                    }
                 });
-            }
+            });
         }
         let controller = Rc::new(Self {
             app: app.as_weak(),
@@ -4472,11 +4472,11 @@ impl Controller {
         match files::write_for_printing(&name, &bytes) {
             Ok(path) => {
                 // Headless tests stop at writing the file.
-                if self.state.borrow().runner == Runner::Thread {
-                    if let Err(err) = files::open_with_default_app(&path) {
-                        self.set_error(error::OTHER, &err.to_string());
-                        return;
-                    }
+                if self.state.borrow().runner == Runner::Thread
+                    && let Err(err) = files::open_with_default_app(&path)
+                {
+                    self.set_error(error::OTHER, &err.to_string());
+                    return;
                 }
                 self.notify(notice::KIT_OPENED, "");
             }
