@@ -2,8 +2,10 @@
 
 ## Status
 
-This project is in **early development and has not been audited**. There is no stable release
-and no version is supported for real use. Do not store real passwords in it yet.
+This project is an **alpha**: the apps are usable and were designed with security first, but
+there is no stable release and **nothing has had an independent audit yet**. Only the latest
+commit of `main` gets fixes. If you store real passwords in it, keep a copy elsewhere and keep
+the emergency kit.
 
 ## Reporting a vulnerability
 
@@ -89,8 +91,13 @@ libraries mitigate.
   something else changed since it was read.
 - **Sync:** each device writes only its own sealed copy and merges the others with the key it
   already holds; the target never supplies a key or a hashing parameter. Server requests are
-  signed per device (Ed25519); plain `http://` is allowed only to this computer or a
-  Tailscale address.
+  signed per device (Ed25519), the body's SHA-256 included, so an upload is checked before
+  it is read; plain `http://` is allowed only to this computer or a Tailscale address. The
+  server caps open connections, handshakes, header and write times, and copies served at
+  once, per address and in all.
+- **What reaches the network:** website icons reach public sites only at public addresses
+  (checked at every name lookup, redirects included), the leak check follows no redirect and
+  reads a bounded answer, and a sync round reads a bounded number and size of copies.
 - **Phone:** typed secrets go to the same locked buffers through a keyboard input that only
   holds stand-ins; the Secret Key is kept under an Android Keystore key; copied secrets are
   marked sensitive; the screens stay out of screenshots unless allowed. Fingerprint unlock
@@ -101,6 +108,7 @@ libraries mitigate.
 ## Known limitations
 
 - Not audited. Not fuzzed yet beyond property tests.
+- Windows and Android only: Linux and macOS are not supported yet (the server aside).
 - Memory wiping is best-effort: the OS, the allocator or the UI toolkit may keep copies of data
   shown on screen.
 - A computer already compromised while the vault is unlocked can read what is unlocked.
@@ -111,7 +119,9 @@ libraries mitigate.
 
 ## Development practices
 
-Known-answer tests for every vault format version, tamper and rollback tests, a headless
-end-to-end test of the app, `cargo clippy -D warnings`, and (planned) `cargo-audit` /
-`cargo-deny`, fuzzing of the parser, reproducible builds and an independent audit before any
+Known-answer tests for every vault format version, tamper and rollback tests, headless
+end-to-end tests of the desktop and phone apps, a real server with two devices in the server's
+tests, `cargo clippy -D warnings`, and `cargo deny check advisories` against the RustSec
+database (the advisories left open and why are in [deny.toml](deny.toml)). Planned: CI on
+every push, fuzzing of the parser, reproducible builds and an independent audit before any
 stable release.

@@ -3,8 +3,10 @@
 An open-source, local-first, zero-knowledge password manager written in Rust, with security
 above all.
 
-> ⚠️ **Early development.** The Windows desktop app, the browser extension and the CLI work,
-> and the Android app runs, but nothing has been audited. Do not store real passwords in it yet.
+> **Alpha.** The Windows desktop app, the browser extension, the Android app and the sync
+> server are usable, and every part was designed with security first. Nothing has had an
+> independent audit yet: keep a copy of what you store elsewhere, and report what you find
+> ([SECURITY.md](SECURITY.md)). Where each app stands: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## The idea
 
@@ -26,14 +28,21 @@ is optional and only ever moves sealed copies.
   and offers to save new ones, in place of the browser's own offer, and keeps passkeys in the
   vault (made and used by the app, after you choose in the extension's own window). It holds no
   passwords or keys of its own.
-- **Android app (early):** opens the vault made on the computer and edits the same items;
+- **Android app:** opens the vault made on the computer and edits the same items;
   codes, generator, sync, attached files, several vaults, fingerprint unlock, autofill into
   other apps and browsers (a fingerprint or the phone's lock before every fill), the leak
   watch, and updates from your own server.
-- **CLI:** the same vault from a terminal (`vault`).
+- **CLI (unfinished):** the same vault from a terminal (`vault`): items, generator, codes,
+  recovery, import and sync; SSH keys, files, export and health are still only in the apps.
 - **Sync (optional):** through a folder, a WebDAV host or a small server you run yourself
   (Docker, behind Tailscale or with its own HTTPS). The server never sees anything that opens
   the vault.
+
+## Platforms
+
+Windows 10 and 11 for the desktop app and the CLI, Chrome and Edge for the extension,
+Android 9 and later for the phone, and any machine that runs Docker for the server. Linux is
+planned and not supported yet (the server aside); macOS comes after it.
 
 ## Repository layout
 
@@ -69,7 +78,9 @@ cargo run -p vault-cli -- --help
 Use test vaults only. `VAULT_FILE=C:\path\to\test.vault` points the desktop app and the CLI
 at a test file (a missing file opens the "new vault" screen), and `VAULT_HOME` moves the
 whole app folder. `cargo run -p vault-desktop --example screenshots -- target/screenshots`
-renders every screen to PNG.
+renders every screen to PNG, and `cargo run -p vault-desktop --example demo_vault` makes a
+vault of made-up data to try the app with (instructions at the top of
+[the example](apps/desktop/examples/demo_vault.rs)).
 
 ```bash
 cargo run -p vault-cli -- init          # create a vault, prints the emergency kit
@@ -92,7 +103,8 @@ described in [docs/MOBILE.md](docs/MOBILE.md) §7; the extension in its README; 
 - [Roadmap](docs/ROADMAP.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md)
 - Specifications: [cryptography](docs/spec/CRYPTO.md), [vault file format](docs/spec/VAULT_FORMAT.md),
   [sync](docs/spec/SYNC.md)
-- Working on the code: [AGENTS.md](AGENTS.md), for people and AI agents alike
+- Working on the code: [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md), for
+  people and AI agents alike
 
 ## Licence
 
@@ -102,7 +114,7 @@ sync server ([apps/server/LICENSE](apps/server/LICENSE)).
 Bundled third-party data: the [EFF large word list](crates/core/data/README.md)
 (CC BY 3.0 US, © Electronic Frontier Foundation); interface icons from
 [Lucide](https://lucide.dev) (ISC); import source icons from [Simple Icons](https://simpleicons.org)
-(CC0). Brand names and logos belong to their owners and are used only to identify where an
+(CC0); the [JetBrains Mono](apps/desktop/ui/fonts/OFL.txt) font (SIL OFL 1.1). Brand names and logos belong to their owners and are used only to identify where an
 import comes from.
 
 ## Language

@@ -5,7 +5,7 @@ no passwords and does no cryptography of its own: it asks the app on the same co
 through a small helper program the browser starts (`vault-browser-host`, built from
 `crates/browser`).
 
-Status: early development, like the rest of the project. Use a test vault.
+Status: alpha, like the rest of the project (loaded unpacked; not in a store yet). Test with a test vault.
 
 ## What it does
 

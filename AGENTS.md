@@ -16,9 +16,10 @@ A local-first, zero-knowledge password manager written in Rust.
   project's own small server that the person runs; never a hosted service.
 - **Zero-knowledge.** The vault key depends on the master password *and* a 128-bit Secret Key
   that is never stored in the vault file. A stolen file alone is useless.
-- **Platforms:** Windows desktop and the Chrome/Edge extension (working), Android (early),
+- **Platforms:** Windows desktop, the Chrome/Edge extension and Android (alpha),
   Linux (later).
-- **Status:** early development, not audited. Never test with real passwords.
+- **Status:** alpha: usable, not audited yet. Never test with real passwords; the CLI is
+  unfinished and Linux unsupported ([docs/ROADMAP.md](docs/ROADMAP.md)).
 - **Licences:** GPL-3.0-or-later for the apps and libraries ([LICENSE](LICENSE));
   AGPL-3.0-or-later for the sync server ([apps/server/LICENSE](apps/server/LICENSE)).
 

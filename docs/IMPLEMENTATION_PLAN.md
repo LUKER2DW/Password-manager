@@ -422,7 +422,7 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   - SSH keys read in every common form, a passphrase asked once and the key kept without it,
     its type kept (both apps)
   - the APK a third of its size (the library stripped and compressed)
-- ✅ The round of November 24, 2026 (code only, not built or tried yet):
+- ✅ The round of November 24, 2026 (built and tested):
   - sync: a device removed from the vault can join again, as a new device (a new id per
     vault on each join with an invite, the old one retired from the list); a device listed
     without a copy where the vault syncs now says so; a removed device's copy and key leave
@@ -464,7 +464,7 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
     at most 64 copies and 256 MiB; website icons can't be steered into the local network by
     a site's links or redirects (checked at each name lookup); the leak check follows no
     redirect
-- ✅ A second round the same day (code only, not built or tried yet):
+- ✅ A second round the same day (built and tested; the APK 0.4.1):
   - a monospace font built into both apps (JetBrains Mono, SIL OFL): a shown password, drawn
     one character to a box, no longer runs its letters into each other where the system has
     no such font (every phone)
@@ -497,7 +497,10 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
 
 ### M8 — Advanced ⬜
 - Secure sharing (Send-style links, HPKE hybrid X25519 + ML-KEM-768)
-- Passkey storage on desktop, SSH agent, Linux
+- SSH agent; Linux (the desktop app and the CLI never built there yet: Secret Service, a
+  local link for the extension, capture and clipboard rules; ROADMAP.md Phase 6)
+- The CLI brought level with the apps: SSH keys, attached files, folders, export, health,
+  item lock settings
 
 ### M9 — Hardening and audit ⬜
 - Threat model review, fuzzing campaign, dependency review, external audit, then real use.
@@ -505,6 +508,8 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
 ## Engineering practices
 
 - Tests: unit + known-answer vectors + property tests (`proptest`) + fuzzing (`cargo-fuzz`).
+- `cargo deny check advisories` passes; the advisories left open, with the reason each one
+  can't be reached, are in `deny.toml`.
 - CI (later, GitHub Actions): `fmt`, `clippy -D warnings`, tests on Windows and Linux,
   `cargo-deny` (advisories + licenses).
 - Every change to the file format bumps the format version; old versions are rejected unless an
