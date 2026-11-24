@@ -7709,7 +7709,7 @@ dependencies = [
 name = "vault-browser"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "getrandom 0.4.3",
  "hmac 0.13.0",
  "psl",
@@ -7890,7 +7890,7 @@ dependencies = [
  "anyhow",
  "arboard",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "dirs",
  "getrandom 0.4.3",
  "image",

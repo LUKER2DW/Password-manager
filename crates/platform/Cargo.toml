@@ -21,7 +21,7 @@ vault-core = { path = "../core" }
 anyhow = "1"
 # Sync over HTTPS (own server, WebDAV).
 vault-sync-wire = { path = "../sync-wire" }
-base64 = "0.22"
+base64 = "0.23"
 quick-xml = "0.42"
 # Sync: hearing at once when another device's copy lands in the sync folder.
 notify = { version = "8", default-features = false }
