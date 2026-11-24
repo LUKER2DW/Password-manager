@@ -60,6 +60,12 @@ Status: early development, like the rest of the project. Use a test vault.
   default, in the extension's Settings), Chrome's "Offer to save passwords and passkeys" is off,
   and Chrome's settings say the extension controls it. That is what the `privacy` permission
   is for, and nothing else.
+- **What the app allows:** the desktop app's Settings → Browser extension can turn off saving
+  logins from pages (new ones, changed passwords, those saved while locked) and the vault's
+  passkeys. The app then refuses those requests (`turned_off`) and says so in its answers
+  about a page's logins (`"saves": false`, `"passkeys": false`): the extension offers no save,
+  and passkeys fall back to the browser's own. The app can also stop showing a notice for
+  each fill.
 - **Passkeys:** the page's address is the tab's own; the app decides which site the page may
   use passkeys for (its own host, or a domain above it that is not a public suffix), writes
   and signs the client data itself, and the answer reaches the page only while it still shows

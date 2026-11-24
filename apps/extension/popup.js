@@ -60,6 +60,8 @@ function explain(code) {
       return say(t("lockedTitle"), t("itemLockedText"), connected);
     case "no_match":
       return say(t("goneTitle"), t("goneText"), connected);
+    case "turned_off":
+      return say(t("turnedOffTitle"), t("turnedOffText"), connected);
     case "not_paired":
       return connect();
     default:

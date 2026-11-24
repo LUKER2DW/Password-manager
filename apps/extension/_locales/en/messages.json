@@ -146,6 +146,12 @@
   "goneText": {
     "message": "It was removed or changed in the app. Close this window and open it again."
   },
+  "turnedOffTitle": {
+    "message": "Turned off in the app"
+  },
+  "turnedOffText": {
+    "message": "Saving logins from the browser, or passkeys, is off in the app: Settings, Browser extension."
+  },
   "detailsButton": {
     "message": "Details"
   },

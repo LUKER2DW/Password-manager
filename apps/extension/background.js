@@ -156,6 +156,8 @@ async function submitted(tab, message) {
   if (!username && step && step.origin === originOf(tab.url)) username = step.username;
   known.delete(tab.id);
   const listed = await loginsFor(tab);
+  // Saving logins from the browser is turned off in the app: nothing is offered.
+  if (listed.saves === false) return;
   // Not connected or not https: nothing is offered (and nothing is kept). Locked is fine: the
   // app keeps the login sealed and adds it at the next unlock.
   const page = originOf(tab.url);
