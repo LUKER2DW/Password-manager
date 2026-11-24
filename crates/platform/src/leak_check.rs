@@ -18,8 +18,10 @@ const BREACH_API: &str = "https://api.pwnedpasswords.com/range/";
 /// How many times each password appears in the breaches, in the order of `queries`. Blocks:
 /// call it off the UI thread. One request per distinct prefix.
 pub fn lookup<K: Copy>(queries: &[(K, BreachQuery)]) -> Result<Vec<(K, u64)>, String> {
+    // No redirects: the prefixes go to the breach service and nowhere it might point at.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .https_only(true)
+        .max_redirects(0)
         .timeout_global(Some(std::time::Duration::from_secs(20)))
         .user_agent("vault-password-manager")
         .build()
@@ -29,14 +31,20 @@ pub fn lookup<K: Copy>(queries: &[(K, BreachQuery)]) -> Result<Vec<(K, u64)>, St
     for (key, query) in queries {
         let prefix = query.prefix().to_owned();
         if !answers.contains_key(&prefix) {
-            let body = agent
+            let mut response = agent
                 .get(format!("{BREACH_API}{prefix}"))
                 // Padding makes every answer about the same size, so the traffic doesn't
                 // reveal which prefix was asked for.
                 .header("Add-Padding", "true")
                 .call()
-                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
+            if !response.status().is_success() {
+                return Err(format!("the breach service answered {}", response.status()));
+            }
+            let body = response
                 .body_mut()
+                .with_config()
+                .limit(4 * 1024 * 1024)
                 .read_to_string()
                 .map_err(|e| e.to_string())?;
             answers.insert(prefix.clone(), body);

@@ -68,6 +68,30 @@ pub fn check_address(address: &str) -> Result<String> {
     })
 }
 
+/// The address with the pin typed in a field of its own, as `check_address` takes it. The pin
+/// may be written with spaces or colons between its pairs; an empty one adds nothing, and an
+/// address that already has one keeps it.
+pub fn with_pin(address: &str, pin: &str) -> Result<String> {
+    let address = address.trim().trim_end_matches('/');
+    let pin: String = pin
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != ':')
+        .collect::<String>()
+        .to_ascii_lowercase();
+    if pin.is_empty() || address.contains("#pin=") {
+        return Ok(address.to_owned());
+    }
+    if parse_pin(&pin).is_none() {
+        bail!("the pin is the 64 letters and digits the server printed (pin=…)");
+    }
+    Ok(format!("{address}#pin={pin}"))
+}
+
+/// A pin as the pin field shows it (hex).
+pub fn pin_text(pin: &[u8; 32]) -> String {
+    hex(pin)
+}
+
 /// Splits a checked address into where requests go and the pinned authority's hash.
 pub fn split_pin(address: &str) -> (&str, Option<[u8; 32]>) {
     match address.split_once("#pin=") {

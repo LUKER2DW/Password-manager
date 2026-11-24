@@ -59,7 +59,22 @@ struct VaultState {
     sync_at: i64,
     #[serde(default)]
     sync_published: u64,
+    /// Sync: this device's id for this vault when it isn't the device's own id: it joined the
+    /// vault again as a new device (after it was removed, or coming from another place).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    device_id: Option<String>,
+    /// Sync: the id a join under way uses, kept until it succeeds so that a join tried again
+    /// goes on with the key it already has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    joining_id: Option<String>,
+    /// Sync: the ids this device synced this vault as before. They are this device's own old
+    /// entries in the vault's device list, taken out at the next round.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    retired_ids: Vec<String>,
 }
+
+/// How many of a vault's earlier ids on this device are remembered.
+const MAX_RETIRED_IDS: usize = 4;
 
 fn is_empty_seen(seen: &SeenRevisions) -> bool {
     *seen == SeenRevisions::default()
@@ -137,6 +152,16 @@ pub struct Settings {
     /// The leak watch: every login's password checked once a day while the vault is open (it
     /// uses the network on its own, so it is off until turned on).
     pub leak_watch: bool,
+    /// The browser extension may save logins typed into pages (new ones, changed passwords,
+    /// and those saved while the vault is locked). On by default.
+    pub browser_saves: bool,
+    /// The browser extension may make and use the vault's passkeys. On by default; off, the
+    /// browser's own passkeys are used.
+    pub browser_passkeys: bool,
+    /// A notice in the app for every login the extension fills. On by default.
+    pub browser_fill_notices: bool,
+    /// The drawn texture behind the open vault. On by default.
+    pub backdrop: bool,
 }
 
 impl Default for Settings {
@@ -152,6 +177,10 @@ impl Default for Settings {
             generator: GeneratorPrefs::default(),
             language: String::new(),
             leak_watch: false,
+            browser_saves: true,
+            browser_passkeys: true,
+            browser_fill_notices: true,
+            backdrop: true,
         }
     }
 }
@@ -355,6 +384,78 @@ impl DeviceState {
         let id = DeviceId::generate()?;
         self.device_id = Some(id.to_hex());
         Ok(id)
+    }
+
+    /// This device's sync id for vault `vault_id`: its own id for that vault when it joined it
+    /// again as a new device, else the device's id ([`DeviceState::device_id`]).
+    pub fn device_id_for(&mut self, vault_id: &str) -> vault_core::Result<DeviceId> {
+        let own = self
+            .vaults
+            .get(vault_id)
+            .and_then(|v| v.device_id.as_deref())
+            .and_then(DeviceId::from_hex);
+        match own {
+            Some(id) => Ok(id),
+            None => self.device_id(),
+        }
+    }
+
+    /// The id a join of vault `vault_id` enrolls when this device isn't already enrolled
+    /// there: a new one, made once and kept until a join succeeds. Save before joining.
+    pub fn joining_id_for(&mut self, vault_id: &str) -> vault_core::Result<DeviceId> {
+        let entry = self.vaults.entry(vault_id.to_owned()).or_default();
+        if let Some(id) = entry.joining_id.as_deref().and_then(DeviceId::from_hex) {
+            return Ok(id);
+        }
+        let id = DeviceId::generate()?;
+        entry.joining_id = Some(id.to_hex());
+        Ok(id)
+    }
+
+    /// Vault `vault_id` syncs as `id` on this device from now on (a join succeeded with it).
+    /// Returns the id it synced as before when that was another one: forget its keys. That
+    /// id is retired: it leaves the vault's device list at the next round
+    /// ([`DeviceState::retired_ids`]).
+    pub fn adopt_device_id(
+        &mut self,
+        vault_id: &str,
+        id: DeviceId,
+    ) -> vault_core::Result<Option<DeviceId>> {
+        let before = self.device_id_for(vault_id)?;
+        let entry = self.vaults.entry(vault_id.to_owned()).or_default();
+        entry.joining_id = None;
+        if before == id {
+            return Ok(None);
+        }
+        entry.device_id = Some(id.to_hex());
+        let (old, new) = (before.to_hex(), id.to_hex());
+        entry.retired_ids.retain(|r| *r != old && *r != new);
+        entry.retired_ids.push(old);
+        let excess = entry.retired_ids.len().saturating_sub(MAX_RETIRED_IDS);
+        entry.retired_ids.drain(..excess);
+        Ok(Some(before))
+    }
+
+    /// The ids this device synced vault `vault_id` as before (see
+    /// [`DeviceState::adopt_device_id`]).
+    pub fn retired_ids(&self, vault_id: &str) -> Vec<DeviceId> {
+        self.vaults.get(vault_id).map_or_else(Vec::new, |v| {
+            v.retired_ids
+                .iter()
+                .filter_map(|id| DeviceId::from_hex(id))
+                .collect()
+        })
+    }
+
+    /// This device was removed from vault `vault_id` on another device: it stops syncing it,
+    /// and takes a new id for it, so that it can join again as a new device (removing a device
+    /// doesn't bar it for good). Returns the id it was removed as, to forget its keys.
+    pub fn removed_from(&mut self, vault_id: &str) -> vault_core::Result<DeviceId> {
+        let removed = self.device_id_for(vault_id)?;
+        let fresh = DeviceId::generate()?;
+        self.adopt_device_id(vault_id, fresh)?;
+        self.set_sync_to(vault_id, None);
+        Ok(removed)
     }
 
     /// Where and how vault `vault_id` syncs on this device; `None` when it doesn't.

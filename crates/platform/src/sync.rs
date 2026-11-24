@@ -22,7 +22,7 @@ use vault_core::{
     sync::{DeviceId, MergeReport, SeenRevisions},
 };
 
-pub use http::{check_address, split_pin};
+pub use http::{check_address, pin_text, split_pin, with_pin};
 pub use server::ServerTarget;
 pub use webdav::WebDavTarget;
 
@@ -223,13 +223,28 @@ pub struct Fetched {
     pub unchanged: usize,
 }
 
+/// The most other devices' copies one round reads, and the most bytes they may hold
+/// together: a target that lists thousands of copies, or huge ones, can't make this device
+/// download and hold them all (a vault syncs a few devices of a few MB).
+pub const MAX_COPIES_READ: usize = 64;
+pub const MAX_ROUND_BYTES: usize = 256 * 1024 * 1024;
+
 /// Reads every copy but this device's own whose tag isn't in `known` (pass an empty map to
 /// read them all). An unreachable target is an error; one copy that can't be read is listed
-/// and the others are still read.
+/// and the others are still read. Past [`MAX_COPIES_READ`] copies or [`MAX_ROUND_BYTES`],
+/// the rest are listed as unreadable.
 pub fn fetch(target: &dyn Target, own: DeviceId, known: &Tags) -> Result<Fetched> {
     let mut fetched = Fetched::default();
+    let mut bytes_read = 0usize;
     for listed in target.list()? {
         if listed.device == own {
+            continue;
+        }
+        if fetched.copies.len() >= MAX_COPIES_READ || bytes_read >= MAX_ROUND_BYTES {
+            fetched.unreadable.push((
+                listed.device,
+                "too many copies to read in one round".to_owned(),
+            ));
             continue;
         }
         if let Some(tag) = &listed.tag
@@ -241,6 +256,7 @@ pub fn fetch(target: &dyn Target, own: DeviceId, known: &Tags) -> Result<Fetched
         }
         match target.get(listed.device) {
             Ok(bytes) => {
+                bytes_read = bytes_read.saturating_add(bytes.len());
                 if let Some(tag) = listed.tag {
                     fetched.tags.insert(listed.device, tag);
                 }
@@ -540,6 +556,62 @@ pub fn join(vault: &mut Vault, device: DeviceId, name: &str) -> vault_core::Resu
         changed = true;
     }
     Ok(changed)
+}
+
+/// Takes the ids this device synced the vault as before out of its device list: they are
+/// this device's own old entries (it joined again as a new device). Returns whether that
+/// changed the vault (save it).
+pub fn retire(vault: &mut Vault, retired: &[DeviceId]) -> bool {
+    let own = vault.device();
+    let mut changed = false;
+    for id in retired {
+        if *id != own && vault.sync_devices().iter().any(|d| d.id == *id) {
+            changed |= vault.remove_sync_device(id).is_ok();
+        }
+    }
+    changed
+}
+
+/// Joins vault `vault_id` on the server at `address` with a one-time `invite`, off the UI
+/// thread. When this device is already enrolled there as one of `resume` (a join tried again
+/// after the rest of a setup failed, or the same server joined once more) it goes on with
+/// that key, since an invite works only once. Otherwise it enrolls as `fresh`: a device that
+/// was removed from the vault, or that synced it through another place, comes back as a new
+/// device instead of as the one the vault remembers. The key is kept in the credential
+/// store. Returns the target and the id it is enrolled as.
+pub fn join_server(
+    address: &str,
+    vault_id: &str,
+    resume: &[DeviceId],
+    fresh: DeviceId,
+    name: &str,
+    invite: &str,
+    role: Role,
+) -> Result<(ServerTarget, DeviceId)> {
+    for device in resume.iter().chain([&fresh]) {
+        if let Ok(Some(seed)) = secret_store::load_sync_key(vault_id, &sync_key_name(*device, role))
+            && let Ok(server) = ServerTarget::new(
+                address,
+                vault_id,
+                *device,
+                vault_sync_wire::DeviceKey::from_seed(&seed),
+            )
+            && server.enrolled().is_ok()
+        {
+            return Ok((server, *device));
+        }
+    }
+    let server = ServerTarget::join(address, vault_id, fresh, name, invite)?;
+    secret_store::store_sync_key(vault_id, &sync_key_name(fresh, role), &server.key_seed())?;
+    Ok((server, fresh))
+}
+
+/// Forgets what this device kept to sync vault `vault_id` as `device`: its keys for the main
+/// and the backup server.
+pub fn forget_keys(vault_id: &str, device: DeviceId) {
+    for role in [Role::Main, Role::Backup] {
+        let _ = secret_store::forget_sync_key(vault_id, &sync_key_name(device, role));
+    }
 }
 
 /// A name for this device in the vault's device list: the computer's name.

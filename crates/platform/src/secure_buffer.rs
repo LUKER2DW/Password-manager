@@ -85,6 +85,57 @@ impl SecretBuffer {
         self.chars -= 1;
     }
 
+    /// Where character `index` starts, in bytes (the end for an index past it).
+    pub fn byte_offset(&self, index: usize) -> usize {
+        self.as_str()
+            .char_indices()
+            .nth(index)
+            .map_or(self.len, |(at, _)| at)
+    }
+
+    /// Inserts the characters it [takes](Self::takes) before character `index` (at the end
+    /// past it), moving the rest along inside the buffer. Returns how many went in; it stops
+    /// at the first that doesn't fit.
+    pub fn insert_str(&mut self, index: usize, text: &str) -> usize {
+        let mut at = self.byte_offset(index);
+        let mut added = 0;
+        for c in text.chars() {
+            if !Self::takes(c) {
+                continue;
+            }
+            let mut encoded = [0u8; 4];
+            let width = c.encode_utf8(&mut encoded).len();
+            if self.len + width > MAX_SECRET_BYTES {
+                encoded.zeroize();
+                break;
+            }
+            self.bytes.copy_within(at..self.len, at + width);
+            self.bytes[at..at + width].copy_from_slice(&encoded[..width]);
+            encoded.zeroize();
+            self.len += width;
+            self.chars += 1;
+            at += width;
+            added += 1;
+        }
+        added
+    }
+
+    /// Removes `count` characters from character `index` on, and wipes the bytes left free
+    /// at the end.
+    pub fn remove(&mut self, index: usize, count: usize) {
+        if count == 0 || index >= self.chars {
+            return;
+        }
+        let count = count.min(self.chars - index);
+        let start = self.byte_offset(index);
+        let end = self.byte_offset(index + count);
+        self.bytes.copy_within(end..self.len, start);
+        let len = self.len - (end - start);
+        self.bytes[len..self.len].zeroize();
+        self.len = len;
+        self.chars -= count;
+    }
+
     pub fn clear(&mut self) {
         self.bytes.zeroize();
         self.len = 0;
@@ -196,6 +247,34 @@ mod tests {
         assert!(a.matches(&b));
         b.backspace();
         assert!(!a.matches(&b));
+    }
+
+    #[test]
+    fn inserts_and_removes_in_the_middle() {
+        let mut buffer = SecretBuffer::new();
+        buffer.push_str("acé");
+        assert_eq!(buffer.insert_str(1, "b"), 1);
+        assert_eq!(buffer.as_str(), "abcé");
+        assert_eq!(buffer.insert_str(0, "€\u{1}"), 1);
+        assert_eq!(buffer.as_str(), "€abcé");
+        assert_eq!(buffer.insert_str(99, "😀"), 1);
+        assert_eq!(buffer.as_str(), "€abcé😀");
+        assert_eq!(buffer.char_count(), 6);
+        assert_eq!(buffer.byte_offset(1), "€".len());
+        buffer.remove(0, 2);
+        assert_eq!(buffer.as_str(), "bcé😀");
+        buffer.remove(2, 9);
+        assert_eq!(buffer.as_str(), "bc");
+        assert_eq!(buffer.char_count(), 2);
+        // Nothing of what was removed stays behind the end.
+        assert!(buffer.bytes[2..].iter().all(|&b| b == 0));
+        buffer.remove(5, 1);
+        assert_eq!(buffer.as_str(), "bc");
+        // A full buffer takes nothing more, in the middle either.
+        let mut full = SecretBuffer::new();
+        full.push_str(&"a".repeat(MAX_SECRET_BYTES));
+        assert_eq!(full.insert_str(3, "b"), 0);
+        assert_eq!(full.as_str(), "a".repeat(MAX_SECRET_BYTES));
     }
 
     #[test]

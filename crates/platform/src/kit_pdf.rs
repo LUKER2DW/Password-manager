@@ -4,6 +4,10 @@
 //! Written by hand on purpose: the file holds the Secret Key and the recovery parts, so it is
 //! built from a few hundred auditable lines instead of a PDF library. It uses only the 14
 //! standard PDF fonts (no embedding, no images, no scripts, no compression), A4 portrait.
+//!
+//! A filled kit also carries each key as a QR code, drawn as black squares (still no
+//! picture), so the phone can scan it: the Secret Key at its first unlock, the parts when it
+//! recovers the vault.
 
 use std::fmt::Write as _;
 
@@ -22,6 +26,9 @@ pub struct KitContents<'a> {
     /// `false`: empty boxes, for writing the keys in by hand from the screen, so a printer
     /// (and its memory) never sees them.
     pub filled: bool,
+    /// Part C is kept elsewhere (the app hid it in a picture): its page says it is kept apart,
+    /// without saying where, so the paper kit has A and B only and never points at the third.
+    pub part_c_elsewhere: bool,
 }
 
 const PAGE_W: f32 = 595.0;
@@ -320,6 +327,64 @@ impl Page {
         self.y = top - height;
     }
 
+    /// `text` as a QR code at the left margin, `SIDE` points square, with `caption` beside it;
+    /// the cursor moves below it. The black modules are rectangles in the content stream, one
+    /// per run along a row (no picture). The code's own buffers hold what the text printed
+    /// above holds, for the moment it takes to draw them.
+    fn qr(&mut self, text: &str, caption: &str) {
+        const SIDE: f32 = 118.0;
+        const QUIET: f32 = 4.0;
+        let Ok(code) =
+            qrcode::QrCode::with_error_correction_level(text.as_bytes(), qrcode::EcLevel::M)
+        else {
+            return;
+        };
+        let width = code.width();
+        let dark: Vec<bool> = code
+            .to_colors()
+            .into_iter()
+            .map(|color| color == qrcode::Color::Dark)
+            .collect();
+        let module = SIDE / (width as f32 + 2.0 * QUIET);
+        let top = self.y;
+        let _ = writeln!(
+            self.ops,
+            "q 1 g 0.75 G 0.7 w {MARGIN:.1} {:.1} {SIDE:.1} {SIDE:.1} re B Q",
+            top - SIDE
+        );
+        let _ = write!(self.ops, "0 g");
+        for row in 0..width {
+            let mut col = 0;
+            while col < width {
+                if !dark[row * width + col] {
+                    col += 1;
+                    continue;
+                }
+                let start = col;
+                while col < width && dark[row * width + col] {
+                    col += 1;
+                }
+                let x = MARGIN + (QUIET + start as f32) * module;
+                let y = top - (QUIET + row as f32 + 1.0) * module;
+                // A hair taller and wider, so neighbouring squares meet without a seam.
+                let _ = write!(
+                    self.ops,
+                    " {x:.2} {y:.2} {:.2} {:.2} re",
+                    (col - start) as f32 * module + 0.15,
+                    module + 0.15
+                );
+            }
+        }
+        let _ = writeln!(self.ops, " f");
+        let x = MARGIN + SIDE + 18.0;
+        let mut y = top - 6.0;
+        for line in wrap(caption, Font::Regular, 9.5, WIDTH - SIDE - 18.0) {
+            y -= 9.5 * 1.35;
+            self.text_at(x, y, Font::Regular, 9.5, 0.25, &line);
+        }
+        self.y = top - SIDE;
+    }
+
     /// A labelled empty box to write in by hand, the full width of the page.
     fn write_box(&mut self, label: &str, height: f32) {
         self.y -= 9.0;
@@ -444,6 +509,14 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
         kit.filled.then_some(kit.secret_key),
         "",
     );
+    if kit.filled {
+        page.gap(14.0);
+        page.qr(
+            kit.secret_key,
+            "Scan it with the phone the first time it opens this vault: under the Secret Key \
+             field, tap the QR button. It never leaves the phone.",
+        );
+    }
     page.gap(26.0);
     page.write_box("MASTER PASSWORD", 44.0);
     if kit.parts.is_none() {
@@ -461,6 +534,29 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
     if let Some(parts) = kit.parts {
         for (label, value) in vault_core::PartLabel::ALL.into_iter().zip(parts) {
             let letter = label.letter();
+            if kit.part_c_elsewhere && label == vault_core::PartLabel::C {
+                let mut page = Page::new();
+                page.heading("Recovery part C", &format!("3 of 3, {date}"));
+                page.gap(18.0);
+                page.paragraph(
+                    Font::Regular,
+                    11.0,
+                    0.1,
+                    "Part C is not printed: it is kept apart from parts A and B, where you chose \
+                     to keep it.",
+                );
+                page.gap(10.0);
+                page.paragraph(
+                    Font::Regular,
+                    9.5,
+                    0.35,
+                    "Parts A and B together bring back your Secret Key; with part C as well they \
+                     let you choose a new master password.",
+                );
+                page.footer(kit.vault_id);
+                pages.push(page.ops);
+                continue;
+            }
             let mut page = Page::new();
             page.heading(
                 &format!("Recovery part {letter}"),
@@ -476,6 +572,14 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
                 kit.filled.then_some(value),
                 "",
             );
+            if kit.filled {
+                page.gap(14.0);
+                page.qr(
+                    value,
+                    "Recovering on the phone: on its unlock screen tap Forgot your master \
+                     password, then the QR button next to each part.",
+                );
+            }
             page.gap(26.0);
             page.subheading("What it does");
             page.bullets(&[
@@ -573,7 +677,40 @@ mod tests {
             vault_id: "0123456789abcdef0123456789abcdef",
             created_at: 1_794_441_600, // 12 November 2026
             filled,
+            part_c_elsewhere: false,
         })
+    }
+
+    #[test]
+    fn part_c_kept_in_a_picture_stays_off_the_paper() {
+        let kit = |part_c_elsewhere| {
+            render(&KitContents {
+                secret_key: "S0-ABCDEFG-HJKMNPQ-RSTVWXY-Z012345",
+                parts: Some(PARTS),
+                vault_id: "0123456789abcdef0123456789abcdef",
+                created_at: 1_794_441_600,
+                filled: true,
+                part_c_elsewhere,
+            })
+        };
+        let qr_codes = |bytes: &[u8]| {
+            String::from_utf8_lossy(bytes)
+                .lines()
+                .filter(|l| l.starts_with("0 g ") && l.ends_with(" f"))
+                .count()
+        };
+        let with_c = kit(false);
+        let without_c = kit(true);
+        // Part C's code (and its characters) are gone; A's and B's and the Secret Key's stay.
+        assert_eq!(qr_codes(&with_c), 4);
+        assert_eq!(qr_codes(&without_c), 3);
+        let text = String::from_utf8_lossy(&without_c);
+        assert!(text.contains("Part C is not printed"));
+        assert!(!text.contains("JJJJJJJ"), "part C itself is not printed");
+        assert!(text.contains("AAAAAAA") && text.contains("EEEEEEE"));
+        assert!(String::from_utf8_lossy(&with_c).contains("JJJJJJJ"));
+        // Nor where it is kept.
+        assert!(!text.contains("picture") && !text.contains("photo"));
     }
 
     /// Every xref offset (in bytes) points at the start of its object.
@@ -656,6 +793,21 @@ mod tests {
         text.lines()
             .filter(|l| l.starts_with("1 g ") && l.ends_with("re B"))
             .count()
+    }
+
+    #[test]
+    fn a_filled_kit_has_a_qr_code_for_each_key() {
+        let qr_codes = |bytes: &[u8]| {
+            String::from_utf8_lossy(bytes)
+                .lines()
+                .filter(|l| l.starts_with("0 g ") && l.ends_with(" f"))
+                .count()
+        };
+        // The Secret Key and the three parts.
+        assert_eq!(qr_codes(&kit(Some(PARTS))), 4);
+        assert_eq!(qr_codes(&kit(None)), 1);
+        // Empty boxes to write in by hand: no key anywhere, so no code either.
+        assert_eq!(qr_codes(&kit_as(Some(PARTS), false)), 0);
     }
 
     #[test]

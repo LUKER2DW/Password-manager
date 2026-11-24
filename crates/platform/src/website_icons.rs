@@ -12,6 +12,10 @@
 //!   (`Vault::seal_local`), so each site is contacted once, and the cache reveals nothing.
 //! - Even so, someone watching the network can see which sites were contacted. That is why the
 //!   feature is off until the user turns it on.
+//! - A site on the internet can't send the fetcher into this computer or the local network:
+//!   the links in its page and its redirects reach public addresses only, checked as each
+//!   name is looked up ([`Reach`]). A site saved with a local address (a router, a NAS) is
+//!   asked at the addresses its name had when the fetch began.
 //!
 //! Every downloaded image is untrusted input: size-limited, decoded by pure-Rust decoders with
 //! allocation limits (SVG drawn without fetching anything it links to), and reduced to a
@@ -20,10 +24,12 @@
 use std::{
     collections::BTreeMap,
     io::Cursor,
+    net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
+use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
 
 pub const ICON_SIZE: u32 = 64;
 const MAX_RESPONSE_BYTES: u64 = 512 * 1024;
@@ -89,7 +95,7 @@ pub struct IconCache {
 impl IconCache {
     pub fn get(&self, host: &str) -> Option<&[u8]> {
         match self.entries.get(host) {
-            Some(Entry::Rgba(pixels)) => Some(pixels),
+            Some(Entry::Rgba(pixels)) if !is_banner(pixels) => Some(pixels),
             Some(Entry::Untrusted { .. }) => Some(untrusted_icon()),
             _ => None,
         }
@@ -101,7 +107,9 @@ impl IconCache {
             Some(Entry::Missing { checked_at } | Entry::Untrusted { checked_at }) => {
                 now().saturating_sub(*checked_at) > RETRY_MISSING_AFTER_SECS
             }
-            Some(Entry::Rgba(_)) => false,
+            // Kept by an older version, which took a site's wide logo (its name written out)
+            // for its icon: looked for again.
+            Some(Entry::Rgba(pixels)) => is_banner(pixels),
         }
     }
 
@@ -246,11 +254,14 @@ impl IconSource {
     pub fn fetch(&self) -> Fetched {
         match self {
             Self::Site(host) => fetch(host),
-            Self::Image(url) => match get(&agent(false), url, false) {
-                Ok(Some((_, bytes))) => decode(&bytes).map_or(Fetched::Missing, Fetched::Icon),
-                Ok(None) => Fetched::Missing,
-                Err(why) => untrusted_or_missing(url, why),
-            },
+            Self::Image(url) => {
+                let reach = Reach::of(&host_of(url).unwrap_or_default());
+                match get(&agent(false, &reach), url, false) {
+                    Ok(Some((_, bytes))) => decode(&bytes).map_or(Fetched::Missing, Fetched::Icon),
+                    Ok(None) => Fetched::Missing,
+                    Err(why) => untrusted_or_missing(url, why, &reach),
+                }
+            }
         }
     }
 }
@@ -281,17 +292,128 @@ fn no_answer(err: &ureq::Error) -> NoAnswer {
 /// answers once its certificate goes unchecked (nothing of that answer is used), else
 /// [`Fetched::Missing`]. Other failures (a timeout, a cut connection) are only missing: a
 /// site that was slow once isn't marked as untrusted.
-fn untrusted_or_missing(url: &str, why: NoAnswer) -> Fetched {
-    if why == NoAnswer::Certificate && agent(true).get(url).call().is_ok() {
+fn untrusted_or_missing(url: &str, why: NoAnswer, reach: &Reach) -> Fetched {
+    if why == NoAnswer::Certificate && agent(true, reach).get(url).call().is_ok() {
         Fetched::Untrusted
     } else {
         Fetched::Missing
     }
 }
 
+/// Which addresses one fetch may reach. A site on the internet can't send the fetcher into
+/// this computer or the local network: the links in its page and its redirects reach public
+/// addresses only, checked as each name is looked up (so a name that is made to point home
+/// halfway is caught too). A site saved with a local address (a router, a NAS) is asked at the
+/// addresses its name had when the fetch began, and what its page links to may be local too.
+#[derive(Debug, Clone)]
+struct Reach {
+    /// The saved site's host, lowercase, without brackets.
+    host: String,
+    /// Where a local site is; `None` for a site on the internet.
+    local: Option<Vec<IpAddr>>,
+}
+
+impl Reach {
+    /// For a site given as `host[:port]`.
+    fn of(site: &str) -> Self {
+        let host = bare_host(split_port(site).map_or(site, |(host, _)| host));
+        let local = if let Ok(ip) = host.parse::<IpAddr>() {
+            (!is_public(ip)).then(|| vec![ip])
+        } else {
+            let found: Vec<IpAddr> = (host.as_str(), 443)
+                .to_socket_addrs()
+                .map(|all| all.map(|address| address.ip()).collect())
+                .unwrap_or_default();
+            (!found.is_empty() && !found.iter().copied().any(is_public)).then_some(found)
+        };
+        Self { host, local }
+    }
+
+    fn is_local(&self) -> bool {
+        self.local.is_some()
+    }
+}
+
+fn bare_host(host: &str) -> String {
+    host.trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase()
+}
+
+impl Resolver for Reach {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ResolvedSocketAddrs, ureq::Error> {
+        let host = uri.host().map(bare_host).unwrap_or_default();
+        if let Some(local) = &self.local
+            && host == self.host
+        {
+            let port = uri.port_u16().unwrap_or(443);
+            let mut pinned = self.empty();
+            for ip in local.iter().take(16) {
+                pinned.push(SocketAddr::new(*ip, port));
+            }
+            return Ok(pinned);
+        }
+        let found = DefaultResolver::default().resolve(uri, config, timeout)?;
+        if self.is_local() {
+            return Ok(found);
+        }
+        let mut public = self.empty();
+        for address in found.iter().filter(|address| is_public(address.ip())) {
+            public.push(*address);
+        }
+        if public.is_empty() {
+            Err(ureq::Error::HostNotFound)
+        } else {
+            Ok(public)
+        }
+    }
+}
+
+/// Whether an address is out on the internet: not this computer, not a private, local or
+/// shared network (Tailscale's and carriers' 100.64.0.0/10 included), and not one set aside
+/// (documentation, benchmarks, multicast, IPv6 forms that carry an IPv4 address).
+fn is_public(ip: IpAddr) -> bool {
+    match ip.to_canonical() {
+        IpAddr::V4(v4) => {
+            let [a, b, c, _] = v4.octets();
+            !(v4.is_unspecified()
+                || v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || v4.is_multicast()
+                || a == 0
+                || a >= 240
+                || (a == 100 && (64..128).contains(&b))
+                || (a == 192 && b == 0 && c == 0)
+                || (a == 198 && (18..20).contains(&b)))
+        }
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            // NAT64 (an IPv6-only network reaching IPv4 sites): the IPv4 address inside counts.
+            if s[0] == 0x64 && s[1] == 0xff9b && s[2..6] == [0; 4] {
+                let inside = (u32::from(s[6]) << 16) | u32::from(s[7]);
+                return is_public(IpAddr::V4(Ipv4Addr::from(inside)));
+            }
+            // Global unicast, but not 6to4 or Teredo (an IPv4 address of any kind inside) or
+            // documentation.
+            (s[0] & 0xe000) == 0x2000
+                && s[0] != 0x2002
+                && !(s[0] == 0x2001 && (s[1] == 0 || s[1] == 0x0db8))
+        }
+    }
+}
+
 /// `unchecked` skips the certificate check: only to tell an untrusted site from one that is
-/// down (see [`untrusted_or_missing`]), never to take a picture.
-fn agent(unchecked: bool) -> ureq::Agent {
+/// down (see [`untrusted_or_missing`]), never to take a picture. `reach` says which addresses
+/// it may connect to.
+fn agent(unchecked: bool, reach: &Reach) -> ureq::Agent {
     let mut config = ureq::Agent::config_builder()
         .https_only(true)
         .max_redirects(5)
@@ -307,32 +429,39 @@ fn agent(unchecked: bool) -> ureq::Agent {
                 .build(),
         );
     }
-    config.build().into()
+    ureq::Agent::with_parts(
+        config.build(),
+        ureq::unversioned::transport::DefaultConnector::default(),
+        reach.clone(),
+    )
 }
 
 /// Fetches and decodes the best icon for `site` (a host, maybe with a port). Blocking; call
 /// from a worker thread.
 pub fn fetch(site: &str) -> Fetched {
-    let agent = agent(false);
+    let reach = Reach::of(site);
+    let agent = agent(false, &reach);
     let mut origin = format!("https://{site}");
     let home = format!("{origin}/");
     let mut candidates: Vec<String> = Vec::new();
     let page = match get(&agent, &home, true) {
         Ok(page) => page,
         // No answer: the same site under `www.` (or without it) may answer where this didn't;
-        // else maybe only the certificate is refused.
+        // else maybe only the certificate is refused. A local site has no `www.` twin (and a
+        // name looked up anew might point anywhere).
         Err(why) => {
             let other = match site.strip_prefix("www.") {
+                _ if reach.is_local() => return untrusted_or_missing(&home, why, &reach),
                 Some(bare) => bare.to_owned(),
                 None if site.matches('.').count() == 1 => format!("www.{site}"),
-                None => return untrusted_or_missing(&home, why),
+                None => return untrusted_or_missing(&home, why, &reach),
             };
             match get(&agent, &format!("https://{other}/"), true) {
                 Ok(page) => {
                     origin = format!("https://{other}");
                     page
                 }
-                Err(_) => return untrusted_or_missing(&home, why),
+                Err(_) => return untrusted_or_missing(&home, why, &reach),
             }
         }
     };
@@ -609,9 +738,50 @@ pub fn resolve(base: &str, href: &str) -> Option<String> {
     })
 }
 
+/// Whether a picture this wide and this tall can be an icon. A site's logo with its name
+/// written out (a banner) is much wider than tall: shrunk into an icon's square it shows only
+/// as a small line of text, so the next candidate is tried instead.
+fn icon_shaped(width: f32, height: f32) -> bool {
+    width > 0.0
+        && height > 0.0
+        && width <= height * MAX_ICON_RATIO
+        && height <= width * MAX_ICON_RATIO
+}
+
+/// How much wider than tall (or taller than wide) an icon may be.
+const MAX_ICON_RATIO: f32 = 1.5;
+
+/// Whether 64 × 64 pixels hold a banner rather than an icon: what is drawn (not see-through)
+/// is a band much wider than tall, or much taller than wide.
+fn is_banner(pixels: &[u8]) -> bool {
+    let side = ICON_SIZE as usize;
+    let (mut left, mut right, mut top, mut bottom) = (side, 0, side, 0);
+    for (index, pixel) in pixels.chunks_exact(4).enumerate() {
+        if pixel[3] > 24 {
+            let (x, y) = (index % side, index / side);
+            left = left.min(x);
+            right = right.max(x);
+            top = top.min(y);
+            bottom = bottom.max(y);
+        }
+    }
+    if left > right || top > bottom {
+        return false;
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let (width, height) = ((right - left + 1) as f32, (bottom - top + 1) as f32);
+    // Small marks drawn in the middle of a square are fine; a band across it isn't.
+    !icon_shaped(width, height) && width.max(height) > (side as f32) * 0.75
+}
+
 /// Decodes an untrusted image (PNG, JPEG, GIF, WebP, BMP, ICO or SVG) into a centered
-/// 64 × 64 RGBA bitmap.
+/// 64 × 64 RGBA bitmap. `None` for one that isn't shaped like an icon (a wide logo, even one
+/// drawn on a square).
 pub fn decode(bytes: &[u8]) -> Option<Vec<u8>> {
+    decode_picture(bytes).filter(|pixels| !is_banner(pixels))
+}
+
+fn decode_picture(bytes: &[u8]) -> Option<Vec<u8>> {
     if looks_like_svg(bytes) {
         return decode_svg(bytes);
     }
@@ -625,6 +795,10 @@ pub fn decode(bytes: &[u8]) -> Option<Vec<u8>> {
     reader.limits(limits);
     let decoded = reader.decode().ok()?;
     if decoded.width() < 8 || decoded.height() < 8 {
+        return None;
+    }
+    #[allow(clippy::cast_precision_loss)]
+    if !icon_shaped(decoded.width() as f32, decoded.height() as f32) {
         return None;
     }
     let scaled = decoded
@@ -660,7 +834,7 @@ fn decode_svg(bytes: &[u8]) -> Option<Vec<u8>> {
     let tree = usvg::Tree::from_data(bytes, &options).ok()?;
     let size = tree.size();
     let longest = size.width().max(size.height());
-    if !longest.is_finite() || longest <= 0.0 {
+    if !longest.is_finite() || longest <= 0.0 || !icon_shaped(size.width(), size.height()) {
         return None;
     }
     #[allow(clippy::cast_precision_loss)]
@@ -687,6 +861,44 @@ fn decode_svg(bytes: &[u8]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_public_addresses_are_public() {
+        for public in ["1.1.1.1", "2606:4700:4700::1111", "64:ff9b::101:101"] {
+            assert!(is_public(public.parse().unwrap()), "{public}");
+        }
+        for local in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.101.102.103",
+            "0.0.0.0",
+            "224.0.0.1",
+            "198.18.0.1",
+            "203.0.113.10",
+            "::1",
+            "::",
+            "fe80::1",
+            "fd7a:115c:a1e0::1",
+            "::ffff:192.168.1.1",
+            "64:ff9b::c0a8:101",
+            "2002:c0a8:101::1",
+            "2001:db8::1",
+        ] {
+            assert!(!is_public(local.parse().unwrap()), "{local}");
+        }
+    }
+
+    #[test]
+    fn a_local_site_is_reached_where_it_was() {
+        let router = Reach::of("192.168.1.1:8443");
+        assert_eq!(router.local, Some(vec!["192.168.1.1".parse().unwrap()]));
+        assert_eq!(Reach::of("[fd00::1]:8443").host, "fd00::1");
+        assert!(Reach::of("[fd00::1]:8443").is_local());
+        assert!(!Reach::of("1.1.1.1").is_local());
+    }
 
     #[test]
     fn hosts_and_keys() {
@@ -812,7 +1024,7 @@ mod tests {
     #[test]
     fn decodes_and_rejects() {
         let mut png = Vec::new();
-        image::RgbaImage::from_pixel(100, 50, image::Rgba([10, 20, 30, 255]))
+        image::RgbaImage::from_pixel(60, 50, image::Rgba([10, 20, 30, 255]))
             .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
         let pixels = decode(&png).unwrap();
@@ -825,9 +1037,32 @@ mod tests {
     }
 
     #[test]
+    fn a_wide_logo_is_no_icon() {
+        // A site's name written out, as a wide picture or drawn across a square one.
+        let mut wide = Vec::new();
+        image::RgbaImage::from_pixel(200, 60, image::Rgba([200, 30, 30, 255]))
+            .write_to(&mut Cursor::new(&mut wide), image::ImageFormat::Png)
+            .unwrap();
+        assert!(decode(&wide).is_none());
+        let band = image::RgbaImage::from_fn(64, 64, |_, y| {
+            image::Rgba([200, 30, 30, if (24..40).contains(&y) { 255 } else { 0 }])
+        });
+        let mut square = Vec::new();
+        band.write_to(&mut Cursor::new(&mut square), image::ImageFormat::Png)
+            .unwrap();
+        assert!(decode(&square).is_none());
+        assert!(is_banner(band.as_raw()));
+        // One kept by an older version is looked for again, and not shown meanwhile.
+        let mut cache = IconCache::default();
+        cache.insert("wide.example".into(), Fetched::Icon(band.into_raw()));
+        assert!(cache.get("wide.example").is_none());
+        assert!(cache.needs_fetch("wide.example"));
+    }
+
+    #[test]
     fn draws_svg_icons_without_reaching_out() {
-        let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 20">
-            <rect width="10" height="20" fill="#ff0000"/>
+        let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 14">
+            <rect width="10" height="14" fill="#ff0000"/>
             <image href="file:///C:/Windows/win.ini" width="10" height="10"/>
         </svg>"##;
         let pixels = decode(svg).unwrap();

@@ -97,9 +97,11 @@ impl ServerTarget {
             &body,
             unix_now(),
         );
+        // The body's digest lets the server check the signature before it reads the body.
         let mut request = Request::builder()
             .method(method)
-            .uri(format!("{}{path}", self.base));
+            .uri(format!("{}{path}", self.base))
+            .header(wire::header::BODY_SHA256, wire::body_digest(&body));
         for (name, value) in signed.headers() {
             request = request.header(name, value);
         }
@@ -247,10 +249,19 @@ fn check(response: &mut Response<ureq::Body>) -> Result<()> {
             anyhow!("this device isn't allowed in on the server any more: join it again")
         }
         (401, _) => anyhow!("the server refused this device's signature"),
+        (403, "new_vault_only") => anyhow!(
+            "that invite only starts a new vault, and this vault is on the server already: use \
+             Add a device on a device that syncs it, or vault-server invite --vault <its id>"
+        ),
         (403, _) => anyhow!("the server refused: a device writes only its own copy"),
         (404, _) => anyhow!("not on the server"),
+        (408, _) => anyhow!("the connection to the server was too slow: try again"),
+        (409, "already_enrolled") => {
+            anyhow!("this device is already in on that server: stop syncing, then join again")
+        }
         (413, _) => anyhow!("too big for the server"),
         (429, _) => anyhow!("the server asks to slow down: try again in a minute"),
+        (503, "busy") => anyhow!("the server is busy: try again in a moment"),
         (507, "too_many_devices") => anyhow!("the server allows no more devices for this vault"),
         (507, _) => anyhow!("too many invites are waiting: use one first"),
         (300..=399, _) => anyhow!("the server sent us to another address (not followed)"),
