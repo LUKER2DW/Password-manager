@@ -1,20 +1,7 @@
-# cargo-deny (https://github.com/EmbarkStudios/cargo-deny): `cargo deny check advisories`.
-# Each advisory ignored here has no fixed version yet; the reason says why it can't be reached
-# from this project. Look at them again whenever the crate named has a new release.
+# cargo-deny (https://github.com/EmbarkStudios/cargo-deny): `cargo deny check advisories`,
+# run by CI on every push and once a day. Every advisory fails the check: none is ignored.
+# If one ever has to be, list it under `ignore` with the reason it can't be reached here, and
+# look at it again at the crate's next release.
 
 [advisories]
-ignore = [
-    # rsa: the Marvin timing attack on RSA decryption. vault-core reads an RSA SSH key brought
-    # in and writes it again in OpenSSH's form (through ssh-key); it never decrypts or signs
-    # with RSA, so there is no timing to observe.
-    { id = "RUSTSEC-2023-0071", reason = "RSA keys are only parsed and re-encoded, never used to decrypt or sign" },
-    # crypto-bigint 0.5 (through elliptic-curve 0.13): timing variability in some operations.
-    # Passkey signatures are ECDSA P-256 with RFC 6979 nonces, made on the person's own device
-    # for a site they chose; the fixed line (elliptic-curve 0.14) is not released yet.
-    { id = "RUSTSEC-2026-0387", reason = "no release of the RustCrypto 0.14 line yet; signatures are made locally" },
-    # quick-xml 0.38 inside Slint's Linux accessibility stack (zbus_xml): it reads D-Bus
-    # introspection from the session bus only, and only on Linux. The project's own XML
-    # (WebDAV listings) uses quick-xml 0.42.
-    { id = "RUSTSEC-2026-0194", reason = "Linux-only accessibility dependency of Slint, reads the local session bus" },
-    { id = "RUSTSEC-2026-0195", reason = "Linux-only accessibility dependency of Slint, reads the local session bus" },
-]
+ignore = []
