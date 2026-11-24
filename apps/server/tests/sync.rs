@@ -145,7 +145,7 @@ impl Device {
 }
 
 fn admin_invite(data: &Path) -> String {
-    vault_server::admin_invite(data, 1).unwrap().0
+    vault_server::admin_invite(data, 1, None).unwrap().0
 }
 
 #[test]

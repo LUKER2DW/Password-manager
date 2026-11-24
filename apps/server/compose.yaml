@@ -1,6 +1,7 @@
 # vault-server with Docker Compose (docs/SERVER.md):
 #   docker compose -f apps/server/compose.yaml up -d --build
-#   docker compose -f apps/server/compose.yaml exec vault-server vault-server invite
+#   docker compose -f apps/server/compose.yaml exec vault-server vault-server invite \
+#     --address https://<where your devices reach it>      # a link and its QR code
 #
 # The port is published on this machine only (127.0.0.1); `tailscale serve` puts HTTPS in
 # front of it for your own devices. Never publish it on 0.0.0.0 of a machine on the internet.
@@ -19,8 +20,20 @@ services:
     cap_drop: [ALL]
     security_opt:
       - "no-new-privileges:true"
-    mem_limit: 256m
+    mem_limit: 512m
     pids_limit: 128
+    # Open files (connections and copies) capped, and logs kept small.
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Stopping lets the requests under way finish first.
+    stop_grace_period: 30s
 
 volumes:
   vault-data:

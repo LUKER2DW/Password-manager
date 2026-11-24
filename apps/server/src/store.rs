@@ -9,13 +9,17 @@
 //! ```
 //!
 //! Invites are stored as digests only. Every file is written beside its place and renamed
-//! over it, so a crash never leaves half a file. All calls are blocking: the server runs them
-//! off its async threads.
+//! over it, so a crash never leaves half a file; on Unix only the server's user may read them
+//! (files 0600, folders 0700). The files changed in place (the devices, the invites) are read
+//! and written under one lock, so two requests at once never lose each other's change (a
+//! device removed coming back, an invite used twice). All calls are blocking: the server runs
+//! them off its async threads.
 
 use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
 use anyhow::{Context, Result, bail};
@@ -54,15 +58,24 @@ struct StoredInvite {
 #[derive(Debug, Clone)]
 pub struct Store {
     root: PathBuf,
+    /// Held while a file is read, changed and written back.
+    lock: Arc<Mutex<()>>,
 }
 
 impl Store {
     pub fn open(root: &Path) -> Result<Self> {
-        fs::create_dir_all(root.join("vaults"))
+        create_private_dir(&root.join("vaults"))
             .with_context(|| format!("creating the data folder {}", root.display()))?;
         Ok(Self {
             root: root.to_owned(),
+            lock: Arc::default(),
         })
+    }
+
+    /// One change at a time to the files changed in place. A panic while it was held left
+    /// nothing half written (every write is whole), so the lock is taken again.
+    fn changing(&self) -> MutexGuard<'_, ()> {
+        self.lock.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn vault_dir(&self, vault: &str) -> Result<PathBuf> {
@@ -108,14 +121,19 @@ impl Store {
 
     fn write_devices(&self, vault: &str, devices: &[Device]) -> Result<()> {
         let dir = self.vault_dir(vault)?;
-        fs::create_dir_all(&dir)?;
+        create_private_dir(&dir)?;
         write_json(&dir.join("enrolled.json"), devices)
     }
 
-    /// Adds (or, enrolled again with a new key, replaces) a device.
+    /// Adds a device. One already enrolled isn't enrolled again: a device that lost its key
+    /// joins as a new device (with a new id), so an invite can't take over another device's
+    /// place.
     pub fn enroll(&self, vault: &str, device: Device) -> Result<()> {
+        let _changing = self.changing();
         let mut devices = self.devices(vault)?;
-        devices.retain(|d| d.device != device.device);
+        if devices.iter().any(|d| d.device == device.device) {
+            bail!("already enrolled");
+        }
         if devices.len() >= MAX_DEVICES {
             bail!("too many devices");
         }
@@ -123,8 +141,46 @@ impl Store {
         self.write_devices(vault, &devices)
     }
 
+    /// Enrolls `device` with the invite `invite`, both or neither (see [`Store::enroll`]),
+    /// under one hold of the lock. An invite made for this vault always counts. An admin
+    /// invite good for any vault only starts a vault (one with no device yet): one that leaked
+    /// can't put a stranger's device into a vault in use. A device joins such a vault with an
+    /// invite from a device already in, or from `vault-server invite --vault`. `Ok(Err(why))`
+    /// for a refusal, which leaves the invite as it was.
+    pub fn enroll_with_invite(
+        &self,
+        vault: &str,
+        invite: &str,
+        device: Device,
+        now: i64,
+    ) -> Result<std::result::Result<(), Refusal>> {
+        let _changing = self.changing();
+        let devices = self.devices(vault)?;
+        if devices.iter().any(|d| d.device == device.device) {
+            return Ok(Err(Refusal::AlreadyEnrolled));
+        }
+        if devices.len() >= MAX_DEVICES {
+            return Ok(Err(Refusal::TooManyDevices));
+        }
+        let digest = wire::invite_digest(invite);
+        let taken = self.use_invite(Some(vault), &digest, now, true)?
+            || (devices.is_empty() && self.use_invite(None, &digest, now, true)?);
+        if !taken {
+            return Ok(Err(if self.use_invite(None, &digest, now, false)? {
+                Refusal::NewVaultOnly
+            } else {
+                Refusal::Invite
+            }));
+        }
+        let mut devices = devices;
+        devices.push(device);
+        self.write_devices(vault, &devices)?;
+        Ok(Ok(()))
+    }
+
     /// Notes when a device was last heard from.
     pub fn touch(&self, vault: &str, device: &str, at: i64) -> Result<()> {
+        let _changing = self.changing();
         let mut devices = self.devices(vault)?;
         if let Some(entry) = devices.iter_mut().find(|d| d.device == device) {
             entry.seen_at = at;
@@ -135,6 +191,7 @@ impl Store {
 
     /// Takes a device out of the vault: its key and its copy. Returns whether it was there.
     pub fn remove(&self, vault: &str, device: &str) -> Result<bool> {
+        let _changing = self.changing();
         let mut devices = self.devices(vault)?;
         let before = devices.len();
         devices.retain(|d| d.device != device);
@@ -214,6 +271,7 @@ impl Store {
             size: package.len() as u64,
         };
         let dir = self.root.join("app");
+        create_private_dir(&dir)?;
         write_atomic(&dir.join("android.apk"), package)?;
         write_atomic(
             &dir.join("android.json"),
@@ -248,6 +306,7 @@ impl Store {
         expires_at: i64,
         now: i64,
     ) -> Result<()> {
+        let _changing = self.changing();
         let path = self.invites_path(vault)?;
         let mut invites: Vec<StoredInvite> = read_json(&path)?;
         invites.retain(|i| i.expires_at > now);
@@ -259,7 +318,7 @@ impl Store {
             expires_at,
         });
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            create_private_dir(parent)?;
         }
         write_json(&path, &invites)
     }
@@ -267,26 +326,36 @@ impl Store {
     /// Uses up an invite for `vault`: one made for it, or an admin invite. Returns whether
     /// there was one.
     pub fn take_invite(&self, vault: &str, invite: &str, now: i64) -> Result<bool> {
+        let _changing = self.changing();
         let digest = wire::invite_digest(invite);
-        for scope in [Some(vault), None] {
-            let path = self.invites_path(scope)?;
-            let mut invites: Vec<StoredInvite> = read_json(&path)?;
-            let before = invites.len();
-            invites.retain(|i| i.expires_at > now);
-            let found = invites.iter().position(|i| {
-                wire::unhex::<32>(&i.digest).is_some_and(|d| wire::same_digest(&d, &digest))
-            });
-            if let Some(index) = found {
-                invites.remove(index);
-            }
-            if found.is_some() || invites.len() != before {
-                write_json(&path, &invites)?;
-            }
-            if found.is_some() {
-                return Ok(true);
-            }
+        Ok(self.use_invite(Some(vault), &digest, now, true)?
+            || self.use_invite(None, &digest, now, true)?)
+    }
+
+    /// Whether the invite with `digest` waits among `scope`'s (a vault's, or with `None` the
+    /// admin's); with `take`, uses it up. Expired ones are dropped on the way. The lock is
+    /// held by the caller.
+    fn use_invite(
+        &self,
+        scope: Option<&str>,
+        digest: &[u8; 32],
+        now: i64,
+        take: bool,
+    ) -> Result<bool> {
+        let path = self.invites_path(scope)?;
+        let mut invites: Vec<StoredInvite> = read_json(&path)?;
+        let before = invites.len();
+        invites.retain(|i| i.expires_at > now);
+        let found = invites.iter().position(|i| {
+            wire::unhex::<32>(&i.digest).is_some_and(|d| wire::same_digest(&d, digest))
+        });
+        if take && let Some(index) = found {
+            invites.remove(index);
         }
-        Ok(false)
+        if invites.len() != before {
+            write_json(&path, &invites)?;
+        }
+        Ok(found.is_some())
     }
 
     fn invites_path(&self, vault: Option<&str>) -> Result<PathBuf> {
@@ -311,16 +380,51 @@ fn write_json<T: Serialize + ?Sized>(path: &Path, value: &T) -> Result<()> {
     write_atomic(path, &serde_json::to_vec_pretty(value)?)
 }
 
+/// Why an enrollment was refused (the API's answer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// The invite is wrong, used or expired.
+    Invite,
+    TooManyDevices,
+    /// That device id is enrolled already.
+    AlreadyEnrolled,
+    /// An admin invite good for any vault, offered to a vault that has devices already: it
+    /// only starts a new vault.
+    NewVaultOnly,
+}
+
+/// A folder only the server's user may open (0700 on Unix), with its parents.
+fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt as _;
+        builder.mode(0o700);
+    }
+    builder.create(dir)
+}
+
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let dir = path.parent().context("no parent folder")?;
-    fs::create_dir_all(dir)?;
+    create_private_dir(dir)?;
     let name = path.file_name().context("no file name")?.to_string_lossy();
     let temp = dir.join(format!(".{name}.{}.tmp", wire::new_nonce()));
     let written = (|| -> Result<()> {
-        let mut file = fs::File::create(&temp)?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         fs::rename(&temp, path)?;
+        // The rename itself reaches the disk too (on Unix a folder is synced like a file).
+        #[cfg(unix)]
+        fs::File::open(dir)?.sync_all()?;
         Ok(())
     })();
     if written.is_err() {
@@ -385,6 +489,52 @@ mod tests {
         assert!(
             store.take_invite(&id('e'), &id('d'), 50).unwrap(),
             "admin invite"
+        );
+
+        // An enrolled device isn't enrolled again (a new key would take over its place).
+        let again = Device {
+            device: phone.clone(),
+            key: "11".repeat(32),
+            name: "Thief".into(),
+            added_at: 2,
+            seen_at: 0,
+        };
+        assert!(store.enroll(&vault, again.clone()).is_err());
+        store.add_invite(Some(&vault), &id('9'), 100, 0).unwrap();
+        assert_eq!(
+            store
+                .enroll_with_invite(&vault, &id('9'), again, 50)
+                .unwrap(),
+            Err(Refusal::AlreadyEnrolled)
+        );
+        assert_eq!(store.devices(&vault).unwrap()[0].key, "00".repeat(32));
+        assert!(
+            store.take_invite(&vault, &id('9'), 50).unwrap(),
+            "a refused enrollment leaves the invite"
+        );
+
+        // An admin invite only starts a vault: one in use takes the invites made for it.
+        store.add_invite(None, &id('7'), 100, 0).unwrap();
+        let newcomer = Device {
+            device: id('8'),
+            key: "22".repeat(32),
+            name: "New".into(),
+            added_at: 3,
+            seen_at: 0,
+        };
+        assert_eq!(
+            store
+                .enroll_with_invite(&vault, &id('7'), newcomer.clone(), 50)
+                .unwrap(),
+            Err(Refusal::NewVaultOnly)
+        );
+        assert_eq!(store.devices(&vault).unwrap().len(), 1);
+        assert_eq!(
+            store
+                .enroll_with_invite(&id('6'), &id('7'), newcomer, 50)
+                .unwrap(),
+            Ok(()),
+            "the refusal left it for a new vault"
         );
 
         assert!(store.remove(&vault, &phone).unwrap());

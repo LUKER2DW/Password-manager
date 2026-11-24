@@ -471,7 +471,9 @@ impl Server {
     }
 
     fn invite(&self) -> String {
-        vault_server::admin_invite(self.data.path(), 1).unwrap().0
+        vault_server::admin_invite(self.data.path(), 1, None)
+            .unwrap()
+            .0
     }
 }
 

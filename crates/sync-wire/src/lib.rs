@@ -8,7 +8,9 @@
 //! vault-sync-v1/request\n METHOD\n PATH?QUERY\n DEVICE\n TIME\n NONCE\n SHA-256(BODY) (hex)
 //! ```
 //!
-//! sent as the `x-vault-*` headers. The server refuses a request more than
+//! sent as the `x-vault-*` headers, with the body's SHA-256 in `x-vault-body-sha256` too, so
+//! the server can check the signature before it reads a large body (the copy) and then checks
+//! that the body is the one signed. The server refuses a request more than
 //! [`MAX_CLOCK_SKEW`] seconds off its clock and any nonce it already saw, so a recorded request
 //! can't be played again. A device is enrolled once with a one-time invite, proving it holds
 //! its key by signing the enrollment.
@@ -29,6 +31,9 @@ pub mod header {
     pub const TIME: &str = "x-vault-time";
     pub const NONCE: &str = "x-vault-nonce";
     pub const SIGNATURE: &str = "x-vault-signature";
+    /// SHA-256 of the body (hex), as signed: lets the server check the signature before it
+    /// reads the body. Not signed itself; a body that doesn't match it is refused.
+    pub const BODY_SHA256: &str = "x-vault-body-sha256";
 }
 
 /// How far a request's time may be from the server's clock (seconds).
@@ -62,12 +67,27 @@ pub fn is_id(text: &str) -> bool {
     text.len() == 32 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// Whether `name` may name a device: 1 to [`MAX_NAME_CHARS`] characters, no control characters.
+/// Whether `name` may name a device: 1 to [`MAX_NAME_CHARS`] characters, no control
+/// characters, and none of the invisible ones that turn text around or hide in it (a name
+/// that reads as another device's in a list).
 pub fn is_device_name(name: &str) -> bool {
     let chars = name.chars().count();
     (1..=MAX_NAME_CHARS).contains(&chars)
-        && !name.chars().any(char::is_control)
+        && !name.chars().any(|c| c.is_control() || is_invisible(c))
         && name.trim() == name
+}
+
+/// Direction marks and overrides, and characters that take no space.
+pub fn is_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061C}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2069}'
+            | '\u{FEFF}'
+    )
 }
 
 /// The tag of a stored copy (its ETag): the first 16 bytes of its SHA-256, in hex.
@@ -116,12 +136,41 @@ pub fn request_message(
     nonce: &str,
     body: &[u8],
 ) -> Vec<u8> {
+    request_message_for(
+        method,
+        path_and_query,
+        device,
+        time,
+        nonce,
+        &body_digest(body),
+    )
+}
+
+/// [`request_message`] for a body known only by its digest ([`body_digest`]): what the server
+/// checks before it reads a large body.
+pub fn request_message_for(
+    method: &str,
+    path_and_query: &str,
+    device: &str,
+    time: i64,
+    nonce: &str,
+    body_digest: &str,
+) -> Vec<u8> {
     format!(
-        "{PROTOCOL}/request\n{}\n{path_and_query}\n{device}\n{time}\n{nonce}\n{}",
+        "{PROTOCOL}/request\n{}\n{path_and_query}\n{device}\n{time}\n{nonce}\n{body_digest}",
         method.to_ascii_uppercase(),
-        hex(&Sha256::digest(body))
     )
     .into_bytes()
+}
+
+/// A body's SHA-256 as signed and sent in [`header::BODY_SHA256`] (lowercase hex).
+pub fn body_digest(body: &[u8]) -> String {
+    hex(&Sha256::digest(body))
+}
+
+/// Whether `text` is a body digest as [`body_digest`] writes it.
+pub fn is_body_digest(text: &str) -> bool {
+    text.len() == 64 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 /// The bytes an enrollment's signature covers: the new device proves it holds its key.
@@ -354,7 +403,10 @@ pub struct Refusal {
 }
 
 /// What a device needs to join a vault on a server, as one line of text (shown as a QR code
-/// and as text to type): `vaultsync:1?server=<url>&vault=<id>&invite=<invite>`. Nothing in it
+/// and as text to type): `vaultsync:1?server=<url>&vault=<id>&invite=<invite>`. The server's
+/// address carries its certificate's pin when it has one (`#pin=`, escaped), so the person
+/// never types it. `vault` is left out of a line the server made with an invite good for any
+/// vault (`vault-server invite`): such a line joins the vault that is open. Nothing in it
 /// opens the vault: the master password and the Secret Key still have to come from the person.
 #[derive(Clone, PartialEq, Eq)]
 pub struct InviteLink {
@@ -379,13 +431,11 @@ impl InviteLink {
     const PREFIX: &'static str = "vaultsync:1?";
 
     pub fn to_text(&self) -> Zeroizing<String> {
-        let mut text = Zeroizing::new(format!(
-            "{}server={}&vault={}&invite={}",
-            Self::PREFIX,
-            escape(&self.server),
-            self.vault,
-            self.invite
-        ));
+        let mut text = Zeroizing::new(format!("{}server={}", Self::PREFIX, escape(&self.server)));
+        if !self.vault.is_empty() {
+            text.push_str(&format!("&vault={}", self.vault));
+        }
+        text.push_str(&format!("&invite={}", self.invite));
         if let Some((server, invite)) = &self.backup {
             text.push_str(&format!(
                 "&backup={}&backup_invite={invite}",
@@ -427,11 +477,16 @@ impl InviteLink {
         };
         let link = Self {
             server: server?,
-            vault: vault?.to_ascii_lowercase(),
+            vault: vault.unwrap_or_default().to_ascii_lowercase(),
             invite: invite?.to_ascii_lowercase(),
             backup,
         };
-        (is_id(&link.vault) && is_id(&link.invite)).then_some(link)
+        ((link.vault.is_empty() || is_id(&link.vault)) && is_id(&link.invite)).then_some(link)
+    }
+
+    /// Whether this line may join vault `vault_id`: one made for it, or one good for any vault.
+    pub fn fits(&self, vault_id: &str) -> bool {
+        self.vault.is_empty() || self.vault == vault_id
     }
 }
 
@@ -578,6 +633,19 @@ mod tests {
             None
         );
         assert!(!format!("{link:?}").contains(&link.invite));
+        assert!(link.fits(&link.vault) && !link.fits(&"ab".repeat(16)));
+
+        // A line from the server itself, good for any vault: no vault in it, and a pinned
+        // address that reads back whole.
+        let any = InviteLink {
+            server: format!("https://192.168.1.10:8750#pin={}", "ab".repeat(32)),
+            vault: String::new(),
+            ..link.clone()
+        };
+        let text_any = any.to_text();
+        assert!(!text_any.contains("vault="));
+        assert_eq!(InviteLink::parse(&text_any), Some(any.clone()));
+        assert!(any.fits(&"cd".repeat(16)));
 
         // With a backup server: both come back; an app that doesn't know them joins the
         // main one; half of a backup is refused.
@@ -621,6 +689,15 @@ mod tests {
         assert!(!is_device_name(" Phone"));
         assert!(!is_device_name("a\nb"));
         assert!(!is_device_name(&"x".repeat(61)));
+        assert!(is_device_name("Téléphone 2"));
+        assert!(!is_device_name("Phone\u{202E}enohP"));
+        assert!(!is_device_name("Pho\u{200B}ne"));
+        assert!(is_body_digest(&body_digest(b"copy")));
+        assert!(!is_body_digest(&body_digest(b"copy").to_ascii_uppercase()));
+        assert_eq!(
+            request_message("PUT", "/p", "d", 1, "n", b"copy"),
+            request_message_for("PUT", "/p", "d", 1, "n", &body_digest(b"copy"))
+        );
         assert_eq!(unhex::<2>("0aFF"), Some([0x0a, 0xff]));
         assert_eq!(unhex::<2>("0aF"), None);
         assert_eq!(tag(b"x").len(), 32);

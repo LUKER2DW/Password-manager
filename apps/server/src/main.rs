@@ -33,12 +33,26 @@ enum Command {
         #[arg(long = "tls-name", value_name = "NAME")]
         tls_names: Vec<String>,
     },
-    /// Make a one-time invite for a device to join a vault (the first device of a new vault,
-    /// or one that lost its key). More devices are better invited from a device already in.
+    /// Make a one-time invite for a device to join a vault. Without `--vault` it starts a new
+    /// vault only (the first device of a vault); a device of a vault already here joins with
+    /// `--vault <id>`, or better with an invite from a device already in (Add a device).
+    /// With `--address` it also prints the whole link (the address, the certificate's pin and
+    /// the invite in one line) and its QR code, to paste or scan in the app.
     Invite {
         /// How long it stays good.
         #[arg(long, default_value_t = 24)]
         hours: i64,
+        /// Where the devices reach this server, as the app would be given it.
+        #[arg(long, env = "VAULT_SERVER_URL")]
+        address: Option<String>,
+        /// For this vault (its id, from `vault-server list`), which may have devices already:
+        /// the link then also sets up a phone that has no vault yet.
+        #[arg(long)]
+        vault: Option<String>,
+        /// Leave the certificate's pin out of the link (the server is reached through
+        /// Tailscale or a proxy with a certificate of its own).
+        #[arg(long)]
+        no_pin: bool,
     },
     /// List the vaults and their devices.
     List,
@@ -74,9 +88,7 @@ async fn main() -> Result<()> {
                 .await
                 .with_context(|| format!("listening on {listen}"))?;
             eprintln!("vault-server: serving {} on {listen}", cli.data.display());
-            let stop = async {
-                let _ = tokio::signal::ctrl_c().await;
-            };
+            let stop = stopped();
             if !tls {
                 return vault_server::serve(&cli.data, listener, stop).await;
             }
@@ -87,11 +99,65 @@ async fn main() -> Result<()> {
             for address in app_addresses(listen, &tls.pin) {
                 println!("  {address}");
             }
+            eprintln!(
+                "vault-server: or, typed apart, the address before # and this pin (the app's \
+                 Certificate pin field): {}",
+                tls.pin
+            );
+            eprintln!(
+                "vault-server: vault-server invite --address <one of the addresses> prints one \
+                 link (address, pin and invite) and its QR code."
+            );
             vault_server::serve_tls(&cli.data, listener, std::sync::Arc::new(tls), stop).await
         }
-        Command::Invite { hours } => {
-            let (invite, expires_at) = vault_server::admin_invite(&cli.data, hours)?;
+        Command::Invite {
+            hours,
+            address,
+            vault,
+            no_pin,
+        } => {
+            let (invite, expires_at) =
+                vault_server::admin_invite(&cli.data, hours, vault.as_deref())?;
             println!("{invite}");
+            if vault.is_none() {
+                let store = Store::open(&cli.data)?;
+                let here = store.vaults()?;
+                if !here.is_empty() {
+                    eprintln!(
+                        "This invite starts a new vault. For a device of a vault already here, \
+                         use Add a device on a device that syncs it, or make the invite with \
+                         --vault and one of these:"
+                    );
+                    for id in here {
+                        let names: Vec<String> =
+                            store.devices(&id)?.into_iter().map(|d| d.name).collect();
+                        eprintln!("  {id}  ({})", names.join(", "));
+                    }
+                }
+            }
+            match address {
+                Some(address) => {
+                    let server = vault_server::link_address(&cli.data, &address, !no_pin)?;
+                    let link = vault_sync_wire::InviteLink {
+                        server,
+                        vault: vault.unwrap_or_default(),
+                        invite: invite.clone(),
+                        backup: None,
+                    };
+                    let text = link.to_text();
+                    eprintln!(
+                        "\nThe link: it holds the address, the certificate's pin and the invite. \
+                         Paste it in the app (Settings, Sync, Use a server), or scan the code \
+                         with the phone."
+                    );
+                    println!("{}", *text);
+                    eprintln!("{}", vault_server::terminal_qr(&text));
+                }
+                None => eprintln!(
+                    "Add --address <where the devices reach this server> for a link and a QR code \
+                     that hold the address, the pin and the invite."
+                ),
+            }
             eprintln!(
                 "Good once, until Unix time {expires_at}. Type it in the app with this \
                  server's address: Settings, Sync, Use a server."
@@ -117,8 +183,12 @@ async fn main() -> Result<()> {
                 .with_context(|| format!("reading {}", package.display()))?;
             let release = store.publish_app(&bytes, &version)?;
             println!(
-                "Published version {} ({} bytes, SHA-256 {}).",
-                release.version, release.size, release.sha256
+                "Published version {} ({} bytes, SHA-256 {}) in {}. A server started with this \
+                 data folder offers it to the phones.",
+                release.version,
+                release.size,
+                release.sha256,
+                cli.data.display()
             );
             Ok(())
         }
@@ -131,6 +201,30 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
+    }
+}
+
+/// Ctrl+C, or (on Unix) the SIGTERM a container or service manager sends: requests under way
+/// finish first, nothing new is taken.
+async fn stopped() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        match signal(SignalKind::terminate()) {
+            Ok(mut term) => {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    _ = term.recv() => {}
+                }
+            }
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
     }
 }
 

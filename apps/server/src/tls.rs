@@ -35,8 +35,10 @@ use tokio::{
 };
 use tokio_rustls::{TlsAcceptor, server::TlsStream};
 
-/// Handshakes in flight at once; more connections wait in the kernel's queue.
+/// Handshakes in flight at once, and from one address (an IPv6 /64 counts as one); more
+/// connections wait in the kernel's queue, and more from one address are closed.
 const HANDSHAKES: usize = 64;
+const HANDSHAKES_PER_ADDRESS: usize = 16;
 /// A client that hasn't finished its handshake by then is dropped.
 const HANDSHAKE_TIME: Duration = Duration::from_secs(10);
 
@@ -84,7 +86,16 @@ impl Tls {
                 KeyPair::from_pem(&pem).context("reading the authority's key")?,
             )
         } else {
-            std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+            let mut folder = std::fs::DirBuilder::new();
+            folder.recursive(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt as _;
+                folder.mode(0o700);
+            }
+            folder
+                .create(&dir)
+                .with_context(|| format!("creating {}", dir.display()))?;
             let key = KeyPair::generate().context("making the authority's key")?;
             let der = authority_params()
                 .self_signed(&key)
@@ -255,6 +266,7 @@ impl TlsListener {
         let local = tcp.local_addr()?;
         let (sender, incoming) = mpsc::channel(HANDSHAKES);
         let slots = Arc::new(Semaphore::new(HANDSHAKES));
+        let handshaking = crate::connections::Counts::new(HANDSHAKES, HANDSHAKES_PER_ADDRESS);
         tokio::spawn(async move {
             loop {
                 if sender.is_closed() {
@@ -271,6 +283,10 @@ impl TlsListener {
                         continue;
                     }
                 };
+                // One address can't take every handshake slot.
+                let Some(counted) = handshaking.take(address.ip()) else {
+                    continue;
+                };
                 // The certificate names the address this connection was made to.
                 let config = match stream.local_addr() {
                     Ok(dialled) => tls.config_for(dialled.ip()),
@@ -280,6 +296,7 @@ impl TlsListener {
                 let sender = sender.clone();
                 tokio::spawn(async move {
                     let _permit = permit;
+                    let _counted = counted;
                     if let Ok(Ok(stream)) =
                         tokio::time::timeout(HANDSHAKE_TIME, acceptor.accept(stream)).await
                     {
