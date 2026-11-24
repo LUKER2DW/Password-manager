@@ -38,6 +38,19 @@ const PAIRING_PURPOSE: &str = "browser-pairing";
 const LOCKED: &[u8] = br#"{"type":"error","code":"locked"}"#;
 const NOT_PAIRED: &[u8] = br#"{"type":"error","code":"not_paired"}"#;
 const BAD_REQUEST: &[u8] = br#"{"type":"error","code":"bad_request"}"#;
+/// Saving logins, or passkeys, turned off in Settings → Browser extension.
+const TURNED_OFF: &[u8] = br#"{"type":"error","code":"turned_off"}"#;
+
+/// The `type` of a request from the extension ("" when it has none): what Settings →
+/// Browser extension may have turned off is known before the request is answered.
+fn request_type(request: &[u8]) -> String {
+    #[derive(serde::Deserialize)]
+    struct Kind {
+        #[serde(rename = "type", default)]
+        kind: String,
+    }
+    serde_json::from_slice::<Kind>(request).map_or_else(|_| String::new(), |k| k.kind)
+}
 
 /// A running link: the flag that stops its thread, and the pipe to wake it on.
 #[derive(Debug)]
@@ -246,13 +259,59 @@ impl Controller {
                 if !trusted {
                     return fixed(NOT_PAIRED);
                 }
-                if self.state.borrow().session.is_none() {
-                    return self.browser_locked(body.as_bytes(), device);
+                let request = body.as_bytes();
+                let kind = request_type(request);
+                if let Some(refused) = self.browser_turned_off(&kind) {
+                    return refused;
                 }
-                self.browser_inner(body.as_bytes(), device)
+                let answer = if self.state.borrow().session.is_none() {
+                    self.browser_locked(request, device)
+                } else {
+                    self.browser_inner(request, device)
+                };
+                self.with_browser_settings(&kind, answer)
             }
             Envelope::Invalid => fixed(BAD_REQUEST),
         }
+    }
+
+    /// What Settings → Browser extension turned off is refused before anything is read:
+    /// saving logins from pages (also while locked), and the vault's passkeys (the browser
+    /// then uses its own).
+    fn browser_turned_off(&self, kind: &str) -> Option<Zeroizing<Vec<u8>>> {
+        let settings = &self.state.borrow().settings;
+        let off = match kind {
+            "save" | "changed" | "update" => !settings.browser_saves,
+            "passkeys" | "passkey_get" | "passkey_create" => !settings.browser_passkeys,
+            _ => false,
+        };
+        off.then(|| Zeroizing::new(TURNED_OFF.to_vec()))
+    }
+
+    /// The answer about a page's logins (and the status) says what the person turned off, so
+    /// the extension doesn't offer it: `"saves": false`, `"passkeys": false`.
+    fn with_browser_settings(&self, kind: &str, answer: Zeroizing<Vec<u8>>) -> Zeroizing<Vec<u8>> {
+        if !matches!(kind, "status" | "logins") {
+            return answer;
+        }
+        let (saves, passkeys) = {
+            let settings = &self.state.borrow().settings;
+            (settings.browser_saves, settings.browser_passkeys)
+        };
+        if saves && passkeys {
+            return answer;
+        }
+        // Names and usernames only (a status or a list of logins, never a password).
+        let Ok(serde_json::Value::Object(mut reply)) = serde_json::from_slice(&answer) else {
+            return answer;
+        };
+        if !saves {
+            reply.insert("saves".into(), false.into());
+        }
+        if !passkeys {
+            reply.insert("passkeys".into(), false.into());
+        }
+        serde_json::to_vec(&reply).map_or(answer, Zeroizing::new)
     }
 
     /// Answers a request that may be answered (see `vault_browser::service`). A login handed
@@ -330,7 +389,9 @@ impl Controller {
                 CopyWhat::Code => (true, notice::CODE_COPIED),
             };
             self.copy(copy.value, secret, code);
-        } else if let Some(title) = &answer.filled {
+        } else if let Some(title) = &answer.filled
+            && self.state.borrow().settings.browser_fill_notices
+        {
             self.notify(notice::BROWSER_FILLED, title);
         }
         answer.bytes
@@ -406,7 +467,9 @@ impl Controller {
                 CopyWhat::Code => (true, notice::CODE_COPIED),
             };
             self.copy(copy.value, secret, code);
-        } else if let Some(title) = &answer.filled {
+        } else if let Some(title) = &answer.filled
+            && self.state.borrow().settings.browser_fill_notices
+        {
             self.notify(notice::BROWSER_FILLED, title);
         }
         answer.bytes

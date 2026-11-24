@@ -2,8 +2,8 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
-import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker } from "icons.slint";
+import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, Messages } from "model.slint";
+import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker, IconLook, FolderLook } from "icons.slint";
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip } from "kit.slint";
 import { StrengthMeter } from "strength.slint";
@@ -176,6 +176,7 @@ component LockBox inherits Rectangle {
             SecretField {
                 width: root.check == 1 ? 180px : 320px;
                 field: 11;
+                eye: true;
                 placeholder: root.check == 1 ? @tr("PIN") : root.check == 2 ? @tr("Item password") : @tr("Master password");
                 error: root.error-code == 35;
                 accepted => { root.unlock(); }
@@ -215,6 +216,10 @@ export component DetailPage inherits Rectangle {
     in property <bool> has-icon;
     in property <string> initial;
     in property <color> tint;
+    // A line icon chosen for the item, and its colours (IconLook).
+    in property <string> glyph;
+    in property <int> glyph-color;
+    in property <int> glyph-bg;
     in property <string> username;
     in property <bool> has-password;
     in property <string> revealed-password;
@@ -307,15 +312,18 @@ export component DetailPage inherits Rectangle {
                 spacing: 16px;
                 VerticalLayout {
                     alignment: center;
-                    if root.kind != 1 || root.brand == 0: ItemIcon {
+                    if root.glyph != "" || root.kind != 1 || root.brand == 0: ItemIcon {
                         size: 48px;
                         icon: root.icon;
                         has-icon: root.has-icon;
                         initial: root.initial;
                         tint: root.tint;
                         kind: root.kind;
+                        glyph: root.glyph;
+                        glyph-color: root.glyph-color;
+                        glyph-bg: root.glyph-bg;
                     }
-                    if root.kind == 1 && root.brand != 0: BrandMark {
+                    if root.glyph == "" && root.kind == 1 && root.brand != 0: BrandMark {
                         brand: root.brand;
                         size: 64px;
                     }
@@ -977,8 +985,16 @@ export component EditorPage inherits Rectangle {
     in-out property <string> title;
     in-out property <string> username;
     in-out property <string> url;
+    // The site's icon for what the Website field says (when icons are on and it was found).
+    in property <image> site-icon;
+    in property <bool> has-site-icon;
     // A website whose icon stands for this item ("" = the item's own website).
     in-out property <string> icon-url;
+    // Or a line icon in colours of its own ("" = automatic); the choices open from a button.
+    in-out property <string> glyph;
+    in-out property <int> glyph-color;
+    in-out property <int> glyph-bg;
+    property <bool> icons-open;
     in-out property <string> totp;
     in-out property <string> notes;
     in-out property <bool> favorite;
@@ -997,9 +1013,12 @@ export component EditorPage inherits Rectangle {
     in property <bool> ssh-has-key;
     in property <string> ssh-public;
     in property <string> ssh-fingerprint;
+    in property <string> ssh-type;
+    in property <bool> ssh-waiting;
     callback ssh-generate();
     callback ssh-load();
     callback ssh-paste();
+    callback ssh-open();
     // Files attached to the item.
     in property <[FileRow]> files;
     callback file-add();
@@ -1076,6 +1095,107 @@ export component EditorPage inherits Rectangle {
                     selected <=> root.folder;
                 }
             }
+            // Its picture: automatic (its site's icon, else its initial), or a line icon in
+            // colours of its own, the same as on the phone.
+            VerticalLayout {
+                spacing: 10px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: start;
+                    // Automatic: the site's icon when there is one, else a picture's sign (the
+                    // initial comes once it is saved).
+                    ItemIcon {
+                        size: 34px;
+                        icon: root.site-icon;
+                        has-icon: root.glyph == "" && root.has-site-icon;
+                        glyph: root.glyph != "" ? root.glyph : "image";
+                        glyph-color: root.glyph != "" ? root.glyph-color : 0;
+                        glyph-bg: root.glyph != "" ? root.glyph-bg : 0;
+                    }
+                    Text {
+                        text: root.glyph == "" ? @tr("Icon: automatic (the site's icon, or the first letter)") : @tr("Icon: a line icon");
+                        font-size: Theme.body;
+                        color: Theme.ink;
+                        vertical-alignment: center;
+                    }
+                    QuietButton {
+                        text: root.icons-open ? @tr("Done") : @tr("Choose…");
+                        icon: root.icons-open ? "" : "palette";
+                        outlined: true;
+                        clicked => { root.icons-open = !root.icons-open; }
+                    }
+                    if root.glyph != "": QuietButton {
+                        text: @tr("Back to automatic");
+                        clicked => {
+                            root.glyph = "";
+                            root.glyph-color = 0;
+                            root.glyph-bg = 0;
+                        }
+                    }
+                }
+                if root.icons-open: VerticalLayout {
+                    spacing: 12px;
+                    // The icons, sixteen to a row, each in its own colour.
+                    for row in 2: HorizontalLayout {
+                        spacing: 4px;
+                        alignment: start;
+                        for k in 16: Rectangle {
+                            property <string> name: FolderLook.icons[row * 16 + k];
+                            width: 36px;
+                            height: 36px;
+                            border-radius: Theme.radius;
+                            background: root.glyph == self.name ? Theme.selected : glyph-touch.has-hover ? Theme.hover : transparent;
+                            border-width: root.glyph == self.name ? 1px : 0px;
+                            border-color: Theme.marker;
+                            accessible-role: button;
+                            accessible-label: self.name;
+                            Glyph { width: 20px; height: 20px; name: parent.name; tint: IconLook.own(parent.name); }
+                            glyph-touch := TouchArea {
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => { root.glyph = parent.name; }
+                            }
+                        }
+                    }
+                    // Its colour and its tile's: its own (the ringed dot), or one of these.
+                    for which in 2: HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        Text {
+                            width: 110px;
+                            text: which == 0 ? @tr("Icon colour") : @tr("Tile colour");
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            vertical-alignment: center;
+                        }
+                        for c[i] in IconLook.colors: Rectangle {
+                            property <bool> chosen: (which == 0 ? root.glyph-color : root.glyph-bg) == i;
+                            width: 26px;
+                            height: 26px;
+                            border-radius: 13px;
+                            border-width: self.chosen ? 2px : 0px;
+                            border-color: Theme.marker;
+                            Rectangle {
+                                width: 18px;
+                                height: 18px;
+                                border-radius: 9px;
+                                border-width: 1px;
+                                border-color: Theme.rule;
+                                background: i != 0 ? c
+                                    : which == 0 ? IconLook.own(root.glyph == "" ? "folder" : root.glyph)
+                                    : IconLook.tile(root.glyph == "" ? "folder" : root.glyph, root.glyph-color, 0);
+                                if i == 0: Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.sheet; }
+                            }
+                            TouchArea {
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => {
+                                    if (root.glyph == "") { root.glyph = "folder"; }
+                                    if (which == 0) { root.glyph-color = i; } else { root.glyph-bg = i; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if root.kind != 2: HorizontalLayout {
                 spacing: 16px;
                 LineField {
@@ -1085,13 +1205,33 @@ export component EditorPage inherits Rectangle {
                     placeholder: root.kind == 1 ? "" : @tr("you@example.com");
                     text <=> root.username;
                 }
-                // The item's icon comes from its website: a card's is its bank's site.
+                // The item's icon comes from its website: a card's is its bank's site. Next to
+                // the address, the site's icon, to see at once which site it is.
                 LineField {
                     horizontal-stretch: 1;
                     label: @tr("Website");
                     icon: "globe";
                     placeholder: root.kind == 1 ? @tr("The bank's site, for its icon") : "https://";
                     text <=> root.url;
+                }
+                if root.has-site-icon: VerticalLayout {
+                    alignment: end;
+                    Rectangle {
+                        width: 38px;
+                        height: 38px;
+                        border-radius: Theme.radius;
+                        background: Theme.field;
+                        border-width: 1px;
+                        border-color: Theme.rule;
+                        accessible-role: image;
+                        accessible-label: @tr("The site's icon");
+                        Image {
+                            width: 22px;
+                            height: 22px;
+                            source: root.site-icon;
+                            image-fit: contain;
+                        }
+                    }
                 }
             }
             if root.kind == 3: LineField {
@@ -1232,26 +1372,63 @@ export component EditorPage inherits Rectangle {
                 crack-amount: root.crack-amount;
                 weakness: root.weakness;
             }
+            // An SSH key: the key in hand (its type, fingerprint and public half; the private
+            // key stays in Rust), a passphrase asked once for a key that has one, and the ways
+            // to get a key. It is kept without a passphrase: the vault protects it.
             if root.kind == 4: VerticalLayout {
                 spacing: 10px;
-                Text {
-                    text: root.ssh-has-key ? @tr("Public key") : @tr("No key yet: make one here, or bring yours from a file or the clipboard.");
-                    font-size: Theme.small;
-                    color: Theme.graphite;
-                    wrap: word-wrap;
+                Rectangle {
+                    border-radius: Theme.radius;
+                    background: Theme.field;
+                    border-width: 1px;
+                    border-color: Theme.rule;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 6px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Glyph { width: 18px; height: 18px; name: "terminal"; tint: IconLook.own("terminal"); }
+                            Text {
+                                text: !root.ssh-has-key ? @tr("No key yet: make one here, or bring yours from a file or the clipboard.")
+                                    : root.ssh-type != "" ? root.ssh-type : @tr("Private key");
+                                font-size: Theme.body;
+                                color: Theme.ink;
+                                vertical-alignment: center;
+                                wrap: word-wrap;
+                            }
+                        }
+                        Text {
+                            text: root.ssh-fingerprint;
+                            font-family: Theme.mono-font;
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                        }
+                        Text {
+                            text: root.ssh-has-key && root.ssh-public == "" ? @tr("Kept as it is; its public half couldn't be read.") : root.ssh-public;
+                            font-family: Theme.mono-font;
+                            font-size: Theme.small;
+                            color: Theme.ink;
+                            wrap: char-wrap;
+                        }
+                    }
                 }
-                if root.ssh-has-key: Text {
-                    text: root.ssh-public != "" ? root.ssh-public : @tr("Kept as it is; its public half couldn't be read.");
-                    font-family: Theme.mono-font;
-                    font-size: Theme.small;
-                    color: Theme.ink;
-                    wrap: char-wrap;
-                }
-                if root.ssh-fingerprint != "": Text {
-                    text: root.ssh-fingerprint;
-                    font-family: Theme.mono-font;
-                    font-size: Theme.small;
-                    color: Theme.graphite;
+                if root.ssh-waiting: HorizontalLayout {
+                    spacing: 8px;
+                    SecretField {
+                        horizontal-stretch: 1;
+                        field: 19;
+                        label: @tr("The key's passphrase");
+                        hint: @tr("Asked once to open the key. The vault keeps the key without it: the vault itself protects it.");
+                        icon: "key";
+                        eye: true;
+                        error: root.error-code == 55;
+                        accepted => { root.ssh-open(); }
+                    }
+                    VerticalLayout {
+                        alignment: end;
+                        Button { text: @tr("Open the key"); clicked => { root.ssh-open(); } }
+                    }
                 }
                 HorizontalLayout {
                     alignment: start;
@@ -1402,6 +1579,7 @@ export component EditorPage inherits Rectangle {
             }
             if root.needs-check: SecretField {
                 field: 11;
+                eye: true;
                 label: root.check == 1 ? @tr("Item lock PIN, to save this locked item") : @tr("Item lock password, to save this locked item");
                 required: true;
                 error: root.error-code == 35 || root.error-code == 37;
@@ -1881,6 +2059,73 @@ component Fact inherits HorizontalLayout {
     }
 }
 
+// One category in the Settings sidebar: its icon, its name and a line about what is in it.
+component SettingsTab inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    in property <string> detail;
+    in property <bool> current;
+    callback clicked;
+    height: 54px;
+    border-radius: Theme.radius;
+    background: root.current ? Theme.selected : touch.has-hover ? Theme.hover : transparent;
+    accessible-role: tab;
+    accessible-label: root.text;
+    accessible-description: root.detail;
+    accessible-action-default => { root.clicked(); }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 10px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            Glyph {
+                width: 18px;
+                height: 18px;
+                name: root.icon;
+                tint: root.current ? Theme.ink : Theme.graphite;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 1px;
+            horizontal-stretch: 1;
+            min-width: 0px;
+            Text {
+                text: root.text;
+                font-size: Theme.body;
+                font-weight: root.current ? 600 : 400;
+                color: Theme.ink;
+                overflow: elide;
+            }
+            Text {
+                text: root.detail;
+                font-size: Theme.small;
+                color: Theme.graphite;
+                overflow: elide;
+            }
+        }
+    }
+    // The one open: a short yellow mark on its left edge.
+    if root.current: Rectangle {
+        x: 0px;
+        y: 12px;
+        width: 3px;
+        height: parent.height - 24px;
+        border-radius: 1.5px;
+        background: Theme.marker;
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+// Settings: categories on the left, the one chosen on the right. What changes something
+// sensitive (the master password, the item lock, a keyfile, the unlock protection, sync and
+// its devices, the extension's connection) opens a dialog that asks first, with the master
+// password where it matters (`open-dialog`, shown by the window: see app.slint).
+//   section: 0 security, 1 this vault, 2 sync, 3 browser extension, 4 appearance, 5 about.
+//   dialog kinds: 1 master password, 2 unlock protection, 3 item lock, 4 make a keyfile,
+//   10 use another keyfile, 11 remove the keyfile, 5 stop syncing, 6 remove a device,
+//   7 add a device, 8 remove the backup server, 9 disconnect the extension.
 export component SettingsPage inherits Rectangle {
     in property <int> error-code;
     in property <string> error-detail;
@@ -1906,37 +2151,40 @@ export component SettingsPage inherits Rectangle {
     in-out property <bool> website-icons;
     in-out property <bool> leak-watch;
     in-out property <bool> close-to-tray;
+    in-out property <bool> backdrop-on;
     in-out property <bool> browser-locked-fill;
     in-out property <bool> browser-extension;
+    in-out property <bool> browser-saves;
+    in-out property <bool> browser-passkeys;
+    in-out property <bool> browser-fill-notices;
     in property <bool> quick-unlock-available;
     in-out property <bool> quick-unlock-on;
+    in property <string> app-version;
     callback quick-unlock-toggled(bool);
     callback settings-changed();
     callback vault-settings-changed();
     callback appearance-changed(bool);
     in-out property <int> language;
     callback language-changed(int);
-    callback change-password();
+    // The category shown, and the dialog a button opens.
+    in-out property <int> section;
+    callback open-dialog(int);
     // Unlock protection (Argon2id cost): the level chosen on screen, the vault's current one
-    // (-1 = custom values), whether the last error came from changing it.
+    // (-1 = custom values).
     in-out property <int> kdf-level: 1;
     in property <int> kdf-current: 1;
     // The hashing method: 0 Argon2id, 1 scrypt, 2 PBKDF2-SHA-256 (chosen on screen / current).
     in-out property <int> kdf-method;
     in property <int> kdf-current-method;
-    in property <bool> kdf-failed;
     in property <string> unlock-time;
-    callback change-kdf();
     // Item lock: every item or only marked ones; what opens them (0 master password, 1 PIN,
     // 2 another password); what the vault uses now.
     in-out property <bool> guard-all;
     in-out property <int> guard-check;
     in property <int> guard-current-check;
-    in property <bool> guard-failed;
     // Windows Hello as another way to open the item lock on this computer.
     in-out property <bool> guard-hello;
     in-out property <bool> browser-paired;
-    callback forget-pairing();
     in property <string> sync-folder;
     in property <int> sync-state;
     in property <int> sync-minutes: -1;
@@ -1944,789 +2192,755 @@ export component SettingsPage inherits Rectangle {
     in property <int> sync-waiting;
     in property <string> sync-devices;
     in property <string> sync-this-device;
-    // The kind of place (0 off, 1 folder, 2 server, 3 WebDAV), the setup form open (0 none,
-    // 1 server, 2 WebDAV) and its fields, the other devices by name (for Remove), the one
-    // whose Remove waits for a second click (-1 none), an invite to show.
+    // The kind of place (0 off, 1 folder, 2 server, 3 WebDAV), the setup dialog open (0 none,
+    // 1 server, 2 WebDAV), the other devices (for Remove), the one Remove asks about.
     in property <int> sync-kind;
     in-out property <int> sync-form;
-    in-out property <string> sync-address;
-    in-out property <string> sync-invite-typed;
-    in-out property <string> sync-user;
     in property <string> sync-setup-error;
     in property <bool> sync-busy;
-    in property <[string]> sync-others;
+    in property <[DeviceLine]> sync-others;
     in-out property <int> sync-removing: -1;
     in property <string> sync-invite;
-    in property <image> sync-invite-qr;
     // A backup server synced too: where it is, why the main place or the backup didn't
-    // answer in the last round ("" = it did), and the form that adds one.
+    // answer in the last round ("" = it did), and the dialog that adds one.
     in property <string> sync-backup;
     in property <string> sync-main-down;
     in property <string> sync-backup-down;
     in-out property <bool> sync-backup-form;
-    in-out property <string> sync-backup-address;
-    in-out property <string> sync-backup-invite;
-    callback sync-join-backup();
-    callback sync-remove-backup();
     callback sync-choose();
     callback sync-now();
-    callback sync-stop();
-    callback sync-join-server();
-    callback sync-use-webdav();
-    callback sync-add-device();
-    callback sync-hide-invite();
-    callback sync-remove(int);
-    callback save-guard();
-    // Keyfile: whether the vault needs one, where it is, the file for the next action.
+    // Keyfile: whether the vault needs one, where it is.
     in property <bool> keyfile-on;
     in property <string> keyfile-path;
-    in property <bool> keyfile-failed;
-    // 0 = create a new file, 1 = use an existing file, 2 = remove.
-    callback keyfile-action(int);
 
-    ScrollView {
-        VerticalLayout {
-            padding: 40px;
-            padding-right: 48px;
-            spacing: 16px;
-            alignment: start;
+    changed section => { scroll.content-y = 0; }
 
-            PageTitle { text: @tr("Settings"); }
-
-            SettingsCard {
-                icon: "vault";
-                title: @tr("This vault");
-                summary: @tr("Stored inside the vault, encrypted: they follow it to every computer.");
-                HorizontalLayout {
-                    spacing: 16px;
-                    LineField {
-                        horizontal-stretch: 1;
-                        label: @tr("Name");
-                        icon: "tag";
-                        placeholder: root.vault-file-name;
-                        error: root.error-code == 27;
-                        text <=> root.vault-name;
-                        accepted => { root.vault-settings-changed(); }
-                    }
-                    VerticalLayout {
-                        alignment: end;
-                        QuietButton {
-                            outlined: true;
-                            text: @tr("Rename");
-                            clicked => { root.vault-settings-changed(); }
-                        }
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    Stepper {
-                        label: @tr("Old passwords kept per item");
-                        value <=> root.history-limit;
-                        minimum: 0;
-                        maximum: 100;
-                        changed => { root.vault-settings-changed(); }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        Hint {
-                            text: @tr("When you change an item's password, the old one is kept in its Password history, newest last, so you can go back if the change didn't take on the site. 0 keeps none. Lowering the number trims each item's history the next time its password changes.");
-                        }
-                    }
-                }
-                Rule { }
-                VerticalLayout {
-                    spacing: 6px;
-                    Fact { label: @tr("Items"); value: @tr("{} items in {} folders", root.vault-items, root.vault-folders); }
-                    Fact { label: @tr("Encryption"); value: "XChaCha20-Poly1305 · " + root.vault-kdf; }
-                    Fact {
-                        label: @tr("Recovery");
-                        value: root.vault-recovery == 2 ? @tr("Three recovery parts: any two bring back the Secret Key, all three a new master password")
-                            : root.vault-recovery == 1 ? @tr("The Recovery Key of an older kit: make a new kit to get recovery parts")
-                            : @tr("None: a forgotten master password can't be recovered");
-                    }
-                    Fact { label: @tr("File"); value: root.vault-path; }
-                    Fact { label: @tr("Vault ID"); value: root.vault-id; mono: true; }
-                }
-            }
-
-            SettingsCard {
-                icon: "sliders";
-                title: @tr("Appearance");
-                summary: @tr("How the app looks on this computer.");
-                Choice {
-                    options: [@tr("Dark"), @tr("Light")];
-                    selected: root.dark ? 0 : 1;
-                    changed(index) => { root.appearance-changed(index == 0); }
-                }
-                // Each language is named in itself; the list follows src/i18n.rs → LANGUAGES.
-                HorizontalLayout {
-                    Dropdown {
-                        width: 280px;
-                        label: @tr("Language");
-                        icon: "globe";
-                        options: [@tr("Same as Windows"), "English", "Português (Brasil)"];
-                        selected <=> root.language;
-                        changed(index) => { root.language-changed(index); }
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    Check {
-                        text: @tr("Keep running in the notification area when the window is closed");
-                        checked <=> root.close-to-tray;
-                        toggled => { root.settings-changed(); }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        Hint {
-                            text: @tr("Closing the window then hides it: nothing is drawn and the app uses very little, the browser extension keeps working, and the vault still locks itself after the idle time above. Open it again from the icon next to the clock; its menu also locks the vault or quits.");
-                        }
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    Check {
-                        text: @tr("Watch for leaked passwords every day");
-                        checked <=> root.leak-watch;
-                        toggled => { root.settings-changed(); }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        Hint {
-                            text: @tr("Once a day while the vault is open, every login's password is checked against the newest list of data breaches (Have I Been Pwned). Only the first 5 characters of each password's SHA-1 fingerprint leave this computer, never a password. As soon as one turns up in a new breach, the app tells you and Password health shows it. Off until you turn it on, since it uses the network by itself.");
-                        }
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    Check {
-                        text: @tr("Show website icons");
-                        checked <=> root.website-icons;
-                        toggled => { root.settings-changed(); }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        Hint {
-                            text: @tr("Downloads each site's own icon directly from that site, once, over a secure connection, and keeps it encrypted with your vault. Nothing else is sent. Trade-off: someone watching your network (your provider, a public Wi-Fi) could see which sites were contacted, which hints at where you have accounts. Leave it off for maximum privacy.");
-                        }
-                    }
-                }
-            }
-
-            SettingsCard {
-                icon: "shield";
-                title: @tr("Locking and clipboard");
-                summary: @tr("When the vault closes itself, and how long copied secrets stay on the clipboard.");
-                Stepper {
-                    label: @tr("Lock after");
-                    unit: @tr("min");
-                    value <=> root.auto-lock-minutes;
-                    minimum: 1;
-                    maximum: 60;
-                    changed => { root.settings-changed(); }
-                }
-                Stepper {
-                    label: @tr("Clear copied secrets after");
-                    unit: @tr("s");
-                    value <=> root.clipboard-seconds;
-                    minimum: 5;
-                    maximum: 120;
-                    changed => { root.settings-changed(); }
-                }
-                if root.quick-unlock-available: HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    Check {
-                        text: @tr("Unlock with Windows Hello");
-                        checked <=> root.quick-unlock-on;
-                        toggled(on) => { root.quick-unlock-toggled(on); }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        Hint {
-                            text: @tr("Open this vault with your face, fingerprint or Windows PIN instead of typing the master password. The key is made inside this computer's security chip and only works here, after Windows Hello checks it's you. Every 14 days the master password is asked once, so you don't forget it, and changing the master password turns this off. Anyone who knows your Windows PIN could open the vault on this computer.");
-                        }
-                    }
-                }
-            }
-
-            SettingsCard {
-                icon: "key";
-                title: @tr("Master password");
-                summary: @tr("Your items, Secret Key and recovery parts stay the same.");
-                hint: @tr("Changing it re-checks your current master password against the vault file, so someone using a computer you left unlocked can't do it.");
-                SecretField {
-                    field: 5;
-                    label: @tr("Current master password");
-                    required: true;
-                    error: root.error-code == 11;
-                }
-                HorizontalLayout {
-                    spacing: 16px;
-                    SecretField {
-                        field: 6;
-                        label: @tr("New master password");
-                        required: true;
-                        error: root.error-code == 4 || root.error-code == 5;
-                    }
-                    SecretField {
-                        field: 7;
-                        label: @tr("Type it again");
-                        required: true;
-                        error: root.error-code == 4;
-                    }
-                }
-                if !root.kdf-failed && !root.keyfile-failed && !root.guard-failed: ErrorText {
-                    code: root.error-code;
-                    detail: root.error-detail;
-                }
-                HorizontalLayout {
-                    alignment: start;
-                    Button {
-                        text: @tr("Change master password");
-                        busy-text: @tr("Working…");
-                        busy: root.busy;
-                        clicked => { root.change-password(); }
-                    }
-                }
-            }
-
-            SettingsCard {
-                icon: "globe";
-                title: @tr("Browser extension");
-                summary: @tr("Fills and saves your logins in Chrome and Edge, and suggests strong passwords made here. Passwords are shown, copied and filled one at a time, through the item lock.");
-hint: @tr("The extension keeps no passwords. The first time, it asks to be connected and this app asks for your master password; after that only that extension gets answers, only while the vault is open, only for the exact site a login was saved for (write *.example.com as the website to include every site under it), and only on pages with https. A login behind the item lock is opened for one fill, show or copy by Windows Hello or by its PIN, typed in the extension's own window. Copies are made by this app, out of clipboard history. Each fill shows a notice here. Limit: a malicious program already running under your Windows account could copy the browser's data and ask like the extension, which is why the accounts that matter belong behind the item lock.");
-                Check {
-                    text: @tr("Let the browser extension ask this app for logins");
-                    checked <=> root.browser-extension;
-                    toggled => { root.settings-changed(); }
-                }
-                if root.browser-extension: HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    Check {
-                        text: @tr("Fill with Windows Hello while the vault is locked");
-                        checked <=> root.browser-locked-fill;
-                        toggled => { root.settings-changed(); }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        Hint {
-                            text: @tr("The app keeps the passwords of your logins for the extension in a file only Windows Hello opens, so a locked vault can still fill: each password asks for your face, fingerprint or Windows PIN. The item lock's PIN does not work here, because a copied file could be tried against every PIN away from this app. It needs Windows Hello on in Item lock and the app running (closed to the notification area is fine). Usernames and websites stay readable to your Windows account so the extension can list them.");
-                        }
-                    }
-                }
-                if root.browser-paired: HorizontalLayout {
-                    spacing: 12px;
-                    alignment: start;
-                    Text {
-                        text: @tr("An extension is connected to this vault.");
-                        font-size: Theme.small;
-                        color: Theme.ink;
-                        vertical-alignment: center;
-                    }
-                    QuietButton {
-                        outlined: true;
-                        text: @tr("Disconnect");
-                        clicked => { root.forget-pairing(); }
-                    }
-                }
+    HorizontalLayout {
+        // The categories.
+        Rectangle {
+            width: 248px;
+            background: Theme.panel;
+            VerticalLayout {
+                padding: 16px;
+                padding-top: 40px;
+                spacing: 4px;
+                alignment: start;
                 Text {
-                    text: @tr("To install it: open chrome://extensions (or edge://extensions), turn on Developer mode, choose “Load unpacked” and pick the “extension” folder of this project.");
-                    font-size: Theme.small;
-                    color: Theme.graphite;
-                    wrap: word-wrap;
+                    text: @tr("Settings");
+                    font-size: Theme.title;
+                    font-weight: 300;
+                    color: Theme.ink;
+                }
+                Rectangle { height: 14px; }
+                for tab[index] in [
+                    { icon: "shield", text: @tr("Security"), detail: @tr("Locking, master password, item lock") },
+                    { icon: "vault", text: @tr("This vault"), detail: @tr("Name, password history, file") },
+                    { icon: "refresh", text: @tr("Sync"), detail: root.sync-kind == 0 ? @tr("Off") : root.sync-kind == 1 ? @tr("Through a folder") : root.sync-kind == 2 ? @tr("Through your server") : @tr("Through WebDAV") },
+                    { icon: "browser", text: @tr("Browser extension"), detail: !root.browser-extension ? @tr("Off") : root.browser-paired ? @tr("Connected") : @tr("On, not connected yet") },
+                    { icon: "sliders", text: @tr("Appearance"), detail: @tr("Theme, language, icons") },
+                    { icon: "lifebuoy", text: @tr("About"), detail: @tr("Version {}", root.app-version) },
+                ]: SettingsTab {
+                    icon: tab.icon;
+                    text: tab.text;
+                    detail: tab.detail;
+                    current: root.section == index;
+                    clicked => { root.section = index; }
                 }
             }
+            Rectangle {
+                x: parent.width - 1px;
+                y: 0px;
+                width: 1px;
+                height: parent.height;
+                background: Theme.rule;
+            }
+        }
 
-            SettingsCard {
-                icon: "refresh";
-                title: @tr("Sync");
-                summary: @tr("Keeps this vault the same on your other devices: through a folder they all see (OneDrive, Google Drive, Dropbox, Syncthing, a network share), your own vault server, or a WebDAV folder (Nextcloud, a NAS). A phone needs the server or WebDAV.");
-                hint: @tr("Each device writes only its own copy, encrypted like the vault file: it opens only with your master password and Secret Key, which never leave your devices. With a folder this app sends nothing anywhere; the folder's own program carries the files. A server gets only these sealed copies and each device's public key, and every request is signed by the device. Copies are merged item by item: an item deleted on one device is deleted on all, and when the same item was changed on two, the newer version is kept and the other password goes into its history. An older copy put back is refused.");
-                if root.sync-kind == 0 && root.sync-form == 0: HorizontalLayout {
-                    alignment: start;
-                    spacing: 12px;
-                    QuietButton {
-                        outlined: true;
-                        text: @tr("Choose a folder…");
-                        clicked => { root.sync-choose(); }
-                    }
-                    QuietButton {
-                        outlined: true;
-                        text: @tr("Use a server…");
-                        clicked => { root.sync-form = 1; }
-                    }
-                    QuietButton {
-                        outlined: true;
-                        text: @tr("Use WebDAV…");
-                        clicked => { root.sync-form = 2; }
-                    }
-                }
-                if root.sync-kind == 0 && root.sync-form == 1: VerticalLayout {
-                    spacing: 12px;
-                    LineField {
-                        label: @tr("Server address");
-                        placeholder: "https://vault.your-network.ts.net";
-                        text <=> root.sync-address;
-                        hint: @tr("Where your vault-server answers: https://, http:// with a Tailscale address (100.x.y.z), or the address vault-server serve --tls printed, with its #pin= part.");
-                    }
-                    LineField {
-                        label: @tr("Invite");
-                        mono: true;
-                        text <=> root.sync-invite-typed;
-                        hint: @tr("The 32 letters and digits from vault-server invite on the server, or the whole vaultsync: line from Add a device on a computer that already syncs. It works once, and it doesn't open the vault.");
-                        accepted => { root.sync-join-server(); }
-                    }
-                    if root.sync-setup-error != "": Text {
-                        text: root.sync-setup-error;
-                        font-size: Theme.body;
-                        color: Theme.seal;
-                        wrap: word-wrap;
-                    }
-                    HorizontalLayout {
-                        alignment: start;
-                        spacing: 12px;
-                        Button {
-                            text: root.sync-busy ? @tr("Joining…") : @tr("Join");
-                            enabled: !root.sync-busy;
-                            clicked => { root.sync-join-server(); }
+        scroll := ScrollView {
+            horizontal-stretch: 1;
+            VerticalLayout {
+                padding: 40px;
+                padding-right: 48px;
+                spacing: 16px;
+                alignment: start;
+
+                // ---- security
+                if root.section == 0: VerticalLayout {
+                    spacing: 16px;
+                    PageTitle { text: @tr("Security"); }
+
+                    SettingsCard {
+                        icon: "shield";
+                        title: @tr("Locking and clipboard");
+                        summary: @tr("When the vault closes itself, and how long copied secrets stay on the clipboard.");
+                        Stepper {
+                            label: @tr("Lock after");
+                            unit: @tr("min");
+                            value <=> root.auto-lock-minutes;
+                            minimum: 1;
+                            maximum: 60;
+                            changed => { root.settings-changed(); }
                         }
-                        QuietButton {
-                            text: @tr("Cancel");
-                            clicked => { root.sync-form = 0; }
+                        Stepper {
+                            label: @tr("Clear copied secrets after");
+                            unit: @tr("s");
+                            value <=> root.clipboard-seconds;
+                            minimum: 5;
+                            maximum: 120;
+                            changed => { root.settings-changed(); }
                         }
-                    }
-                }
-                if root.sync-kind == 0 && root.sync-form == 2: VerticalLayout {
-                    spacing: 12px;
-                    LineField {
-                        label: @tr("WebDAV address");
-                        placeholder: "https://cloud.example.com/remote.php/dav/files/you/Vault";
-                        text <=> root.sync-address;
-                        hint: @tr("A folder on your WebDAV host. The vault's copies go in a folder of their own inside it.");
-                    }
-                    HorizontalLayout {
-                        spacing: 16px;
-                        LineField {
-                            horizontal-stretch: 1;
-                            label: @tr("User name");
-                            text <=> root.sync-user;
-                        }
-                        SecretField {
-                            horizontal-stretch: 1;
-                            field: 15;
-                            label: @tr("Password");
-                            hint: @tr("Kept in Windows Credential Manager on this computer, never in the vault. An app password from your host is better than your account's own.");
-                            accepted => { root.sync-use-webdav(); }
-                        }
-                    }
-                    if root.sync-setup-error != "": Text {
-                        text: root.sync-setup-error;
-                        font-size: Theme.body;
-                        color: Theme.seal;
-                        wrap: word-wrap;
-                    }
-                    HorizontalLayout {
-                        alignment: start;
-                        spacing: 12px;
-                        Button {
-                            text: root.sync-busy ? @tr("Connecting…") : @tr("Connect");
-                            enabled: !root.sync-busy;
-                            clicked => { root.sync-use-webdav(); }
-                        }
-                        QuietButton {
-                            text: @tr("Cancel");
-                            clicked => { root.sync-form = 0; }
-                        }
-                    }
-                }
-                if root.sync-kind != 0: VerticalLayout {
-                    spacing: 8px;
-                    Fact {
-                        label: root.sync-kind == 1 ? @tr("Folder") : root.sync-kind == 2 ? @tr("Server") : @tr("WebDAV");
-                        value: root.sync-folder;
-                    }
-                    if root.sync-backup != "": Fact {
-                        label: @tr("Backup server");
-                        value: root.sync-backup;
-                    }
-                    if root.sync-backup != "" && (root.sync-main-down != "" || root.sync-backup-down != ""): Rectangle {
-                        border-radius: Theme.radius;
-                        border-width: 1px;
-                        border-color: Theme.seal;
-                        background: Theme.panel;
-                        VerticalLayout {
-                            padding: 12px;
-                            spacing: 4px;
-                            Text {
-                                text: root.sync-main-down != "" && root.sync-backup != "" && root.sync-backup-down == ""
-                                        ? @tr("The main place isn't answering. The vault keeps syncing through the backup server, and the main one catches up as soon as it answers (it is tried every minute).")
-                                    : root.sync-main-down != "" && root.sync-backup-down != ""
-                                        ? @tr("Neither the main place nor the backup server is answering. Changes stay on this computer and go out as soon as one answers.")
-                                    : root.sync-main-down != ""
-                                        ? @tr("The main place isn't answering. Changes stay on this computer and go out as soon as it answers (it is tried every minute).")
-                                        : @tr("The backup server isn't answering. The vault keeps syncing through the main place, and the backup catches up as soon as it answers.");
-                                font-size: Theme.body;
-                                color: Theme.ink;
-                                wrap: word-wrap;
-                            }
-                            Text {
-                                text: root.sync-main-down != "" ? root.sync-main-down : root.sync-backup-down;
-                                font-size: Theme.small;
-                                color: Theme.graphite;
-                                wrap: word-wrap;
-                            }
-                        }
-                    }
-                    Fact {
-                        label: @tr("Last synced");
-                        value: root.sync-state == 2 ? @tr("Syncing…")
-                            : root.sync-state == 3 ? (root.sync-detail == "" ? @tr("Failed") : @tr("Failed: {}", root.sync-detail))
-                            : root.sync-minutes < 0 ? @tr("Not yet")
-                            : root.sync-minutes == 0 ? @tr("Just now")
-                            : @tr("{n} minute ago" | "{n} minutes ago" % root.sync-minutes);
-                    }
-                    if root.sync-state == 4: Fact {
-                        label: @tr("Waiting");
-                        value: @tr("{n} item changed on two devices waits for the item lock" | "{n} items changed on two devices wait for the item lock" % root.sync-waiting);
-                    }
-                    Fact {
-                        label: @tr("This device");
-                        value: root.sync-this-device;
-                    }
-                    for name[index] in root.sync-others: HorizontalLayout {
-                        spacing: 12px;
-                        Text {
-                            width: 170px;
-                            text: index == 0 ? @tr("Other devices") : "";
-                            font-size: Theme.small;
-                            color: Theme.graphite;
-                            vertical-alignment: center;
-                        }
-                        Text {
-                            horizontal-stretch: 1;
-                            text: name;
-                            font-size: Theme.body;
-                            color: Theme.ink;
-                            vertical-alignment: center;
-                            overflow: elide;
-                        }
-                        QuietButton {
-                            text: root.sync-removing == index ? @tr("Remove {}? Click again", name) : @tr("Remove");
-                            clicked => {
-                                if (root.sync-removing == index) {
-                                    root.sync-remove(index);
-                                } else {
-                                    root.sync-removing = index;
-                                }
-                            }
-                        }
-                    }
-                    if root.sync-invite != "": HorizontalLayout {
-                        spacing: 16px;
-                        Rectangle {
-                            width: 168px;
-                            height: 168px;
-                            background: white;
-                            border-radius: Theme.radius;
-                            Image {
-                                width: 160px;
-                                height: 160px;
-                                source: root.sync-invite-qr;
-                                image-rendering: pixelated;
-                            }
-                        }
-                        VerticalLayout {
+                        if root.quick-unlock-available: HorizontalLayout {
                             spacing: 8px;
                             alignment: start;
-                            Text {
-                                text: @tr("Scan this on the phone, or paste the line below into Invite on the other device. It works once, for an hour. It doesn't open the vault: that still takes your master password and Secret Key.");
-                                font-size: Theme.body;
-                                color: Theme.ink;
-                                wrap: word-wrap;
+                            Check {
+                                text: @tr("Unlock with Windows Hello");
+                                checked <=> root.quick-unlock-on;
+                                toggled(on) => { root.quick-unlock-toggled(on); }
                             }
-                            Text {
-                                text: root.sync-invite;
-                                font-size: Theme.small;
-                                font-family: Theme.mono-font;
-                                color: Theme.graphite;
-                                wrap: char-wrap;
-                            }
-                            HorizontalLayout {
-                                alignment: start;
-                                QuietButton {
-                                    text: @tr("Done");
-                                    clicked => { root.sync-hide-invite(); }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("Open this vault with your face, fingerprint or Windows PIN instead of typing the master password. The key is made inside this computer's security chip and only works here, after Windows Hello checks it's you. Every 14 days the master password is asked once, so you don't forget it, and changing the master password turns this off. Anyone who knows your Windows PIN could open the vault on this computer.");
                                 }
                             }
                         }
                     }
-                    if root.sync-backup-form: VerticalLayout {
-                        spacing: 12px;
+
+                    SettingsCard {
+                        icon: "key";
+                        title: @tr("Master password");
+                        summary: @tr("Your items, Secret Key and recovery parts stay the same.");
+                        hint: @tr("Changing it re-checks your current master password against the vault file, so someone using a computer you left unlocked can't do it.");
+                        HorizontalLayout {
+                            alignment: start;
+                            Button {
+                                text: @tr("Change master password…");
+                                icon: "key";
+                                clicked => { root.open-dialog(1); }
+                            }
+                        }
+                    }
+
+                    SettingsCard {
+                        icon: "pin";
+                        title: @tr("Item lock");
+                        summary: @tr("A second check before an open vault shows passwords, codes and hidden fields. Names, usernames and websites stay visible so you can find the account.");
+                        hint: @tr("With a PIN or another password, the locked secrets are also encrypted with a key that only that PIN or password opens: a program that reads the open vault from your computer's memory still can't read items that are locked. A 4-digit PIN has only 10,000 combinations, and such a program could try them all in a few hours, so use 6 to 8 digits or a password for real strength. With the master password as the check nothing extra is encrypted; it only stops someone at your unlocked computer. One right answer opens every locked item for 5 minutes, or until you click Lock. After 5 wrong tries the whole vault locks. A forgotten PIN is replaced here, with your master password.");
+                        Choice {
+                            options: [@tr("Master password"), @tr("PIN"), @tr("Another password")];
+                            selected <=> root.guard-check;
+                        }
                         Text {
-                            text: @tr("A second server keeps a copy too. While the main one is down the vault syncs through it, and the main one catches up as soon as it is back. On the backup server run vault-server invite, then give its address and the invite here.");
-                            font-size: Theme.body;
-                            color: Theme.ink;
+                            text: root.guard-check == 0 ? @tr("A check only: nothing extra is encrypted.")
+                                : root.guard-check == 1 ? @tr("Locked secrets are encrypted, and only the PIN opens them. If you forget both the PIN and your master password, they can't be recovered, not even with your emergency kit.")
+                                : @tr("Locked secrets are encrypted, and only this password opens them. If you forget both it and your master password, they can't be recovered, not even with your emergency kit.");
+                            font-size: Theme.small;
+                            color: Theme.graphite;
                             wrap: word-wrap;
                         }
-                        LineField {
-                            label: @tr("Backup server address");
-                            placeholder: "https://backup.your-network.ts.net";
-                            text <=> root.sync-backup-address;
-                            hint: @tr("Where the second vault-server answers: https://, http:// with a Tailscale address (100.x.y.z), or the address vault-server serve --tls printed, with its #pin= part.");
+                        Check {
+                            text: @tr("Lock every item (otherwise only items marked “Lock this item's secrets”)");
+                            checked <=> root.guard-all;
                         }
-                        LineField {
-                            label: @tr("Invite");
-                            mono: true;
-                            text <=> root.sync-backup-invite;
-                            hint: @tr("The 32 letters and digits from vault-server invite on the backup server, or a vaultsync: line from it. It works once, and it doesn't open the vault.");
-                            accepted => { root.sync-join-backup(); }
+                        if root.guard-check != 0 && root.quick-unlock-available: HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Check {
+                                text: @tr("Open locked items with Windows Hello too");
+                                checked <=> root.guard-hello;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("Your face, fingerprint or Windows PIN opens locked items on this computer, in the app and when the browser extension fills a login. The key that does it stays in this computer's security chip, which also slows down guessing, so this is stronger than a short PIN typed by hand. The item lock's PIN or password stays as the other way in, and is what you use on other devices. Saving asks Windows Hello once.");
+                                }
+                            }
                         }
                         HorizontalLayout {
                             alignment: start;
-                            spacing: 12px;
                             Button {
-                                text: root.sync-busy ? @tr("Joining…") : @tr("Join the backup server");
-                                enabled: !root.sync-busy;
-                                clicked => { root.sync-join-backup(); }
-                            }
-                            QuietButton {
-                                text: @tr("Cancel");
-                                clicked => { root.sync-backup-form = false; }
+                                text: @tr("Save item lock…");
+                                icon: "pin";
+                                clicked => { root.open-dialog(3); }
                             }
                         }
                     }
-                    if root.sync-setup-error != "": Text {
-                        text: root.sync-setup-error;
-                        font-size: Theme.body;
-                        color: Theme.seal;
-                        wrap: word-wrap;
-                    }
-                    HorizontalLayout {
-                        spacing: 12px;
-                        alignment: start;
-                        QuietButton {
-                            outlined: true;
-                            text: @tr("Sync now");
-                            enabled: root.sync-state != 2;
-                            clicked => { root.sync-now(); }
-                        }
-                        if root.sync-kind == 2 && root.sync-invite == "": QuietButton {
-                            outlined: true;
-                            text: root.sync-busy ? @tr("Asking the server…") : @tr("Add a device");
-                            enabled: !root.sync-busy;
-                            clicked => { root.sync-add-device(); }
-                        }
-                        if root.sync-backup == "" && !root.sync-backup-form: QuietButton {
-                            text: @tr("Add a backup server");
-                            clicked => { root.sync-backup-form = true; }
-                        }
-                        if root.sync-backup != "": QuietButton {
-                            text: @tr("Remove the backup");
-                            clicked => { root.sync-remove-backup(); }
-                        }
-                        QuietButton {
-                            text: @tr("Stop syncing");
-                            clicked => { root.sync-stop(); }
-                        }
-                    }
-                }
-            }
 
-            SettingsCard {
-                icon: "pin";
-                title: @tr("Item lock");
-                summary: @tr("A second check before an open vault shows passwords, codes and hidden fields. Names, usernames and websites stay visible so you can find the account.");
-                hint: @tr("With a PIN or another password, the locked secrets are also encrypted with a key that only that PIN or password opens: a program that reads the open vault from your computer's memory still can't read items that are locked. A 4-digit PIN has only 10,000 combinations, and such a program could try them all in a few hours, so use 6 to 8 digits or a password for real strength. With the master password as the check nothing extra is encrypted; it only stops someone at your unlocked computer. One right answer opens every locked item for 5 minutes, or until you click Lock. After 5 wrong tries the whole vault locks. A forgotten PIN is replaced here, with your master password.");
-                Choice {
-                    options: [@tr("Master password"), @tr("PIN"), @tr("Another password")];
-                    selected <=> root.guard-check;
-                }
-                Text {
-                    text: root.guard-check == 0 ? @tr("A check only: nothing extra is encrypted.")
-                        : root.guard-check == 1 ? @tr("Locked secrets are encrypted, and only the PIN opens them. If you forget both the PIN and your master password, they can't be recovered, not even with your emergency kit.")
-                        : @tr("Locked secrets are encrypted, and only this password opens them. If you forget both it and your master password, they can't be recovered, not even with your emergency kit.");
-                    font-size: Theme.small;
-                    color: Theme.graphite;
-                    wrap: word-wrap;
-                }
-                Check {
-                    text: @tr("Lock every item (otherwise only items marked “Lock this item's secrets”)");
-                    checked <=> root.guard-all;
-                }
-                if root.guard-check != 0 && root.quick-unlock-available: HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    Check {
-                        text: @tr("Open locked items with Windows Hello too");
-                        checked <=> root.guard-hello;
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        Hint {
-                            text: @tr("Your face, fingerprint or Windows PIN opens locked items on this computer, in the app and when the browser extension fills a login. The key that does it stays in this computer's security chip, which also slows down guessing, so this is stronger than a short PIN typed by hand. The item lock's PIN or password stays as the other way in, and is what you use on other devices. Saving asks Windows Hello once.");
+                    SettingsCard {
+                        icon: "note";
+                        title: @tr("Keyfile");
+                        summary: root.keyfile-on
+                            ? @tr("On: the vault opens only with your master password and this file.")
+                            : @tr("Off. A keyfile is a file the vault needs together with your master password.");
+                        hint: @tr("Keep the keyfile on a USB stick or another place apart from the vault. Someone who steals the vault file, your master password and even this computer's Secret Key still can't open it without the file. The file must never change, not even by one byte, and losing it (with no Recovery Key) locks you out for good: keep a second copy. Any file works, but one made here holds a full-strength random key. Setting or removing it turns Windows Hello off until you turn it on again.");
+                        if root.keyfile-on: Fact {
+                            label: @tr("File");
+                            value: root.keyfile-path != "" ? root.keyfile-path : @tr("Not found on this computer");
                         }
-                    }
-                }
-                if root.guard-check != 0: SecretField {
-                    field: 12;
-                    label: root.guard-check == 1
-                        ? (root.guard-current-check == 1 ? @tr("New PIN (leave empty to keep the current one)") : @tr("PIN: 4 to 8 digits"))
-                        : (root.guard-current-check == 2 ? @tr("New item password (leave empty to keep the current one)") : @tr("Item password: at least 6 characters"));
-                    required: root.guard-check != root.guard-current-check;
-                    error: root.guard-failed && root.error-code == 36;
-                }
-                SecretField {
-                    field: 13;
-                    label: @tr("Current master password");
-                    required: true;
-                    error: root.guard-failed && (root.error-code == 11 || root.error-code == 34);
-                }
-                if root.guard-failed: ErrorText {
-                    code: root.error-code;
-                    detail: root.error-detail;
-                }
-                HorizontalLayout {
-                    alignment: start;
-                    Button {
-                        text: @tr("Save item lock");
-                        busy-text: @tr("Working…");
-                        busy: root.busy;
-                        clicked => { root.save-guard(); }
-                    }
-                }
-            }
-
-            SettingsCard {
-                icon: "note";
-                title: @tr("Keyfile");
-                summary: root.keyfile-on
-                    ? @tr("On: the vault opens only with your master password and this file.")
-                    : @tr("Off. A keyfile is a file the vault needs together with your master password.");
-                hint: @tr("Keep the keyfile on a USB stick or another place apart from the vault. Someone who steals the vault file, your master password and even this computer's Secret Key still can't open it without the file. The file must never change, not even by one byte, and losing it (with no Recovery Key) locks you out for good: keep a second copy. Any file works, but one made here holds a full-strength random key. Setting or removing it turns Windows Hello off until you turn it on again.");
-                if root.keyfile-on: Fact {
-                    label: @tr("File");
-                    value: root.keyfile-path != "" ? root.keyfile-path : @tr("Not found on this computer");
-                }
-                SecretField {
-                    field: 10;
-                    label: @tr("Current master password");
-                    required: true;
-                    error: root.keyfile-failed && (root.error-code == 11 || root.error-code == 34);
-                }
-                if root.keyfile-failed: ErrorText {
-                    code: root.error-code;
-                    detail: root.error-detail;
-                }
-                HorizontalLayout {
-                    alignment: start;
-                    spacing: 8px;
-                    if !root.keyfile-on: Button {
-                        text: @tr("Create a keyfile…");
-                        busy-text: @tr("Working…");
-                        busy: root.busy;
-                        clicked => { root.keyfile-action(0); }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        QuietButton {
-                            outlined: true;
-                            text: root.keyfile-on ? @tr("Use another file…") : @tr("Use an existing file…");
-                            enabled: !root.busy;
-                            clicked => { root.keyfile-action(1); }
-                        }
-                    }
-                    if root.keyfile-on: VerticalLayout {
-                        alignment: center;
-                        QuietButton {
-                            outlined: true;
-                            text: @tr("Remove the keyfile");
-                            tint: Theme.seal;
-                            enabled: !root.busy;
-                            clicked => { root.keyfile-action(2); }
-                        }
-                    }
-                }
-            }
-
-            SettingsCard {
-                icon: "lock";
-                title: @tr("Unlock protection");
-                summary: @tr("How much work each guess at your master password costs, for you once per unlock and for anyone with a copy of the vault file every time they guess.");
-                hint: @tr("Your master password is stretched before it opens the vault. Argon2id is the method recommended today (RFC 9106, OWASP): it needs a lot of memory for every guess, which is what makes graphics cards and special chips slow at guessing. scrypt also needs memory but is older. PBKDF2-SHA-256 needs almost none, so it is the weakest of the three; it is here for people who must follow a rule that names it. Higher levels cost more per guess. Changing the method or level rewrites only the password lock of the vault, never your items.");
-                Choice {
-                    options: ["Argon2id", "scrypt", "PBKDF2-SHA-256"];
-                    selected <=> root.kdf-method;
-                }
-                if root.kdf-method != 0: Text {
-                    text: root.kdf-method == 1 ? @tr("Weaker than Argon2id: scrypt also needs memory for every guess, but it is older and special hardware does better against it. Keep Argon2id unless you have a reason.")
-                        : @tr("Much weaker than Argon2id: PBKDF2 needs almost no memory, so graphics cards guess thousands of times faster against it. Choose it only if you must, and then a long master password matters even more.");
-                    font-size: Theme.small;
-                    color: Theme.seal;
-                    wrap: word-wrap;
-                }
-                Choice {
-                    options: [@tr("Light"), @tr("Standard"), @tr("Strong"), @tr("Maximum")];
-                    selected <=> root.kdf-level;
-                }
-                Text {
-                    text: root.kdf-method == 1 ? (root.kdf-level == 0 ? @tr("128 MiB of memory for every guess. For older computers or ones with little memory.")
-                            : root.kdf-level == 1 ? @tr("256 MiB of memory for every guess. A good balance on most computers.")
-                            : root.kdf-level == 2 ? @tr("512 MiB of memory for every guess. Slower to guess, and to unlock.")
-                            : @tr("1 GiB of memory for every guess. Unlocking can take a few seconds and needs 1 GiB of free memory on every device that opens the vault."))
-                        : root.kdf-method == 2 ? (root.kdf-level == 0 ? @tr("600,000 rounds, the least recommended today.")
-                            : root.kdf-level == 1 ? @tr("1,200,000 rounds.")
-                            : root.kdf-level == 2 ? @tr("2,400,000 rounds.")
-                            : @tr("5,000,000 rounds. Unlocking can take a few seconds."))
-                        : root.kdf-level == 0 ? @tr("64 MiB of memory, 3 passes. For older computers or ones with little memory.")
-                        : root.kdf-level == 1 ? @tr("256 MiB of memory, 3 passes. The default, a good balance on most computers.")
-                        : root.kdf-level == 2 ? @tr("512 MiB of memory, 4 passes. Guessing gets about three times as slow; so does unlocking.")
-                        : @tr("1 GiB of memory, 5 passes. The slowest to guess. Unlocking can take a few seconds and needs 1 GiB of free memory on every device that opens the vault.");
-                    font-size: Theme.small;
-                    color: Theme.graphite;
-                    wrap: word-wrap;
-                }
-                Fact {
-                    label: @tr("Now");
-                    value: root.kdf-current < 0 ? @tr("Custom: {}", root.vault-kdf)
-                        : root.unlock-time != "" ? @tr("{} · about {} s per unlock on this computer", root.vault-kdf, root.unlock-time)
-                        : root.vault-kdf;
-                }
-                if root.kdf-level != root.kdf-current || root.kdf-method != root.kdf-current-method: VerticalLayout {
-                    spacing: 12px;
-                    SecretField {
-                        field: 9;
-                        label: @tr("Current master password");
-                        required: true;
-                        error: root.kdf-failed && root.error-code == 11;
-                    }
-                    if root.kdf-failed: ErrorText {
-                        code: root.error-code;
-                        detail: root.error-detail;
-                    }
-                    HorizontalLayout {
-                        alignment: start;
-                        spacing: 8px;
-                        Button {
-                            text: @tr("Apply");
-                            busy-text: @tr("Working…");
-                            busy: root.busy;
-                            clicked => { root.change-kdf(); }
-                        }
-                        VerticalLayout {
-                            alignment: center;
-                            QuietButton {
-                                text: @tr("Cancel");
-                                clicked => {
-                                    root.kdf-level = Math.max(0, root.kdf-current);
-                                    root.kdf-method = root.kdf-current-method;
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 8px;
+                            if !root.keyfile-on: Button {
+                                text: @tr("Create a keyfile…");
+                                clicked => { root.open-dialog(4); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                QuietButton {
+                                    outlined: true;
+                                    text: root.keyfile-on ? @tr("Use another file…") : @tr("Use an existing file…");
+                                    clicked => { root.open-dialog(10); }
                                 }
                             }
+                            if root.keyfile-on: VerticalLayout {
+                                alignment: center;
+                                QuietButton {
+                                    outlined: true;
+                                    text: @tr("Remove the keyfile…");
+                                    tint: Theme.seal;
+                                    clicked => { root.open-dialog(11); }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsCard {
+                        icon: "lock";
+                        title: @tr("Unlock protection");
+                        summary: @tr("How much work each guess at your master password costs, for you once per unlock and for anyone with a copy of the vault file every time they guess.");
+                        hint: @tr("Your master password is stretched before it opens the vault. Argon2id is the method recommended today (RFC 9106, OWASP): it needs a lot of memory for every guess, which is what makes graphics cards and special chips slow at guessing. scrypt also needs memory but is older. PBKDF2-SHA-256 needs almost none, so it is the weakest of the three; it is here for people who must follow a rule that names it. Higher levels cost more per guess. Changing the method or level rewrites only the password lock of the vault, never your items.");
+                        Choice {
+                            options: ["Argon2id", "scrypt", "PBKDF2-SHA-256"];
+                            selected <=> root.kdf-method;
+                        }
+                        if root.kdf-method != 0: Text {
+                            text: root.kdf-method == 1 ? @tr("Weaker than Argon2id: scrypt also needs memory for every guess, but it is older and special hardware does better against it. Keep Argon2id unless you have a reason.")
+                                : @tr("Much weaker than Argon2id: PBKDF2 needs almost no memory, so graphics cards guess thousands of times faster against it. Choose it only if you must, and then a long master password matters even more.");
+                            font-size: Theme.small;
+                            color: Theme.seal;
+                            wrap: word-wrap;
+                        }
+                        Choice {
+                            options: [@tr("Light"), @tr("Standard"), @tr("Strong"), @tr("Maximum")];
+                            selected <=> root.kdf-level;
+                        }
+                        Text {
+                            text: root.kdf-method == 1 ? (root.kdf-level == 0 ? @tr("128 MiB of memory for every guess. For older computers or ones with little memory.")
+                                    : root.kdf-level == 1 ? @tr("256 MiB of memory for every guess. A good balance on most computers.")
+                                    : root.kdf-level == 2 ? @tr("512 MiB of memory for every guess. Slower to guess, and to unlock.")
+                                    : @tr("1 GiB of memory for every guess. Unlocking can take a few seconds and needs 1 GiB of free memory on every device that opens the vault."))
+                                : root.kdf-method == 2 ? (root.kdf-level == 0 ? @tr("600,000 rounds, the least recommended today.")
+                                    : root.kdf-level == 1 ? @tr("1,200,000 rounds.")
+                                    : root.kdf-level == 2 ? @tr("2,400,000 rounds.")
+                                    : @tr("5,000,000 rounds. Unlocking can take a few seconds."))
+                                : root.kdf-level == 0 ? @tr("64 MiB of memory, 3 passes. For older computers or ones with little memory.")
+                                : root.kdf-level == 1 ? @tr("256 MiB of memory, 3 passes. The default, a good balance on most computers.")
+                                : root.kdf-level == 2 ? @tr("512 MiB of memory, 4 passes. Guessing gets about three times as slow; so does unlocking.")
+                                : @tr("1 GiB of memory, 5 passes. The slowest to guess. Unlocking can take a few seconds and needs 1 GiB of free memory on every device that opens the vault.");
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            wrap: word-wrap;
+                        }
+                        Fact {
+                            label: @tr("Now");
+                            value: root.kdf-current < 0 ? @tr("Custom: {}", root.vault-kdf)
+                                : root.unlock-time != "" ? @tr("{} · about {} s per unlock on this computer", root.vault-kdf, root.unlock-time)
+                                : root.vault-kdf;
+                        }
+                        if root.kdf-level != root.kdf-current || root.kdf-method != root.kdf-current-method: HorizontalLayout {
+                            alignment: start;
+                            spacing: 8px;
+                            Button {
+                                text: @tr("Apply…");
+                                clicked => { root.open-dialog(2); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                QuietButton {
+                                    text: @tr("Cancel");
+                                    clicked => {
+                                        root.kdf-level = Math.max(0, root.kdf-current);
+                                        root.kdf-method = root.kdf-current-method;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsCard {
+                        icon: "leaked";
+                        title: @tr("Privacy");
+                        summary: @tr("What the app may do on the network by itself.");
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Check {
+                                text: @tr("Watch for leaked passwords every day");
+                                checked <=> root.leak-watch;
+                                toggled => { root.settings-changed(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("Once a day while the vault is open, every login's password is checked against the newest list of data breaches (Have I Been Pwned). Only the first 5 characters of each password's SHA-1 fingerprint leave this computer, never a password. As soon as one turns up in a new breach, the app tells you and Password health shows it. Off until you turn it on, since it uses the network by itself.");
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Check {
+                                text: @tr("Show website icons");
+                                checked <=> root.website-icons;
+                                toggled => { root.settings-changed(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("Downloads each site's own icon directly from that site, once, over a secure connection, and keeps it encrypted with your vault. Nothing else is sent. Trade-off: someone watching your network (your provider, a public Wi-Fi) could see which sites were contacted, which hints at where you have accounts. Leave it off for maximum privacy.");
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ---- this vault
+                if root.section == 1: VerticalLayout {
+                    spacing: 16px;
+                    PageTitle { text: @tr("This vault"); }
+                    SettingsCard {
+                        icon: "vault";
+                        title: @tr("Name and history");
+                        summary: @tr("Stored inside the vault, encrypted: they follow it to every computer.");
+                        HorizontalLayout {
+                            spacing: 16px;
+                            LineField {
+                                horizontal-stretch: 1;
+                                label: @tr("Name");
+                                icon: "tag";
+                                placeholder: root.vault-file-name;
+                                error: root.error-code == 27;
+                                text <=> root.vault-name;
+                                accepted => { root.vault-settings-changed(); }
+                            }
+                            VerticalLayout {
+                                alignment: end;
+                                QuietButton {
+                                    outlined: true;
+                                    text: @tr("Rename");
+                                    clicked => { root.vault-settings-changed(); }
+                                }
+                            }
+                        }
+                        if root.error-code == 27: ErrorText {
+                            code: root.error-code;
+                            detail: root.error-detail;
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Stepper {
+                                label: @tr("Old passwords kept per item");
+                                value <=> root.history-limit;
+                                minimum: 0;
+                                maximum: 100;
+                                changed => { root.vault-settings-changed(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("When you change an item's password, the old one is kept in its Password history, newest last, so you can go back if the change didn't take on the site. 0 keeps none. Lowering the number trims each item's history the next time its password changes.");
+                                }
+                            }
+                        }
+                    }
+                    SettingsCard {
+                        icon: "stack";
+                        title: @tr("What it holds");
+                        summary: @tr("Read from the open vault.");
+                        VerticalLayout {
+                            spacing: 6px;
+                            Fact { label: @tr("Items"); value: @tr("{} items in {} folders", root.vault-items, root.vault-folders); }
+                            Fact { label: @tr("Encryption"); value: "XChaCha20-Poly1305 · " + root.vault-kdf; }
+                            Fact {
+                                label: @tr("Recovery");
+                                value: root.vault-recovery == 2 ? @tr("Three recovery parts: any two bring back the Secret Key, all three a new master password")
+                                    : root.vault-recovery == 1 ? @tr("The Recovery Key of an older kit: make a new kit to get recovery parts")
+                                    : @tr("None: a forgotten master password can't be recovered");
+                            }
+                            Fact { label: @tr("File"); value: root.vault-path; }
+                            Fact { label: @tr("Vault ID"); value: root.vault-id; mono: true; }
+                        }
+                    }
+                }
+
+                // ---- sync
+                if root.section == 2: VerticalLayout {
+                    spacing: 16px;
+                    PageTitle { text: @tr("Sync"); }
+                    SettingsCard {
+                        icon: "refresh";
+                        title: root.sync-kind == 0 ? @tr("Not syncing") : @tr("Syncing");
+                        summary: @tr("Keeps this vault the same on your other devices: through a folder they all see (OneDrive, Google Drive, Dropbox, Syncthing, a network share), your own vault server, or a WebDAV folder (Nextcloud, a NAS). A phone needs the server or WebDAV.");
+                        hint: @tr("Each device writes only its own copy, encrypted like the vault file: it opens only with your master password and Secret Key, which never leave your devices. With a folder this app sends nothing anywhere; the folder's own program carries the files. A server gets only these sealed copies and each device's public key, and every request is signed by the device. Copies are merged item by item: an item deleted on one device is deleted on all, and when the same item was changed on two, the newer version is kept and the other password goes into its history. An older copy put back is refused.");
+                        if root.sync-kind == 0: HorizontalLayout {
+                            alignment: start;
+                            spacing: 12px;
+                            QuietButton {
+                                outlined: true;
+                                icon: "folder";
+                                text: @tr("Choose a folder…");
+                                clicked => { root.sync-choose(); }
+                            }
+                            QuietButton {
+                                outlined: true;
+                                icon: "server";
+                                text: @tr("Use a server…");
+                                clicked => { root.sync-form = 1; }
+                            }
+                            QuietButton {
+                                outlined: true;
+                                icon: "cloud";
+                                text: @tr("Use WebDAV…");
+                                clicked => { root.sync-form = 2; }
+                            }
+                        }
+                        if root.sync-kind != 0: VerticalLayout {
+                            spacing: 8px;
+                            Fact {
+                                label: root.sync-kind == 1 ? @tr("Folder") : root.sync-kind == 2 ? @tr("Server") : @tr("WebDAV");
+                                value: root.sync-folder;
+                            }
+                            if root.sync-backup != "": Fact {
+                                label: @tr("Backup server");
+                                value: root.sync-backup;
+                            }
+                            Fact {
+                                label: @tr("Last synced");
+                                value: root.sync-state == 2 ? @tr("Syncing…")
+                                    : root.sync-state == 3 ? (root.sync-detail == "" ? @tr("Failed") : @tr("Failed: {}", root.sync-detail))
+                                    : root.sync-minutes < 0 ? @tr("Not yet")
+                                    : root.sync-minutes == 0 ? @tr("Just now")
+                                    : @tr("{n} minute ago" | "{n} minutes ago" % root.sync-minutes);
+                            }
+                            if root.sync-state == 4: Fact {
+                                label: @tr("Waiting");
+                                value: @tr("{n} item changed on two devices waits for the item lock" | "{n} items changed on two devices wait for the item lock" % root.sync-waiting);
+                            }
+                        }
+                        if root.sync-backup != "" && (root.sync-main-down != "" || root.sync-backup-down != ""): Rectangle {
+                            border-radius: Theme.radius;
+                            border-width: 1px;
+                            border-color: Theme.seal;
+                            background: Theme.sheet;
+                            VerticalLayout {
+                                padding: 12px;
+                                spacing: 4px;
+                                Text {
+                                    text: root.sync-main-down != "" && root.sync-backup-down == ""
+                                            ? @tr("The main place isn't answering. The vault keeps syncing through the backup server, and the main one catches up as soon as it answers (it is tried every minute).")
+                                        : root.sync-main-down != "" && root.sync-backup-down != ""
+                                            ? @tr("Neither the main place nor the backup server is answering. Changes stay on this computer and go out as soon as one answers.")
+                                            : @tr("The backup server isn't answering. The vault keeps syncing through the main place, and the backup catches up as soon as it answers.");
+                                    font-size: Theme.body;
+                                    color: Theme.ink;
+                                    wrap: word-wrap;
+                                }
+                                Text {
+                                    text: root.sync-main-down != "" ? root.sync-main-down : root.sync-backup-down;
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                        if root.sync-setup-error != "" && root.sync-form == 0 && !root.sync-backup-form: Text {
+                            text: root.sync-setup-error;
+                            font-size: Theme.body;
+                            color: Theme.seal;
+                            wrap: word-wrap;
+                        }
+                        if root.sync-kind != 0: HorizontalLayout {
+                            spacing: 12px;
+                            alignment: start;
+                            Button {
+                                text: root.sync-state == 2 ? @tr("Syncing…") : @tr("Sync now");
+                                icon: "refresh";
+                                enabled: root.sync-state != 2;
+                                clicked => { root.sync-now(); }
+                            }
+                            if root.sync-kind == 2: VerticalLayout {
+                                alignment: center;
+                                QuietButton {
+                                    outlined: true;
+                                    icon: "pencil";
+                                    text: @tr("Change the address…");
+                                    clicked => { root.open-dialog(12); }
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                QuietButton {
+                                    text: @tr("Stop syncing…");
+                                    tint: Theme.seal;
+                                    clicked => { root.open-dialog(5); }
+                                }
+                            }
+                        }
+                    }
+
+                    if root.sync-kind != 0: SettingsCard {
+                        icon: "phone";
+                        title: @tr("Devices");
+                        summary: @tr("The devices that sync this vault. Removing one isn't for good: it can join again later, as a new device, with a new invite.");
+                        Fact {
+                            label: @tr("This device");
+                            value: root.sync-this-device;
+                        }
+                        for device[index] in root.sync-others: HorizontalLayout {
+                            spacing: 12px;
+                            Text {
+                                width: 170px;
+                                text: index == 0 ? @tr("Other devices") : "";
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                                vertical-alignment: center;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                horizontal-stretch: 1;
+                                min-width: 0px;
+                                Text {
+                                    text: device.name;
+                                    font-size: Theme.body;
+                                    color: Theme.ink;
+                                    overflow: elide;
+                                }
+                                if device.away: Text {
+                                    text: @tr("No copy here yet: it synced somewhere else");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    overflow: elide;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                QuietButton {
+                                    text: @tr("Remove…");
+                                    clicked => {
+                                        root.sync-removing = index;
+                                        root.open-dialog(6);
+                                    }
+                                }
+                            }
+                        }
+                        if root.sync-kind == 2: HorizontalLayout {
+                            alignment: start;
+                            QuietButton {
+                                outlined: true;
+                                icon: "qr";
+                                text: root.sync-busy ? @tr("Asking the server…") : @tr("Add a device…");
+                                enabled: !root.sync-busy;
+                                clicked => { root.open-dialog(7); }
+                            }
+                        }
+                    }
+
+                    if root.sync-kind != 0: SettingsCard {
+                        icon: "server";
+                        title: @tr("Backup server");
+                        summary: root.sync-backup != ""
+                            ? @tr("A second server keeps a copy too: while the main place is down the vault syncs through it, and the main one catches up as soon as it is back.")
+                            : @tr("A second server can keep a copy too, so the vault keeps syncing while the main place is down.");
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 12px;
+                            if root.sync-backup != "": QuietButton {
+                                outlined: true;
+                                icon: "pencil";
+                                text: @tr("Change the address…");
+                                clicked => { root.open-dialog(13); }
+                            }
+                            if root.sync-backup == "": QuietButton {
+                                outlined: true;
+                                icon: "plus";
+                                text: @tr("Add a backup server…");
+                                clicked => { root.sync-backup-form = true; }
+                            }
+                            if root.sync-backup != "": QuietButton {
+                                outlined: true;
+                                text: @tr("Remove the backup…");
+                                tint: Theme.seal;
+                                clicked => { root.open-dialog(8); }
+                            }
+                        }
+                    }
+                }
+
+                // ---- browser extension
+                if root.section == 3: VerticalLayout {
+                    spacing: 16px;
+                    PageTitle { text: @tr("Browser extension"); }
+                    SettingsCard {
+                        icon: "browser";
+                        title: @tr("Chrome and Edge");
+                        summary: @tr("Fills and saves your logins in Chrome and Edge, and suggests strong passwords made here. Passwords are shown, copied and filled one at a time, through the item lock.");
+                        hint: @tr("The extension keeps no passwords. The first time, it asks to be connected and this app asks for your master password; after that only that extension gets answers, only while the vault is open, only for the exact site a login was saved for (write *.example.com as the website to include every site under it), and only on pages with https. A login behind the item lock is opened for one fill, show or copy by Windows Hello or by its PIN, typed in the extension's own window. Copies are made by this app, out of clipboard history. Limit: a malicious program already running under your Windows account could copy the browser's data and ask like the extension, which is why the accounts that matter belong behind the item lock.");
+                        Check {
+                            text: @tr("Let the browser extension ask this app for logins");
+                            checked <=> root.browser-extension;
+                            toggled => { root.settings-changed(); }
+                        }
+                        if root.browser-paired: HorizontalLayout {
+                            spacing: 12px;
+                            alignment: start;
+                            Text {
+                                text: @tr("An extension is connected to this vault.");
+                                font-size: Theme.small;
+                                color: Theme.ink;
+                                vertical-alignment: center;
+                            }
+                            QuietButton {
+                                outlined: true;
+                                text: @tr("Disconnect…");
+                                clicked => { root.open-dialog(9); }
+                            }
+                        }
+                        if root.browser-extension && !root.browser-paired: Text {
+                            text: @tr("Not connected yet: open the extension in the browser and click Connect.");
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            wrap: word-wrap;
+                        }
+                    }
+                    if root.browser-extension: SettingsCard {
+                        icon: "sliders";
+                        title: @tr("What the extension may do");
+                        summary: @tr("Kept on this computer. The extension follows them as soon as it next asks.");
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Check {
+                                text: @tr("Offer to save logins typed into pages");
+                                checked <=> root.browser-saves;
+                                toggled => { root.settings-changed(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("After you sign in on a page, the extension offers to save the login here, or to update its password when it changed. Logins saved while the vault is locked wait, sealed, and join it at the next unlock. Off, nothing is offered or saved from the browser.");
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Check {
+                                text: @tr("Make and use passkeys from this vault");
+                                checked <=> root.browser-passkeys;
+                                toggled => { root.settings-changed(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("When a site makes a passkey, it is saved in the login for that site, in this vault, and syncs with it; when a site asks for one, this vault answers. You see a login's passkeys on its page. Off, the browser handles passkeys as before.");
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Check {
+                                text: @tr("Fill with Windows Hello while the vault is locked");
+                                checked <=> root.browser-locked-fill;
+                                toggled => { root.settings-changed(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("The app keeps the passwords of your logins for the extension in a file only Windows Hello opens, so a locked vault can still fill: each password asks for your face, fingerprint or Windows PIN. The item lock's PIN does not work here, because a copied file could be tried against every PIN away from this app. It needs Windows Hello on in Item lock and the app running (closed to the notification area is fine). Usernames and websites stay readable to your Windows account so the extension can list them.");
+                                }
+                            }
+                        }
+                        Check {
+                            text: @tr("Show a notice here for every login the extension fills");
+                            checked <=> root.browser-fill-notices;
+                            toggled => { root.settings-changed(); }
+                        }
+                    }
+                    SettingsCard {
+                        icon: "download";
+                        title: @tr("Installing it");
+                        summary: @tr("To install it: open chrome://extensions (or edge://extensions), turn on Developer mode, choose “Load unpacked” and pick the “extension” folder of this project.");
+                    }
+                }
+
+                // ---- appearance
+                if root.section == 4: VerticalLayout {
+                    spacing: 16px;
+                    PageTitle { text: @tr("Appearance"); }
+                    SettingsCard {
+                        icon: "sliders";
+                        title: @tr("Look");
+                        summary: @tr("How the app looks on this computer.");
+                        Choice {
+                            options: [@tr("Dark"), @tr("Light")];
+                            selected: root.dark ? 0 : 1;
+                            changed(index) => { root.appearance-changed(index == 0); }
+                        }
+                        // Each language is named in itself; the list follows src/i18n.rs → LANGUAGES.
+                        HorizontalLayout {
+                            Dropdown {
+                                width: 280px;
+                                label: @tr("Language");
+                                icon: "globe";
+                                options: [@tr("Same as Windows"), "English", "Português (Brasil)"];
+                                marks: [@image-url("brand/flags/system.svg"), @image-url("brand/flags/us.svg"), @image-url("brand/flags/br.svg")];
+                                selected <=> root.language;
+                                changed(index) => { root.language-changed(index); }
+                            }
+                        }
+                        Check {
+                            text: @tr("The drawn texture behind the vault");
+                            checked <=> root.backdrop-on;
+                            toggled => { root.settings-changed(); }
+                        }
+                    }
+                    SettingsCard {
+                        icon: "gear";
+                        title: @tr("The window");
+                        summary: @tr("What closing it does.");
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Check {
+                                text: @tr("Keep running in the notification area when the window is closed");
+                                checked <=> root.close-to-tray;
+                                toggled => { root.settings-changed(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("Closing the window then hides it: nothing is drawn and the app uses very little, the browser extension keeps working, and the vault still locks itself after the idle time set in Security. Open it again from the icon next to the clock; its menu also locks the vault or quits.");
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ---- about
+                if root.section == 5: VerticalLayout {
+                    spacing: 16px;
+                    PageTitle { text: @tr("About"); }
+                    SettingsCard {
+                        icon: "lifebuoy";
+                        title: @tr("Vault {}", root.app-version);
+                        summary: @tr("A password manager that keeps everything in one encrypted file on your devices. Free software under the GPL, version 3 or later.");
+                        VerticalLayout {
+                            spacing: 6px;
+                            Fact { label: @tr("Version"); value: root.app-version; }
+                            Fact { label: @tr("Encryption"); value: "XChaCha20-Poly1305 · Argon2id"; }
+                            Fact { label: @tr("Status"); value: @tr("Early development, not audited yet: keep a copy of what matters elsewhere too."); }
                         }
                     }
                 }
@@ -2848,6 +3062,9 @@ export component AuthenticatorPage inherits Rectangle {
                             initial: row.initial;
                             tint: row.tint;
                             kind: row.kind;
+                            glyph: row.glyph;
+                            glyph-color: row.glyph-color;
+                            glyph-bg: row.glyph-bg;
                         }
                     }
                     VerticalLayout {
@@ -2942,6 +3159,8 @@ export component TransferPage inherits Rectangle {
     // The chosen file is an unencrypted export: offer to wipe it after importing.
     in property <bool> import-plaintext;
     in-out property <int> export-format;
+    // "Export…" asks in a dialog (app.slint).
+    in-out property <bool> export-asking;
     callback pick-source(int);
     callback open-browser();
     // Reading a browser's own store: possible for this source, how (0 directly, 1 from a CSV),
@@ -3055,6 +3274,7 @@ export component TransferPage inherits Rectangle {
                         if root.source == 2 && root.browser-profiles.length > 0: SecretField {
                             width: 340px;
                             field: 8;
+                            eye: true;
                             label: @tr("Firefox primary password");
                             icon: "key";
                             placeholder: @tr("Leave empty if you never set one");
@@ -3105,6 +3325,7 @@ export component TransferPage inherits Rectangle {
                 }
                 SecretField {
                     field: 8;
+                    eye: true;
                     label: @tr("Password of the file");
                     icon: "key";
                     error: root.error-code == 19;
@@ -3415,45 +3636,15 @@ export component TransferPage inherits Rectangle {
                     options: [@tr("Encrypted backup (.vault)"), @tr("JSON, not encrypted"), @tr("CSV, not encrypted"), @tr("Protected by a password (.vaultx)")];
                     selected <=> root.export-format;
                 }
-                if root.export-format > 0: SecretField {
-                    horizontal-stretch: 1;
-                    field: 5;
-                    label: @tr("Master password");
-                    icon: "key";
-                    error: root.export-error;
-                    accepted => { root.export-plain(); }
-                }
-            }
-            if root.export-format == 3: HorizontalLayout {
-                spacing: 16px;
-                SecretField {
-                    horizontal-stretch: 1;
-                    field: 6;
-                    label: @tr("Password for this file: at least 12 characters");
-                    icon: "key";
-                    error: root.error-code == 4 || root.error-code == 5;
-                }
-                SecretField {
-                    horizontal-stretch: 1;
-                    field: 7;
-                    label: @tr("Type it again");
-                    icon: "key";
-                    error: root.error-code == 4;
-                    accepted => { root.export-plain(); }
-                }
             }
             Prose {
                 text: root.export-format == 0
                     ? @tr("Keep a copy on a USB drive or another disk. It stays encrypted.")
                     : root.export-format == 3
-                        ? @tr("Every item in one file, encrypted with the password above. Import reads it back, here or on another computer. Without that password nobody can, you included.")
+                        ? @tr("Every item in one file, encrypted with a password you choose for it. Import reads it back, here or on another computer. Without that password nobody can, you included.")
                     : root.export-format == 1
                         ? @tr("Keeps folders, cards and extra fields. Most password managers can read it.")
                         : @tr("Logins and notes only, one per row. Any program can read it.");
-            }
-            if root.export-error: ErrorText {
-                code: root.error-code;
-                detail: root.error-detail;
             }
             HorizontalLayout {
                 alignment: start;
@@ -3461,7 +3652,9 @@ export component TransferPage inherits Rectangle {
                     text: root.export-format == 0 ? @tr("Save a backup copy…") : @tr("Export…");
                     danger: root.export-format == 1 || root.export-format == 2;
                     clicked => {
-                        if (root.export-format == 0) { root.export-backup(); } else { root.export-plain(); }
+                        // The other formats ask for the master password (and a password for
+                        // the file) in a dialog first (app.slint, ExportDialog).
+                        if (root.export-format == 0) { root.export-backup(); } else { root.export-asking = true; }
                     }
                 }
             }
@@ -3752,7 +3945,15 @@ export component KitPage inherits Rectangle {
     callback save-kit();
     callback save-part-picture();
 
-    property <bool> confirming-new-key;
+    // "Issue new parts" asked in a dialog over the window (app.slint), and "Show my kit".
+    in-out property <bool> confirming-new-key;
+    in-out property <bool> asking-kit;
+    // Part C was saved in a picture: the printed kit leaves it out unless asked otherwise.
+    in property <bool> part-c-pictured;
+    in-out property <bool> leave-c-out;
+    changed kit-secret-key => {
+        if (root.kit-secret-key != "") { root.asking-kit = false; }
+    }
     changed kit-part-a => { root.confirming-new-key = false; }
 
     ScrollView {
@@ -3767,27 +3968,13 @@ export component KitPage inherits Rectangle {
                 text: @tr("Your way back in if you lose this computer or forget the master password. Print it and keep the paper somewhere safe, away from the computer.");
             }
 
-            if root.kit-secret-key == "": VerticalLayout {
-                spacing: 14px;
-                max-width: 420px;
-                SecretField {
-                    field: 5;
-                    label: @tr("Master password");
-                    error: root.error-code == 11;
-                    accepted => { root.show-kit(); }
-                }
-                ErrorText {
-                    code: root.error-code;
-                    detail: root.error-detail;
-                }
-                HorizontalLayout {
-                    alignment: start;
-                    Button {
-                        text: @tr("Show my kit");
-                        busy-text: @tr("Checking…");
-                        busy: root.busy;
-                        clicked => { root.show-kit(); }
-                    }
+            // The master password is asked in a dialog (app.slint) before the kit shows.
+            if root.kit-secret-key == "": HorizontalLayout {
+                alignment: start;
+                Button {
+                    text: @tr("Show my kit…");
+                    icon: "key";
+                    clicked => { root.asking-kit = true; }
                 }
             }
 
@@ -3861,61 +4048,17 @@ export component KitPage inherits Rectangle {
                     wrap: word-wrap;
                     max-width: 620px;
                 }
+                // Part C kept in its picture: the paper kit then holds A and B only, so the
+                // three are never in one place (its page says C is kept apart, not where).
+                if root.kit-part-c != "" && root.part-c-pictured: Check {
+                    text: @tr("Leave part C out of the printed kit: it is in the picture");
+                    checked <=> root.leave-c-out;
+                }
                 Text {
                     text: @tr("Printing makes a temporary PDF that is wiped from this computer when the vault locks.");
                     font-size: Theme.small;
                     color: Theme.faint;
                     wrap: word-wrap;
-                }
-                if root.confirming-new-key: Rectangle {
-                    border-radius: Theme.radius;
-                    border-width: 1px;
-                    border-color: Theme.rule;
-                    background: Theme.panel;
-                    max-width: 620px;
-                    VerticalLayout {
-                        padding: 18px;
-                        spacing: 12px;
-                        Text {
-                            text: @tr("Issue new recovery parts?");
-                            font-size: Theme.lead;
-                            font-weight: 600;
-                            color: Theme.ink;
-                        }
-                        Prose {
-                            text: @tr("The recovery parts (or Recovery Key) of your old kits will stop working. Print the new kit right after, and keep each part in a different place.");
-                        }
-                        SecretField {
-                            field: 5;
-                            label: @tr("Master password");
-                            error: root.error-code == 11;
-                            accepted => { root.new-parts(); }
-                        }
-                        ErrorText {
-                            code: root.error-code;
-                            detail: root.error-detail;
-                        }
-                        HorizontalLayout {
-                            alignment: start;
-                            spacing: 8px;
-                            Button {
-                                text: @tr("Issue new parts");
-                                danger: true;
-                                busy-text: @tr("Working…");
-                                busy: root.busy;
-                                clicked => {
-                                    root.new-parts();
-                                }
-                            }
-                            VerticalLayout {
-                                alignment: center;
-                                QuietButton {
-                                    text: @tr("Cancel");
-                                    clicked => { root.confirming-new-key = false; }
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }

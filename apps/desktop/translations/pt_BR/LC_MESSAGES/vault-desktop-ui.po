@@ -69,3 +69,59 @@ msgstr "Claro"
 msgctxt "Messages"
 msgid "Password vault"
 msgstr "Cofre de senhas"
+
+msgctxt "Messages"
+msgid "That is the public key. The private one is the file of the same name without .pub (often id_ed25519 or id_rsa)."
+msgstr "Essa é a chave pública. A privada é o arquivo de mesmo nome sem .pub (muitas vezes id_ed25519 ou id_rsa)."
+
+msgctxt "Messages"
+msgid "This form of key isn't read here (PuTTY's .ppk, or an older encrypted form). ssh-keygen -p -f with the key's file writes it in OpenSSH's form; then bring that."
+msgstr "Este formato de chave não é lido aqui (o .ppk do PuTTY, ou um formato criptografado mais antigo). ssh-keygen -p -f com o arquivo da chave a grava no formato do OpenSSH; depois traga essa."
+
+msgctxt "Messages"
+msgid "That passphrase doesn't open the key. Try again."
+msgstr "Essa frase secreta não abre a chave. Tente de novo."
+
+msgctxt "EditorPage"
+msgid "The key's passphrase"
+msgstr "A frase secreta da chave"
+
+msgctxt "EditorPage"
+msgid "Asked once to open the key. The vault keeps the key without it: the vault itself protects it."
+msgstr "Pedida uma vez para abrir a chave. O cofre guarda a chave sem ela: o próprio cofre a protege."
+
+msgctxt "EditorPage"
+msgid "Open the key"
+msgstr "Abrir a chave"
+
+msgctxt "EditorPage"
+msgid "Private key"
+msgstr "Chave privada"
+
+msgctxt "EditorPage"
+msgid "Icon: automatic (the site's icon, or the first letter)"
+msgstr "Ícone: automático (o ícone do site, ou a primeira letra)"
+
+msgctxt "EditorPage"
+msgid "Icon: a line icon"
+msgstr "Ícone: um ícone de traço"
+
+msgctxt "EditorPage"
+msgid "Choose…"
+msgstr "Escolher…"
+
+msgctxt "EditorPage"
+msgid "Done"
+msgstr "Pronto"
+
+msgctxt "EditorPage"
+msgid "Back to automatic"
+msgstr "Voltar ao automático"
+
+msgctxt "EditorPage"
+msgid "Icon colour"
+msgstr "Cor do ícone"
+
+msgctxt "EditorPage"
+msgid "Tile colour"
+msgstr "Cor do fundo"

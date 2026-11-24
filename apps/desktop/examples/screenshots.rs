@@ -545,54 +545,95 @@ fn main() {
     app.set_gen_length(24);
     app.invoke_regenerate();
 
-    // ---- settings ----
+    // ---- settings: a category at a time, and the dialogs that ask first ----
     app.invoke_open_settings();
+    app.set_settings_section(0);
     app.set_quick_unlock_on(true);
     app.invoke_quick_unlock_toggled(true);
-    camera.shot("settings", "Settings, Windows Hello just turned on");
-    // The whole page at once, with a stronger unlock protection chosen.
+    camera.shot(
+        "settings",
+        "Settings → Security, Windows Hello just turned on",
+    );
+    // Each category whole, with a stronger unlock protection chosen.
     let normal = camera.window.size();
     camera
         .window
-        .set_size(PhysicalSize::new(normal.width, normal.height * 3 + 100));
+        .set_size(PhysicalSize::new(normal.width, normal.height * 2 + 200));
     app.set_kdf_level(2);
     camera.shot(
         "settings-full",
-        "Settings, whole page: unlock protection level",
+        "Settings → Security, whole: unlock protection level, Apply asks first",
     );
     app.set_kdf_method(2);
     camera.shot(
         "settings-hash-method",
-        "Settings, whole page: another hash method, with its warning",
+        "Settings → Security, whole: another hash method, with its warning",
     );
+    app.invoke_open_settings_dialog(2);
+    camera.shot(
+        "settings-dialog-kdf",
+        "Settings → Security: applying the unlock protection asks for the master password",
+    );
+    app.invoke_close_settings_dialog();
     app.set_kdf_method(app.get_kdf_current_method());
     app.set_kdf_level(app.get_kdf_current().max(0));
-    // Sync, off: the three places to choose from, then the server form.
+    app.invoke_open_settings_dialog(1);
     camera.shot(
-        "settings-sync-off",
-        "Settings, whole page: sync is off, three places",
+        "settings-dialog-password",
+        "Settings → Security: changing the master password, in a dialog",
     );
+    app.invoke_close_settings_dialog();
+    app.set_guard_check(1);
+    app.invoke_open_settings_dialog(3);
+    camera.shot(
+        "settings-dialog-item-lock",
+        "Settings → Security: saving the item lock asks for the PIN and the master password",
+    );
+    app.invoke_close_settings_dialog();
+    app.set_guard_check(app.get_guard_current_check());
+    app.set_settings_section(1);
+    camera.shot("settings-vault", "Settings → This vault");
+    app.set_settings_section(3);
+    app.set_browser_extension(true);
+    camera.shot(
+        "settings-browser",
+        "Settings → Browser extension: what it may do",
+    );
+    app.set_browser_extension(false);
+    app.set_settings_section(4);
+    camera.shot("settings-appearance", "Settings → Appearance");
+    app.set_settings_section(5);
+    camera.shot("settings-about", "Settings → About");
+    // Sync, off: the three places to choose from, then each one's dialog.
+    app.set_settings_section(2);
+    camera.shot("settings-sync-off", "Settings → Sync: off, three places");
     app.set_sync_form(1);
     app.set_sync_address("https://vault.example-net.ts.net".into());
     camera.shot(
         "settings-sync-server-form",
-        "Settings, whole page: joining a server with an invite",
+        "Settings → Sync: joining a server with an invite",
     );
     app.set_sync_form(2);
     app.set_sync_address("https://cloud.example.com/remote.php/dav/files/demo/Vault".into());
     app.set_sync_user("demo".into());
     camera.shot(
         "settings-sync-webdav-form",
-        "Settings, whole page: WebDAV address, user and password",
+        "Settings → Sync: WebDAV address, user and password",
     );
     app.set_sync_form(0);
     // Sync through a folder (demo values): synced a few minutes ago, then waiting for the
-    // item lock, then the folder gone.
+    // item lock, then the folder gone. The phone synced through another place.
     app.set_sync_kind(1);
     app.set_sync_others(slint::ModelRc::from(std::rc::Rc::new(
         slint::VecModel::from(vec![
-            slint::SharedString::from("Laptop"),
-            slint::SharedString::from("Phone"),
+            vault_desktop::ui::DeviceLine {
+                name: "Laptop".into(),
+                away: false,
+            },
+            vault_desktop::ui::DeviceLine {
+                name: "Phone".into(),
+                away: true,
+            },
         ]),
     )));
     app.set_sync_folder(r"D:\Sync\Vault".into());
@@ -602,53 +643,73 @@ fn main() {
     app.set_sync_state(1);
     camera.shot(
         "settings-sync",
-        "Settings, whole page: sync through a folder",
+        "Settings → Sync: through a folder, one device not there yet",
     );
     app.set_sync_waiting(2);
     app.set_sync_state(4);
     camera.shot(
         "settings-sync-waiting",
-        "Settings, whole page: sync, two edits waiting for the item lock",
+        "Settings → Sync: two edits waiting for the item lock",
     );
     app.set_sync_detail(r"the folder D:\Sync\Vault can't be reached".into());
     app.set_sync_state(3);
-    camera.shot("settings-sync-failed", "Settings, whole page: sync failed");
-    // Through the server, with an invite for one more device and a Remove waiting for its
-    // second click.
+    camera.shot("settings-sync-failed", "Settings → Sync: failed");
+    // Through the server: removing a device asks first, then an invite for one more device.
     app.set_sync_detail("".into());
     app.set_sync_state(1);
     app.set_sync_waiting(0);
     app.set_sync_kind(2);
     app.set_sync_folder("https://vault.example-net.ts.net".into());
+    app.set_sync_removing(1);
+    app.invoke_open_settings_dialog(6);
+    camera.shot(
+        "settings-sync-remove",
+        "Settings → Sync: removing a device asks for the master password",
+    );
+    app.invoke_close_settings_dialog();
+    app.set_sync_removing(-1);
     let link = "vaultsync:1?server=https://vault.example-net.ts.net&vault=0123456789abcdef0123456789abcdef&invite=fedcba9876543210fedcba9876543210";
     app.set_sync_invite(link.into());
     app.set_sync_invite_qr(demo_qr(link));
-    app.set_sync_removing(1);
     camera.shot(
         "settings-sync-server",
-        "Settings, whole page: sync through the server, adding a device",
+        "Settings → Sync: through the server, adding a device",
     );
     app.set_sync_invite("".into());
-    app.set_sync_removing(-1);
+    // The server reached at another address: the address in use, its pin apart.
+    app.invoke_open_settings_dialog(12);
+    app.set_sync_new_address("https://vault.example-net.ts.net".into());
+    camera.shot(
+        "settings-sync-address",
+        "Settings → Sync: the server's address changed in a dialog",
+    );
+    app.invoke_close_settings_dialog();
     // A backup server, while the main one isn't answering.
     app.set_sync_backup("https://192.168.0.9:8750 (pinned certificate)".into());
     app.set_sync_main_down("the sync server can't be reached: connection refused".into());
     camera.shot(
         "settings-sync-backup",
-        "Settings, whole page: the main server is down, syncing through the backup",
+        "Settings → Sync: the main server is down, syncing through the backup",
     );
     app.set_sync_backup("".into());
     app.set_sync_main_down("".into());
     app.set_sync_backup_form(true);
     camera.shot(
         "settings-sync-backup-form",
-        "Settings, whole page: adding a backup server",
+        "Settings → Sync: adding a backup server",
     );
     app.set_sync_backup_form(false);
+    app.invoke_open_settings_dialog(5);
+    camera.shot(
+        "settings-sync-stop",
+        "Settings → Sync: stopping asks for the master password",
+    );
+    app.invoke_close_settings_dialog();
     app.set_sync_kind(0);
     app.set_sync_folder("".into());
     app.set_sync_state(0);
     app.set_sync_detail("".into());
+    app.set_settings_section(0);
     camera.window.set_size(normal);
     app.invoke_open_authenticator();
     camera.shot("authenticator", "Authenticator: every one-time code, live");
@@ -757,12 +818,39 @@ fn main() {
         "Imported: offer to wipe the plain-text file",
     );
     app.invoke_import_wipe();
+    // Exporting asks in a dialog: the master password, and a password for a protected file.
+    app.set_export_format(3);
+    app.set_export_asking(true);
+    camera.shot(
+        "transfer-export-protected",
+        "Export protected by a password: asked in a dialog",
+    );
+    app.set_export_format(1);
+    camera.shot(
+        "transfer-export-plain",
+        "Export unencrypted: a dialog that says so plainly",
+    );
+    app.set_export_asking(false);
+    app.set_export_format(0);
 
     app.invoke_open_kit();
-    camera.shot("kit-locked", "Emergency kit page: master password first");
+    camera.shot(
+        "kit-locked",
+        "Emergency kit page: shown after the master password",
+    );
+    app.set_kit_asking(true);
+    camera.shot(
+        "kit-ask",
+        "Emergency kit: the master password asked in a dialog",
+    );
     type_into(&app, 5, PASSWORD);
     app.invoke_show_kit();
     camera.shot("kit", "Emergency kit page: print or save as PDF");
+    app.set_kit_confirming_new_parts(true);
+    camera.shot(
+        "kit-new-parts-ask",
+        "Emergency kit: issuing new parts asks in a dialog",
+    );
     type_into(&app, 5, PASSWORD);
     app.invoke_new_parts();
     camera.shot(

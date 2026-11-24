@@ -178,6 +178,58 @@ impl Controller {
         self.touch_activity();
     }
 
+    /// The title bar (the window has no frame of the system's, `no-frame`): the system's own
+    /// move, so the window snaps to the screen's edges as usual.
+    pub(super) fn window_drag(&self) {
+        use slint::winit_030::WinitWindowAccessor;
+        self.app().window().with_winit_window(|window| {
+            let _ = window.drag_window();
+        });
+    }
+
+    /// An edge or corner of the window (`direction` as in app.slint's `ResizeEdge`): the
+    /// system's own resize.
+    pub(super) fn window_resize(&self, direction: i32) {
+        use slint::winit_030::{WinitWindowAccessor, winit::window::ResizeDirection};
+        let direction = match direction {
+            0 => ResizeDirection::East,
+            1 => ResizeDirection::North,
+            2 => ResizeDirection::NorthEast,
+            3 => ResizeDirection::NorthWest,
+            4 => ResizeDirection::South,
+            5 => ResizeDirection::SouthEast,
+            6 => ResizeDirection::SouthWest,
+            _ => ResizeDirection::West,
+        };
+        self.app().window().with_winit_window(|window| {
+            let _ = window.drag_resize_window(direction);
+        });
+    }
+
+    pub(super) fn window_minimize(&self) {
+        self.app().window().set_minimized(true);
+    }
+
+    pub(super) fn window_toggle_maximized(&self) {
+        let app = self.app();
+        let maximized = !app.window().is_maximized();
+        app.window().set_maximized(maximized);
+        app.set_window_maximized(maximized);
+    }
+
+    /// The title bar's close button: what the system's would do (to the notification area
+    /// when that is on, else quit), once the click is done.
+    pub(super) fn window_close(&self) {
+        let weak = self.app().as_weak();
+        slint::Timer::single_shot(Duration::ZERO, move || {
+            if let Some(app) = weak.upgrade() {
+                let _ = app
+                    .window()
+                    .dispatch_event_with_result(slint::platform::WindowEvent::CloseRequested);
+            }
+        });
+    }
+
     /// Mouse buttons 4 and 5, Alt+Left / Alt+Right, the keyboard's own Back and Forward keys,
     /// Ctrl+L (lock) and Ctrl+N (new item). Read from the window's raw events, so they work
     /// wherever the pointer or the focus is. A no-op on backends without a native window
@@ -194,6 +246,17 @@ impl Controller {
         let alt = Cell::new(false);
         let control = Cell::new(false);
         app.window().on_winit_window_event(move |_, event| {
+            // Maximized or restored another way (Win+Up, a snap): the title bar's button
+            // follows.
+            if matches!(event, WindowEvent::Resized(_)) {
+                let weak = weak.clone();
+                slint::Timer::single_shot(Duration::ZERO, move || {
+                    if let Some(controller) = weak.upgrade() {
+                        let app = controller.app();
+                        app.set_window_maximized(app.window().is_maximized());
+                    }
+                });
+            }
             let command = match event {
                 WindowEvent::ModifiersChanged(modifiers) => {
                     alt.set(modifiers.state().alt_key());

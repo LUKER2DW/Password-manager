@@ -1,15 +1,18 @@
 import { Theme, Sketch, Secrets } from "theme.slint";
-import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, Messages } from "model.slint";
+// The monospace font, built in (see Theme.mono-font).
+import "fonts/JetBrainsMono-Regular.ttf";
+import "fonts/JetBrainsMono-SemiBold.ttf";
+import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, Messages } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage } from "pages.slint";
-import { FolderDialog, PairingDialog, PartsUsedDialog } from "dialogs.slint";
+import { FolderDialog, PairingDialog, PartsUsedDialog, ConfirmDialog, MasterPasswordDialog, ItemLockDialog, ServerJoinDialog, ServerAddressDialog, ExportDialog, WebDavDialog, BackupServerDialog, InviteDialog } from "dialogs.slint";
 import { MenuCard, MenuEntry, MenuRule, Backdrop } from "widgets.slint";
 import { Glyph } from "icons.slint";
 // A second window: the notification area icon's menu (src/tray.rs).
 export { TrayMenu } from "tray.slint";
 
-export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, SourceRow, Messages }
+export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, SourceRow, DeviceLine, Messages }
 
 // Confirmation messages ("Copied", "Saved"): bottom-right, out of the way of page content.
 component Notice inherits Rectangle {
@@ -28,6 +31,107 @@ component Notice inherits Rectangle {
         font-size: Theme.body;
         color: #EEF1F5;
         wrap: word-wrap;
+    }
+}
+
+// One of the title bar's three buttons, with the system's own glyphs drawn on a 10 px square:
+// 0 minimize (a line), 1 maximize (a box), 2 restore (two boxes), 3 close (a cross, on red
+// when pointed at).
+component WindowButton inherits Rectangle {
+    in property <int> glyph;
+    callback clicked();
+    width: 46px;
+    background: touch.pressed ? (root.glyph == 3 ? #C42B1CCC : Theme.selected)
+        : touch.has-hover ? (root.glyph == 3 ? #C42B1C : Theme.hover)
+        : transparent;
+    accessible-role: button;
+    accessible-label: root.glyph == 0 ? @tr("Minimize") : root.glyph == 1 ? @tr("Maximize") : root.glyph == 2 ? @tr("Restore") : @tr("Close");
+    Path {
+        width: 10px;
+        height: 10px;
+        viewbox-width: 10;
+        viewbox-height: 10;
+        commands: root.glyph == 0 ? "M0 5.5 L10 5.5"
+            : root.glyph == 1 ? "M0.5 0.5 L9.5 0.5 L9.5 9.5 L0.5 9.5 Z"
+            : root.glyph == 2 ? "M2.5 2.5 L2.5 0.5 L9.5 0.5 L9.5 7.5 L7.5 7.5 M0.5 2.5 L7.5 2.5 L7.5 9.5 L0.5 9.5 Z"
+            : "M0.5 0.5 L9.5 9.5 M9.5 0.5 L0.5 9.5";
+        stroke: root.glyph == 3 && touch.has-hover ? #FFFFFF : Theme.ink;
+        stroke-width: 1px;
+        fill: transparent;
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+// The window's own title bar (the window has no frame of the system's): drag it to move the
+// window (the system's own move, so it snaps to the screen's edges), double-click it to
+// maximize or restore it.
+component TitleBar inherits Rectangle {
+    in property <bool> maximized;
+    in property <bool> show-title;
+    callback drag();
+    callback toggle-maximized();
+    callback minimize();
+    callback close();
+    // When the last press on the bar was, to tell a double-click (the system's move takes the
+    // second click otherwise).
+    property <duration> pressed-at: -1s;
+    background: Theme.canvas;
+    accessible-role: groupbox;
+    TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                if (root.pressed-at >= 0s && animation-tick() - root.pressed-at < 400ms) {
+                    root.pressed-at = -1s;
+                    root.toggle-maximized();
+                } else {
+                    root.pressed-at = animation-tick();
+                    root.drag();
+                }
+            }
+        }
+    }
+    if root.show-title: HorizontalLayout {
+        x: 12px;
+        spacing: 8px;
+        alignment: start;
+        VerticalLayout {
+            alignment: center;
+            Image {
+                width: 16px;
+                height: 16px;
+                source: @image-url("brand/icon-64.png");
+            }
+        }
+        Text {
+            text: @tr("Vault");
+            font-size: Theme.small;
+            color: Theme.graphite;
+            vertical-alignment: center;
+        }
+    }
+    HorizontalLayout {
+        x: parent.width - self.width;
+        width: 3 * 46px;
+        WindowButton { glyph: 0; clicked => { root.minimize(); } }
+        WindowButton { glyph: root.maximized ? 2 : 1; clicked => { root.toggle-maximized(); } }
+        WindowButton { glyph: 3; clicked => { root.close(); } }
+    }
+}
+
+// An edge or corner of the window that resizes it (the system's own resize): `direction` as
+// in `Controller::window_resize`, 0 east, 1 north, 2 north-east, 3 north-west, 4 south,
+// 5 south-east, 6 south-west, 7 west.
+component ResizeEdge inherits TouchArea {
+    in property <int> direction;
+    callback resize(int);
+    mouse-cursor: root.direction == 0 || root.direction == 7 ? MouseCursor.ew-resize
+        : root.direction == 1 || root.direction == 4 ? MouseCursor.ns-resize
+        : root.direction == 2 || root.direction == 6 ? MouseCursor.nesw-resize
+        : MouseCursor.nwse-resize;
+    pointer-event(event) => {
+        if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+            root.resize(root.direction);
+        }
     }
 }
 
@@ -95,6 +199,24 @@ export component AppWindow inherits Window {
     background: Theme.canvas;
     default-font-family: Theme.ui-font;
     default-font-size: Theme.body;
+    // The window draws its own title bar (TitleBar): the screens start below it.
+    no-frame: true;
+    property <length> title-height: 32px;
+    in property <bool> window-maximized;
+    // The emergency kit page's "Issue new parts" and "Show my kit", asked in dialogs, and
+    // Import & export's "Export…".
+    in-out property <bool> kit-confirming-new-parts;
+    // Part C saved in a picture (since the parts were shown), and whether the printed kit
+    // leaves it out then.
+    in property <bool> kit-part-c-pictured;
+    in-out property <bool> kit-leave-c-out: true;
+    in-out property <bool> kit-asking;
+    in-out property <bool> export-asking;
+    callback window-drag();
+    callback window-resize(int);
+    callback window-minimize();
+    callback window-toggle-maximized();
+    callback window-close();
 
     // ---- shared state ----
     in property <Screen> screen: Screen.unlock;
@@ -209,11 +331,13 @@ export component AppWindow inherits Window {
     in property <int> sync-kind;
     in-out property <int> sync-form;
     in-out property <string> sync-address;
+    // The server's certificate pin, typed apart from its address.
+    in-out property <string> sync-pin;
     in-out property <string> sync-invite-typed;
     in-out property <string> sync-user;
     in property <string> sync-setup-error;
     in property <bool> sync-busy;
-    in property <[string]> sync-others;
+    in property <[DeviceLine]> sync-others;
     in-out property <int> sync-removing: -1;
     in property <string> sync-invite;
     in property <image> sync-invite-qr;
@@ -226,6 +350,11 @@ export component AppWindow inherits Window {
     in-out property <string> sync-backup-invite;
     callback sync-join-backup();
     callback sync-remove-backup();
+    // Change the address (Settings dialogs 12, the server, and 13, the backup): the fields,
+    // filled with the address in use and its pin.
+    in-out property <string> sync-new-address;
+    in-out property <string> sync-new-pin;
+    callback sync-change-address(bool);
     callback sync-choose();
     callback sync-now();
     callback sync-stop();
@@ -325,6 +454,9 @@ export component AppWindow inherits Window {
     in property <bool> detail-has-icon;
     in property <string> detail-initial;
     in property <color> detail-tint;
+    in property <string> detail-glyph;
+    in property <int> detail-glyph-color;
+    in property <int> detail-glyph-bg;
     in property <bool> detail-favorite;
     in property <string> detail-username;
     in property <bool> detail-has-password;
@@ -344,12 +476,16 @@ export component AppWindow inherits Window {
     in property <bool> ed-ssh-has-key;
     in property <string> ed-ssh-public;
     in property <string> ed-ssh-fingerprint;
+    in property <string> ed-ssh-type;
+    // A key brought in waits for its passphrase (typed in the editor, then `ssh-open`).
+    in property <bool> ed-ssh-waiting;
     in property <[FileRow]> ed-files;
     in property <[PasskeyRow]> ed-passkeys;
     callback passkey-remove(int);
     callback ssh-generate();
     callback ssh-load();
     callback ssh-paste();
+    callback ssh-open();
     callback file-add();
     callback file-remove(int);
     in property <int> detail-codes-left;
@@ -399,7 +535,16 @@ export component AppWindow inherits Window {
     in-out property <string> ed-title;
     in-out property <string> ed-username;
     in-out property <string> ed-url;
+    // The site's icon for what the editor's Website field says.
+    in property <image> ed-site-icon;
+    in property <bool> ed-has-site-icon;
+    callback ed-url-changed();
+    changed ed-url => { root.ed-url-changed(); }
     in-out property <string> ed-icon-url;
+    // A line icon chosen for the item ("" = automatic) and its colours (IconLook).
+    in-out property <string> ed-glyph;
+    in-out property <int> ed-glyph-color;
+    in-out property <int> ed-glyph-bg;
     in-out property <string> ed-totp;
     in-out property <string> ed-notes;
     in-out property <bool> ed-favorite;
@@ -464,6 +609,20 @@ export component AppWindow inherits Window {
     callback remove-wordlist();
 
     // ---- settings ----
+    // The category shown (SettingsPage), and the dialog open over the window (its kinds are
+    // listed there; 0 = none). Opened and closed through the app, which clears the error and
+    // the dialog's secure fields.
+    in-out property <int> settings-section;
+    in-out property <int> settings-dialog;
+    callback open-settings-dialog(int);
+    callback close-settings-dialog();
+    // A dialog's action, once the master password it asked for checks out (kinds 5 to 9).
+    callback confirm-settings(int);
+    in-out property <bool> browser-saves: true;
+    in-out property <bool> browser-passkeys: true;
+    in-out property <bool> browser-fill-notices: true;
+    in-out property <bool> backdrop-on: true;
+    in property <string> app-version;
     in-out property <int> auto-lock-minutes: 5;
     in-out property <int> clipboard-seconds: 20;
     in-out property <bool> website-icons;
@@ -541,6 +700,8 @@ export component AppWindow inherits Window {
     callback save-kit();
 
     if root.screen == Screen.onboarding: OnboardingScreen {
+        y: root.title-height;
+        height: root.height - root.title-height;
         step <=> root.onboarding-step;
         busy: root.busy;
         error-code: root.error-code;
@@ -578,6 +739,8 @@ export component AppWindow inherits Window {
     }
 
     if root.screen == Screen.unlock: UnlockScreen {
+        y: root.title-height;
+        height: root.height - root.title-height;
         busy: root.busy;
         error-code: root.error-code;
         error-detail: root.error-detail;
@@ -605,6 +768,8 @@ export component AppWindow inherits Window {
     }
 
     if root.screen == Screen.recover: RecoverScreen {
+        y: root.title-height;
+        height: root.height - root.title-height;
         busy: root.busy;
         error-code: root.error-code;
         error-detail: root.error-detail;
@@ -617,6 +782,8 @@ export component AppWindow inherits Window {
     }
 
     if root.screen == Screen.vault: HorizontalLayout {
+        y: root.title-height;
+        height: root.height - root.title-height;
         VaultIndex {
             width: 216px;
             category: root.category;
@@ -706,6 +873,9 @@ export component AppWindow inherits Window {
                 has-icon: root.detail-has-icon;
                 initial: root.detail-initial;
                 tint: root.detail-tint;
+                glyph: root.detail-glyph;
+                glyph-color: root.detail-glyph-color;
+                glyph-bg: root.detail-glyph-bg;
                 username: root.detail-username;
                 has-password: root.detail-has-password;
                 revealed-password: root.revealed-password;
@@ -764,12 +934,15 @@ export component AppWindow inherits Window {
                 ssh-has-key: root.ed-ssh-has-key;
                 ssh-public: root.ed-ssh-public;
                 ssh-fingerprint: root.ed-ssh-fingerprint;
+                ssh-type: root.ed-ssh-type;
+                ssh-waiting: root.ed-ssh-waiting;
                 files: root.ed-files;
                 passkeys: root.ed-passkeys;
                 passkey-remove(i) => { root.passkey-remove(i); }
                 ssh-generate => { root.ssh-generate(); }
                 ssh-load => { root.ssh-load(); }
                 ssh-paste => { root.ssh-paste(); }
+                ssh-open => { root.ssh-open(); }
                 file-add => { root.file-add(); }
                 file-remove(i) => { root.file-remove(i); }
                 // Only to change an item: a new one is sealed when the item lock next opens.
@@ -782,7 +955,12 @@ export component AppWindow inherits Window {
                 title <=> root.ed-title;
                 username <=> root.ed-username;
                 url <=> root.ed-url;
+                site-icon: root.ed-site-icon;
+                has-site-icon: root.ed-has-site-icon;
                 icon-url <=> root.ed-icon-url;
+                glyph <=> root.ed-glyph;
+                glyph-color <=> root.ed-glyph-color;
+                glyph-bg <=> root.ed-glyph-bg;
                 totp <=> root.ed-totp;
                 notes <=> root.ed-notes;
                 favorite <=> root.ed-favorite;
@@ -876,15 +1054,21 @@ export component AppWindow inherits Window {
                 dark: Theme.dark;
                 vault-path: root.vault-path;
                 vault-id: root.vault-id;
+                section <=> root.settings-section;
+                open-dialog(kind) => { root.open-settings-dialog(kind); }
+                app-version: root.app-version;
                 auto-lock-minutes <=> root.auto-lock-minutes;
                 clipboard-seconds <=> root.clipboard-seconds;
                 website-icons <=> root.website-icons;
                 leak-watch <=> root.leak-watch;
                 close-to-tray <=> root.close-to-tray;
+                backdrop-on <=> root.backdrop-on;
                 browser-locked-fill <=> root.browser-locked-fill;
                 browser-extension <=> root.browser-extension;
+                browser-saves <=> root.browser-saves;
+                browser-passkeys <=> root.browser-passkeys;
+                browser-fill-notices <=> root.browser-fill-notices;
                 browser-paired <=> root.browser-paired;
-                forget-pairing => { root.forget-pairing(); }
                 sync-folder: root.sync-folder;
                 sync-state: root.sync-state;
                 sync-minutes: root.sync-minutes;
@@ -894,31 +1078,17 @@ export component AppWindow inherits Window {
                 sync-this-device: root.sync-this-device;
                 sync-kind: root.sync-kind;
                 sync-form <=> root.sync-form;
-                sync-address <=> root.sync-address;
-                sync-invite-typed <=> root.sync-invite-typed;
-                sync-user <=> root.sync-user;
                 sync-setup-error: root.sync-setup-error;
                 sync-busy: root.sync-busy;
                 sync-others: root.sync-others;
                 sync-removing <=> root.sync-removing;
                 sync-invite: root.sync-invite;
-                sync-invite-qr: root.sync-invite-qr;
                 sync-backup: root.sync-backup;
                 sync-main-down: root.sync-main-down;
                 sync-backup-down: root.sync-backup-down;
                 sync-backup-form <=> root.sync-backup-form;
-                sync-backup-address <=> root.sync-backup-address;
-                sync-backup-invite <=> root.sync-backup-invite;
-                sync-join-backup => { root.sync-join-backup(); }
-                sync-remove-backup => { root.sync-remove-backup(); }
                 sync-choose => { root.sync-choose(); }
                 sync-now => { root.sync-now(); }
-                sync-stop => { root.sync-stop(); }
-                sync-join-server => { root.sync-join-server(); }
-                sync-use-webdav => { root.sync-use-webdav(); }
-                sync-add-device => { root.sync-add-device(); }
-                sync-hide-invite => { root.sync-hide-invite(); }
-                sync-remove(i) => { root.sync-remove(i); }
                 guard-hello <=> root.guard-hello;
                 vault-file-name: root.vault-file-name;
                 vault-name <=> root.vault-name-edit;
@@ -936,23 +1106,16 @@ export component AppWindow inherits Window {
                 appearance-changed(dark) => { root.appearance-changed(dark); }
                 language <=> root.language;
                 language-changed(choice) => { root.language-changed(choice); }
-                change-password => { root.change-password(); }
                 kdf-level <=> root.kdf-level;
                 kdf-current: root.kdf-current;
                 kdf-method <=> root.kdf-method;
                 kdf-current-method: root.kdf-current-method;
-                kdf-failed: root.kdf-failed;
                 unlock-time: root.unlock-time;
-                change-kdf => { root.change-kdf(); }
                 keyfile-on: root.keyfile-on;
                 keyfile-path: root.keyfile-path;
-                keyfile-failed: root.keyfile-failed;
-                keyfile-action(what) => { root.keyfile-action(what); }
                 guard-all <=> root.guard-all;
                 guard-check <=> root.guard-check;
                 guard-current-check: root.guard-current-check;
-                guard-failed: root.guard-failed;
-                save-guard => { root.save-guard(); }
             }
             if root.panel == Panel.authenticator: AuthenticatorPage {
                 rows: root.auth-rows;
@@ -993,6 +1156,7 @@ export component AppWindow inherits Window {
                 import-new-folder <=> root.import-new-folder;
                 import-plaintext: root.import-plaintext;
                 export-format <=> root.export-format;
+                export-asking <=> root.export-asking;
                 pick-source(i) => { root.pick-source(i); }
                 open-browser => { root.open-browser(); }
                 direct-supported: root.import-direct-supported;
@@ -1036,6 +1200,10 @@ export component AppWindow inherits Window {
                 kit-part-c: root.kit-part-c;
                 vault-recovery: root.vault-recovery;
                 kit-filled <=> root.kit-filled;
+                confirming-new-key <=> root.kit-confirming-new-parts;
+                asking-kit <=> root.kit-asking;
+                part-c-pictured: root.kit-part-c-pictured;
+                leave-c-out <=> root.kit-leave-c-out;
                 show-kit => { root.show-kit(); }
                 hide-kit => { root.hide-kit(); }
                 new-parts => { root.new-parts(); }
@@ -1097,6 +1265,186 @@ export component AppWindow inherits Window {
         delete => { root.folder-dialog-delete(); }
         ask-delete => { root.folder-dialog = 2; }
         cancel => { root.folder-dialog-cancel(); }
+    }
+
+    // ---- Settings' dialogs: each asks before a sensitive change, the master password where
+    // it matters, and stays open (busy, or with what went wrong) until the change is made.
+    property <bool> in-settings: root.screen == Screen.vault && root.panel == Panel.settings;
+    property <string> kdf-chosen: ["Argon2id", "scrypt", "PBKDF2-SHA-256"][root.kdf-method]
+        + " · " + [@tr("Light"), @tr("Standard"), @tr("Strong"), @tr("Maximum")][root.kdf-level];
+    property <string> removing-name: root.sync-removing >= 0 && root.sync-removing < root.sync-others.length
+        ? root.sync-others[root.sync-removing].name : "";
+
+    if root.screen == Screen.vault && root.panel == Panel.kit && root.kit-asking: ConfirmDialog {
+        width: root.width;
+        height: root.height;
+        title: @tr("Show your emergency kit?");
+        text: @tr("It shows your Secret Key (and the recovery parts, right after they are issued). Make sure no one can see your screen.");
+        action: @tr("Show my kit");
+        asks-master: true;
+        field: 5;
+        busy: root.busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        confirmed => { root.show-kit(); }
+        cancelled => { root.kit-asking = false; }
+    }
+    if root.screen == Screen.vault && root.panel == Panel.transfer && root.export-asking: ExportDialog {
+        width: root.width;
+        height: root.height;
+        format: root.export-format;
+        busy: root.busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        confirmed => { root.export-plain(); }
+        cancelled => { root.export-asking = false; }
+    }
+    if root.screen == Screen.vault && root.panel == Panel.kit && root.kit-confirming-new-parts: ConfirmDialog {
+        width: root.width;
+        height: root.height;
+        title: @tr("Issue new recovery parts?");
+        text: @tr("The recovery parts (or Recovery Key) of your old kits will stop working. Print the new kit right after, and keep each part in a different place.");
+        action: @tr("Issue new parts");
+        danger: true;
+        asks-master: true;
+        field: 5;
+        busy: root.busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        confirmed => { root.new-parts(); }
+        cancelled => { root.kit-confirming-new-parts = false; }
+    }
+    if root.in-settings && root.settings-dialog == 1: MasterPasswordDialog {
+        width: root.width;
+        height: root.height;
+        busy: root.busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        confirmed => { root.change-password(); }
+        cancelled => { root.close-settings-dialog(); }
+    }
+    if root.in-settings && root.settings-dialog == 2: ConfirmDialog {
+        width: root.width;
+        height: root.height;
+        title: @tr("Change the unlock protection?");
+        text: @tr("The vault's password lock is written again with {}. Your items stay as they are; every device that opens the vault then needs that much memory and time per unlock. Windows Hello turns off until you turn it on again.", root.kdf-chosen);
+        action: @tr("Apply");
+        asks-master: true;
+        field: 9;
+        busy: root.busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        confirmed => { root.change-kdf(); }
+        cancelled => { root.close-settings-dialog(); }
+    }
+    if root.in-settings && root.settings-dialog == 3: ItemLockDialog {
+        width: root.width;
+        height: root.height;
+        check: root.guard-check;
+        current-check: root.guard-current-check;
+        all: root.guard-all;
+        busy: root.busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        confirmed => { root.save-guard(); }
+        cancelled => { root.close-settings-dialog(); }
+    }
+    if root.in-settings && (root.settings-dialog == 4 || root.settings-dialog == 10 || root.settings-dialog == 11): ConfirmDialog {
+        width: root.width;
+        height: root.height;
+        title: root.settings-dialog == 4 ? @tr("Make a keyfile?")
+            : root.settings-dialog == 10 ? @tr("Use another file as the keyfile?")
+            : @tr("Remove the keyfile?");
+        text: root.settings-dialog == 4 ? @tr("A new file with a random key is written where you choose, and from then on the vault opens only with your master password and that file. Keep a second copy apart from it: losing it locks you out. Windows Hello turns off until you turn it on again.")
+            : root.settings-dialog == 10 ? @tr("Any file that never changes, not even by one byte, can be the keyfile: from then on the vault opens only with your master password and that file. Keep a copy apart from it. Windows Hello turns off until you turn it on again.")
+            : @tr("The vault opens with your master password alone again. The file itself is left where it is. Windows Hello turns off until you turn it on again.");
+        action: root.settings-dialog == 4 ? @tr("Choose where to save it…")
+            : root.settings-dialog == 10 ? @tr("Choose the file…")
+            : @tr("Remove the keyfile");
+        danger: root.settings-dialog == 11;
+        asks-master: true;
+        field: 10;
+        busy: root.busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        confirmed => { root.keyfile-action(root.settings-dialog == 4 ? 0 : root.settings-dialog == 10 ? 1 : 2); }
+        cancelled => { root.close-settings-dialog(); }
+    }
+    if root.in-settings && root.settings-dialog >= 5 && root.settings-dialog <= 9: ConfirmDialog {
+        width: root.width;
+        height: root.height;
+        title: root.settings-dialog == 5 ? @tr("Stop syncing this vault here?")
+            : root.settings-dialog == 6 ? @tr("Remove {}?", root.removing-name)
+            : root.settings-dialog == 7 ? @tr("Add a device?")
+            : root.settings-dialog == 8 ? @tr("Remove the backup server?")
+            : @tr("Disconnect the browser extension?");
+        text: root.settings-dialog == 5 ? @tr("This computer stops syncing and forgets its key for the server (or the WebDAV password). The copies already there stay, and your other devices keep syncing. You can join again later.")
+            : root.settings-dialog == 6 ? @tr("It leaves the vault's list of devices: every device refuses its copies from its next sync, and its copy and key leave the server. It keeps only what it already had, which opens only with your master password and Secret Key. It can join again later as a new device, with a new invite.")
+            : root.settings-dialog == 7 ? @tr("The server makes an invite that works once, for an hour: a QR code to scan on the phone, or a line to paste on another computer. Whoever has it can put a sealed copy of the vault on that device; it opens only with your master password and Secret Key.")
+            : root.settings-dialog == 8 ? @tr("This computer stops syncing through it and forgets its key there. Its copy there is left, and the main place goes on as before.")
+            : @tr("It can't ask for logins any more until it is connected again, which asks for the master password and the code its window shows.");
+        action: root.settings-dialog == 5 ? @tr("Stop syncing")
+            : root.settings-dialog == 6 ? @tr("Remove")
+            : root.settings-dialog == 7 ? @tr("Make an invite")
+            : root.settings-dialog == 8 ? @tr("Remove the backup")
+            : @tr("Disconnect");
+        danger: root.settings-dialog != 7;
+        asks-master: root.settings-dialog != 8;
+        field: 20;
+        busy: root.busy || root.sync-busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        confirmed => { root.confirm-settings(root.settings-dialog); }
+        cancelled => { root.close-settings-dialog(); }
+    }
+    if root.in-settings && (root.settings-dialog == 12 || root.settings-dialog == 13): ServerAddressDialog {
+        width: root.width;
+        height: root.height;
+        backup: root.settings-dialog == 13;
+        address <=> root.sync-new-address;
+        pin <=> root.sync-new-pin;
+        busy: root.sync-busy;
+        problem: root.sync-setup-error;
+        confirmed => { root.sync-change-address(root.settings-dialog == 13); }
+        cancelled => { root.close-settings-dialog(); }
+    }
+    if root.in-settings && root.sync-kind == 0 && root.sync-form == 1: ServerJoinDialog {
+        width: root.width;
+        height: root.height;
+        address <=> root.sync-address;
+        pin <=> root.sync-pin;
+        invite <=> root.sync-invite-typed;
+        busy: root.sync-busy;
+        problem: root.sync-setup-error;
+        confirmed => { root.sync-join-server(); }
+        cancelled => { root.sync-form = 0; }
+    }
+    if root.in-settings && root.sync-kind == 0 && root.sync-form == 2: WebDavDialog {
+        width: root.width;
+        height: root.height;
+        address <=> root.sync-address;
+        user <=> root.sync-user;
+        busy: root.sync-busy;
+        problem: root.sync-setup-error;
+        confirmed => { root.sync-use-webdav(); }
+        cancelled => { root.sync-form = 0; }
+    }
+    if root.in-settings && root.sync-backup-form: BackupServerDialog {
+        width: root.width;
+        height: root.height;
+        address <=> root.sync-backup-address;
+        invite <=> root.sync-backup-invite;
+        busy: root.sync-busy;
+        problem: root.sync-setup-error;
+        confirmed => { root.sync-join-backup(); }
+        cancelled => { root.sync-backup-form = false; }
+    }
+    if root.in-settings && root.sync-invite != "": InviteDialog {
+        width: root.width;
+        height: root.height;
+        line: root.sync-invite;
+        qr: root.sync-invite-qr;
+        done => { root.sync-hide-invite(); }
     }
 
     // Right-click on a folder in the index.
@@ -1192,4 +1540,25 @@ export component AppWindow inherits Window {
             }
         }
     }
+    // The window's own title bar, over everything (a dialog's shade leaves it, as the
+    // system's would), and its edges for resizing while it isn't maximized.
+    TitleBar {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.title-height;
+        maximized: root.window-maximized;
+        show-title: root.screen != Screen.vault;
+        drag => { root.window-drag(); }
+        toggle-maximized => { root.window-toggle-maximized(); }
+        minimize => { root.window-minimize(); }
+        close => { root.window-close(); }
+    }
+    if !root.window-maximized: ResizeEdge { direction: 7; x: 0px; y: 8px; width: 5px; height: root.height - 16px; resize(d) => { root.window-resize(d); } }
+    if !root.window-maximized: ResizeEdge { direction: 0; x: root.width - 5px; y: 8px; width: 5px; height: root.height - 16px; resize(d) => { root.window-resize(d); } }
+    if !root.window-maximized: ResizeEdge { direction: 1; x: 8px; y: 0px; width: root.width - 16px - 3 * 46px; height: 4px; resize(d) => { root.window-resize(d); } }
+    if !root.window-maximized: ResizeEdge { direction: 4; x: 8px; y: root.height - 5px; width: root.width - 16px; height: 5px; resize(d) => { root.window-resize(d); } }
+    if !root.window-maximized: ResizeEdge { direction: 3; x: 0px; y: 0px; width: 8px; height: 8px; resize(d) => { root.window-resize(d); } }
+    if !root.window-maximized: ResizeEdge { direction: 6; x: 0px; y: root.height - 8px; width: 8px; height: 8px; resize(d) => { root.window-resize(d); } }
+    if !root.window-maximized: ResizeEdge { direction: 5; x: root.width - 8px; y: root.height - 8px; width: 8px; height: 8px; resize(d) => { root.window-resize(d); } }
 }

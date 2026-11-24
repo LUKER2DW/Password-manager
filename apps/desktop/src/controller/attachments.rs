@@ -9,10 +9,13 @@
 use std::path::Path;
 
 use slint::{ModelRc, SharedString, VecModel};
-use vault_core::{Attachment, CustomField, ItemData, ItemKind, ssh};
+use vault_core::{
+    Attachment, CustomField, ItemData, ItemKind,
+    ssh::{self, KeyProblem, SshKeyPair},
+};
 use zeroize::Zeroizing;
 
-use super::{Controller, Runner, error};
+use super::{Controller, Runner, error, field};
 use crate::{
     ui::{FileRow, PasskeyRow},
     view,
@@ -48,10 +51,14 @@ fn rows(files: &[Attachment]) -> ModelRc<FileRow> {
     ModelRc::new(VecModel::from(rows))
 }
 
-/// Whether `text` looks like a private key file (OpenSSH, or the older PEM kinds).
-fn is_private_key(text: &str) -> bool {
-    let text = text.trim();
-    text.starts_with("-----BEGIN") && text.contains("PRIVATE KEY-----")
+/// An SSH key item's type ("Ed25519", "RSA 4096"): as kept, or read from a key kept before
+/// the type was.
+fn key_type_of(item: &ItemData) -> String {
+    let kept = field_value(item, ssh::KEY_TYPE_FIELD);
+    if !kept.is_empty() {
+        return kept;
+    }
+    ssh::key_type_of(&item.password).unwrap_or_default()
 }
 
 fn field_value(item: &ItemData, name: &str) -> String {
@@ -77,10 +84,12 @@ impl Controller {
                 .zip(passkey_rows(&item.passkeys))
                 .collect();
         }
+        self.state.borrow_mut().ssh_pending = None;
         self.show_editor_passkeys();
         self.show_editor_ssh(
             &field_value(item, ssh::PUBLIC_KEY_FIELD),
             &field_value(item, ssh::FINGERPRINT_FIELD),
+            &key_type_of(item),
         );
         self.app()
             .set_ed_files(rows(&self.state.borrow().editor_files));
@@ -92,44 +101,94 @@ impl Controller {
             let mut state = self.state.borrow_mut();
             state.editor_files.clear();
             state.editor_ssh = None;
+            state.ssh_pending = None;
             state.editor_passkeys.clear();
         }
         let app = self.app();
         app.set_ed_files(ModelRc::default());
         app.set_ed_passkeys(ModelRc::default());
         app.set_ed_ssh_has_key(false);
+        app.set_ed_ssh_waiting(false);
         app.set_ed_ssh_public(SharedString::new());
         app.set_ed_ssh_fingerprint(SharedString::new());
+        app.set_ed_ssh_type(SharedString::new());
+        self.clear_secret(field::SSH_PASSPHRASE);
     }
 
-    fn show_editor_ssh(&self, public: &str, fingerprint: &str) {
+    fn show_editor_ssh(&self, public: &str, fingerprint: &str, key_type: &str) {
         let app = self.app();
-        app.set_ed_ssh_has_key(self.state.borrow().editor_ssh.is_some());
+        let state = self.state.borrow();
+        app.set_ed_ssh_has_key(state.editor_ssh.is_some());
+        app.set_ed_ssh_waiting(state.ssh_pending.is_some());
         app.set_ed_ssh_public(public.into());
         app.set_ed_ssh_fingerprint(fingerprint.into());
+        app.set_ed_ssh_type(key_type.into());
     }
 
-    /// Takes `private` as the edited item's key; its public half is read when it can be.
-    fn set_editor_key(&self, private: Zeroizing<String>) {
-        if !is_private_key(&private) {
-            return self.set_error(error::NOT_A_KEY, "");
+    /// A key the editor takes: in OpenSSH's form without a passphrase, with its public half.
+    fn take_key(&self, pair: SshKeyPair) {
+        {
+            let mut state = self.state.borrow_mut();
+            state.editor_ssh = Some(pair.private_key);
+            state.ssh_pending = None;
         }
-        let public = ssh::public_key_of(&private).unwrap_or_default();
-        let fingerprint = ssh::fingerprint(&public).unwrap_or_default();
-        self.state.borrow_mut().editor_ssh = Some(private);
+        self.clear_secret(field::SSH_PASSPHRASE);
         self.set_error(error::NONE, "");
-        self.show_editor_ssh(&public, &fingerprint);
+        self.show_editor_ssh(&pair.public_key, &pair.fingerprint, &pair.key_type);
+    }
+
+    fn key_problem(&self, problem: KeyProblem) {
+        let code = match problem {
+            KeyProblem::PublicOnly => error::KEY_PUBLIC_ONLY,
+            KeyProblem::Unsupported => error::KEY_UNSUPPORTED,
+            KeyProblem::WrongPassphrase | KeyProblem::NeedsPassphrase => error::KEY_PASSPHRASE,
+            KeyProblem::NotAKey => error::NOT_A_KEY,
+        };
+        self.set_error(code, "");
+    }
+
+    /// A private key brought in (pasted, or a file's text): read in any common form. One with
+    /// a passphrase waits for it: the editor shows a field for it (`ssh_open`).
+    fn set_editor_key(&self, text: Zeroizing<String>) {
+        let comment = self.app().get_ed_username().trim().to_owned();
+        match ssh::import(&text, None, &comment) {
+            Ok(pair) => self.take_key(pair),
+            Err(KeyProblem::NeedsPassphrase) => {
+                self.state.borrow_mut().ssh_pending = Some(text);
+                self.set_error(error::NONE, "");
+                self.app().set_ed_ssh_waiting(true);
+            }
+            Err(problem) => self.key_problem(problem),
+        }
+    }
+
+    /// The passphrase typed in the editor: the waiting key opened with it, then kept without
+    /// it. The field is cleared after every try.
+    pub(super) fn ssh_open(&self) {
+        let Some(text) = self.state.borrow().ssh_pending.clone() else {
+            return;
+        };
+        let passphrase = Zeroizing::new(
+            self.state.borrow().secrets[field::SSH_PASSPHRASE]
+                .as_str()
+                .to_owned(),
+        );
+        self.clear_secret(field::SSH_PASSPHRASE);
+        if passphrase.is_empty() {
+            return self.set_error(error::KEY_PASSPHRASE, "");
+        }
+        let comment = self.app().get_ed_username().trim().to_owned();
+        match ssh::import(&text, Some(&passphrase), &comment) {
+            Ok(pair) => self.take_key(pair),
+            Err(problem) => self.key_problem(problem),
+        }
     }
 
     /// A new Ed25519 key for the edited item, with the user field as its comment.
     pub(super) fn ssh_generate(&self) {
         let comment = self.app().get_ed_username().trim().to_owned();
         match ssh::generate_ed25519(&comment) {
-            Ok(pair) => {
-                self.state.borrow_mut().editor_ssh = Some(pair.private_key);
-                self.set_error(error::NONE, "");
-                self.show_editor_ssh(&pair.public_key, &pair.fingerprint);
-            }
+            Ok(pair) => self.take_key(pair),
             Err(err) => self.set_error(error::OTHER, &err.to_string()),
         }
     }
@@ -262,11 +321,15 @@ impl Controller {
             .map(|key| key.as_str().to_owned())
             .unwrap_or_default();
         let app = self.app();
-        item.custom_fields
-            .retain(|f| f.name != ssh::PUBLIC_KEY_FIELD && f.name != ssh::FINGERPRINT_FIELD);
+        item.custom_fields.retain(|f| {
+            f.name != ssh::PUBLIC_KEY_FIELD
+                && f.name != ssh::FINGERPRINT_FIELD
+                && f.name != ssh::KEY_TYPE_FIELD
+        });
         for (name, value) in [
             (ssh::PUBLIC_KEY_FIELD, app.get_ed_ssh_public()),
             (ssh::FINGERPRINT_FIELD, app.get_ed_ssh_fingerprint()),
+            (ssh::KEY_TYPE_FIELD, app.get_ed_ssh_type()),
         ] {
             if !value.is_empty() {
                 item.custom_fields.push(CustomField {

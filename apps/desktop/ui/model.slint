@@ -5,6 +5,13 @@ export enum Screen { onboarding, unlock, recover, vault }
 export enum Panel { detail, editor, generator, settings, kit, transfer, authenticator, health }
 
 // A file attached to an item: its name and size ("12 KB").
+// Another device that syncs the vault, in Settings → Sync: its name, and whether it has no
+// copy where the vault syncs now (it synced through another place, or hasn't joined here).
+export struct DeviceLine {
+    name: string,
+    away: bool,
+}
+
 export struct FileRow {
     name: string,
     size: string,
@@ -27,6 +34,9 @@ export struct ItemRow {
     initial: string,  // fallback letter
     tint: color,      // fallback background, stable per site
     brand: int,       // cards: network mark (icons.slint BrandMark), 0 unknown
+    glyph: string,    // a line icon chosen for it ("" = none), and its colours (IconLook)
+    glyph-color: int,
+    glyph-bg: int,
 }
 
 // An earlier password of the item shown (Password history).
@@ -120,6 +130,9 @@ export struct AuthRow {
     initial: string,
     tint: color,
     locked: bool,      // the item's secrets are locked: no code to show or copy
+    glyph: string,     // a line icon chosen for it, and its colours
+    glyph-color: int,
+    glyph-bg: int,
 }
 
 // One recovery code on the item page (filled only while the codes are shown).
@@ -170,6 +183,9 @@ export global Messages {
         if (code == 50) { return @tr("The backup didn't pass its check, so it was deleted ({}). Try another place: a full or failing drive may be the cause.", detail); }
         if (code == 51) { return @tr("That file is too large: an item keeps files of up to 5 MB, and up to 10 of them."); }
         if (code == 52) { return @tr("That isn't an SSH private key. Choose the key file itself (often id_ed25519 or id_rsa), not the .pub one."); }
+        if (code == 53) { return @tr("That is the public key. The private one is the file of the same name without .pub (often id_ed25519 or id_rsa)."); }
+        if (code == 54) { return @tr("This form of key isn't read here (PuTTY's .ppk, or an older encrypted form). ssh-keygen -p -f with the key's file writes it in OpenSSH's form; then bring that."); }
+        if (code == 55) { return @tr("That passphrase doesn't open the key. Try again."); }
         if (code == 9) { return @tr("Give the item a title."); }
         if (code == 10) { return @tr("The one-time code secret isn't valid. Paste the otpauth:// link or the key shown by the website."); }
         if (code == 11) { return @tr("The current master password is wrong."); }
@@ -271,6 +287,7 @@ export global Messages {
         if (code == 64) { return @tr("The backup sync server isn't answering ({}). The vault keeps syncing through the main one.", arg); }
         if (code == 65) { return @tr("The backup sync server answers again and has caught up."); }
         if (code == 66) { return @tr("This computer joined the backup server. The vault syncs through both from now on."); }
+        if (code == 70) { return @tr("The new address answers with this vault: it is the one used from now on."); }
         if (code == 68) { return @tr("A passkey for “{}” was saved from the browser.", arg); }
         if (code == 69) { return @tr("Signed in with the passkey of “{}” in the browser.", arg); }
         if (code == 67) { return @tr("{} of your passwords turned up in a data breach since the last check. See Password health and change them where you use them.", arg); }

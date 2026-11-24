@@ -61,6 +61,10 @@ struct IconVisual {
     has_image: bool,
     initial: SharedString,
     tint: slint::Color,
+    /// A line icon chosen for it (`glyph:` in `icon_url`, `view::IconLook`) and its colours.
+    glyph: SharedString,
+    glyph_color: i32,
+    glyph_bg: i32,
 }
 
 /// Secure field ids (must match `Secrets` in theme.slint).
@@ -92,7 +96,11 @@ mod field {
     pub const PART_A: usize = 16;
     pub const PART_B: usize = 17;
     pub const PART_C: usize = 18;
-    pub const COUNT: usize = 19;
+    /// The passphrase of an SSH key brought into the editor, used once to open it.
+    pub const SSH_PASSPHRASE: usize = 19;
+    /// The master password a Settings dialog asks for before a sensitive change.
+    pub const CONFIRM_MASTER: usize = 20;
+    pub const COUNT: usize = 21;
     /// Fields whose eye also lays the characters out in boxes, as the kit prints them.
     pub const IN_BOXES: [usize; 4] = [SECRET_KEY, PART_A, PART_B, PART_C];
 }
@@ -150,6 +158,11 @@ mod error {
     pub const BACKUP_CHECK: i32 = 50;
     pub const FILE_TOO_LARGE: i32 = 51;
     pub const NOT_A_KEY: i32 = 52;
+    /// SSH keys: a public key brought in instead of the private one; a form of key not read
+    /// here; a passphrase that doesn't open the key.
+    pub const KEY_PUBLIC_ONLY: i32 = 53;
+    pub const KEY_UNSUPPORTED: i32 = 54;
+    pub const KEY_PASSPHRASE: i32 = 55;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -220,6 +233,7 @@ mod notice {
     pub const LEAKS_NEW: i32 = 67;
     pub const BROWSER_PASSKEY_SAVED: i32 = 68;
     pub const BROWSER_PASSKEY_USED: i32 = 69;
+    pub const SYNC_ADDRESS_CHANGED: i32 = 70;
     pub const PICTURE_SAVED: i32 = 60;
     pub const PART_READ: i32 = 61;
 }
@@ -255,6 +269,19 @@ struct Session {
     /// The keyfile the vault was opened with (or found where this device remembers it, after
     /// a Windows Hello unlock); needed to check or change the master password.
     keyfile: Option<vault_core::Keyfile>,
+}
+
+/// The dialogs Settings opens (`settings-dialog`, see SettingsPage in ui/pages.slint).
+mod dialog {
+    pub const NONE: i32 = 0;
+    pub const STOP_SYNC: i32 = 5;
+    pub const REMOVE_DEVICE: i32 = 6;
+    pub const ADD_DEVICE: i32 = 7;
+    pub const REMOVE_BACKUP: i32 = 8;
+    pub const DISCONNECT: i32 = 9;
+    /// The address of the server the vault syncs through, and of the backup server.
+    pub const SERVER_ADDRESS: i32 = 12;
+    pub const BACKUP_ADDRESS: i32 = 13;
 }
 
 /// Results of background work, sent back to the UI thread.
@@ -330,6 +357,12 @@ enum JobResult {
     KitVerified {
         session: Session,
     },
+    /// The master password a Settings dialog asked for was right: its change goes ahead
+    /// (`settings_dialog` kinds 5 to 9).
+    SettingsConfirmed {
+        session: Session,
+        kind: i32,
+    },
     /// The master password was right: the browser extension may be connected.
     PairingVerified {
         session: Session,
@@ -382,6 +415,8 @@ struct State {
     /// in the editor goes when it is saved.
     editor_passkeys: Vec<(Vec<u8>, crate::ui::PasskeyRow)>,
     editor_ssh: Option<Zeroizing<String>>,
+    /// An SSH key brought into the editor that waits for its passphrase.
+    ssh_pending: Option<Zeroizing<String>>,
     /// The chooser's rows, in order.
     recent_paths: Vec<PathBuf>,
     /// Items with a one-time code, while the Authenticator page is open.
@@ -475,10 +510,14 @@ pub struct Controller {
     state: RefCell<State>,
     timers: Timers,
     lengths: Rc<VecModel<i32>>,
-    /// The eye on secret fields (`Secrets.showing`, `shown`, `shown-cells`), by field.
+    /// Where each secret field's cursor is, in characters (`Secrets.carets`).
+    carets: Rc<VecModel<i32>>,
+    /// The eye on secret fields (`Secrets.showing`, `shown`, `shown-cells`, `shown-chars`),
+    /// by field.
     showing: Rc<VecModel<bool>>,
     shown: Rc<VecModel<SharedString>>,
     shown_cells: Rc<VecModel<ModelRc<SharedString>>>,
+    shown_chars: Rc<VecModel<ModelRc<SharedString>>>,
     items: Rc<VecModel<ItemRow>>,
     this: RefCell<Weak<Controller>>,
     /// When the auto-lock will lock the vault (while it is open).
@@ -556,6 +595,7 @@ impl Controller {
                 editor_files: Vec::new(),
                 editor_passkeys: Vec::new(),
                 editor_ssh: None,
+                ssh_pending: None,
                 pending_import: None,
                 settings,
                 icons: IconCache::default(),
@@ -593,9 +633,11 @@ impl Controller {
             }),
             timers: Timers::default(),
             lengths: Rc::new(VecModel::from(vec![0; field::COUNT])),
+            carets: Rc::new(VecModel::from(vec![0; field::COUNT])),
             showing: Rc::new(VecModel::from(vec![false; field::COUNT])),
             shown: Rc::new(VecModel::from(vec![SharedString::new(); field::COUNT])),
             shown_cells: Rc::new(VecModel::from(vec![ModelRc::default(); field::COUNT])),
+            shown_chars: Rc::new(VecModel::from(vec![ModelRc::default(); field::COUNT])),
             items: Rc::new(VecModel::default()),
             this: RefCell::new(Weak::new()),
             lock_deadline: std::cell::Cell::new(None),
@@ -608,12 +650,18 @@ impl Controller {
 
         let secrets = app.global::<Secrets>();
         secrets.set_lengths(ModelRc::from(controller.lengths.clone()));
+        secrets.set_carets(ModelRc::from(controller.carets.clone()));
         secrets.set_showing(ModelRc::from(controller.showing.clone()));
         secrets.set_shown(ModelRc::from(controller.shown.clone()));
         secrets.set_shown_cells(ModelRc::from(controller.shown_cells.clone()));
+        secrets.set_shown_chars(ModelRc::from(controller.shown_chars.clone()));
         app.set_items(ModelRc::from(controller.items.clone()));
         app.global::<Theme>()
             .set_dark(controller.state.borrow().settings.dark_theme);
+        if !controller.state.borrow().settings.backdrop {
+            app.global::<Theme>().set_backdrop(0);
+        }
+        app.set_app_version(env!("CARGO_PKG_VERSION").into());
         let language = controller.state.borrow().settings.language.clone();
         crate::i18n::apply(&language);
         app.set_language(crate::i18n::choice_of(&language));
@@ -671,8 +719,8 @@ impl Controller {
             let weak = Rc::downgrade(self);
             secrets.on_insert(move |field, text| {
                 if let Some(c) = weak.upgrade() {
-                    c.edit_secret(field, |buffer| {
-                        buffer.push_str(&text);
+                    c.edit_secret_at(field, |buffer, caret| {
+                        *caret += buffer.insert_str(*caret, &text);
                     });
                 }
             });
@@ -681,7 +729,30 @@ impl Controller {
             let weak = Rc::downgrade(self);
             secrets.on_backspace(move |field| {
                 if let Some(c) = weak.upgrade() {
-                    c.edit_secret(field, SecretBuffer::backspace);
+                    c.edit_secret_at(field, |buffer, caret| {
+                        if *caret > 0 {
+                            buffer.remove(*caret - 1, 1);
+                            *caret -= 1;
+                        }
+                    });
+                }
+            });
+        }
+        {
+            let weak = Rc::downgrade(self);
+            secrets.on_delete(move |field| {
+                if let Some(c) = weak.upgrade() {
+                    c.edit_secret_at(field, |buffer, caret| buffer.remove(*caret, 1));
+                }
+            });
+        }
+        {
+            let weak = Rc::downgrade(self);
+            secrets.on_move_caret(move |field, to| {
+                if let Some(c) = weak.upgrade() {
+                    c.edit_secret_at(field, |buffer, caret| {
+                        *caret = usize::try_from(to).unwrap_or(0).min(buffer.char_count());
+                    });
                 }
             });
         }
@@ -699,11 +770,12 @@ impl Controller {
                 if let Some(c) = weak.upgrade()
                     && let Some(text) = clipboard::paste_text()
                 {
-                    c.edit_secret(field, |buffer| {
+                    c.edit_secret_at(field, |buffer, caret| {
                         if replace {
                             buffer.clear();
+                            *caret = 0;
                         }
-                        buffer.push_str(&text);
+                        *caret += buffer.insert_str(*caret, &text);
                     });
                 }
             });
@@ -729,6 +801,7 @@ impl Controller {
         on!(on_ssh_generate, |c| c.ssh_generate());
         on!(on_ssh_load, |c| c.ssh_load());
         on!(on_ssh_paste, |c| c.ssh_paste());
+        on!(on_ssh_open, |c| c.ssh_open());
         on!(on_file_add, |c| c.file_add());
         on!(on_file_remove, |c, index| c.file_remove(index));
         on!(on_passkey_remove, |c, index| c.passkey_remove(index));
@@ -795,6 +868,13 @@ impl Controller {
         on!(on_sync_add_device, |c| c.sync_add_device());
         on!(on_sync_join_backup, |c| c.sync_join_backup());
         on!(on_sync_remove_backup, |c| c.sync_remove_backup());
+        on!(on_sync_change_address, |c, backup| c
+            .sync_change_address(backup));
+        on!(on_window_drag, |c| c.window_drag());
+        on!(on_window_resize, |c, direction| c.window_resize(direction));
+        on!(on_window_minimize, |c| c.window_minimize());
+        on!(on_window_toggle_maximized, |c| c.window_toggle_maximized());
+        on!(on_window_close, |c| c.window_close());
         on!(on_sync_hide_invite, |c| c.sync_hide_invite());
         on!(on_sync_remove, |c, index| c.sync_remove_device(index));
         on!(on_lock_secrets, |c| {
@@ -889,6 +969,11 @@ impl Controller {
         on!(on_use_generated, |c| c.use_generated());
 
         on!(on_settings_changed, |c| c.save_settings());
+        on!(on_ed_url_changed, |c| c.editor_site_icon());
+        on!(on_open_settings_dialog, |c, kind| c
+            .open_settings_dialog(kind));
+        on!(on_close_settings_dialog, |c| c.close_settings_dialog());
+        on!(on_confirm_settings, |c, kind| c.confirm_settings(kind));
         on!(on_appearance_changed, |c, dark| c.set_appearance(dark));
         on!(on_language_changed, |c, choice| c.set_language(choice));
         on!(on_change_password, |c| c.change_password());
@@ -902,17 +987,32 @@ impl Controller {
         on!(on_save_part_picture, |c| c.save_part_picture());
     }
 
+    /// Changes a secret field's text as a whole (set, cleared, generated); the cursor goes to
+    /// its end.
     fn edit_secret(&self, field: i32, edit: impl FnOnce(&mut SecretBuffer)) {
+        self.edit_secret_at(field, |buffer, caret| {
+            edit(buffer);
+            *caret = buffer.char_count();
+        });
+    }
+
+    /// Changes a secret field's text where its cursor is (`caret`, in characters, moved by
+    /// `edit` as needed).
+    fn edit_secret_at(&self, field: i32, edit: impl FnOnce(&mut SecretBuffer, &mut usize)) {
         let Some(index) = usize::try_from(field).ok().filter(|&i| i < field::COUNT) else {
             return;
         };
-        let length = {
+        let (length, caret) = {
             let mut state = self.state.borrow_mut();
-            edit(&mut state.secrets[index]);
-            state.secrets[index].char_count()
+            let mut caret = usize::try_from(self.carets.row_data(index).unwrap_or(0)).unwrap_or(0);
+            edit(&mut state.secrets[index], &mut caret);
+            let length = state.secrets[index].char_count();
+            (length, caret.min(length))
         };
         self.lengths
             .set_row_data(index, i32::try_from(length).unwrap_or(i32::MAX));
+        self.carets
+            .set_row_data(index, i32::try_from(caret).unwrap_or(i32::MAX));
         if index == field::ITEM_PASSWORD {
             self.update_editor_strength();
         }
@@ -926,9 +1026,12 @@ impl Controller {
         self.touch_activity();
     }
 
+    /// Empties a field and hides it again: a field opened later starts hidden.
     fn clear_secret(&self, index: usize) {
         self.state.borrow_mut().secrets[index].clear();
         self.lengths.set_row_data(index, 0);
+        self.carets.set_row_data(index, 0);
+        self.showing.set_row_data(index, false);
         self.refresh_shown(index);
     }
 
@@ -965,6 +1068,12 @@ impl Controller {
         };
         self.shown_cells
             .set_row_data(index, ModelRc::new(VecModel::from(cells)));
+        let chars: Vec<SharedString> = text
+            .chars()
+            .map(|c| SharedString::from(&*c.encode_utf8(&mut [0; 4])))
+            .collect();
+        self.shown_chars
+            .set_row_data(index, ModelRc::new(VecModel::from(chars)));
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1193,6 +1302,7 @@ impl Controller {
             }
             JobResult::KeyfileChanged { session, path } => {
                 self.clear_secret(field::KEYFILE_CURRENT);
+                app.set_settings_dialog(dialog::NONE);
                 // Like a password change, the rewritten lock revokes the device unlock.
                 let id = session.vault.id_hex();
                 let had_quick_unlock = quick_unlock::is_enrolled(&id);
@@ -1275,6 +1385,7 @@ impl Controller {
                 ] {
                     self.clear_secret(index);
                 }
+                app.set_settings_dialog(dialog::NONE);
                 // The device unlock is bound to the old password slot and no longer opens the
                 // vault; remove it so the switch shows the truth.
                 let id = session.vault.id_hex();
@@ -1317,6 +1428,11 @@ impl Controller {
             JobResult::PairingVerified { session } => {
                 self.state.borrow_mut().session = Some(session);
                 self.finish_pairing();
+            }
+            JobResult::SettingsConfirmed { session, kind } => {
+                self.state.borrow_mut().session = Some(session);
+                self.clear_secret(field::CONFIRM_MASTER);
+                self.settings_confirmed(kind);
             }
             JobResult::Returned { session, notice } => {
                 self.state.borrow_mut().session = Some(session);
@@ -2150,6 +2266,7 @@ impl Controller {
 
     fn lock(&self) {
         self.stop_sync();
+        self.app().set_settings_dialog(dialog::NONE);
         self.stop_lock_warning();
         self.lock_deadline.set(None);
         for timer in [
@@ -2454,6 +2571,9 @@ impl Controller {
                     initial: visual.initial,
                     tint: visual.tint,
                     brand: view::brand_mark(s.card_brand),
+                    glyph: visual.glyph,
+                    glyph_color: visual.glyph_color,
+                    glyph_bg: visual.glyph_bg,
                 }
             })
             .collect();
@@ -3292,6 +3412,9 @@ impl Controller {
                     has_icon: e.visual.has_image,
                     initial: e.visual.initial.clone(),
                     tint: e.visual.tint,
+                    glyph: e.visual.glyph.clone(),
+                    glyph_color: e.visual.glyph_color,
+                    glyph_bg: e.visual.glyph_bg,
                 }
             })
             .collect();
@@ -3483,7 +3606,16 @@ impl Controller {
         app.set_ed_url(SharedString::from(
             item.urls.first().map(String::as_str).unwrap_or_default(),
         ));
-        app.set_ed_icon_url(SharedString::from(item.icon_url.as_str()));
+        // A line icon chosen for it (`glyph:`), else a site or picture chosen as its icon.
+        let look = view::IconLook::of_icon_url(&item.icon_url).unwrap_or_default();
+        app.set_ed_glyph(look.name.as_str().into());
+        app.set_ed_glyph_color(look.color);
+        app.set_ed_glyph_bg(look.background);
+        app.set_ed_icon_url(if look.name.is_empty() {
+            SharedString::from(item.icon_url.as_str())
+        } else {
+            SharedString::new()
+        });
         app.set_ed_totp(SharedString::from(item.totp.as_str()));
         app.set_ed_notes(SharedString::from(item.notes.as_str()));
         app.set_ed_favorite(item.favorite);
@@ -3538,7 +3670,8 @@ impl Controller {
                         .any(|r| f.name.eq_ignore_ascii_case(r)))
                     && (!is_ssh
                         || (f.name != vault_core::ssh::PUBLIC_KEY_FIELD
-                            && f.name != vault_core::ssh::FINGERPRINT_FIELD))
+                            && f.name != vault_core::ssh::FINGERPRINT_FIELD
+                            && f.name != vault_core::ssh::KEY_TYPE_FIELD))
             })
             .cloned()
             .collect();
@@ -3559,8 +3692,19 @@ impl Controller {
         app.set_ed_gen_open(false);
         app.set_editor_is_new(id.is_none());
         app.set_editing_item(true);
+        self.editor_site_icon();
         app.set_panel(Panel::Editor);
         self.set_error(error::NONE, "");
+    }
+
+    /// The site's icon next to the editor's Website field and in its automatic preview, from
+    /// what is already known (a new site's icon is asked for once the item is saved).
+    fn editor_site_icon(&self) {
+        let app = self.app();
+        let url = app.get_ed_url();
+        let visual = self.icon_for(ItemKind::Login, &url, "", "");
+        app.set_ed_site_icon(visual.image);
+        app.set_ed_has_site_icon(visual.has_image);
     }
 
     fn close_editor(&self) {
@@ -3638,7 +3782,12 @@ impl Controller {
             (false, false) => item.urls[0] = url,
         }
         item.totp = totp;
-        item.icon_url = view::icon_site(&app.get_ed_icon_url());
+        let glyph = app.get_ed_glyph();
+        item.icon_url = if glyph.is_empty() {
+            view::icon_site(&app.get_ed_icon_url())
+        } else {
+            view::IconLook::new(&glyph, app.get_ed_glyph_color(), app.get_ed_glyph_bg()).icon_url()
+        };
         item.notes = app.get_ed_notes().to_string();
         item.favorite = app.get_ed_favorite();
         item.reprompt = app.get_ed_reprompt();
@@ -3819,6 +3968,85 @@ impl Controller {
     // Settings
     // -----------------------------------------------------------------------------------------
 
+    /// A Settings dialog opens: nothing left from before (an error, what was typed).
+    fn open_settings_dialog(&self, kind: i32) {
+        self.set_error(error::NONE, "");
+        let app = self.app();
+        app.set_kdf_failed(false);
+        app.set_keyfile_failed(false);
+        app.set_guard_failed(false);
+        app.set_sync_setup_error(SharedString::new());
+        self.clear_settings_secrets();
+        if kind == dialog::SERVER_ADDRESS || kind == dialog::BACKUP_ADDRESS {
+            self.fill_server_address(kind == dialog::BACKUP_ADDRESS);
+        }
+        app.set_settings_dialog(kind);
+    }
+
+    /// A Settings dialog was closed without its change: what was typed in it is forgotten.
+    fn close_settings_dialog(&self) {
+        self.clear_settings_secrets();
+        self.set_error(error::NONE, "");
+        self.app().set_settings_dialog(dialog::NONE);
+    }
+
+    fn clear_settings_secrets(&self) {
+        for index in [
+            field::CURRENT,
+            field::NEW,
+            field::NEW_AGAIN,
+            field::KDF_CURRENT,
+            field::KEYFILE_CURRENT,
+            field::GUARD_NEW,
+            field::GUARD_CURRENT,
+            field::CONFIRM_MASTER,
+        ] {
+            self.clear_secret(index);
+        }
+    }
+
+    /// A Settings dialog's action (kinds 5 to 9). Removing the backup server only asks; the
+    /// others go ahead once the master password typed in the dialog opens the vault file.
+    fn confirm_settings(&self, kind: i32) {
+        if kind == dialog::REMOVE_BACKUP {
+            return self.settings_confirmed(kind);
+        }
+        let typed = Zeroizing::new(
+            self.state.borrow().secrets[field::CONFIRM_MASTER]
+                .as_str()
+                .to_owned(),
+        );
+        if typed.is_empty() {
+            return self.set_error(error::WRONG_CURRENT, "");
+        }
+        let Some(session) = self.state.borrow_mut().session.take() else {
+            return;
+        };
+        let path = self.state.borrow().path.clone();
+        self.run_job(move || match verify_current(&path, &typed, &session) {
+            Ok(()) => JobResult::SettingsConfirmed { session, kind },
+            Err((code, detail)) => JobResult::Failed {
+                code,
+                detail,
+                session: Some(session),
+            },
+        });
+    }
+
+    fn settings_confirmed(&self, kind: i32) {
+        let app = self.app();
+        app.set_settings_dialog(dialog::NONE);
+        match kind {
+            dialog::STOP_SYNC => self.sync_stop(),
+            dialog::REMOVE_DEVICE => self.sync_remove_device(app.get_sync_removing()),
+            // The invite shows in a dialog of its own once the server made it.
+            dialog::ADD_DEVICE => self.sync_add_device(),
+            dialog::REMOVE_BACKUP => self.sync_remove_backup(),
+            dialog::DISCONNECT => self.forget_pairing(),
+            _ => {}
+        }
+    }
+
     fn open_settings(&self) {
         let app = self.app();
         let settings = self.state.borrow().settings.clone();
@@ -3829,6 +4057,11 @@ impl Controller {
         app.set_close_to_tray(settings.close_to_tray);
         app.set_browser_locked_fill(settings.browser_locked_fill);
         app.set_browser_extension(settings.browser_extension);
+        app.set_browser_saves(settings.browser_saves);
+        app.set_browser_passkeys(settings.browser_passkeys);
+        app.set_browser_fill_notices(settings.browser_fill_notices);
+        app.set_backdrop_on(settings.backdrop);
+        app.set_settings_dialog(dialog::NONE);
         app.set_browser_paired(self.browser_is_paired());
         self.show_vault_settings();
         app.set_kit_secret_key(SharedString::new());
@@ -4113,6 +4346,8 @@ impl Controller {
                 return;
             }
         }
+        // What the export dialog asked is checked: it closes, and the file is made.
+        self.app().set_export_asking(false);
         let sealed = session
             .vault
             .summaries()
@@ -4216,6 +4451,7 @@ impl Controller {
             vault_id: &vault_id,
             created_at,
             filled: app.get_kit_filled(),
+            part_c_elsewhere: app.get_kit_part_c_pictured() && app.get_kit_leave_c_out(),
         });
         let short_id: String = vault_id.chars().take(8).collect();
         Some((format!("emergency-kit-{short_id}.pdf"), bytes))
@@ -4329,7 +4565,11 @@ impl Controller {
                 }
             });
         match checked {
-            Ok(()) => self.notify(notice::PICTURE_SAVED, &target.display().to_string()),
+            Ok(()) => {
+                // From now on the printed kit leaves part C out (kit page's switch).
+                self.app().set_kit_part_c_pictured(true);
+                self.notify(notice::PICTURE_SAVED, &target.display().to_string());
+            }
             Err(err) => {
                 let _ = std::fs::remove_file(target);
                 self.set_error(error::COVER, &format!("{err:#}"));
@@ -4410,7 +4650,13 @@ impl Controller {
             browser_locked_fill: app.get_browser_locked_fill(),
             generator: self.state.borrow().settings.generator.clone(),
             language: self.state.borrow().settings.language.clone(),
+            browser_saves: app.get_browser_saves(),
+            browser_passkeys: app.get_browser_passkeys(),
+            browser_fill_notices: app.get_browser_fill_notices(),
+            backdrop: app.get_backdrop_on(),
         };
+        app.global::<Theme>()
+            .set_backdrop(i32::from(settings.backdrop));
         let mut device_state = DeviceState::load().unwrap_or_default();
         device_state.settings = settings.clone();
         if let Err(err) = device_state.save() {
@@ -4464,9 +4710,10 @@ impl Controller {
     /// earlier version wins over `url` and is shown even when website icons are off, since
     /// the user asked for that icon.
     fn icon_for(&self, kind: ItemKind, url: &str, icon_url: &str, title: &str) -> IconVisual {
-        // A line icon chosen on the phone (`glyph:name`) isn't a site or a picture to fetch;
-        // the desktop shows the item's own icon for it for now.
-        let chosen = !icon_url.trim().is_empty() && !icon_url.trim().starts_with("glyph:");
+        // A line icon chosen for it (`glyph:name`, here or on the phone) isn't a site or a
+        // picture to fetch: it is drawn, in its colours.
+        let look = view::IconLook::of_icon_url(icon_url);
+        let chosen = !icon_url.trim().is_empty() && look.is_none();
         let key = if chosen {
             favicon::IconSource::parse(icon_url).map(|source| source.key())
         } else {
@@ -4478,7 +4725,16 @@ impl Controller {
             has_image: false,
             initial: SharedString::from(view::initial(title)),
             tint: slint::Color::from_rgb_u8(r, g, b),
+            glyph: SharedString::new(),
+            glyph_color: 0,
+            glyph_bg: 0,
         };
+        if let Some(look) = look {
+            visual.glyph = look.name.as_str().into();
+            visual.glyph_color = look.color;
+            visual.glyph_bg = look.background;
+            return visual;
+        }
         let wanted = chosen || self.state.borrow().settings.website_icons;
         if let Some(image) = key
             .filter(|_| wanted)
@@ -4514,6 +4770,9 @@ impl Controller {
         app.set_detail_has_icon(visual.has_image);
         app.set_detail_initial(visual.initial);
         app.set_detail_tint(visual.tint);
+        app.set_detail_glyph(visual.glyph);
+        app.set_detail_glyph_color(visual.glyph_color);
+        app.set_detail_glyph_bg(visual.glyph_bg);
     }
 
     fn icon_cache_path(&self) -> Option<PathBuf> {
@@ -4826,6 +5085,8 @@ fn backup_summary(path: &std::path::Path, len: usize, unix: i64) -> String {
 
 /// Shows the three parts of a kit just issued (the only time they can be shown).
 fn show_kit_parts(app: &AppWindow, parts: &RecoveryParts) {
+    app.set_kit_part_c_pictured(false);
+    app.set_kit_leave_c_out(true);
     let text = |label| SharedString::from(parts.part(label).to_display_string().as_str());
     app.set_kit_part_a(text(vault_core::PartLabel::A));
     app.set_kit_part_b(text(vault_core::PartLabel::B));
@@ -4833,6 +5094,7 @@ fn show_kit_parts(app: &AppWindow, parts: &RecoveryParts) {
 }
 
 fn clear_kit_parts(app: &AppWindow) {
+    app.set_kit_part_c_pictured(false);
     app.set_kit_part_a(SharedString::new());
     app.set_kit_part_b(SharedString::new());
     app.set_kit_part_c(SharedString::new());

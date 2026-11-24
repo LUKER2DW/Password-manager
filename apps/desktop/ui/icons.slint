@@ -76,6 +76,11 @@ export global Glyphs {
     out property <string> exit: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17 l5-5-5-5 M21 12H9";
     out property <string> refresh: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8 M21 3v5h-5 M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16 M8 16H3v5";
     out property <string> leaked: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z M12 8v4 M12 16h.01";
+    // Lucide "plus", "eye-off", "palette" and "x".
+    out property <string> plus: "M5 12h14 M12 5v14";
+    out property <string> eye-off: "M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49 M14.084 14.158a3 3 0 0 1-4.242-4.242 M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143 M2 2 L22 22";
+    out property <string> palette: "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z M13 6.5 A0.5 0.5 0 1 0 14 6.5 A0.5 0.5 0 1 0 13 6.5 Z M17 10.5 A0.5 0.5 0 1 0 18 10.5 A0.5 0.5 0 1 0 17 10.5 Z M6 12.5 A0.5 0.5 0 1 0 7 12.5 A0.5 0.5 0 1 0 6 12.5 Z M8 7.5 A0.5 0.5 0 1 0 9 7.5 A0.5 0.5 0 1 0 8 7.5 Z";
+    out property <string> close: "M18 6 L6 18 M6 6 L18 18";
 }
 
 // The colour of each kind of field.
@@ -113,6 +118,46 @@ export global FolderLook {
     public pure function tint(icon: string, color: int) -> color {
         if (color <= 0 || color >= self.colors.length) { return FieldColors.of(icon == "" ? "folder" : icon); }
         return self.colors[color];
+    }
+}
+
+// The look of a chosen line icon (an item's, or a vault's on the phone): every icon has a
+// colour of its own and sits on a soft tile of it; the icon's colour and its tile's can be
+// chosen from `colors` instead (0 = the icon's own; the same list for both). view.rs keeps the
+// choice as `name:colour:tile`.
+export global IconLook {
+    out property <[color]> colors: [
+        transparent, #4C8DF6, #8B6CF0, #2BB07F, #F08A3C, #E0569A, #23A6C9, #E05252, #D9B23A, #F4F6F8,
+    ];
+    // The last colour is white: on a white tile the icon keeps its own colour.
+    out property <int> white: 9;
+    public pure function own(name: string) -> color {
+        let c = name == "folder" || name == "vault" || name == "key" || name == "star" ? #E7C54B
+            : name == "heart" ? #FF7A85
+            : name == "globe" || name == "clock" || name == "wifi" ? #4FC6B7
+            : name == "mail" || name == "user" || name == "server" || name == "chat" ? #74A9FF
+            : name == "card" || name == "sparkle" || name == "gamepad" ? #B38FFF
+            : name == "lock" || name == "gear" || name == "tag" || name == "phone" ? #9DAAFF
+            : name == "note" || name == "database" ? #FFB75A
+            : name == "shield" || name == "bank" || name == "terminal" ? #72C291
+            : name == "cart" || name == "home" || name == "lifebuoy" ? #FFA25E
+            : name == "code" || name == "plane" ? #5CC8E8
+            : name == "cloud" ? #8EC5FF
+            : name == "briefcase" ? #D9A066
+            : name == "music" ? #FF82B8
+            : FieldColors.of(name);
+        return Theme.dark ? c : c.darker(45%);
+    }
+    // The icon's colour: chosen, or white on a chosen tile, or its own.
+    public pure function ink(name: string, color: int, background: int) -> color {
+        if (color > 0 && color < self.colors.length) { return self.colors[color]; }
+        if (background > 0 && background < self.colors.length && background != self.white) { return #FFFFFF; }
+        return self.own(name);
+    }
+    // The tile under it: chosen, or a soft wash of the icon's colour.
+    public pure function tile(name: string, color: int, background: int) -> color {
+        if (background > 0 && background < self.colors.length) { return self.colors[background]; }
+        return self.ink(name, color, 0).transparentize(0.8);
     }
 }
 
@@ -186,6 +231,10 @@ export component Glyph inherits Path {
         : root.name == "phone" ? Glyphs.phone
         : root.name == "database" ? Glyphs.database
         : root.name == "unlocked" ? Glyphs.unlocked
+        : root.name == "plus" ? Glyphs.plus
+        : root.name == "eye-off" ? Glyphs.eye-off
+        : root.name == "palette" ? Glyphs.palette
+        : root.name == "close" ? Glyphs.close
         : Glyphs.tag;
 }
 

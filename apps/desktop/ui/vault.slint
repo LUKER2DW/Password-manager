@@ -205,14 +205,17 @@ component ListRow inherits Rectangle {
             VerticalLayout {
                 alignment: center;
                 width: 34px;
-                if root.item.has-icon || root.item.kind != 1 || root.item.brand == 0: ItemIcon {
+                if root.item.has-icon || root.item.glyph != "" || root.item.kind != 1 || root.item.brand == 0: ItemIcon {
                     icon: root.item.icon;
                     has-icon: root.item.has-icon;
                     initial: root.item.initial;
                     tint: root.item.tint;
                     kind: root.item.kind;
+                    glyph: root.item.glyph;
+                    glyph-color: root.item.glyph-color;
+                    glyph-bg: root.item.glyph-bg;
                 }
-                if !root.item.has-icon && root.item.kind == 1 && root.item.brand != 0: BrandMark {
+                if !root.item.has-icon && root.item.glyph == "" && root.item.kind == 1 && root.item.brand != 0: BrandMark {
                     brand: root.item.brand;
                     size: 34px;
                 }

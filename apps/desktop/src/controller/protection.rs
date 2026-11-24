@@ -406,6 +406,7 @@ impl Controller {
         self.show_vault_settings();
         self.sync_guard_state();
         self.refresh_list();
+        self.app().set_settings_dialog(0);
         self.notify(notice::GUARD_SAVED, "");
     }
 }

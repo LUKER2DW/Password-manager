@@ -35,10 +35,14 @@ export global Theme {
     out property <color> seal: root.dark ? #F06A60 : #B3261E;       // danger and errors only
     out property <color> good: root.dark ? #6FBF8E : #2E7D55;       // strength meter only
 
-    // Type: Bahnschrift (DIN) for the interface, Cascadia Mono only for secrets shown as data,
-    // Ink Free only for the handwritten note on the emergency kit. All ship with Windows 10+.
+    // Type: Bahnschrift (DIN) for the interface, Ink Free only for the handwritten note on the
+    // emergency kit (both ship with Windows 10+; a phone uses its own sans-serif). JetBrains
+    // Mono for secrets shown as data, built into both apps (fonts/, SIL Open Font License):
+    // a shown password is drawn one character to a box, which only lines up with a font whose
+    // characters are all as wide, and a phone (or a PC without one) has no such font to fall
+    // back on.
     out property <string> ui-font: "Bahnschrift";
-    out property <string> mono-font: "Cascadia Mono";
+    out property <string> mono-font: "JetBrains Mono";
     out property <string> hand-font: "Ink Free";
 
     // A phone or tablet (the mobile app sets it): text a step larger, controls a finger tall.
@@ -76,8 +80,13 @@ export global Secrets {
     // 8 password of a KeePass database being imported, 16–18 recovery parts (desktop; see
     // `field` in each app's controller for the rest).
     in property <[int]> lengths: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    // Where each field's cursor is, in characters (0 before the first); typing goes there,
+    // Backspace takes the character before it and Delete the one after.
+    in property <[int]> carets: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     callback insert(int, string);
     callback backspace(int);
+    callback delete(int);
+    callback move-caret(int, int);
     callback clear(int);
     // Pastes the clipboard's first line; `replace` drops what the field held first.
     callback paste(int, bool);
@@ -87,18 +96,31 @@ export global Secrets {
     in-out property <int> done-field: -1;
     in-out property <int> done-count: 0;
     // On a phone: secret fields take the system keyboard, asked for a password (keyboards
-    // then learn nothing and suggest nothing). The unseen text input over the field only
-    // ever holds stand-ins: `typed` gets each edit, puts what was typed in the buffer and
-    // gives back a stand-in for each character, as long in bytes as what came in (the
-    // keyboard's cursor is an offset into it); `placeholders` gives them for a field.
+    // then learn nothing and suggest nothing). The text input of the field only ever holds
+    // stand-ins, drawn as dots with the keyboard's own cursor: `typed` gets each edit with
+    // where the cursor is now (in bytes), puts what was typed in the buffer there and gives
+    // back a stand-in for each character, as long in bytes as what came in (the keyboard's
+    // cursor is an offset into it); `placeholders` gives them for a field. `char-at` and
+    // `byte-at` turn an offset in such a text into a character count and back.
     in property <bool> system-keyboard: false;
-    callback typed(int, string) -> string;
+    callback typed(int, string, int) -> string;
     pure callback placeholders(int) -> string;
+    pure callback char-at(string, int) -> int;
+    pure callback byte-at(string, int) -> int;
     // The eye on a field (`SecretField.eye`): which fields the person asked to see, by field
     // id, and only for those their text, and for a recovery part also one character per box
     // ("A", "0", "-", …; "" for a box still empty). Only while asked; cleared after.
     in property <[bool]> showing;
     in property <[string]> shown;
     in property <[[string]]> shown-cells;
+    // The shown text again, one character each, drawn one to a cell so the cursor and a tap
+    // find their place in it.
+    in property <[[string]]> shown-chars;
     callback toggle-shown(int);
+}
+
+// A drag a control keeps for itself: while a slider is held, the page around it doesn't
+// scroll or change place, however the finger wanders up or down.
+export global Gesture {
+    in-out property <bool> holding;
 }

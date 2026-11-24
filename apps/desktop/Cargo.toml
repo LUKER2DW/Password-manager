@@ -44,6 +44,8 @@ raw-window-handle = "0.6"
 # Native open/save dialogs (kit PDF, import, export).
 rfd = "0.18"
 serde = { version = "1.0", features = ["derive"] }
+# What the browser extension asks is read for its kind, and answers get the settings it follows.
+serde_json = "1.0"
 # Fingerprint of the vault file, to notice changes made outside this window.
 sha2 = "0.11"
 ureq = "3.5"

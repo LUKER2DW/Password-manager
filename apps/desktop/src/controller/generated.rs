@@ -211,6 +211,7 @@ impl Controller {
     pub(super) fn fill_generated_history(&self) {
         let locked = self.generated_locked();
         let shown = self.state.borrow().generated_shown;
+        let offset = vault_platform::locale::utc_offset_minutes();
         let rows: Vec<GeneratedRow> = self
             .generated_entries()
             .iter()
@@ -222,7 +223,7 @@ impl Controller {
                     SharedString::new()
                 },
                 site: SharedString::from(entry.site.as_str()),
-                date: SharedString::from(view::date(entry.at)),
+                date: SharedString::from(view::date_time(entry.at, offset)),
             })
             .collect();
         let app = self.app();

@@ -504,6 +504,7 @@ export component OnboardingScreen inherits Rectangle {
                 }
                 master := SecretField {
                     field: 0;
+                    eye: true;
                     label: @tr("Master password");
                     required: true;
                     hint: @tr("Something you'll remember that nobody could guess: several random words work best (try Suggest a passphrase). At least 12 characters. You'll type it every time you unlock, and it can't be reset.");
@@ -512,6 +513,7 @@ export component OnboardingScreen inherits Rectangle {
                 }
                 confirm := SecretField {
                     field: 1;
+                    eye: true;
                     label: @tr("Type it again");
                     required: true;
                     error: root.error-code == 4;
@@ -601,6 +603,7 @@ export component OnboardingScreen inherits Rectangle {
                 }
                 if root.guard < 2: SecretField {
                     field: 12;
+                    eye: true;
                     label: root.guard == 0 ? @tr("PIN: 4 to 8 digits") : @tr("Item password: at least 6 characters");
                     required: true;
                     error: root.error-code == 36;
@@ -1193,6 +1196,7 @@ export component RecoverScreen inherits Rectangle {
                 }
                 if !root.with-parts: SecretField {
                     field: 3;
+                    eye: true;
                     label: @tr("Recovery Key");
                     required: true;
                     hint: @tr("Copy it from your emergency kit: the longer key, starting with R0- and nine groups of six characters. Dashes, spaces and capitals don't matter.");

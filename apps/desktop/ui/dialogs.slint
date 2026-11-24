@@ -88,6 +88,7 @@ export component PairingDialog inherits Modal {
     }
     if root.needs-password: SecretField {
         field: 14;
+        eye: true;
         label: @tr("Master password");
         icon: "key";
         required: true;
@@ -380,6 +381,544 @@ export component FolderDialog inherits Modal {
         Button {
             text: root.mode == 0 ? @tr("Create folder") : @tr("Save");
             clicked => { root.save(); }
+        }
+    }
+}
+
+// An error line in a dialog: no room taken while there is nothing to say.
+component DialogError inherits Text {
+    in property <int> code;
+    in property <string> detail;
+    in property <string> words;
+    text: root.words != "" ? root.words : Messages.error(root.code, root.detail);
+    visible: root.code != 0 || root.words != "";
+    height: root.code != 0 || root.words != "" ? self.preferred-height : 0px;
+    font-size: Theme.small;
+    color: Theme.seal;
+    wrap: word-wrap;
+}
+
+// The buttons at the bottom of a dialog: Cancel, and the action (red when it can't be undone).
+component DialogButtons inherits HorizontalLayout {
+    in property <string> action;
+    in property <string> busy-text: @tr("Checking…");
+    in property <bool> busy;
+    in property <bool> danger;
+    in property <bool> enabled: true;
+    callback confirmed();
+    callback cancelled();
+    alignment: end;
+    spacing: 8px;
+    VerticalLayout {
+        alignment: center;
+        QuietButton {
+            text: @tr("Cancel");
+            enabled: !root.busy;
+            clicked => { root.cancelled(); }
+        }
+    }
+    Button {
+        text: root.action;
+        busy-text: root.busy-text;
+        busy: root.busy;
+        danger: root.danger;
+        enabled: root.enabled;
+        clicked => { root.confirmed(); }
+    }
+}
+
+// Asks before a sensitive change in Settings, with the master password where it matters
+// (`field`: the secure field it is typed in). The dialog stays open while the check runs and
+// shows what went wrong; the app closes it once the change is made.
+export component ConfirmDialog inherits Modal {
+    in property <string> title;
+    in property <string> text;
+    in property <string> action;
+    in property <bool> danger;
+    in property <bool> asks-master;
+    in property <int> field: 20;
+    in property <bool> busy;
+    in property <int> error-code;
+    in property <string> error-detail;
+    callback confirmed();
+    callback cancelled();
+    card-width: 500px;
+    focus-on-open: !root.asks-master;
+    dismissed => { if (!root.busy) { root.cancelled(); } }
+    Text {
+        text: root.title;
+        font-size: Theme.title;
+        color: Theme.ink;
+        wrap: word-wrap;
+    }
+    Text {
+        text: root.text;
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    if root.asks-master: SecretField {
+        field: root.field;
+        eye: true;
+        label: @tr("Master password");
+        icon: "key";
+        required: true;
+        error: root.error-code == 11 || root.error-code == 34;
+        accepted => { root.confirmed(); }
+        init => { self.focus(); }
+    }
+    DialogError { code: root.error-code; detail: root.error-detail; }
+    DialogButtons {
+        action: root.action;
+        busy: root.busy;
+        danger: root.danger;
+        confirmed => { root.confirmed(); }
+        cancelled => { root.cancelled(); }
+    }
+}
+
+// Settings → Security → Change master password.
+export component MasterPasswordDialog inherits Modal {
+    in property <bool> busy;
+    in property <int> error-code;
+    in property <string> error-detail;
+    callback confirmed();
+    callback cancelled();
+    card-width: 520px;
+    focus-on-open: false;
+    dismissed => { if (!root.busy) { root.cancelled(); } }
+    Text {
+        text: @tr("Change the master password");
+        font-size: Theme.title;
+        color: Theme.ink;
+    }
+    Text {
+        text: @tr("Your items, Secret Key and recovery parts stay the same. Your other devices ask for the new one at their next unlock, once they have synced. Windows Hello turns off until you turn it on again.");
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    SecretField {
+        field: 5;
+        eye: true;
+        label: @tr("Current master password");
+        icon: "key";
+        required: true;
+        error: root.error-code == 11;
+        init => { self.focus(); }
+    }
+    SecretField {
+        field: 6;
+        eye: true;
+        label: @tr("New master password");
+        required: true;
+        error: root.error-code == 4 || root.error-code == 5;
+    }
+    SecretField {
+        field: 7;
+        eye: true;
+        label: @tr("Type it again");
+        required: true;
+        error: root.error-code == 4;
+        accepted => { root.confirmed(); }
+    }
+    DialogError { code: root.error-code; detail: root.error-detail; }
+    DialogButtons {
+        action: @tr("Change master password");
+        busy-text: @tr("Working…");
+        busy: root.busy;
+        confirmed => { root.confirmed(); }
+        cancelled => { root.cancelled(); }
+    }
+}
+
+// Settings → Security → Save item lock: the new PIN or password (when that is the check) and
+// the master password.
+export component ItemLockDialog inherits Modal {
+    // 0 master password, 1 PIN, 2 another password: chosen, and the one in use now.
+    in property <int> check;
+    in property <int> current-check;
+    in property <bool> all;
+    in property <bool> busy;
+    in property <int> error-code;
+    in property <string> error-detail;
+    callback confirmed();
+    callback cancelled();
+    card-width: 520px;
+    focus-on-open: false;
+    dismissed => { if (!root.busy) { root.cancelled(); } }
+    Text {
+        text: @tr("Save the item lock?");
+        font-size: Theme.title;
+        color: Theme.ink;
+    }
+    Text {
+        text: (root.check == 0 ? @tr("The master password is asked before a locked item's secrets show. Nothing extra is encrypted.")
+                : root.check == 1 ? @tr("A PIN opens locked items, and their secrets are encrypted with a key only it opens. Forget both it and your master password, and they can't be recovered.")
+                : @tr("A password of its own opens locked items, and their secrets are encrypted with a key only it opens. Forget both it and your master password, and they can't be recovered."))
+            + " " + (root.all ? @tr("Every item is locked.") : @tr("Only items marked “Lock this item's secrets” are locked."));
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    if root.check != 0: SecretField {
+        field: 12;
+        eye: true;
+        label: root.check == 1
+            ? (root.current-check == 1 ? @tr("New PIN (leave empty to keep the current one)") : @tr("PIN: 4 to 8 digits"))
+            : (root.current-check == 2 ? @tr("New item password (leave empty to keep the current one)") : @tr("Item password: at least 6 characters"));
+        icon: "pin";
+        required: root.check != root.current-check;
+        error: root.error-code == 36;
+        init => { self.focus(); }
+    }
+    master := SecretField {
+        field: 13;
+        eye: true;
+        label: @tr("Current master password");
+        icon: "key";
+        required: true;
+        error: root.error-code == 11 || root.error-code == 34;
+        accepted => { root.confirmed(); }
+    }
+    DialogError { code: root.error-code; detail: root.error-detail; }
+    DialogButtons {
+        action: @tr("Save item lock");
+        busy-text: @tr("Working…");
+        busy: root.busy;
+        confirmed => { root.confirmed(); }
+        cancelled => { root.cancelled(); }
+    }
+    init => {
+        if (root.check == 0) {
+            master.focus();
+        }
+    }
+}
+
+// Settings → Sync → Use a server: its address, its certificate's pin when it has its own
+// HTTPS, and an invite; or the one vaultsync: line, which holds all three.
+export component ServerJoinDialog inherits Modal {
+    in-out property <string> address;
+    in-out property <string> pin;
+    in-out property <string> invite;
+    in property <bool> busy;
+    in property <string> problem;
+    callback confirmed();
+    callback cancelled();
+    card-width: 560px;
+    focus-on-open: false;
+    dismissed => { if (!root.busy) { root.cancelled(); } }
+    Text {
+        text: @tr("Sync through your vault server");
+        font-size: Theme.title;
+        color: Theme.ink;
+    }
+    Text {
+        text: @tr("The server gets only sealed copies of the vault and this computer's public key. Paste the vaultsync: line (vault-server invite prints one, and so does Add a device on a device that already syncs): it holds the address, the pin and the invite. Or type them apart.");
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    LineField {
+        label: @tr("Server address, or the whole vaultsync: line");
+        icon: "server";
+        placeholder: "https://vault.your-network.ts.net";
+        text <=> root.address;
+        hint: @tr("Where your vault-server answers: https://, or http:// with a Tailscale address (100.x.y.z).");
+        init => { self.focus(); }
+    }
+    LineField {
+        label: @tr("Certificate pin (only for the server's own HTTPS)");
+        icon: "shield";
+        mono: true;
+        placeholder: @tr("Leave empty behind Tailscale or a domain");
+        text <=> root.pin;
+        hint: @tr("vault-server serve --tls prints it after pin=: 64 letters and digits. With it this computer trusts that server's certificate and no other.");
+    }
+    LineField {
+        label: @tr("Invite");
+        icon: "qr";
+        mono: true;
+        text <=> root.invite;
+        hint: @tr("The 32 letters and digits from vault-server invite, or a whole vaultsync: line. It works once, and it doesn't open the vault.");
+        accepted => { root.confirmed(); }
+    }
+    DialogError { words: root.problem; }
+    DialogButtons {
+        action: @tr("Join");
+        busy-text: @tr("Joining…");
+        busy: root.busy;
+        confirmed => { root.confirmed(); }
+        cancelled => { root.cancelled(); }
+    }
+}
+
+// Settings → Sync → Change the address (of the server, or of the backup server): the same
+// server, reached another way. This computer's key and its place there stay.
+export component ServerAddressDialog inherits Modal {
+    in property <bool> backup;
+    in-out property <string> address;
+    in-out property <string> pin;
+    in property <bool> busy;
+    in property <string> problem;
+    callback confirmed();
+    callback cancelled();
+    card-width: 560px;
+    focus-on-open: false;
+    dismissed => { if (!root.busy) { root.cancelled(); } }
+    Text {
+        text: root.backup ? @tr("The backup server's address") : @tr("The server's address");
+        font-size: Theme.title;
+        color: Theme.ink;
+    }
+    Text {
+        text: @tr("For the same server reached another way: it moved to another computer with its data folder, or it now answers through Tailscale or a domain of its own. This computer keeps its key there, and the new address is kept only once the server answers at it with this vault. For another server, join that one with an invite.");
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    LineField {
+        label: @tr("Server address");
+        icon: "server";
+        placeholder: "https://vault.your-network.ts.net";
+        text <=> root.address;
+        init => { self.focus(); }
+    }
+    LineField {
+        label: @tr("Certificate pin (only for the server's own HTTPS)");
+        icon: "shield";
+        mono: true;
+        placeholder: @tr("Leave empty behind Tailscale or a domain");
+        text <=> root.pin;
+        hint: @tr("vault-server serve --tls prints it after pin=: 64 letters and digits. Keep it as it is when the server moved with its data folder; empty it when the server is now reached through Tailscale or a domain.");
+        accepted => { root.confirmed(); }
+    }
+    DialogError { words: root.problem; }
+    DialogButtons {
+        action: @tr("Save the address");
+        busy-text: @tr("Checking…");
+        busy: root.busy;
+        confirmed => { root.confirmed(); }
+        cancelled => { root.cancelled(); }
+    }
+}
+
+// Import & export → Export…: what an export needs before it is written: the master password,
+// and for one protected by a password, that password twice. Plain JSON and CSV say plainly
+// that they aren't encrypted.
+export component ExportDialog inherits Modal {
+    // 1 JSON, 2 CSV, 3 protected by a password (.vaultx).
+    in property <int> format;
+    in property <bool> busy;
+    in property <int> error-code;
+    in property <string> error-detail;
+    callback confirmed();
+    callback cancelled();
+    card-width: 520px;
+    focus-on-open: false;
+    dismissed => { if (!root.busy) { root.cancelled(); } }
+    Text {
+        text: root.format == 3 ? @tr("Save a protected export?")
+            : root.format == 1 ? @tr("Export every password unencrypted?")
+            : @tr("Export the logins unencrypted?");
+        font-size: Theme.title;
+        color: Theme.ink;
+        wrap: word-wrap;
+    }
+    Text {
+        text: root.format == 3
+            ? @tr("Every item in one file, encrypted with a password you choose here. Import reads it back, here or on another computer; without that password nobody can, you included.")
+            : @tr("The file holds the passwords in plain text: anyone or any program that gets it reads them, and malware looks for exactly these files. Use it only to move to another password manager, then delete it.");
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    SecretField {
+        field: 5;
+        eye: true;
+        label: @tr("Master password");
+        icon: "key";
+        required: true;
+        error: root.error-code == 11 || root.error-code == 34;
+        init => { self.focus(); }
+        accepted => {
+            if (root.format != 3) { root.confirmed(); }
+        }
+    }
+    if root.format == 3: SecretField {
+        field: 6;
+        eye: true;
+        label: @tr("Password for this file: at least 12 characters");
+        icon: "key";
+        error: root.error-code == 4 || root.error-code == 5;
+    }
+    if root.format == 3: SecretField {
+        field: 7;
+        eye: true;
+        label: @tr("Type it again");
+        icon: "key";
+        error: root.error-code == 4;
+        accepted => { root.confirmed(); }
+    }
+    DialogError { code: root.error-code; detail: root.error-detail; }
+    DialogButtons {
+        action: @tr("Export…");
+        busy: root.busy;
+        danger: root.format != 3;
+        confirmed => { root.confirmed(); }
+        cancelled => { root.cancelled(); }
+    }
+}
+
+// Settings → Sync → Use WebDAV: the folder's address, the user and the password.
+export component WebDavDialog inherits Modal {
+    in-out property <string> address;
+    in-out property <string> user;
+    in property <bool> busy;
+    in property <string> problem;
+    callback confirmed();
+    callback cancelled();
+    card-width: 560px;
+    focus-on-open: false;
+    dismissed => { if (!root.busy) { root.cancelled(); } }
+    Text {
+        text: @tr("Sync through WebDAV");
+        font-size: Theme.title;
+        color: Theme.ink;
+    }
+    Text {
+        text: @tr("A folder on your WebDAV host (Nextcloud, a NAS). The vault's sealed copies go in a folder of their own inside it.");
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    LineField {
+        label: @tr("WebDAV address");
+        icon: "cloud";
+        placeholder: "https://cloud.example.com/remote.php/dav/files/you/Vault";
+        text <=> root.address;
+        init => { self.focus(); }
+    }
+    LineField {
+        label: @tr("User name");
+        icon: "user";
+        text <=> root.user;
+    }
+    SecretField {
+        field: 15;
+        eye: true;
+        label: @tr("Password");
+        hint: @tr("Kept in Windows Credential Manager on this computer, never in the vault. An app password from your host is better than your account's own.");
+        accepted => { root.confirmed(); }
+    }
+    DialogError { words: root.problem; }
+    DialogButtons {
+        action: @tr("Connect");
+        busy-text: @tr("Connecting…");
+        busy: root.busy;
+        confirmed => { root.confirmed(); }
+        cancelled => { root.cancelled(); }
+    }
+}
+
+// Settings → Sync → Add a backup server: its address and an invite from it.
+export component BackupServerDialog inherits Modal {
+    in-out property <string> address;
+    in-out property <string> invite;
+    in property <bool> busy;
+    in property <string> problem;
+    callback confirmed();
+    callback cancelled();
+    card-width: 560px;
+    focus-on-open: false;
+    dismissed => { if (!root.busy) { root.cancelled(); } }
+    Text {
+        text: @tr("Add a backup server");
+        font-size: Theme.title;
+        color: Theme.ink;
+    }
+    Text {
+        text: @tr("A second server keeps a copy too. While the main one is down the vault syncs through it, and the main one catches up as soon as it is back. On the backup server run vault-server invite, then give its address and the invite here.");
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    LineField {
+        label: @tr("Backup server address");
+        icon: "server";
+        placeholder: "https://backup.your-network.ts.net";
+        text <=> root.address;
+        hint: @tr("Where the second vault-server answers: https://, http:// with a Tailscale address (100.x.y.z), or the address vault-server serve --tls printed, with its #pin= part.");
+        init => { self.focus(); }
+    }
+    LineField {
+        label: @tr("Invite");
+        icon: "qr";
+        mono: true;
+        text <=> root.invite;
+        hint: @tr("The 32 letters and digits from vault-server invite on the backup server, or a vaultsync: line from it. It works once, and it doesn't open the vault.");
+        accepted => { root.confirmed(); }
+    }
+    DialogError { words: root.problem; }
+    DialogButtons {
+        action: @tr("Join the backup server");
+        busy-text: @tr("Joining…");
+        busy: root.busy;
+        confirmed => { root.confirmed(); }
+        cancelled => { root.cancelled(); }
+    }
+}
+
+// The invite another device joins with: its QR code and its line.
+export component InviteDialog inherits Modal {
+    in property <string> line;
+    in property <image> qr;
+    callback done();
+    card-width: 560px;
+    dismissed => { root.done(); }
+    Text {
+        text: @tr("Add a device");
+        font-size: Theme.title;
+        color: Theme.ink;
+    }
+    HorizontalLayout {
+        spacing: 16px;
+        Rectangle {
+            width: 168px;
+            height: 168px;
+            background: white;
+            border-radius: Theme.radius;
+            Image {
+                width: 160px;
+                height: 160px;
+                source: root.qr;
+                image-rendering: pixelated;
+            }
+        }
+        VerticalLayout {
+            spacing: 8px;
+            alignment: start;
+            Text {
+                text: @tr("Scan this on the phone, or paste the line below into Invite on the other device. It works once, for an hour. It doesn't open the vault: that still takes your master password and Secret Key.");
+                font-size: Theme.body;
+                color: Theme.ink;
+                wrap: word-wrap;
+            }
+            Text {
+                text: root.line;
+                font-size: Theme.small;
+                font-family: Theme.mono-font;
+                color: Theme.graphite;
+                wrap: char-wrap;
+            }
+        }
+    }
+    HorizontalLayout {
+        alignment: end;
+        Button {
+            text: @tr("Done");
+            clicked => { root.done(); }
         }
     }
 }

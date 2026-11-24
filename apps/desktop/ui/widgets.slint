@@ -1,5 +1,5 @@
-import { Theme, Sketch, Secrets } from "theme.slint";
-import { Glyph } from "icons.slint";
+import { Theme, Sketch, Secrets, Gesture } from "theme.slint";
+import { Glyph, IconLook } from "icons.slint";
 
 // The app's logo: a safe with a dial (the SVGs in brand/). `small` is the version
 // redrawn for 16–48 px (thicker rim, bigger knob, no rivets); the full one reads from about 64 px.
@@ -57,13 +57,17 @@ export component Button inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> busy: false;
     in property <bool> danger: false;
+    // A line icon before the text (a name from icons.slint → Glyphs), "" for none.
+    in property <string> icon;
+    // A smaller one, for the top bar's action.
+    in property <bool> compact;
     callback clicked;
 
     accessible-role: button;
     accessible-label: root.text;
     forward-focus: focus;
-    height: Theme.control-height;
-    min-width: label.preferred-width + 36px;
+    height: root.compact ? (Theme.touch ? 40px : 32px) : Theme.control-height;
+    min-width: label.preferred-width + (root.icon != "" ? 24px : 0px) + (root.compact ? 26px : 36px);
     border-radius: Theme.radius;
     background: !root.enabled ? Theme.hover
         : root.danger ? (touch.has-hover ? root.seal-hover : Theme.seal)
@@ -73,12 +77,22 @@ export component Button inherits Rectangle {
     animate background { duration: Theme.quick; }
 
     property <color> seal-hover: Theme.seal.brighter(10%);
+    property <color> ink: !root.enabled ? Theme.faint : root.danger ? #FFFFFF : Theme.on-marker;
 
-    label := Text {
-        text: root.busy ? root.busy-text : root.text;
-        font-size: Theme.body;
-        font-weight: 600;
-        color: !root.enabled ? Theme.faint : root.danger ? #FFFFFF : Theme.on-marker;
+    HorizontalLayout {
+        alignment: center;
+        spacing: 7px;
+        if root.icon != "" && !root.busy: VerticalLayout {
+            alignment: center;
+            Glyph { width: 18px; height: 18px; name: root.icon; tint: root.ink; }
+        }
+        label := Text {
+            text: root.busy ? root.busy-text : root.text;
+            font-size: Theme.body;
+            font-weight: 600;
+            color: root.ink;
+            vertical-alignment: center;
+        }
     }
     touch := TouchArea {
         enabled: root.enabled && !root.busy;
@@ -414,6 +428,8 @@ export component Dropdown inherits VerticalLayout {
     in property <string> label;
     in property <string> icon;
     in property <[string]> options;
+    // A small picture before each option (a language's flag), when given: one per option.
+    in property <[image]> marks;
     // Shown for an empty option (e.g. "No folder").
     in property <string> empty-text;
     in-out property <int> selected;
@@ -433,6 +449,14 @@ export component Dropdown inherits VerticalLayout {
             padding-left: 12px;
             padding-right: 12px;
             spacing: 8px;
+            if root.marks.length > root.selected: VerticalLayout {
+                alignment: center;
+                Image {
+                    width: 20px;
+                    height: 14px;
+                    source: root.marks[root.selected];
+                }
+            }
             Text {
                 text: root.options[root.selected] != "" ? root.options[root.selected] : root.empty-text;
                 font-size: Theme.body;
@@ -497,9 +521,15 @@ export component Dropdown inherits VerticalLayout {
                         height: 32px;
                         border-radius: Theme.radius - 2px;
                         background: option-touch.has-hover ? Theme.hover : index == root.selected ? Theme.selected : transparent;
-                        Text {
+                        if root.marks.length > index: Image {
                             x: 10px;
-                            width: parent.width - 20px;
+                            width: 20px;
+                            height: 14px;
+                            source: root.marks[index];
+                        }
+                        Text {
+                            x: root.marks.length > index ? 38px : 10px;
+                            width: parent.width - self.x - 10px;
                             text: option != "" ? option : root.empty-text;
                             font-size: Theme.body;
                             font-weight: index == root.selected ? 600 : 400;
@@ -566,14 +596,41 @@ export component NotesField inherits VerticalLayout {
 // Secret entry. Keystrokes are forwarded to Rust and never stored in the UI; the field draws
 // one dot per character. Paste and other shortcuts are ignored on purpose (AltGr still works).
 // A key as the emergency kit prints it: one character per box, a dash between groups. `cells`
-// are the characters ("" for a box still empty, "-" for a dash).
-export component KeyCells inherits HorizontalLayout {
+// are the characters ("" for a box still empty, "-" for a dash): the two-character prefix, then
+// groups of `group-len`, each after its dash. On a computer it is one line; on a phone two
+// groups to a line, in boxes big enough to read, the second line under the first group (a
+// key in one line of phone-sized boxes runs off the screen).
+export component KeyCells inherits Rectangle {
     in property <[string]> cells;
-    spacing: 2px;
-    alignment: start;
-    for cell in root.cells: Rectangle {
-        width: cell == "-" ? 6px : (Theme.touch ? 10px : 12px);
-        height: Theme.touch ? 16px : 18px;
+    in property <int> group-len: 7;
+    property <int> per-row: Theme.touch ? 2 : 1000;
+    property <length> box: Theme.touch ? 15px : 12px;
+    property <length> box-height: Theme.touch ? 24px : 18px;
+    property <length> dash: Theme.touch ? 8px : 6px;
+    property <length> gap: Theme.touch ? 3px : 2px;
+    property <length> line-gap: 6px;
+    property <int> groups: Math.max(0, Math.floor((root.cells.length - 2) / (root.group-len + 1)));
+    property <int> rows: Math.max(1, Math.ceil(root.groups / root.per-row));
+    // Where the first group starts (after the prefix and its dash), and one group with the
+    // dash after it.
+    property <length> lead: 2 * (root.box + root.gap) + root.dash + root.gap;
+    property <length> block: root.group-len * (root.box + root.gap) + root.dash + root.gap;
+    width: root.lead + Math.min(root.groups, root.per-row) * root.block - root.dash - 2 * root.gap;
+    height: root.rows * root.box-height + (root.rows - 1) * root.line-gap;
+    for cell[i] in root.cells: Rectangle {
+        // The prefix (k = -1), or group k: its dash (j = 0), then its characters.
+        property <int> k: i < 2 ? -1 : Math.floor((i - 2) / (root.group-len + 1));
+        property <int> j: i < 2 ? i : Math.mod(i - 2, root.group-len + 1);
+        property <int> place: self.k < 0 ? 0 : Math.mod(self.k, root.per-row);
+        property <int> line: self.k < 0 ? 0 : Math.floor(self.k / root.per-row);
+        x: self.k < 0 ? i * (root.box + root.gap)
+            : self.j == 0 ? root.lead + self.place * root.block - root.dash - root.gap
+            : root.lead + self.place * root.block + (self.j - 1) * (root.box + root.gap);
+        y: self.line * (root.box-height + root.line-gap);
+        width: cell == "-" ? root.dash : root.box;
+        height: root.box-height;
+        // A line after the first starts with its group, without the dash.
+        visible: !(self.k > 0 && self.j == 0 && self.place == 0);
         border-radius: 2px;
         border-width: cell == "-" ? 0px : 1px;
         border-color: Theme.rule;
@@ -581,7 +638,7 @@ export component KeyCells inherits HorizontalLayout {
         Text {
             text: cell;
             font-family: Theme.mono-font;
-            font-size: Theme.touch ? 10px : 11px;
+            font-size: Theme.touch ? 15px : 11px;
             font-weight: 600;
             color: cell == "-" ? Theme.graphite : Theme.ink;
         }
@@ -606,10 +663,23 @@ export component SecretField inherits VerticalLayout {
     callback accepted();
 
     property <int> length: Secrets.lengths[root.field];
+    // Where typing goes, in characters (Rust keeps it: `Secrets.carets`).
+    property <int> caret: Math.clamp(Secrets.carets[root.field], 0, root.length);
+    // A shown text, one character to a cell, so the cursor and a tap find their place in it.
+    property <[string]> chars: Secrets.shown-chars[root.field];
+    property <bool> by-cell: root.revealed != "" && root.length > 0 && root.chars.length == root.length;
     // Ctrl+A or a double click selects everything; the next key replaces or deletes it.
     property <bool> all-selected: false;
-    // The keys come to the focus scope, or on a phone to the system keyboard's hidden input.
+    // The keys come to the focus scope, or on a phone to the system keyboard's input.
     property <bool> has-focus: scope.has-focus || system.has-focus;
+    // On a phone the keyboard's input draws itself (its dots and its cursor) while the text
+    // is hidden; everywhere else the field draws one cell per character.
+    property <bool> native: Secrets.system-keyboard && root.revealed == "";
+    property <length> cell: root.revealed != "" ? Math.ceil(Theme.body * 0.62 / 1px) * 1px : 11px;
+    property <length> pad-right: root.eye ? (Theme.touch ? 48px : 40px) : 12px;
+    // How far the cells are moved left so the cursor stays in sight in a long text.
+    property <length> room: well.width - 12px - root.pad-right;
+    property <length> shift: root.has-focus ? Math.max(0px, (root.caret + 1) * root.cell + 2px - root.room) : 0px;
     // Done on the phone's own keyboard.
     property <int> done-count: Secrets.done-count;
     changed done-count => {
@@ -625,11 +695,20 @@ export component SecretField inherits VerticalLayout {
             if (system.has-focus) { system.set-selection-offsets(2147483647, 2147483647); }
         }
     }
+    // The cell a tap at `x` (in the well) falls next to.
+    pure function index-at(x: length) -> int {
+        return Math.clamp(Math.round((x - 12px + root.shift) / root.cell), 0, root.length);
+    }
     forward-focus: scope;
     spacing: 6px;
+    // The dots no longer set a width of their own (a long text scrolls inside): the field
+    // asks for a usual width and takes what its row gives it.
+    min-width: 120px;
+    preferred-width: 300px;
+    horizontal-stretch: 1;
 
     if root.label != "": FieldLabel { text: root.label; hint: root.hint; icon: root.icon; required: root.required; }
-    Well {
+    well := Well {
         height: Theme.control-height;
         focused: root.has-focus;
         error: root.error;
@@ -642,6 +721,7 @@ export component SecretField inherits VerticalLayout {
                 root.all-selected = false;
                 scope.focus();
                 Secrets.focused = root.field;
+                Secrets.move-caret(root.field, root.index-at(self.mouse-x));
             }
             double-clicked => {
                 scope.focus();
@@ -651,31 +731,33 @@ export component SecretField inherits VerticalLayout {
         }
         // The system keyboard on a phone (Secrets.system-keyboard): asked for a password, so it
         // keeps nothing; what it types comes back through Secrets.typed and the input is set
-        // back to stand-ins at once. It lies over the whole field (unseen), so a tap focuses it
-        // and a long press opens the system's menu with Paste.
+        // back to stand-ins at once, laid out like what came in so its cursor stays put. It is
+        // the field's dots and cursor while the text is hidden: a tap places the cursor, a long
+        // press opens the system's menu with Paste.
         system := TextInput {
             x: Secrets.system-keyboard ? 12px : 0px;
             y: 0px;
-            width: Secrets.system-keyboard ? parent.width - 24px : 1px;
+            width: Secrets.system-keyboard ? root.room : 1px;
             height: Secrets.system-keyboard ? parent.height : 1px;
-            opacity: 0;
+            opacity: root.native ? 1 : 0;
             enabled: Secrets.system-keyboard;
             input-type: InputType.password;
             single-line: true;
             font-size: Theme.body;
+            color: Theme.ink;
+            selection-background-color: Theme.marker;
+            selection-foreground-color: Theme.on-marker;
             vertical-alignment: center;
             init => {
                 if (Secrets.system-keyboard) { self.text = Secrets.placeholders(root.field); }
             }
             edited => {
-                self.text = Secrets.typed(root.field, self.text);
+                let cursor = self.cursor-position-byte-offset;
+                self.text = Secrets.typed(root.field, self.text, cursor);
                 // Placing the cursor also tells the keyboard what the input holds now, so
                 // something pasted from the menu doesn't stay there.
-                self.set-selection-offsets(2147483647, 2147483647);
+                self.set-selection-offsets(cursor, cursor);
             }
-            // Slint places the keyboard's cursor after each edit (calling this): it goes back
-            // to the end, where the field is edited (as on the desktop), and a selection is
-            // always all of it. (A nested call from here doesn't come back here.)
             cursor-position-changed(_) => {
                 if (!Secrets.system-keyboard) { return; }
                 // An edit that leaves the input empty (the last character deleted, or all of
@@ -683,13 +765,7 @@ export component SecretField inherits VerticalLayout {
                 if (self.text == "" && root.length > 0) {
                     Secrets.clear(root.field);
                 }
-                if (self.anchor-position-byte-offset != self.cursor-position-byte-offset) {
-                    self.set-selection-offsets(0, 2147483647);
-                    root.all-selected = root.length > 0;
-                } else {
-                    self.set-selection-offsets(2147483647, 2147483647);
-                    root.all-selected = false;
-                }
+                Secrets.move-caret(root.field, Secrets.char-at(self.text, self.cursor-position-byte-offset));
             }
             accepted => { root.accepted(); }
             changed has-focus => {
@@ -756,6 +832,8 @@ export component SecretField inherits VerticalLayout {
                         root.all-selected = false;
                     } else if (event.text == Key.Backspace) {
                         Secrets.backspace(root.field);
+                    } else {
+                        Secrets.delete(root.field);
                     }
                     return accept;
                 }
@@ -767,9 +845,15 @@ export component SecretField inherits VerticalLayout {
                     }
                     return accept;
                 }
+                // The cursor: a character either way, or to either end.
                 if (event.text == Key.LeftArrow || event.text == Key.RightArrow
                     || event.text == Key.Home || event.text == Key.End) {
+                    let to = event.text == Key.Home ? 0
+                        : event.text == Key.End ? root.length
+                        : root.all-selected ? (event.text == Key.LeftArrow ? 0 : root.length)
+                        : root.caret + (event.text == Key.LeftArrow ? -1 : 1);
                     root.all-selected = false;
+                    Secrets.move-caret(root.field, Math.clamp(to, 0, root.length));
                     return accept;
                 }
                 if (event.modifiers.meta || event.modifiers.alt) {
@@ -783,60 +867,84 @@ export component SecretField inherits VerticalLayout {
                 accept
             }
         }
-        HorizontalLayout {
-            padding-left: 12px;
-            padding-right: root.eye ? (Theme.touch ? 48px : 40px) : 12px;
-            spacing: 5px;
-            alignment: start;
-            if root.revealed != "": Text {
+
+        // What the field draws itself: the cells, moved along to keep the cursor in sight.
+        if !root.native: Rectangle {
+            x: 12px;
+            width: root.room;
+            height: parent.height;
+            clip: true;
+            if root.length == 0 && !root.has-focus: Text {
+                width: parent.width;
+                text: root.placeholder;
+                font-size: Theme.body;
+                color: Theme.faint;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            // A shown text that isn't one cell to a character (shown by the page itself).
+            if root.revealed != "" && !root.by-cell: Text {
+                width: parent.width;
                 text: root.revealed;
                 font-family: Theme.mono-font;
                 font-size: Theme.body;
                 color: Theme.ink;
                 vertical-alignment: center;
-                // A long passphrase ends in "…" instead of widening the page.
                 overflow: elide;
-                min-width: 0px;
-                horizontal-stretch: 1;
             }
-            if root.revealed == "" && root.length == 0 && !root.has-focus: Text {
-                text: root.placeholder;
-                font-size: Theme.body;
-                color: Theme.faint;
-                vertical-alignment: center;
+            // The selection: the dots on a marker band.
+            if root.all-selected && root.revealed == "": Rectangle {
+                x: -root.shift - 2px;
+                y: (parent.height - 16px) / 2;
+                width: root.length * root.cell + 4px;
+                height: 16px;
+                border-radius: 3px;
+                background: Theme.marker;
             }
-            if root.revealed == "": VerticalLayout {
-                alignment: center;
-                Rectangle {
-                    // The selection: the dots on a marker band.
+            if root.revealed == "": Rectangle {
+                for index in root.length: Rectangle {
+                    x: index * root.cell + (root.cell - 6px) / 2 - root.shift;
+                    y: (parent.height - 6px) / 2;
+                    width: 6px;
+                    height: 6px;
                     border-radius: 3px;
-                    background: root.all-selected ? Theme.marker : transparent;
-                    HorizontalLayout {
-                        padding-left: root.all-selected ? 4px : 0px;
-                        padding-right: root.all-selected ? 4px : 0px;
-                        padding-top: 5px;
-                        padding-bottom: 5px;
-                        spacing: 5px;
-                        for index in Math.min(root.length, 40): VerticalLayout {
-                            alignment: center;
-                            Rectangle {
-                                width: 6px;
-                                height: 6px;
-                                border-radius: 3px;
-                                background: root.all-selected ? Theme.on-marker : Theme.ink;
-                            }
-                        }
-                    }
+                    background: root.all-selected ? Theme.on-marker : Theme.ink;
                 }
             }
-            if root.has-focus && !root.all-selected: VerticalLayout {
-                alignment: center;
-                Rectangle {
-                    width: 1.5px;
-                    height: 18px;
-                    background: Theme.marker;
-                    opacity: Math.mod(animation-tick() / 1ms, 1060) < 530 ? 1 : 0;
+            if root.by-cell: Rectangle {
+                for ch[index] in root.chars: Text {
+                    x: index * root.cell - root.shift;
+                    width: root.cell;
+                    height: parent.height;
+                    text: ch;
+                    font-family: Theme.mono-font;
+                    font-size: Theme.body;
+                    color: Theme.ink;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
                 }
+            }
+            if root.has-focus && !root.all-selected && (root.revealed == "" || root.by-cell): Rectangle {
+                x: root.caret * root.cell - root.shift - 1px;
+                y: (parent.height - self.height) / 2;
+                width: 2px;
+                height: 20px;
+                border-radius: 1px;
+                background: Theme.marker;
+                opacity: Math.mod(animation-tick() / 1ms, 1060) < 530 ? 1 : 0;
+            }
+        }
+        // A shown text on a phone: a tap places the keyboard's cursor next to the character
+        // under the finger (the input under it lays out dots, not these characters).
+        if Secrets.system-keyboard && root.by-cell: TouchArea {
+            x: 0px;
+            width: parent.width - root.pad-right;
+            clicked => {
+                let index = root.index-at(self.mouse-x);
+                if (!system.has-focus) { system.focus(); }
+                let at = Secrets.byte-at(system.text, index);
+                system.set-selection-offsets(at, at);
+                Secrets.move-caret(root.field, index);
             }
         }
         if root.eye: EyeButton {
@@ -1046,16 +1154,24 @@ export component Slider inherits Rectangle {
     }
     touch := TouchArea {
         mouse-cursor: MouseCursor.pointer;
+        // While held, the drag is the slider's: the page around it doesn't scroll or swipe
+        // however the finger wanders up or down (Gesture).
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down) {
+                Gesture.holding = true;
                 focus.focus();
                 root.set-from(self.mouse-x);
+            } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                Gesture.holding = false;
             }
         }
         moved => {
             if (self.pressed) {
                 root.set-from(self.mouse-x);
             }
+        }
+        changed pressed => {
+            if (!self.pressed) { Gesture.holding = false; }
         }
     }
     focus := FocusScope {
@@ -1074,28 +1190,41 @@ export component Slider inherits Rectangle {
     }
 }
 
-// A few words to choose from; the chosen one gets the marker stroke.
+// A few words to choose from; the chosen one gets the marker stroke. With `marks`, a small
+// picture (a language's flag) before each word.
 export component Choice inherits HorizontalLayout {
     in property <[string]> options;
+    in property <[image]> marks;
     in-out property <int> selected;
     callback changed(int);
     spacing: 4px;
     alignment: start;
     for option[index] in root.options: Rectangle {
-        min-width: label.preferred-width + 20px;
+        // The picture's room before the word.
+        property <length> mark-room: root.marks.length > index ? 26px : 0px;
+        min-width: label.preferred-width + self.mark-room + 20px;
         height: Theme.touch ? 44px : 34px;
         border-radius: Theme.radius;
         background: touch.has-hover && index != root.selected ? Theme.hover : transparent;
         accessible-role: button;
         accessible-label: option;
+        if root.marks.length > index: Image {
+            x: (parent.width - label.preferred-width - parent.mark-room) / 2;
+            width: 20px;
+            height: 14px;
+            source: root.marks[index];
+            opacity: index == root.selected ? 1 : 0.75;
+        }
         label := Text {
+            x: (parent.width - self.preferred-width + parent.mark-room) / 2;
+            width: self.preferred-width;
             text: option;
             font-size: Theme.body;
             font-weight: index == root.selected ? 600 : 400;
             color: index == root.selected ? Theme.ink : Theme.graphite;
         }
         MarkStroke {
-            x: (parent.width - label.preferred-width) / 2 - 2px;
+            x: label.x - 2px;
             y: parent.height - 7px;
             width: label.preferred-width + 4px;
             variant: Math.mod(index, 3);
@@ -1121,15 +1250,19 @@ export component ItemIcon inherits Rectangle {
     in property <color> tint: #3D4F6B;
     in property <int> kind;
     in property <length> size: 34px;
-    // A picture chosen for the item (a line icon's name from icons.slint), drawn on its colour
-    // when there is no site icon.
+    // A picture chosen for the item (a line icon's name from icons.slint) when there is no site
+    // icon: in its own colour on a soft tile, or in the colours chosen for it (IconLook).
     in property <string> glyph;
+    in property <int> glyph-color;
+    in property <int> glyph-bg;
 
     width: root.size;
     height: root.size;
     border-radius: root.size * 0.26;
     // A site's own icon is shown as it is, without a tile; otherwise its initial on a colour.
-    background: root.has-icon ? transparent : root.tint;
+    background: root.has-icon ? transparent
+        : root.glyph != "" ? IconLook.tile(root.glyph, root.glyph-color, root.glyph-bg)
+        : root.tint;
     clip: true;
     accessible-role: image;
 
@@ -1143,7 +1276,7 @@ export component ItemIcon inherits Rectangle {
         width: parent.width * 0.56;
         height: parent.height * 0.56;
         name: root.glyph;
-        tint: #FFFFFFE8;
+        tint: IconLook.ink(root.glyph, root.glyph-color, root.glyph-bg);
     }
     if !root.has-icon && root.glyph == "" && root.kind == 0: Text {
         text: root.initial;

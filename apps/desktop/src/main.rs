@@ -60,6 +60,16 @@ fn main() -> anyhow::Result<()> {
     // The native window exists once the event loop runs.
     let weak = app.as_weak();
     slint::Timer::single_shot(Duration::from_millis(120), move || {
+        // The window draws its own title bar (no frame of the system's): it keeps the
+        // system's shadow all the same.
+        #[cfg(windows)]
+        if let Some(app) = weak.upgrade() {
+            use slint::winit_030::{
+                WinitWindowAccessor, winit::platform::windows::WindowExtWindows,
+            };
+            app.window()
+                .with_winit_window(|window| window.set_undecorated_shadow(true));
+        }
         // Exactly "1": an empty or stray value left in the environment keeps the protection.
         if std::env::var_os("VAULT_ALLOW_CAPTURE").is_some_and(|value| value == "1") {
             return;

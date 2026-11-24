@@ -59,6 +59,8 @@ struct Place {
     vault_id: String,
     device: DeviceId,
     place: SyncPlace,
+    /// The ids this computer synced the vault as before (out of its device list).
+    retired: Vec<DeviceId>,
 }
 
 /// The sync round in progress and its outcome so far, kept in the controller's state.
@@ -80,6 +82,9 @@ pub(super) struct SyncStatus {
     watch: Option<Arc<AtomicBool>>,
     /// The other devices, in the order the card lists them (for "Remove").
     others: Vec<(DeviceId, String)>,
+    /// The devices with a copy where the vault syncs now (main or backup place), as the last
+    /// round found them; `None` before the first round.
+    here: Option<Vec<DeviceId>>,
     /// Joining a server or checking WebDAV is under way.
     busy: bool,
 }
@@ -116,11 +121,12 @@ impl Controller {
             .map(|s| s.vault.id_hex())
     }
 
-    /// This device's sync id, made the first time it is needed.
+    /// This device's sync id for the open vault, made the first time it is needed.
     fn sync_device_id(&self) -> Option<DeviceId> {
+        let vault_id = self.open_vault_id()?;
         let mut device_state = DeviceState::load().ok()?;
         let had_id = device_state.has_device_id();
-        let device = device_state.device_id().ok()?;
+        let device = device_state.device_id_for(&vault_id).ok()?;
         if !had_id {
             device_state.save().ok()?;
         }
@@ -130,12 +136,15 @@ impl Controller {
     /// The open vault's sync place on this device, if it syncs.
     fn sync_place(&self) -> Option<Place> {
         let vault_id = self.open_vault_id()?;
-        let place = DeviceState::load().ok()?.sync_place(&vault_id)?;
+        let device_state = DeviceState::load().ok()?;
+        let place = device_state.sync_place(&vault_id)?;
+        let retired = device_state.retired_ids(&vault_id);
         let device = self.sync_device_id()?;
         Some(Place {
             vault_id,
             device,
             place,
+            retired,
         })
     }
 
@@ -144,6 +153,7 @@ impl Controller {
     pub(super) fn start_sync(&self) {
         self.stop_watch();
         self.state.borrow_mut().sync.tags = KnownTags::default();
+        self.state.borrow_mut().sync.here = None;
         let Some(place) = self.sync_place() else {
             self.show_sync_settings();
             return;
@@ -304,40 +314,85 @@ impl Controller {
     /// `vaultsync:` line pasted), keeps its new key in the credential store, starts syncing.
     pub(super) fn sync_join_server(&self) {
         let app = self.app();
-        let (Some(vault_id), Some(device)) = (self.open_vault_id(), self.sync_device_id()) else {
+        let Some(vault_id) = self.open_vault_id() else {
             return;
         };
+        // The id it joins as: the one it has when it is enrolled there already, else a new
+        // one, so that a computer removed from the vault (or coming from another place) joins
+        // as a new device (`sync::join_server`).
+        let ids = DeviceState::load().ok().and_then(|mut device_state| {
+            let ids = (
+                device_state.device_id_for(&vault_id).ok()?,
+                device_state.joining_id_for(&vault_id).ok()?,
+            );
+            device_state.save().ok()?;
+            Some(ids)
+        });
+        let Some((current, fresh)) = ids else {
+            return self.sync_setup_failed("this computer's state can't be written");
+        };
+        // The whole vaultsync: line (pasted in either field), or the address, its pin and the
+        // invite typed apart.
         let typed = app.get_sync_invite_typed().trim().to_owned();
-        let (address, invite) = match InviteLink::parse(&typed) {
-            Some(link) if link.vault != vault_id => {
+        let in_address = app.get_sync_address().trim().to_owned();
+        let link = InviteLink::parse(&typed).or_else(|| InviteLink::parse(&in_address));
+        let (address, invite) = match link {
+            Some(link) if !link.fits(&vault_id) => {
                 return self.sync_setup_failed("that invite is for another vault");
             }
             Some(link) => (link.server, link.invite),
-            None => (app.get_sync_address().trim().to_owned(), typed),
+            None => match sync::with_pin(&in_address, &app.get_sync_pin()) {
+                Ok(address) => (address, typed),
+                Err(err) => return self.sync_setup_failed(&format!("{err:#}")),
+            },
         };
         let address = match sync::check_address(&address) {
             Ok(address) => address,
             Err(err) => return self.sync_setup_failed(&format!("{err:#}")),
         };
-        app.set_sync_address(SharedString::from(address.as_str()));
+        // Shown without its pin: that has a field of its own.
+        let (shown, pin) = sync::split_pin(&address);
+        app.set_sync_address(SharedString::from(shown));
+        if let Some(pin) = pin {
+            app.set_sync_pin(SharedString::from(sync::pin_text(&pin).as_str()));
+        }
         self.sync_busy(true);
         let runner = self.state.borrow().runner;
         let job = {
             let (vault_id, address) = (vault_id.clone(), address.clone());
-            move || -> Result<(), String> {
-                let server =
-                    ServerTarget::join(&address, &vault_id, device, &sync::device_name(), &invite)
-                        .map_err(|err| format!("{err:#}"))?;
-                secret_store::store_sync_key(&vault_id, &device.to_hex(), &server.key_seed())
-                    .map_err(|err| format!("{err:#}"))
+            move || -> Result<DeviceId, String> {
+                sync::join_server(
+                    &address,
+                    &vault_id,
+                    &[current],
+                    fresh,
+                    &sync::device_name(),
+                    &invite,
+                    Role::Main,
+                )
+                .map(|(_, device)| device)
+                .map_err(|err| format!("{err:#}"))
             }
         };
         off_thread(runner, job, move |controller, result| {
             controller.sync_busy(false);
             match result {
-                Ok(()) => {
+                Ok(device) => {
                     let app = controller.app();
                     app.set_sync_invite_typed(SharedString::new());
+                    let mut device_state = DeviceState::load().unwrap_or_default();
+                    match device_state.adopt_device_id(&vault_id, device) {
+                        Ok(Some(before)) => {
+                            // Its old keys belong to the place it synced through before.
+                            if device_state.save().is_ok() {
+                                sync::forget_keys(&vault_id, before);
+                            }
+                        }
+                        Ok(None) => {
+                            let _ = device_state.save();
+                        }
+                        Err(err) => return controller.sync_setup_failed(&err.to_string()),
+                    }
                     controller.sync_use(SyncTo::Server { url: address });
                     controller.notify(notice::SYNC_JOINED, "");
                 }
@@ -414,11 +469,7 @@ impl Controller {
         device_state.set_sync_to(&vault_id, None);
         let _ = device_state.save();
         if let Some(device) = self.sync_device_id() {
-            let _ = secret_store::forget_sync_key(&vault_id, &device.to_hex());
-            let _ = secret_store::forget_sync_key(
-                &vault_id,
-                &sync::sync_key_name(device, Role::Backup),
-            );
+            sync::forget_keys(&vault_id, device);
         }
         let _ = secret_store::forget_webdav_password(&vault_id);
         {
@@ -523,12 +574,14 @@ impl Controller {
         if let Some(place) = self.sync_place() {
             let runner = self.state.borrow().runner;
             let job = move || {
-                sync::open_target(&place.vault_id, place.device, &place.place.to)
-                    .and_then(|target| target.remove(id))
-                    .map_err(|err| format!("{err:#}"))
+                let backup = place.place.backup.as_ref().map(|to| (to, Role::Backup));
+                for (to, role) in std::iter::once((&place.place.to, Role::Main)).chain(backup) {
+                    let _ = sync::open_target_as(&place.vault_id, place.device, to, role)
+                        .and_then(|target| target.remove(id));
+                }
             };
             // The copy left behind is refused anyway; nothing to tell if it couldn't go.
-            off_thread(runner, job, |_, _| {});
+            off_thread(runner, job, |_, ()| {});
         }
         self.show_sync_settings();
         self.sync_round();
@@ -573,23 +626,40 @@ impl Controller {
         let (round, joined) = {
             let mut state = self.state.borrow_mut();
             let vault = &mut state.session.as_mut().expect("checked above").vault;
-            let joined = sync::join(vault, place.device, &sync::device_name()).unwrap_or(false);
+            let joined = sync::join(vault, place.device, &sync::device_name()).unwrap_or(false)
+                | sync::retire(vault, &place.retired);
             (
                 sync::merge_reading(vault, &reading, &mut place.place.seen),
                 joined,
             )
         };
         if round.removed_here {
+            // Removed, not barred: this computer takes a new id for the vault and can join
+            // again (a new invite, or the folder chosen again) as a new device.
             let mut device_state = DeviceState::load().unwrap_or_default();
-            device_state.set_sync_to(&place.vault_id, None);
+            if device_state.removed_from(&place.vault_id).is_err() {
+                device_state.set_sync_to(&place.vault_id, None);
+            }
             let _ = device_state.save();
+            sync::forget_keys(&place.vault_id, place.device);
+            let _ = secret_store::forget_webdav_password(&place.vault_id);
             self.stop_sync();
             self.notify_long(notice::SYNC_REMOVED, "");
+            self.show_sync_settings();
             return self.sync_finished();
         }
         // Copies whose edits wait for the item lock are read again once it opens.
         {
             let mut state = self.state.borrow_mut();
+            let listed = reading.tags(&KnownTags::default());
+            state.sync.here = Some(
+                listed
+                    .main
+                    .keys()
+                    .chain(listed.backup.keys())
+                    .copied()
+                    .collect(),
+            );
             if round.waiting_for_lock() == 0 {
                 state.sync.tags = reading.tags(&state.sync.tags);
             } else {
@@ -771,7 +841,7 @@ impl Controller {
         };
         let typed = app.get_sync_backup_invite().trim().to_owned();
         let (address, invite) = match InviteLink::parse(&typed) {
-            Some(link) if link.vault != vault_id => {
+            Some(link) if !link.fits(&vault_id) => {
                 return self.sync_setup_failed("that invite is for another vault");
             }
             Some(link) => (link.server, link.invite),
@@ -827,6 +897,107 @@ impl Controller {
                 }
                 Err(why) => controller.sync_setup_failed(&why),
             }
+        });
+    }
+
+    /// The address dialog (Settings → Sync → Change the address) opens with the address in use
+    /// and its pin apart.
+    pub(super) fn fill_server_address(&self, backup: bool) {
+        let app = self.app();
+        let url = self
+            .open_vault_id()
+            .and_then(|vault_id| DeviceState::load().ok()?.sync_place(&vault_id))
+            .and_then(|place| if backup { place.backup } else { Some(place.to) })
+            .and_then(|to| match to {
+                SyncTo::Server { url } => Some(url),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let (base, pin) = sync::split_pin(&url);
+        app.set_sync_new_address(SharedString::from(base));
+        app.set_sync_new_pin(SharedString::from(
+            pin.map(|pin| sync::pin_text(&pin)).unwrap_or_default(),
+        ));
+    }
+
+    /// "Change the address": the same server (or backup server), reached at another address.
+    /// The new one is kept only once the server answers there with this vault and this
+    /// device's key, so it can't send the sealed copies to some other server.
+    pub(super) fn sync_change_address(&self, backup: bool) {
+        let app = self.app();
+        let (Some(vault_id), Some(device)) = (self.open_vault_id(), self.sync_device_id()) else {
+            return;
+        };
+        let Some(place) = DeviceState::load()
+            .ok()
+            .and_then(|state| state.sync_place(&vault_id))
+        else {
+            return;
+        };
+        let current = if backup {
+            place.backup.clone()
+        } else {
+            Some(place.to.clone())
+        };
+        if !matches!(current, Some(SyncTo::Server { .. })) {
+            return;
+        }
+        let address = match sync::with_pin(&app.get_sync_new_address(), &app.get_sync_new_pin())
+            .and_then(|address| sync::check_address(&address))
+        {
+            Ok(address) => address,
+            Err(err) => return self.sync_setup_failed(&format!("{err:#}")),
+        };
+        // A backup on the main server's address isn't a backup.
+        let other = if backup {
+            Some(place.to.clone())
+        } else {
+            place.backup.clone()
+        };
+        if let Some(SyncTo::Server { url }) = &other
+            && sync::split_pin(url).0 == sync::split_pin(&address).0
+        {
+            return self.sync_setup_failed(if backup {
+                "that is the main server: a backup is another one"
+            } else {
+                "that is the backup server's address"
+            });
+        }
+        let role = if backup { Role::Backup } else { Role::Main };
+        let to = SyncTo::Server {
+            url: address.clone(),
+        };
+        self.sync_busy(true);
+        let runner = self.state.borrow().runner;
+        let job = {
+            let (vault_id, to) = (vault_id.clone(), to.clone());
+            move || -> Result<(), String> {
+                sync::open_target_as(&vault_id, device, &to, role)
+                    .and_then(|target| target.list())
+                    .map(|_| ())
+                    .map_err(|err| format!("{err:#}"))
+            }
+        };
+        off_thread(runner, job, move |controller, result| {
+            controller.sync_busy(false);
+            if let Err(why) = result {
+                return controller.sync_setup_failed(&why);
+            }
+            let mut device_state = DeviceState::load().unwrap_or_default();
+            if backup {
+                device_state.set_sync_backup(&vault_id, Some(to));
+            } else {
+                device_state.set_sync_to(&vault_id, Some(to));
+            }
+            if let Err(err) = device_state.save() {
+                controller.notify_long(notice::DEVICE_STATE_NOT_SAVED, &err.to_string());
+                return;
+            }
+            controller.app().set_settings_dialog(super::dialog::NONE);
+            controller.state.borrow_mut().sync.tags = KnownTags::default();
+            controller.notify(notice::SYNC_ADDRESS_CHANGED, "");
+            controller.show_sync_settings();
+            controller.sync_round();
         });
     }
 
@@ -916,10 +1087,16 @@ impl Controller {
                 .collect::<Vec<_>>()
                 .join(", "),
         ));
+        let here = self.state.borrow().sync.here.clone();
         app.set_sync_others(ModelRc::new(VecModel::from(
             others
                 .iter()
-                .map(|(_, name)| SharedString::from(name.as_str()))
+                .map(|(id, name)| crate::ui::DeviceLine {
+                    name: SharedString::from(name.as_str()),
+                    // Listed in the vault, but without a copy where it syncs now: it synced
+                    // through another place, or hasn't joined this one yet.
+                    away: here.as_ref().is_some_and(|here| !here.contains(id)),
+                })
                 .collect::<Vec<_>>(),
         )));
         let running = {

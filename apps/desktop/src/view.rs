@@ -134,6 +134,80 @@ pub fn date(unix: i64) -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
+/// How a chosen line icon is kept in an item's `icon_url`: the field where a chosen site or
+/// picture link goes, so it syncs with the item and needs no new format. Anything without
+/// this prefix is a site or a link.
+pub const GLYPH: &str = "glyph:";
+
+/// The colours an icon can wear (`IconLook` in icons.slint): 0 its own, then nine.
+pub const ICON_COLORS: i32 = 10;
+
+/// A line icon chosen for an item (or, on the phone, a vault) and its colours: the icon's and
+/// its tile's, as indices into the apps' palette (0 = the icon's own look). Written
+/// `bank` or, with colours chosen, `bank:2:5` (after `glyph:` in an item).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IconLook {
+    pub name: String,
+    pub color: i32,
+    pub background: i32,
+}
+
+impl IconLook {
+    pub fn new(name: &str, color: i32, background: i32) -> Self {
+        let colour = |index: i32| {
+            if (0..ICON_COLORS).contains(&index) {
+                index
+            } else {
+                0
+            }
+        };
+        Self {
+            name: name.trim().to_owned(),
+            color: colour(color),
+            background: colour(background),
+        }
+    }
+
+    /// `bank` or `bank:2:5`; `None` for no icon. Colours out of range are the icon's own.
+    pub fn parse(spec: &str) -> Option<Self> {
+        let mut parts = spec.trim().split(':');
+        let name = parts.next().filter(|name| !name.is_empty())?;
+        let mut number = || parts.next().and_then(|part| part.parse().ok()).unwrap_or(0);
+        let color = number();
+        let background = number();
+        Some(Self::new(name, color, background))
+    }
+
+    /// The line icon an item's `icon_url` chose, if it chose one.
+    pub fn of_icon_url(icon_url: &str) -> Option<Self> {
+        Self::parse(icon_url.trim().strip_prefix(GLYPH)?)
+    }
+
+    /// As written: the name alone while both colours are the icon's own.
+    pub fn spec(&self) -> String {
+        if self.color == 0 && self.background == 0 {
+            self.name.clone()
+        } else {
+            format!("{}:{}:{}", self.name, self.color, self.background)
+        }
+    }
+
+    pub fn icon_url(&self) -> String {
+        format!("{GLYPH}{}", self.spec())
+    }
+}
+
+/// The date and the time to the minute ("2026-11-23 19:42"), `offset_minutes` away from UTC
+/// (the device's own clock).
+pub fn date_time(unix: i64, offset_minutes: i32) -> String {
+    if unix <= 0 {
+        return String::from("—");
+    }
+    let local = unix + i64::from(offset_minutes) * 60;
+    let minutes = local.rem_euclid(86_400) / 60;
+    format!("{} {:02}:{:02}", date(local), minutes / 60, minutes % 60)
+}
+
 /// The website typed in "Icon from", tidied: trimmed, `https://` added when missing, empty
 /// when nothing usable was typed.
 pub fn icon_site(text: &str) -> String {
@@ -625,6 +699,12 @@ mod tests {
         assert_eq!(date(0), "—");
         assert_eq!(date(1_700_000_000), "2023-11-14");
         assert_eq!(date(951_782_400), "2000-02-29");
+        // 1_700_000_000 is 2023-11-14 22:13:20 UTC: in Brasília (UTC-3) the same day at 19:13,
+        // in Tokyo (UTC+9) already the next day.
+        assert_eq!(date_time(1_700_000_000, 0), "2023-11-14 22:13");
+        assert_eq!(date_time(1_700_000_000, -180), "2023-11-14 19:13");
+        assert_eq!(date_time(1_700_000_000, 540), "2023-11-15 07:13");
+        assert_eq!(date_time(0, 0), "—");
         let now = 1_700_000_000;
         assert_eq!(ago(0, now), (-1, 0));
         assert_eq!(ago(now - 3_600, now), (0, 0));
@@ -632,6 +712,31 @@ mod tests {
         assert_eq!(ago(now - 90 * 86_400, now), (2, 3));
         assert_eq!(ago(now - 800 * 86_400, now), (3, 2));
         assert_eq!(brand_mark(card::Brand::Elo), 4);
+    }
+
+    #[test]
+    fn icon_looks() {
+        // Written before colours could be chosen, and after.
+        let plain = IconLook::of_icon_url("glyph:bank").unwrap();
+        assert_eq!(
+            (plain.name.as_str(), plain.color, plain.background),
+            ("bank", 0, 0)
+        );
+        assert_eq!(plain.icon_url(), "glyph:bank");
+        let dressed = IconLook::of_icon_url(" glyph:wifi:2:9 ").unwrap();
+        assert_eq!((dressed.color, dressed.background), (2, 9));
+        assert_eq!(dressed.spec(), "wifi:2:9");
+        assert_eq!(IconLook::new("home", 0, 3).icon_url(), "glyph:home:0:3");
+        // Colours out of range, or not numbers, are the icon's own.
+        assert_eq!(
+            IconLook::parse("key:42:x").unwrap(),
+            IconLook::new("key", 0, 0)
+        );
+        assert_eq!(IconLook::parse("key:-1:5").unwrap().background, 5);
+        // No icon: nothing chosen, or a site or picture.
+        assert!(IconLook::parse("").is_none());
+        assert!(IconLook::of_icon_url("https://example.com").is_none());
+        assert!(IconLook::of_icon_url("glyph:").is_none());
     }
 
     #[test]
