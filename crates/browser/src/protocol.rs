@@ -489,4 +489,6 @@ pub enum ErrorCode {
     Exists,
     /// The site accepts none of the kinds of passkey the app makes (ES256).
     Unsupported,
+    /// The person turned this off in the app (saving logins, or passkeys).
+    TurnedOff,
 }
