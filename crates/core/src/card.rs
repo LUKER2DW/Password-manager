@@ -137,7 +137,7 @@ pub fn luhn_valid(digits: &str) -> bool {
             }
         })
         .sum();
-    sum % 10 == 0
+    sum.is_multiple_of(10)
 }
 
 /// "4111111111111111" → "4111 1111 1111 1111"; American Express as 4-6-5.
