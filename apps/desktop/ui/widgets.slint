@@ -734,7 +734,9 @@ export component SecretField inherits VerticalLayout {
         // back to stand-ins at once, laid out like what came in so its cursor stays put. It is
         // the field's dots and cursor while the text is hidden: a tap places the cursor, a long
         // press opens the system's menu with Paste.
+        // Its stand-ins say nothing to a screen reader: the well around it is the text input.
         system := TextInput {
+            accessible-role: none;
             x: Secrets.system-keyboard ? 12px : 0px;
             y: 0px;
             width: Secrets.system-keyboard ? root.room : 1px;
