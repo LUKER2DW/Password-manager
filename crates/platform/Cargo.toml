@@ -57,7 +57,7 @@ keyring = "4"
 # encrypted with a key in the Android Keystore.
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "1"
-jni = "0.21"
+jni = "0.22"
 keyring-core = "1"
 ndk-context = "0.1"
 
