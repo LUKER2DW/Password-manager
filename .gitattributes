@@ -7,3 +7,5 @@ crates/core/data/eff_large_wordlist.txt -text
 *.bin binary
 # Keyfiles count byte for byte.
 *.keyfile binary
+# Test keys, kept byte for byte as openssl and ssh-keygen wrote them.
+crates/core/testdata/ssh/*.txt -text

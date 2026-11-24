@@ -164,7 +164,7 @@ impl Passkey {
 
     /// The public key as an uncompressed SEC1 point (`04 || x || y`).
     pub fn public_key(&self) -> Result<[u8; 65]> {
-        let point = self.signing_key()?.verifying_key().to_encoded_point(false);
+        let point = self.signing_key()?.verifying_key().to_sec1_point(false);
         point.as_bytes().try_into().map_err(|_| Error::Malformed)
     }
 

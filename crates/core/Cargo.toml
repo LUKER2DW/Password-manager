@@ -18,11 +18,15 @@ chacha20poly1305 = { version = "0.11", features = ["zeroize"] }
 crypto_box = { version = "0.9", features = ["seal"] }
 # SSH key items (ssh.rs): a new key is Ed25519 (the crate sync-wire already uses). A key brought
 # in is read in each common form (OpenSSH's own, passphrase or not; PKCS#8; PKCS#1 for RSA;
-# SEC1 for ECDSA) and kept in OpenSSH's, with RustCrypto's ssh-key and the key types' crates.
+# SEC1 for ECDSA) and kept in OpenSSH's. ssh-key reads and writes OpenSSH's form; the other
+# forms are read by the key types' own crates (rsa, p256, p384) and handed to it as numbers,
+# so ssh-key's own RSA and NIST features (on older releases of those crates) stay off.
 ed25519-dalek = { version = "2.2", features = ["zeroize", "pkcs8", "pem"] }
-ssh-key = { version = "0.6.7", default-features = false, features = ["alloc", "std", "ed25519", "rsa", "p256", "p384", "encryption"] }
-rsa = { version = "0.9", default-features = false, features = ["std", "pem"] }
-p384 = { version = "0.13", default-features = false, features = ["ecdsa", "pkcs8", "pem"] }
+ssh-key = { version = "0.6.7", default-features = false, features = ["alloc", "std", "ed25519", "ecdsa", "encryption"] }
+# ssh-key's own wire format, to hand it an ECDSA scalar (the same release ssh-key uses).
+ssh-encoding = { version = "0.2", default-features = false }
+rsa = { version = "0.10", default-features = false, features = ["std", "encoding"] }
+p384 = { version = "0.14", default-features = false, features = ["arithmetic", "pkcs8", "pem"] }
 getrandom = "0.4"
 hkdf = "0.13"
 hmac = { version = "0.13", features = ["zeroize"] }
@@ -30,9 +34,9 @@ pbkdf2 = { version = "0.13", default-features = false }
 postcard = { version = "1.1", features = ["use-std"] }
 # Passkeys (passkey.rs): ES256, ECDSA over P-256 with SHA-256, the signature WebAuthn sites expect.
 # Deterministic nonces (RFC 6979); keys come from the OS randomness (random.rs).
-p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "pkcs8", "pem"] }
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "pkcs8", "pem"] }
 # Only for `der`: the signature is sent DER-encoded, as WebAuthn asks (no other code from it).
-ecdsa = { version = "0.16.9", default-features = false, features = ["der"] }
+ecdsa = { version = "0.17", default-features = false, features = ["der"] }
 scrypt = { version = "0.12.0", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 sha1 = "0.11"  # TOTP only (RFC 6238 default); never used for anything security-critical beyond HMAC

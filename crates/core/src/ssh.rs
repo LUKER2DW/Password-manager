@@ -6,12 +6,16 @@
 //! is its protection (as other managers keep them). A new key is Ed25519. A key brought in
 //! (pasted or read from a file) is read in each common form: OpenSSH's own, with or without
 //! a passphrase (asked for, used once to open it, never kept), PKCS#8 (`BEGIN PRIVATE KEY`),
-//! PKCS#1 for RSA and SEC1 for ECDSA; anything but OpenSSH's own form is written in it. The
-//! reading and writing is RustCrypto's `ssh-key`; nothing here parses key bytes by hand.
+//! PKCS#1 for RSA and SEC1 for ECDSA; anything but OpenSSH's own form is written in it.
+//! OpenSSH's form is read and written by RustCrypto's `ssh-key`, the others by the key types'
+//! own crates (`rsa`, `p256`, `p384`, `ed25519-dalek`), whose numbers are handed to `ssh-key`;
+//! nothing here parses key bytes by hand.
 
+use ssh_encoding::Decode;
 use ssh_key::{
-    HashAlg, LineEnding, PrivateKey, PublicKey,
-    private::{EcdsaKeypair, Ed25519Keypair, KeypairData, RsaKeypair},
+    HashAlg, LineEnding, Mpint, PrivateKey, PublicKey,
+    private::{EcdsaKeypair, EcdsaPrivateKey, Ed25519Keypair, KeypairData, RsaKeypair},
+    public::{EcdsaPublicKey, RsaPublicKey},
 };
 use zeroize::Zeroizing;
 
@@ -147,22 +151,16 @@ pub fn import(
             return Err(KeyProblem::Unsupported);
         }
         use rsa::pkcs1::DecodeRsaPrivateKey;
-        let key = rsa::RsaPrivateKey::from_pkcs1_pem(text).map_err(|_| KeyProblem::NotAKey)?;
+        let key = rsa::PrivateKey::from_pkcs1_pem(text).map_err(|_| KeyProblem::NotAKey)?;
         rsa_key(&key)?
     } else if first == "-----BEGIN EC PRIVATE KEY-----" {
         if text.contains("Proc-Type: 4,ENCRYPTED") {
             return Err(KeyProblem::Unsupported);
         }
         let keypair = if let Ok(key) = p256::SecretKey::from_sec1_pem(text) {
-            EcdsaKeypair::NistP256 {
-                public: key.public_key().into(),
-                private: key.into(),
-            }
+            p256_keypair(&key)?
         } else if let Ok(key) = p384::SecretKey::from_sec1_pem(text) {
-            EcdsaKeypair::NistP384 {
-                public: key.public_key().into(),
-                private: key.into(),
-            }
+            p384_keypair(&key)?
         } else {
             return Err(KeyProblem::Unsupported);
         };
@@ -210,33 +208,103 @@ fn openssh(
 
 /// `BEGIN PRIVATE KEY`: Ed25519, RSA or ECDSA, whichever it is.
 fn pkcs8(text: &str) -> std::result::Result<KeypairData, KeyProblem> {
+    use ed25519_dalek::pkcs8::DecodePrivateKey as _;
     use p256::pkcs8::DecodePrivateKey;
     if let Ok(key) = ed25519_dalek::SigningKey::from_pkcs8_pem(text) {
         return Ok(KeypairData::Ed25519(Ed25519Keypair::from(key)));
     }
-    if let Ok(key) = rsa::RsaPrivateKey::from_pkcs8_pem(text) {
-        return RsaKeypair::try_from(&key)
-            .map(KeypairData::Rsa)
-            .map_err(|_| KeyProblem::Unsupported);
+    if let Ok(key) = rsa::PrivateKey::from_pkcs8_pem(text) {
+        return rsa_keypair(&key).map(KeypairData::Rsa);
     }
     if let Ok(key) = p256::SecretKey::from_pkcs8_pem(text) {
-        return Ok(KeypairData::Ecdsa(EcdsaKeypair::NistP256 {
-            public: key.public_key().into(),
-            private: key.into(),
-        }));
+        return p256_keypair(&key).map(KeypairData::Ecdsa);
     }
     if let Ok(key) = p384::SecretKey::from_pkcs8_pem(text) {
-        return Ok(KeypairData::Ecdsa(EcdsaKeypair::NistP384 {
-            public: key.public_key().into(),
-            private: key.into(),
-        }));
+        return p384_keypair(&key).map(KeypairData::Ecdsa);
     }
     Err(KeyProblem::Unsupported)
 }
 
-fn rsa_key(key: &rsa::RsaPrivateKey) -> std::result::Result<PrivateKey, KeyProblem> {
-    let keypair = RsaKeypair::try_from(key).map_err(|_| KeyProblem::Unsupported)?;
+fn rsa_key(key: &rsa::PrivateKey) -> std::result::Result<PrivateKey, KeyProblem> {
+    let keypair = rsa_keypair(key)?;
     PrivateKey::new(KeypairData::Rsa(keypair), "").map_err(|_| KeyProblem::NotAKey)
+}
+
+/// The smallest RSA key OpenSSH (and `ssh-key`, reading it back) takes, in bits.
+const MIN_RSA_BITS: usize = 2048;
+
+/// An RSA key read (and checked) by the `rsa` crate, as `ssh-key` keeps it: its numbers.
+/// Keys of more than two primes, or under 2048 bits, aren't taken.
+fn rsa_keypair(key: &rsa::PrivateKey) -> std::result::Result<RsaKeypair, KeyProblem> {
+    use rsa::traits::{PrivateKeyParts, PublicKeyParts};
+    let [p, q] = key.primes() else {
+        return Err(KeyProblem::Unsupported);
+    };
+    if key.size().saturating_mul(8) < MIN_RSA_BITS {
+        return Err(KeyProblem::Unsupported);
+    }
+    let iqmp = key.crt_coefficient().ok_or(KeyProblem::Unsupported)?;
+    let number = |value: &rsa::BoxedUint| {
+        let bytes = Zeroizing::new(value.to_be_bytes());
+        Mpint::from_positive_bytes(&bytes).map_err(|_| KeyProblem::NotAKey)
+    };
+    Ok(RsaKeypair {
+        public: RsaPublicKey {
+            e: number(key.e())?,
+            n: number(key.n().as_ref())?,
+        },
+        private: ssh_key::private::RsaPrivateKey {
+            d: number(key.d())?,
+            iqmp: number(&iqmp)?,
+            p: number(p)?,
+            q: number(q)?,
+        },
+    })
+}
+
+/// A P-256 key read by the `p256` crate, with its public point worked out from it.
+fn p256_keypair(key: &p256::SecretKey) -> std::result::Result<EcdsaKeypair, KeyProblem> {
+    use p256::elliptic_curve::sec1::ToSec1Point;
+    let point = key.public_key().to_sec1_point(false);
+    let EcdsaPublicKey::NistP256(public) = ecdsa_public(point.as_bytes())? else {
+        return Err(KeyProblem::NotAKey);
+    };
+    Ok(EcdsaKeypair::NistP256 {
+        public,
+        private: ecdsa_private(&key.to_bytes())?,
+    })
+}
+
+/// A P-384 key read by the `p384` crate, with its public point worked out from it.
+fn p384_keypair(key: &p384::SecretKey) -> std::result::Result<EcdsaKeypair, KeyProblem> {
+    use p384::elliptic_curve::sec1::ToSec1Point;
+    let point = key.public_key().to_sec1_point(false);
+    let EcdsaPublicKey::NistP384(public) = ecdsa_public(point.as_bytes())? else {
+        return Err(KeyProblem::NotAKey);
+    };
+    Ok(EcdsaKeypair::NistP384 {
+        public,
+        private: ecdsa_private(&key.to_bytes())?,
+    })
+}
+
+fn ecdsa_public(sec1: &[u8]) -> std::result::Result<EcdsaPublicKey, KeyProblem> {
+    EcdsaPublicKey::from_sec1_bytes(sec1).map_err(|_| KeyProblem::NotAKey)
+}
+
+/// An ECDSA private scalar as `ssh-key` keeps it. It makes one only from the curve crates of
+/// its own release or from its wire form, a length and the bytes, which is what is given
+/// here.
+fn ecdsa_private<const SIZE: usize>(
+    scalar: &[u8],
+) -> std::result::Result<EcdsaPrivateKey<SIZE>, KeyProblem> {
+    if scalar.len() != SIZE {
+        return Err(KeyProblem::NotAKey);
+    }
+    let mut wire = Zeroizing::new(Vec::with_capacity(4 + SIZE));
+    wire.extend_from_slice(&u32::try_from(SIZE).unwrap_or(0).to_be_bytes());
+    wire.extend_from_slice(scalar);
+    EcdsaPrivateKey::<SIZE>::decode(&mut wire.as_slice()).map_err(|_| KeyProblem::NotAKey)
 }
 
 /// The public key of a private key in OpenSSH's form (any key type, with a passphrase or
@@ -368,6 +436,47 @@ mod tests {
         let pair = import(&sec1, None, "").unwrap();
         assert_eq!(pair.key_type, "ECDSA P-256");
         assert!(pair.public_key.starts_with("ecdsa-sha2-nistp256 "));
+    }
+
+    #[test]
+    fn rsa_and_p384_keys_are_read_as_ssh_keygen_reads_them() {
+        // Test keys from crates/core/testdata/ssh; the fingerprints are `ssh-keygen -l`'s.
+        let pkcs1 = include_str!("../testdata/ssh/rsa-2048-pkcs1.txt");
+        let pkcs8 = include_str!("../testdata/ssh/rsa-2048-pkcs8.txt");
+        // The same key, converted by `ssh-keygen -p`.
+        let rsa_openssh = include_str!("../testdata/ssh/rsa-2048-openssh.txt");
+        let rsa_fingerprint = "SHA256:NxwueWLNUr4Lhdr0JybEzeMoO8DMejewxuWsY0/J8Ac";
+        for text in [pkcs1, pkcs8] {
+            let pair = import(text, None, "build server").unwrap();
+            assert_eq!(pair.key_type, "RSA 2048");
+            assert_eq!(pair.fingerprint, rsa_fingerprint);
+            assert!(pair.public_key.starts_with("ssh-rsa AAAAB3NzaC1yc2E"));
+            assert!(pair.public_key.ends_with(" build server"));
+            // What is kept reads back as the same key.
+            assert_eq!(key_type_of(&pair.private_key).unwrap(), "RSA 2048");
+            let public = public_key_of(&pair.private_key).unwrap();
+            assert_eq!(fingerprint(&public).unwrap(), rsa_fingerprint);
+            // Every number of the private key is the one ssh-keygen writes for it.
+            assert_eq!(key_data_of(&pair.private_key), key_data_of(rsa_openssh));
+        }
+        let sec1 = include_str!("../testdata/ssh/p384-sec1.txt");
+        let pair = import(sec1, None, "").unwrap();
+        assert_eq!(pair.key_type, "ECDSA P-384");
+        assert_eq!(
+            pair.fingerprint,
+            "SHA256:oc6bQHkyKIxg5bhb3CJ0VnnQBiTcb/d/PMQjuiF+MR4"
+        );
+        assert!(pair.public_key.starts_with("ecdsa-sha2-nistp384 "));
+        assert_eq!(key_type_of(&pair.private_key).unwrap(), "ECDSA P-384");
+        let p384_openssh = include_str!("../testdata/ssh/p384-openssh.txt");
+        assert_eq!(key_data_of(&pair.private_key), key_data_of(p384_openssh));
+    }
+
+    fn key_data_of(text: &str) -> KeypairData {
+        PrivateKey::from_openssh(text.trim())
+            .unwrap()
+            .key_data()
+            .clone()
     }
 
     #[test]
