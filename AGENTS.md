@@ -77,7 +77,7 @@ filesystem policy** beyond atomic writes.
 | `sync.rs` | What sync needs from the vault: writers, tombstones, devices, revisions |
 | `item.rs` | `ItemData`, `ItemSummary`, folders, recovery codes, password history, attachments |
 | `card.rs` | Payment cards: Luhn, brand detection, expiry, masking |
-| `ssh.rs` | SSH keys: a new Ed25519 key in OpenSSH's format, the public half and fingerprint of any OpenSSH key |
+| `ssh.rs` | SSH keys: a new Ed25519 key, a key brought in read in any common form (OpenSSH's, a passphrase asked once; PKCS#8, PKCS#1, SEC1) and kept in OpenSSH's without a passphrase, its public half, fingerprint and type (RustCrypto `ssh-key`) |
 | `generator.rs` | Passwords and passphrases (uniform sampling, word lists) |
 | `health.rs` | Strength (zxcvbn), reuse, age, and the k-anonymous breach query |
 | `sealed_export.rs` | An export sealed under a password of its own (`.vaultx`) |
@@ -98,7 +98,7 @@ the leak check and the leak watch's sealed memory (`leak_check.rs`),
 Windows Hello quick unlock (`quick_unlock.rs`), DPAPI (`dpapi.rs`), keyfiles on disk
 (`keyfile.rs`), the person's language (`locale.rs`), installed browsers (`browsers.rs`), the
 extension's local pipe and host registration (`browser_link.rs`), the emergency kit PDF
-(`kit_pdf.rs`), a recovery part hidden in a picture (`part_picture.rs`), opt-in website icons
+(`kit_pdf.rs`, with a QR code for each key), a recovery part hidden in a picture (`part_picture.rs`), opt-in website icons
 fetched directly from each site with a sealed cache (`website_icons.rs`), the `.vault` file
 type for this user on Windows (icon, opens in the app; `file_types.rs`), file helpers and
 secure wiping (`files.rs`), app paths (`paths.rs`), sync targets and one sync
@@ -222,7 +222,8 @@ the launcher icon and autofill's own words and layout. Build:
 `vault-sync-wire` is the request protocol shared by clients and server (signed messages,
 enrollment, invites, JSON bodies). `vault-server` (AGPL-3.0) stores sealed copies, device
 public keys and invite digests as plain files (`store.rs`) behind the API in `api.rs`
-(signature, time and nonce checks, limits), with an HTTPS of its own for a home network
+(signature, time and nonce checks, limits), served by `connections.rs` (open connections
+capped, header and write time limits), with an HTTPS of its own for a home network
 (`tls.rs`). Tests: `cargo test -p vault-server` runs a real server with two devices. Setup:
 [docs/SERVER.md](docs/SERVER.md); Docker files next to the code.
 
@@ -422,6 +423,15 @@ drawn.
   `note_place` or `reset_history` itself.
 - Some `.slint` files have mixed line endings: when editing with scripts, match both `\n` and
   `\r\n`.
+- A `Flickable` takes any drag that moves 8 px along its axis in the first half second, even
+  from a control under the finger. A control dragged sideways (the `Slider`) sets
+  `Gesture.holding` while held, and the phone's pages turn their scrolling and swiping off
+  while it is set.
+- Wrapped text that an `if` or a `for` shows inside a card is measured as one line, so the card
+  comes out short and the text runs out of it. Write such blocks out, or show them through the
+  phone's `Fold` (a height limit instead of `if`).
+- A `Timer` that was never started ignores `restart()`. Set `running: true` first (then
+  `restart()` to count again from now), and stop it with `running = false`.
 
 ## 6. Design
 

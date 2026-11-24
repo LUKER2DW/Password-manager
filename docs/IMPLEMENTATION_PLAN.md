@@ -399,10 +399,85 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   "About and updates" with short notes per version, a confirmation sheet before sensitive
   actions, the vault chosen on the unlock screen, an icon per vault
 - ✅ Phone items: open the website, notes in Markdown, created and last edited, a card's
-  number, CVV and PIN shown and copied, preset line icons (`glyph:<name>` in `icon_url`; the
-  desktop shows the item's own icon for them for now), previews of attached pictures, text and
-  PDFs, counter-based one-time codes (RFC 4226, `otpauth://hotp/`) with Next, website icons
-  that tell an untrusted certificate apart and try the bare and `www.` hosts
+  number, CVV and PIN shown and copied, preset line icons (`glyph:<name>` in `icon_url`, with
+  their colour and their tile's: `glyph:<name>:<c>:<t>`; the desktop draws and chooses them
+  too), previews of attached pictures, text and PDFs, counter-based one-time codes (RFC 4226,
+  `otpauth://hotp/`) with Next, website icons that tell an untrusted certificate apart and try
+  the bare and `www.` hosts
+- ✅ Phone, the round of November 23, 2026:
+  - secret fields with a cursor (a tap places it, the text edited there; both apps), a long
+    password scrolling inside its field instead of widening the page
+  - a stretch past the ends of every page; a held slider keeps the finger from the page
+  - Codes: a card dragged either way opens its editor, the seconds next to the pie, the code's
+    kind under Advanced options
+  - folders: a picker with counts and a way out, the folders under All, folders inside folders
+    (`Outer/Inner`), an icon colour
+  - icon and tile colours for items and vaults, the choices behind a button
+  - the vault renamed on the phone; adding or removing a device, stopping sync, removing the
+    backup server or the vault confirmed with the master password; the generator's history
+    deleted after a confirmation, with the time of each
+  - icons in the page titles, a yellow Add and New, the lock screen higher (clear of Android's
+    prompt), the recent apps view without the app's screen, the sync card and "How sync works"
+    measured right
+  - SSH keys read in every common form, a passphrase asked once and the key kept without it,
+    its type kept (both apps)
+  - the APK a third of its size (the library stripped and compressed)
+- ✅ The round of November 24, 2026 (code only, not built or tried yet):
+  - sync: a device removed from the vault can join again, as a new device (a new id per
+    vault on each join with an invite, the old one retired from the list); a device listed
+    without a copy where the vault syncs now says so; a removed device's copy and key leave
+    the backup server too (both apps)
+  - phone updates: every server the vault syncs through is asked, the version the server has
+    is said (or that it has none), and the servers are asked once after the first sync of an
+    unlock; `publish-app` says which data folder it wrote to
+  - phone: a rubber-band overscroll that springs back (the timers now start), the Codes page
+    (tap or drag left to copy, drag right to edit, hold to reorder, a green-to-red pie),
+    password health rebuilt (a ring, filters, tags, the leak watch's switch), the site's icon
+    next to the Website field (both apps), recovery with the emergency kit (three parts for a
+    new master password and Secret Key, two for a missing Secret Key, each part scanned or
+    typed), the vault's doodles under the lock screen's form
+  - website icons: a site's wide logo (its name written out) is no icon; the next candidate
+    is tried, and such an icon kept by an older version is looked for again
+  - the emergency kit PDF: a QR code for the Secret Key and each recovery part (filled kits)
+  - desktop Settings in categories (Security, This vault, Sync, Browser extension,
+    Appearance, About); the master password, the item lock, the keyfile, the unlock
+    protection, joining a server or WebDAV, a backup server, stopping sync, adding or
+    removing a device and disconnecting the extension each in a dialog that asks first, with
+    the master password where it matters; the extension's switches kept here (saving logins
+    from pages, passkeys, a notice for each fill), refused by the app and told to the
+    extension; the drawn texture behind the vault as a switch
+  - the sync server hardened: uploads read only for an enrolled device, requests in flight
+    and their time capped, the device and invite files changed under one lock (no lost
+    changes, no invite used twice), an enrolled device's place not taken by a new
+    enrollment (409), private file permissions and synced folders, headers no cache keeps,
+    SIGTERM handled, the container's limits and logs
+  - joining a server without typing `address#pin`: `vault-server invite --address` prints one
+    link (address, pin and invite) and its QR code; the apps take the address, the pin and
+    the invite in fields of their own, or the link, pasted or scanned
+  - a security pass over what reaches the network: the server serves its connections itself
+    (headers within 30 seconds, an answer not read for a minute ends the connection, open
+    connections and TLS handshakes capped in all and per address), checks an upload's whole
+    signature before reading it (the body's SHA-256 sent with the request), counts an IPv6
+    /64 as one address, holds copies being sent four at a time, makes a vault's live state
+    only for an enrolled device, and takes an admin invite without `--vault` for a new vault
+    only; device names can't carry invisible or text-turning characters; a sync round reads
+    at most 64 copies and 256 MiB; website icons can't be steered into the local network by
+    a site's links or redirects (checked at each name lookup); the leak check follows no
+    redirect
+- ✅ A second round the same day (code only, not built or tried yet):
+  - a monospace font built into both apps (JetBrains Mono, SIL OFL): a shown password, drawn
+    one character to a box, no longer runs its letters into each other where the system has
+    no such font (every phone)
+  - phone: the Secret Key's boxes two groups to a line in bigger boxes (they ran off the
+    screen), the scan button under the field; recovery parts scanned or read from the
+    picture part C was hidden in; the servers asked for an update after unlock, after Sync
+    now and every 10 minutes, a newer version offered in a sheet (Install, or later)
+  - desktop: the window draws its own title bar (the system's move, resize, snap and shadow
+    kept; minimize, maximize or restore and close with the usual glyphs); the server's and
+    the backup server's address changed in a dialog (kept only once the server answers there
+    with this vault); showing the kit, issuing new parts and exporting asked in dialogs; an
+    eye on every password field; part C saved in a picture is left out of the printed kit
+    (its page says it is kept apart, not where); flags in the language pickers (both apps)
 - ✅ Phone generator: "Make a strong one" in the editor opens it and Use brings the password
   back, "New login with it", the history of copied passwords (sealed, masked, used ones hidden)
 - ✅ M7.4 Autofill Service (exact site or app, a fingerprint or the phone's lock before every
@@ -416,8 +491,9 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   in the web preview); `cargo test -p vault-mobile i18n` checks that none is missing
 - 🚧 M7.7 Parity with the desktop: ✅ cards, authenticator items, SSH keys, files, Portuguese,
   folders, password health, import, export (master password again, refused while items are
-  locked); ⬜ custom fields, a Portuguese word list; ⬜ the desktop drawing the phone's preset
-  item icons and counter-based codes with Next
+  locked), the phone's preset item icons drawn and chosen on the desktop; ⬜ custom fields, a
+  Portuguese word list; ⬜ counter-based codes with Next on the desktop; ⬜ folders inside
+  folders shown as a tree on the desktop
 
 ### M8 — Advanced ⬜
 - Secure sharing (Send-style links, HPKE hybrid X25519 + ML-KEM-768)

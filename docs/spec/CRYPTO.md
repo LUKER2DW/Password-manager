@@ -24,7 +24,11 @@ store, and never touches the vault's own keys.
 
 SSH key items (format v9) may hold a key the app made for the person: Ed25519 from
 `ed25519-dalek`, written in OpenSSH's own format. It is data the vault keeps, like a
-password, and plays no part in the vault's own keys.
+password, and plays no part in the vault's own keys. A key brought in is read and written
+with RustCrypto's `ssh-key` (OpenSSH's form; PKCS#8, PKCS#1 and SEC1 through `rsa`, `p256`,
+`p384` and `ed25519-dalek`). One with a passphrase is opened once with it (bcrypt-pbkdf and
+the cipher OpenSSH used, at most 2000 bcrypt rounds: more is refused) and kept without it, as
+other managers keep keys: the vault is its protection, and the passphrase is never stored.
 
 Passkeys (format v10, §3.7) are ECDSA P-256 keys with SHA-256 (ES256, RFC 6979 nonces) from
 `p256`, made by the app for websites. Like SSH keys, they are data the vault keeps and play no

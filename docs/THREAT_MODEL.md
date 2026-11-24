@@ -35,6 +35,8 @@ the file on its own is useless.
 | A7 | Malware while the vault is **locked** | Reads disk, keylogger | **Partially**, see §3 |
 | A8 | Malware while the vault is **unlocked**, running as the user | Reads process memory, screen, clipboard | **Mitigated only**, see §3 |
 | A9 | Malware with administrator/kernel privileges | Full control of the machine | **No**, no software can defend against this |
+| A10 | Someone on the network who reaches the sync server, with no device key | Floods it, opens connections and never finishes a request, sends huge or slow requests, guesses invites, races requests, uses a leaked admin invite | **Yes**: unsigned requests and failures are rate-limited per address (an IPv6 /64 counts as one), a copy is read only once its whole signature is checked (64 KiB for any other body), open connections are capped in all and per address and closed when the headers or the reading of an answer stall, requests in flight and their time are capped, invites are 128 random bits used once under one lock, an admin invite only starts a new vault, an enrolled device's place can't be taken by another enrollment (docs/SERVER.md, "How it holds up") |
+| A11 | A website saved in the vault, with the website icons on | Its page links to, or redirects to, this computer or the local network (a router's page, a service on localhost) | **Yes**: a site on the internet makes the icon fetcher reach public addresses only, checked at each name lookup; a site saved with a local address is asked only where its name pointed when the fetch began |
 
 ## 3. Malware: the most realistic scenario
 
@@ -154,6 +156,18 @@ On top of that:
   the app's private cache (closed to other apps) while its pages are drawn, then is overwritten
   and deleted, and a leftover is wiped at the next start. Nothing is handed to another app.
   Residual risk: the renderer is Android's code, run on whatever PDF was attached.
+- **The phone in the recent apps view** shows no picture of the app's screen (Android 13+
+  turns it off for the app; before that, the secure flag is set while the app is in the
+  background), so an open vault isn't on show to someone who looks over the app switcher,
+  whether or not screenshots are allowed.
+- **Sensitive changes on an unlocked phone** (adding or removing a device, stopping sync,
+  removing the backup server, removing the vault from the phone) ask for the master password
+  again, checked against the vault file: someone who picks up the phone while the vault is
+  open can read it until it locks, but can't change who syncs it.
+- **SSH keys with a passphrase** are opened once, with the passphrase typed in the app (a
+  secure field, never kept), and kept without it, as other managers keep them: the vault is
+  their protection, and a key copied out of the app works without a passphrase. Whoever
+  opens the vault can use the key, as with any password in it; the item lock can guard it.
 - **Generated passwords** come from the app's generator, never from the page or the
   extension. A password the person used is kept in the app's history, sealed with the vault
   key on this computer and shown behind the item lock; "Clear history" deletes it. Copying is
@@ -190,7 +204,15 @@ On top of that:
 **Files with secrets outside the vault** (each a deliberate, visible choice):
 - Printed emergency kit: the temporary PDF lives in `<app dir>/print` and is overwritten and
   deleted on lock, on exit and at the next start. A kit saved elsewhere with "Save as PDF" is the
-  user's file.
+  user's file. A filled kit also carries the Secret Key and each recovery part as a QR code
+  (black squares in the PDF, no picture), for the phone's scanner: whoever can photograph a
+  page could already read the same key printed above its code. A kit with empty boxes, to be
+  filled by hand, has no codes.
+- Recovery on the phone: the parts are typed or scanned (Google's scanner, as for an invite:
+  the text passes through Play services) into secure fields, never into the screen's text.
+  With all three parts the vault gets a new master password and a new Secret Key (shown once,
+  before it opens), the parts used stop working, and the phone's fingerprint unlock goes, as
+  on the desktop.
 - Imports: the app offers to overwrite and delete the plain-text export right after importing.
 - Unencrypted export: only after re-checking the master password, with a warning; the encrypted
   backup copy is offered first. The phone does the same (master password checked against the
@@ -232,4 +254,5 @@ On top of that:
    routers and NAS boxes, expired, or for another name) gives no picture: the app only checks
    that it answers without the certificate check, uses nothing it sends, and shows a globe with
    a warning mark. Every image taken (SVG included, drawn without fetching anything it links
-   to) is size-limited and decoded by pure-Rust decoders.
+   to) is size-limited and decoded by pure-Rust decoders. A site on the internet can't steer
+   the fetch into the local network (A11). The leak check follows no redirect.

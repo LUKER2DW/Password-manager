@@ -58,12 +58,23 @@ personal use) gives your devices a private network and real HTTPS certificates.
 4. Make an invite for the first device:
 
    ```sh
-   docker compose -f apps/server/compose.yaml exec vault-server vault-server invite
+   docker compose -f apps/server/compose.yaml exec vault-server vault-server invite \
+     --address https://<machine>.<your-tailnet>.ts.net
    ```
 
-   It prints 32 letters and digits, good once for 24 hours.
-5. On the PC: **Settings → Sync → Use a server…**, type the address and the invite, **Join**.
-   (CLI: `vault sync --server https://<machine>.<tailnet>.ts.net --invite <invite>`.)
+   It prints the invite (32 letters and digits, good once for 24 hours) and, with
+   `--address`, one `vaultsync:` link that holds the address, the certificate's pin (with
+   `serve --tls`) and the invite, and that link's QR code. Without `--vault` it starts a new
+   vault: the first device of a vault joins with it, whichever vault is open there. For a
+   vault already on the server, use **Add a device** on a device that syncs it (step 6), or
+   make the invite with `--vault <id>` (`vault-server list` shows the ids; the command lists
+   them too), which also sets up a phone that has no vault yet. `--no-pin` leaves the pin out
+   (a server reached through a proxy with a certificate of its own).
+5. On the PC: **Settings → Sync → Use a server…**, paste the link (or type the address, the
+   pin if there is one, and the invite, each in its own field), **Join**. On the phone:
+   **Settings → Sync**, scan the code or paste the link, or **Type the address**.
+   (CLI: `vault sync --join "<link>"`, or
+   `vault sync --server https://<machine>.<tailnet>.ts.net --invite <invite>`.)
 6. More devices: **Settings → Sync → Add a device** on the PC shows a QR code and a
    `vaultsync:` line, good once for an hour. Scan it on the phone, or paste the line into
    **Invite** on another computer. (CLI: `vault sync --add-device`, then
@@ -95,8 +106,10 @@ give the app, one per network address of the computer:
   https://192.168.1.10:8750#pin=3f1c…e09a
 ```
 
-Type the whole line, `#pin=` and all, as the server address in **Settings → Sync → Use a
-server…**; the `vaultsync:` line from **Add a device** carries it on to the phone. The pin is
+It prints the pin on its own too. In **Settings → Sync → Use a server…** the address goes in
+**Server address** and the pin in **Certificate pin**; or `vault-server invite --address
+https://192.168.1.10:8750` prints one link with both and the invite, to paste or scan. The
+`vaultsync:` line from **Add a device** carries the pin on to the phone. The pin is
 the SHA-256 of that authority. A device fetches the authority from `/v1/certificate`, refuses
 it unless its hash is the pin, and then trusts only it for this server: someone else on the
 network can't stand in for the server, and the system's certificate roots play no part. The
@@ -165,6 +178,51 @@ refuses one signed with another key, and the phone never installs anything witho
 | Failed or unsigned requests per address | a burst of 20, then 10 a minute (then 429) |
 | Clock difference allowed | 5 minutes (a device with a wrong clock is told so) |
 | Long-polls open per device | 4, each up to 60 seconds |
+| Connections open | 512 in all, 128 from one address (an IPv6 /64 is one address; a proxy in front is one for all its devices) |
+| A request's headers | must arrive within 30 seconds; an idle connection is closed after 30 seconds |
+| An answer the client stops reading | the connection is closed after 60 seconds |
+| TLS handshakes (`serve --tls`) | 64 at once, 16 from one address, each within 10 seconds |
+| Requests in flight, all together | 256 (then 503, "busy") |
+| How long one request may take | 90 seconds (then 408) |
+| Copies being uploaded at once | 4, one per device; one must arrive within 60 seconds |
+| Copies and app packages being sent at once | 4, two per device |
+| Any other request's body | 64 KiB |
 
 A device that syncs normally makes a handful of requests a minute: one waiting long-poll,
 and a list plus one upload after each change.
+
+## How it holds up
+
+- **Nothing big from strangers.** An upload is read only once its whole signature is checked:
+  the app sends the copy's SHA-256 with the request (it is what the signature covers), and
+  the copy that arrives must match it. (An older app that doesn't send it gets the lighter
+  check first, its device named and enrolled and its clock right, then waits for the one
+  slot such copies share and costs its address one try until its signature is checked.)
+  Every other body is at most 64 KiB, so an address that isn't a device can make the server
+  read almost nothing, and its failures count against its allowance.
+- **No connection held forever.** A client has 30 seconds to send a request's headers and is
+  dropped when it stops reading an answer for a minute; connections are capped in all and
+  per address, TLS handshakes too. Rate limits count an IPv6 /64 as one address, since one
+  home or phone network may pick any address in it.
+- **A leaked admin invite can't get into a vault in use.** `vault-server invite` without
+  `--vault` only starts a vault (one with no device yet): offered for a vault that has
+  devices, it is refused and left unused. Devices join a vault in use with an invite from a
+  device already in (Add a device) or one made with `--vault <id>`.
+- **Memory for answers.** Copies and app packages are held in memory four at a time while
+  they are sent, two per device, so many downloads at once can't fill the memory. A vault's
+  live state is made only for an enrolled device, never for a stranger's enrollment try.
+- **One change at a time to the files.** The devices and the invites are read, changed and
+  written back under one lock: two requests at once never undo each other (a removed device
+  can't come back because a request was answered meanwhile), and an invite is used once even
+  when two devices try it together.
+- **A device's place can't be taken.** An invite enrolls a new device id only; one already
+  enrolled is refused (409). A device that lost its key joins again as a new device.
+- **Files only the server reads.** On Linux (and in the image) the data folder's files are
+  0600 and its folders 0700, written beside their place and renamed over it, with the folder
+  synced too, so a power cut leaves the old file or the new one.
+- **Answers no one keeps.** Every answer says `Cache-Control: no-store`, `nosniff`, no
+  referrer and a content policy that allows nothing.
+- **Stopping.** Ctrl+C or the SIGTERM Docker sends lets the requests under way finish.
+- **The container** runs as a user that isn't root, on a read-only file system with no
+  capabilities, at most 512 MiB of memory (four 64 MiB uploads fit), 128 processes and 4096
+  open files, its logs capped at 30 MB.

@@ -239,6 +239,16 @@ unlocked, and on demand. With the vault locked nothing is merged: merging needs 
     where the server can't edit it. A device refuses files from a writer that isn't in
     the merged device list. Removing a lost phone removes its key from both. The phone can
     still read its own old copy, but it gets nothing new;
+  - **removing a device doesn't bar it for good.** Its id stays buried in the vault (a
+    tombstone), so copies written under that id are refused everywhere. A device that learns
+    it was removed stops, forgets its keys and takes a new id for that vault (kept in device
+    state per vault, `device_id_for`). A join with an invite enrolls under a new id too, unless
+    the device is still enrolled at that server under the one it has (a join tried again);
+    the id it synced as before is *retired*: it leaves the vault's device list at its next
+    round (it is the same device's old entry, not another device). So a phone removed while
+    it synced elsewhere, or one moved to a new server, comes back as a new device with a new
+    invite, which is the person's consent. A folder or WebDAV place has no invite; there a
+    removed device joins again by being pointed at the place once more;
   - reachable only over Tailscale/WireGuard, TLS on top. It never sees a key or a KDF
     parameter it could hand back. A small box runs it: it does no hashing.
 - **Nearby** (later): the PC shows a QR code (its address on the LAN, a one-time key and its
@@ -256,7 +266,12 @@ x-vault-time: <Unix seconds>
 x-vault-nonce: <128 random bits, 32 hex>
 x-vault-signature: Ed25519 over
     "vault-sync-v1/request\n" METHOD "\n" PATH?QUERY "\n" DEVICE "\n" TIME "\n" NONCE "\n" hex(SHA-256(body))
+x-vault-body-sha256: hex(SHA-256(body))   (not signed itself: it is the last line above)
 ```
+
+`x-vault-body-sha256` lets the server check the whole signature before it reads a large
+body; a body that doesn't match it is refused (400 `not_what_was_signed`). Requests without
+it (older apps) are still taken, a copy with a lighter check first (see `PUT` below).
 
 The server refuses a request when the device isn't enrolled for that vault, the signature
 doesn't verify (strict verification, no weak keys), the time is more than 5 minutes off, or
@@ -265,20 +280,26 @@ the signature verified, so strangers can't fill the cache).
 
 | Route | What |
 |---|---|
-| `POST /v1/enroll` | `{invite, vault, device, key, name, time, signature}`: the new device signs `"vault-sync-v1/enroll\n" vault device key name time hex(digest(invite))` with the key it enrolls, proving it holds it. The invite is used up. |
+| `POST /v1/enroll` | `{invite, vault, device, key, name, time, signature}`: the new device signs `"vault-sync-v1/enroll\n" vault device key name time hex(digest(invite))` with the key it enrolls, proving it holds it. The invite is used up. A device id already enrolled is refused (409 `already_enrolled`): a device that lost its key joins as a new device, so an invite can't take another device's place. |
 | `GET /v1/vaults/{v}/devices` | `{copies: [{device, tag, size}], seq}` |
 | `GET /v1/vaults/{v}/devices/{d}` | the copy (`ETag`, `If-None-Match` → 304) |
-| `PUT /v1/vaults/{v}/devices/{d}` | only `d` = the signer; optional `If-Match` |
+| `PUT /v1/vaults/{v}/devices/{d}` | only `d` = the signer; optional `If-Match`. With `x-vault-body-sha256` the copy is read only once the signature verifies, one upload per device at a time. Without it, only once the headers name `d`, enrolled, at a time close to now, one such upload at a time in all; then the signature over it is checked |
 | `DELETE /v1/vaults/{v}/devices/{d}` | takes device `d` out: its key and its copy |
 | `GET /v1/vaults/{v}/enrolled` | the devices allowed in, with when each was last heard from |
 | `POST /v1/vaults/{v}/invites` | a one-time invite for one more device, good for an hour |
 | `GET /v1/vaults/{v}/changes?after=N&wait=S` | answers as soon as the change counter isn't `N`, or after `S` ≤ 60 seconds |
 
 Invites are 128 random bits; the server stores only `SHA-256("vault-sync-v1/invite\n" ‖
-invite)` and compares in constant time. An admin invite (`vault-server invite`) works for
-any vault: it is how the first device of a vault, or one that lost its key, gets in. The
-text another device joins with is `vaultsync:1?server=<url>&vault=<id>&invite=<invite>`
-(also shown as a QR code); nothing in it opens the vault.
+invite)` and compares in constant time. An admin invite (`vault-server invite`) starts any
+new vault, one with no device enrolled yet: it is how the first device of a vault gets in.
+Offered for a vault that has devices it is refused (403 `new_vault_only`) and left unused,
+so a leaked one can't put a stranger's device into a vault in use. Made with `--vault` it is
+for that vault, devices or not.
+The text another device joins with is `vaultsync:1?server=<url>&vault=<id>&invite=<invite>`
+(also shown as a QR code); nothing in it opens the vault. `server` carries the certificate's
+pin when the server has its own HTTPS (`#pin=`, escaped), so no one types it. A line from
+`vault-server invite --address` leaves `vault` out when its invite is good for any vault: it
+joins the vault that is open where it is used.
 
 The change counter starts at the server's start time in milliseconds and only grows, so a
 restart never makes it go back and devices keep nothing about the server between sessions.
@@ -359,7 +380,11 @@ open one.
 ## 8. What the person sees
 
 - Settings → Sync: off (default) / Folder / WebDAV / Server; the devices that sync this vault,
-  each with its last sync time; "Remove this device"; "Sync now".
+  each with its last sync time; "Remove this device"; "Sync now". A device in the vault's
+  list without a copy where the vault syncs now (it synced through another place, or hasn't
+  joined this one yet) says so ("No copy here yet"). Removing a device, stopping, adding a
+  device and (on the desktop) disconnecting the extension each ask first, with the master
+  password.
 - The corner of the vault window: a small "Synced 2 min ago" / "Not synced since …" when sync
   is on, and nothing when it's off.
 - After a merge with conflicts: one line, "2 items were changed on two devices; the newer

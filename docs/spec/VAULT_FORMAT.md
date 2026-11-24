@@ -267,10 +267,20 @@ its username; each passkey's `key` moves into the sealed `ItemSecrets` in the or
 (adding or removing one needs the guard open). Within an item no `credential_id` appears twice;
 at most 16 passkeys per item.
 
-**SSH keys (v9).** An `SshKey` item keeps the private key (OpenSSH text, kept exactly as it
-came) in `password`, so the item guard covers it like a password, and its public key and
-fingerprint in the plain custom fields `Public key` and `Fingerprint` (`vault_core::ssh`).
-A key made by the apps is Ed25519.
+**SSH keys (v9).** An `SshKey` item keeps the private key in `password` (OpenSSH's text,
+without a passphrase; one in OpenSSH's form without a passphrase is kept exactly as it came,
+other forms and keys with a passphrase are written in it), so the item guard covers it like a
+password, and its public key, fingerprint and type in the plain custom fields `Public key`,
+`Fingerprint` and `Key type` (`vault_core::ssh`; `Key type` from November 2026, read from the
+key when missing). A key made by the apps is Ed25519.
+
+**Chosen line icons.** `icon_url` = `glyph:<name>` is a preset line icon; `glyph:<name>:<c>:<t>`
+adds its colour and its tile's colour (indices 1–9 into the apps' palette, 0 = the icon's own;
+`view::IconLook`). Older readers see an unknown `icon_url` and show the item's own picture.
+
+**Folders inside folders.** A folder named `Outer/Inner` is shown inside the folder named
+`Outer` (when there is one), as other managers name them in their exports; nothing else is
+stored for it.
 
 **Attachments (v9).** Files are part of the item, so they are encrypted with its item key and,
 when the item guard covers the item, sealed with its secrets. The whole vault is one file,

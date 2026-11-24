@@ -73,25 +73,44 @@ them when an item is open.
 | Screen | What it does | State |
 |---|---|---|
 | Start | No vault on this phone: scan the computer's QR code (or paste its line) to set it up from the server, or choose its file | ✅ (Google's code scanner, the system's file picker on Android) |
-| Unlock | Master password (and the Secret Key the first time on this phone), or the phone's unlock (fingerprint, face or screen lock); a chooser for the vaults this phone keeps | ✅ |
-| Vault | Search, filters (all, favourites, logins, cards, notes, SSH keys) and folders, the list; swipe between the four places | ✅ |
-| Item | Every field with Copy; password, card number, CVV, PIN and code hidden until asked; item lock; open the website; notes in Markdown; created and last edited; previews of attached pictures, text and PDFs | ✅ |
-| Editor | New login, card, note, authenticator item or SSH key, edit, delete, attach files; a folder and an icon (the site's, or one of the preset line icons); the setup key scanned from a QR code, time- or counter-based; "Make a strong one" opens the generator and Use brings it back | ✅; ⬜ custom fields |
-| Codes | One-time codes with a countdown pie; tap to copy; Next for counter-based ones; swipe a row to edit it; Add | ✅ |
-| Generator | Characters or words, length, Advanced options, strength; copy; "New login with it"; the history of copied passwords (masked, those already used by a login hidden, each deletable) | ✅ |
-| Settings | Security, autofill, vaults (with an icon each), import and export, sync, appearance, about and updates (with short notes for each version), password health, folders | ✅ |
+| Unlock | Master password (and the Secret Key the first time on this phone, typed or scanned from the kit's QR code), or the phone's unlock (fingerprint, face or screen lock); a chooser for the vaults this phone keeps; under the form the open vault's doodles fade in, with "Forgot your master password?" and, the first time, "No Secret Key? Use two recovery parts" | ✅ |
+| Recovery | With the emergency kit: all three recovery parts and a new master password (the vault gets a new Secret Key too, shown before it opens, and the parts used stop working, as on the desktop), or two parts that bring back a Secret Key the phone doesn't have; each part typed or scanned from its QR code | ✅ |
+| Vault | Search, filters (all, favourites, logins, cards, notes, SSH keys), the list; the Folders button opens every folder (those inside a folder under it) with its count, and an x leaves the folder; under All, the folders follow the items after a divider; swipe between the four places | ✅ |
+| Item | Every field with Copy; password, card number, CVV, PIN and code hidden until asked; item lock; open the website; notes in Markdown; created and last edited; previews of attached pictures, text and PDFs; an SSH key's type and fingerprint | ✅ |
+| Editor | New login, card, note, authenticator item or SSH key, edit, delete, attach files; a folder (from a list) and an icon (the site's, or a preset line icon in colours of its own, behind Choose); the setup key scanned from a QR code (the kind of code under Advanced options); "Make a strong one" opens the generator and Use brings it back; an SSH key made here, pasted or read from a file in any common form, its passphrase asked once | ✅; ⬜ custom fields |
+| Codes | One-time codes with a countdown pie and its seconds, green to yellow to red; tap a card to copy, or drag it to the left (Copy shows under it, and "Copied" on the card); drag it to the right to edit it (the page doesn't change place there); hold a card, then drag it up or down to put it elsewhere (the order is kept on this phone, per vault); Next for counter-based ones; Add | ✅ |
+| Generator | Characters or words, length (a held slider keeps the finger), Advanced options, strength, the password in a box as tall as it needs; copy; "New login with it"; the history of copied passwords (masked, with the date and time, those already used by a login hidden, each deletable after a confirmation, the list cleared after one) | ✅ |
+| Settings | Security, autofill, vaults (its name, kept in the vault; an icon and its colours on this phone), import and export, sync (a device without a copy where the vault syncs now says so), appearance, about and updates (with short notes for each version; the servers are asked once after the first sync of an unlock, and what each has is said), password health (a ring with the share of logins that are fine, what to do first, counts that filter the list, each login's problems as tags, the leak watch's switch, what the words mean), folders (inside other folders, with an icon and a colour) | ✅ |
 | Autofill sheet | Android's own picker over another app | ✅ (Java) |
 
-Every page scrolls on its own (`Scroller` in app.slint: one per page, a slight stretch at the
-ends and a thin bar while it moves). Slint measures a block shown with `if` that holds wrapped
-text as if its lines were one, so a page can come out a few lines short: pages are their own
-scrollers, lists of wrapped text are written out, and each page keeps 56 px of room at its end.
-Sensitive actions (removing a vault or a device, stopping sync, deleting an item or a folder, an
-export) ask first in a sheet at the bottom. A password an action needs is typed in that same
+Every page scrolls on its own (`Scroller` in app.slint: one per page and a thin bar while it
+moves). Past either end a page overscrolls like a rubber band: a pull moves it about half the
+finger's travel at first and less and less after (never more than 96 px), and it springs back
+to the end as soon as the finger lets go (or holds still); a fling that runs into an end goes
+a little past it and springs back the same way. The Flickable reports a finger's moves
+(`flicked`), so a quiet moment means let go. (A Slint `Timer` that was never started ignores
+`restart()`, which is why each timer there is set running first; before that, the spring
+never started.) A slider being dragged holds the finger (`Gesture.holding`): Slint's
+Flickable otherwise takes any drag that moves 8 px up or down in its first half second.
+Slint measures wrapped text that an `if` or `for` shows inside a card as if its lines were one,
+so such blocks are written out or shown through `Fold` (a height limit instead of `if`), and
+each page keeps 56 px of room at its end.
+Sensitive actions (removing a vault or a device, adding a device, stopping sync, removing the
+backup server, deleting an item, a folder or the generator's history) ask first in a sheet at
+the bottom; the changes to sync and to the vaults on the phone also ask for the master password
+there, checked against the vault file. A password an action needs is typed in that same
 sheet, not on the page: the master password (and the export's own) for an export, a file's
 password when the chosen file turns out to have one, a new master password, the item lock's
-check. The sheet stays open while the password is checked and says there what went wrong; it
-closes once the action is done, and its fields are wiped when it closes either way.
+check, an SSH key's passphrase. The sheet stays open while the password is checked and says
+there what went wrong; it closes once the action is done, and its fields are wiped when it
+closes either way.
+
+Secret fields have a cursor: on the phone the field's own input (stand-ins only, §7.2) draws
+the dots and the system's cursor, so a tap places it and a long press selects and pastes;
+`Secrets.typed` gets each edit with where the cursor is, and the buffer is edited there. With
+the text shown, or with the app's own keyboard, the field draws one cell per character and a
+tap or the arrows move the cursor (`Secrets.carets`, kept in Rust). A long password scrolls
+inside the field instead of widening the page.
 
 Rules carried over from DESIGN.md: one yellow thing per screen (the main button), hand-drawn
 only for small details (the stroke under the chosen place), sentence case, words that say
@@ -178,7 +197,7 @@ goes in THREAT_MODEL.md, next to the clipboard.
 | Role | Desktop (Windows) | Phone | Licence |
 |---|---|---|---|
 | Interface | Bahnschrift (ships with Windows, may not be redistributed) | **Barlow**: a slightly rounded DIN-like grotesk with weights 100–900, so the 300/400/600 the design uses are all there | SIL OFL 1.1 |
-| Codes, keys, passwords | Cascadia Mono | **Cascadia Mono**, the same font | SIL OFL 1.1, Microsoft; "Cascadia Code" is a reserved name, so it ships unmodified |
+| Codes, keys, passwords | **JetBrains Mono**, built in | **JetBrains Mono**, the same files | SIL OFL 1.1 (`apps/desktop/ui/fonts/OFL.txt`), shipped unmodified |
 
 Other candidates we looked at:
 - **D-DIN** is closer to DIN but has only two weights.
@@ -187,13 +206,14 @@ Other candidates we looked at:
 Barlow wins on weights and on how it reads at small sizes.
 
 How the fonts get in:
-- `import "fonts/Barlow-Regular.ttf";` (and the Light, SemiBold and Cascadia Mono files) in
-  `apps/mobile/ui/app.slint`. Slint compiles the files into the binary, a few hundred KB in
-  all.
-- `Theme.ui-font` and `Theme.mono-font` become `in-out`, and the phone sets them to `"Barlow"`
-  and `"Cascadia Mono"`.
-- The `.ttf` files and their `OFL.txt` go in `apps/mobile/ui/fonts/`.
-- Without them the phone falls back to Roboto, which works but loses the look.
+- Done for the monospace one: `JetBrainsMono-Regular.ttf` and `-SemiBold.ttf` are in
+  `apps/desktop/ui/fonts/` with their `OFL.txt`, imported by both apps' `app.slint`, so Slint
+  compiles them into the binaries (about 550 KB). Without them the phone fell back to its
+  proportional sans-serif, and a shown password, drawn one character to a box, came out with
+  wide letters running into their neighbours and gaps after narrow ones.
+- Still to do for the interface: `import "fonts/Barlow-Regular.ttf";` (and the Light and
+  SemiBold files) in `apps/mobile/ui/app.slint`, with `Theme.ui-font` set to `"Barlow"` on the
+  phone. Until then the phone uses Roboto, which works but loses the look.
 
 Linux (ROADMAP) has the same problem, so the same two fonts could serve it. Whether the
 Windows app keeps Bahnschrift or moves to Barlow too is a design decision for later.
@@ -316,14 +336,17 @@ The APK is signed with the Android debug key: for trying it, never for publishin
 
 What is in this first build (M7.1):
 - **Secret fields take the system keyboard, asked for a password** (no learning, no
-  suggestions). An unseen `TextInput` lies over the field and only ever holds stand-ins:
-  each edit goes to `Secrets.typed`, which puts what was typed in the secure buffer and
-  hands back a stand-in for each character, as long in UTF-8 and UTF-16 as that character
-  (Slint then puts the keyboard's cursor at an offset into what it typed; inside a
-  character, its password mask panics). The cursor stays at the end and a selection is all
-  of it, as on the desktop. A long press opens the system's menu: Paste goes through the
-  same path. Each keystroke still passes through a Java string and a Slint string on the
-  way (§6.1, option A); the stand-ins replace it at once.
+  suggestions). The field's `TextInput` only ever holds stand-ins, drawn as its password
+  dots with the system's cursor: each edit goes to `Secrets.typed` with where the cursor is,
+  which puts what was typed in the secure buffer at that place (the stand-ins missing were
+  deleted there) and hands back a stand-in for each character, as long in UTF-8 and UTF-16
+  as that character (Slint's password mask panics on a cursor inside a character). A tap
+  places the cursor, a selection can be typed over, and a long press opens the system's
+  menu: Paste goes through the same path. Each keystroke still passes through a Java string
+  and a Slint string on the way (§6.1, option A); the stand-ins replace it at once.
+- **The recent apps view never shows the app's screen** (`setRecentsScreenshotEnabled(false)`
+  from Android 13; before it, the secure flag while the app is in the background), with
+  screenshots allowed or not.
 - **The start screen offers both ways:** choose the `.vault` file (the system's picker; it
   then works offline, and sync can be turned on later in Settings, server or WebDAV), or
   paste the `vaultsync:` line from a computer's Add a device to set it up from the server.
@@ -354,9 +377,13 @@ What is in this first build (M7.1):
   kind, look-alikes, characters added or left out; words: case, separator, a digit).
 - **An eye** on the master password, the Secret Key (also in boxes, as printed) and the
   password change fields.
-- **SSH keys and files:** a new Ed25519 key, one pasted or read from a file through the
-  system's picker; files attached to any item, saved through the system's "save as" and read
-  back before they are called saved.
+- **SSH keys and files:** a new Ed25519 key, or one pasted or read from a file through the
+  system's picker in any common form (OpenSSH's, PKCS#8, PKCS#1, SEC1; a passphrase asked
+  once in the sheet, the key kept without it, as `vault_core::ssh` says); files attached to
+  any item, saved through the system's "save as" and read back before they are called saved.
+- **The APK's size:** the Rust library is stripped (`llvm-strip`, its symbols only; the
+  phone never shows a backtrace) and compressed in the APK (`useLegacyPackaging`), as
+  cargo-apk did: a release build is about a third of the uncompressed one.
 
 - **Settings in groups** (Security, Autofill, Vault, Import and export, Sync, Appearance,
   Updates, About). **Several vaults:** the vault's name on top of the list opens a card with

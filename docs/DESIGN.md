@@ -30,8 +30,10 @@ because it is the one screen meant to be copied onto paper.
 | accent-stroke | `#E7C54B` | `#B88A00` | thin hand-drawn strokes (contrast on light) |
 | seal | `#F06A60` | `#B3261E` | danger and errors only |
 
-Type (all ship with Windows 10+): **Bahnschrift** for the interface (Light 300 for page titles),
-**Cascadia Mono** only for secrets shown as data, **Ink Free** only for the note on the kit.
+Type: **Bahnschrift** for the interface (Light 300 for page titles) and **Ink Free** only for
+the note on the kit, both shipped with Windows 10+; **JetBrains Mono** only for secrets shown as
+data, built into both apps (`apps/desktop/ui/fonts/`, SIL OFL 1.1): a shown password is drawn
+one character to a box, which needs a font whose characters are all as wide.
 Scale 12 / 14 / 16 / 21 / 28 / 44 px. Radius 6 px. Controls 38 px tall.
 
 ## Components
