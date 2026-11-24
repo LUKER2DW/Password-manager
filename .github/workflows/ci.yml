@@ -1,0 +1,106 @@
+# The checks AGENTS.md asks for before every commit, on every push and pull request.
+# Actions are pinned to a full commit (the tag in the comment), so a moved tag changes nothing;
+# Dependabot keeps them current. Every job reads the repository only.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  windows:
+    name: Windows (fmt, clippy, tests)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # rust-toolchain.toml names the toolchain; this installs it with clippy and rustfmt.
+      - name: Toolchain
+        run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Tests
+        run: cargo test --workspace --locked
+
+  web:
+    name: Phone app in a browser (WebAssembly)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Clippy
+        run: cargo clippy -p vault-mobile-web --target wasm32-unknown-unknown --locked -- -D warnings
+
+  extension:
+    name: Browser extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The extension has no packages and no build step: Node's own test runner only.
+      - name: Tests
+        run: >-
+          node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs
+          apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs
+
+  linux-libraries:
+    name: Core and protocol on Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # The libraries written without Windows in mind; the apps aren't built on Linux yet.
+      - name: Tests
+        run: cargo test -p vault-core -p vault-sync-wire --locked
+
+  server-image:
+    name: Server image (Docker, Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build
+        run: docker build -f apps/server/Dockerfile -t vault-server:ci .
+      - name: Starts
+        run: docker run --rm vault-server:ci --help

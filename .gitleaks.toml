@@ -1,0 +1,35 @@
+# gitleaks (https://github.com/gitleaks/gitleaks): the default rules, minus what this
+# repository keeps on purpose. Everything allowed here is made up for tests or is public by
+# nature; a real secret never belongs in the repository (AGENTS.md §4.2).
+title = "Password vault"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test material: test vaults with their credentials files, keys made for tests"
+paths = [
+    # Committed test vaults (one per format version) and the test passwords that open them.
+    '''^crates/core/tests/fixtures/''',
+    # SSH keys made with openssl and ssh-keygen for vault_core::ssh's tests.
+    '''^crates/core/testdata/''',
+    # Test files: integration tests, the apps' headless tests, the extension's tests.
+    '''(^|/)tests/''',
+    '''(^|/)tests\.rs$''',
+    '''^apps/extension/test/''',
+    # The phone's screenshot example and the desktop's demo vault: made-up data only.
+    '''^apps/mobile/examples/''',
+    '''^apps/desktop/examples/''',
+]
+
+[[allowlists]]
+description = "Public by nature"
+regexes = [
+    # A public key in SubjectPublicKeyInfo form (the extension's manifest "key", which only
+    # fixes its id): a public key is no secret.
+    '''^MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA''',
+    # RFC 8410's published example Ed25519 key, used in ssh.rs's unit tests.
+    '''MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp''',
+    # RFC 6238's and common documentation TOTP secrets in unit tests.
+    '''^(JBSWY3DPEHPK3PXP|KRSXG5CTMVRXEZLU|GEZDGNBVGY3TQOJQ)''',
+]
