@@ -2,7 +2,7 @@
 // Rust library cargo builds (build.ps1 puts it in target/android-libs/<abi>/). Gradle is used
 // for packaging only, and for the one library the Java side needs: Google's code scanner.
 plugins {
-    id 'com.android.application' version '8.13.0'
+    id 'com.android.application' version '9.5.2'
 }
 
 // The version comes from Cargo.toml, so the app, the update check and the APK agree. The code
