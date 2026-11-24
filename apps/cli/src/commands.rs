@@ -618,7 +618,7 @@ pub fn sync(ctx: &Context, prompter: &mut Prompter, request: SyncRequest) -> Res
     let bytes = session::read_vault_file(&ctx.path)?;
     let id = Vault::inspect(&bytes).map_err(explain)?.id_hex;
     let mut state = DeviceState::load()?;
-    let device = state.device_id().map_err(explain)?;
+    let device = state.device_id_for(&id).map_err(explain)?;
     state.save()?;
     if request.stop {
         state.set_sync_to(&id, None);
@@ -639,7 +639,7 @@ pub fn sync(ctx: &Context, prompter: &mut Prompter, request: SyncRequest) -> Res
     } else if let Some(text) = request.join {
         let link = vault_sync_wire::InviteLink::parse(&text)
             .context("that isn't an invite: it starts with vaultsync:1?")?;
-        if link.vault != id {
+        if !link.fits(&id) {
             bail!("that invite is for another vault");
         }
         join_server(&id, device, &link.server, &link.invite)?
