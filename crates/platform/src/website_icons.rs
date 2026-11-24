@@ -756,7 +756,7 @@ const MAX_ICON_RATIO: f32 = 1.5;
 fn is_banner(pixels: &[u8]) -> bool {
     let side = ICON_SIZE as usize;
     let (mut left, mut right, mut top, mut bottom) = (side, 0, side, 0);
-    for (index, pixel) in pixels.chunks_exact(4).enumerate() {
+    for (index, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
         if pixel[3] > 24 {
             let (x, y) = (index % side, index / side);
             left = left.min(x);
@@ -853,7 +853,9 @@ fn decode_svg(bytes: &[u8]) -> Option<Vec<u8>> {
     }
     // Nothing drawn (an empty or unsupported file) is no icon.
     pixels
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .any(|pixel| pixel[3] != 0)
         .then_some(pixels)
 }
@@ -1104,7 +1106,7 @@ mod tests {
         // An untrusted site shows the globe, a drawn 64 × 64 picture.
         let globe = restored.get("203.0.113.10:18443").unwrap();
         assert_eq!(globe.len(), (ICON_SIZE * ICON_SIZE * 4) as usize);
-        assert!(globe.chunks_exact(4).any(|pixel| pixel[3] == 255));
+        assert!(globe.as_chunks::<4>().0.iter().any(|pixel| pixel[3] == 255));
         assert!(!restored.needs_fetch("203.0.113.10:18443"));
     }
 

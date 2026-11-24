@@ -6,7 +6,7 @@ pub fn system_language() -> Option<String> {
     imp::system_language().filter(|tag| !tag.is_empty())
 }
 
-/// How far this computer's clock is from UTC now, in minutes (-180 in Brasília), summer time
+/// How far this computer's clock is from UTC now, in minutes (-180 for UTC-3), summer time
 /// included; 0 when the system doesn't say.
 pub fn utc_offset_minutes() -> i32 {
     imp::utc_offset_minutes()

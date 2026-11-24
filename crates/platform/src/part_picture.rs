@@ -174,7 +174,7 @@ fn cover_pixels(file: &[u8]) -> Result<Pixels> {
     };
     // A pixel count that is a multiple of 7919 would make the positions repeat: drop the
     // last row, which nobody will miss.
-    if (width as usize * height as usize) % 7919 == 0 && height > 1 {
+    if (width as usize * height as usize).is_multiple_of(7919) && height > 1 {
         height -= 1;
         data.truncate(width as usize * height as usize * channels);
     }
@@ -259,7 +259,9 @@ pub fn read(file: &[u8]) -> Result<RecoveryPart> {
         _ => bail!("this picture doesn't hold a recovery part"),
     };
     let count = info.width as usize * info.height as usize;
-    if count < PAYLOAD_BITS || count % 7919 == 0 || info.line_size != info.width as usize * channels
+    if count < PAYLOAD_BITS
+        || count.is_multiple_of(7919)
+        || info.line_size != info.width as usize * channels
     {
         bail!("this picture doesn't hold a recovery part");
     }

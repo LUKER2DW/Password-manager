@@ -41,10 +41,10 @@ pub fn wipe(path: &Path) -> Result<()> {
             path.display()
         );
     }
-    if meta.is_file() {
-        if let Ok(mut file) = std::fs::OpenOptions::new().write(true).open(path) {
-            let _ = overwrite_with_zeros(&mut file, meta.len());
-        }
+    if meta.is_file()
+        && let Ok(mut file) = std::fs::OpenOptions::new().write(true).open(path)
+    {
+        let _ = overwrite_with_zeros(&mut file, meta.len());
     }
     std::fs::remove_file(path).context("cannot delete the file")?;
     Ok(())
