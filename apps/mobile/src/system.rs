@@ -81,7 +81,7 @@ pub trait System {
         None
     }
 
-    /// How far the phone's clock is from UTC now, in minutes (-180 in Brasília), so times
+    /// How far the phone's clock is from UTC now, in minutes (-180 for UTC-3), so times
     /// show as the phone shows them.
     fn utc_offset_minutes(&self) -> i32 {
         0
