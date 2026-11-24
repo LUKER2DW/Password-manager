@@ -2,7 +2,9 @@
 #   docker build -f apps/server/Dockerfile -t vault-server .
 # or with apps/server/compose.yaml. See docs/SERVER.md.
 
-FROM rust:1-slim AS build
+# Both stages on Debian 12 (bookworm): a binary built against a newer C library than the
+# runtime image has would not start.
+FROM rust:1-slim-bookworm AS build
 WORKDIR /src
 COPY . .
 RUN cargo build --release --locked -p vault-server \
