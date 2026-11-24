@@ -191,14 +191,15 @@ mod native {
 
 pub(super) use native::Icons;
 
-/// How a chosen line icon is kept in an item's `icon_url` (`glyph:bank`): the field the
-/// desktop keeps a chosen site or picture link in, so it syncs with the item and needs no new
-/// format. Anything without this prefix is a site or a link.
-pub(super) const GLYPH: &str = "glyph:";
+/// How a chosen line icon is kept in an item's `icon_url` (see `view::IconLook`).
+pub(super) use crate::view::GLYPH;
 
-/// The line icon chosen for an item ("" = none).
-pub(super) fn glyph_of(icon_url: &str) -> &str {
-    icon_url.trim().strip_prefix(GLYPH).unwrap_or_default()
+/// The line icon chosen for an item and its colours, as the screens take them: its name ("" =
+/// none), its colour and its tile's (0 = its own).
+pub(super) fn look_of(icon_url: &str) -> (slint::SharedString, i32, i32) {
+    crate::view::IconLook::of_icon_url(icon_url).map_or_else(Default::default, |look| {
+        (look.name.as_str().into(), look.color, look.background)
+    })
 }
 
 /// How a website is reached: 0 HTTPS (or nothing to say), 1 plain HTTP (nothing encrypted on

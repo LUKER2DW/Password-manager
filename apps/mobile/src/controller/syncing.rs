@@ -10,11 +10,15 @@ use super::Controller;
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub(super) mod update {
     pub const ASKING: i32 = 1;
+    /// The server's newest is the one installed (`update-version`), or an older one.
     pub const NEWEST: i32 = 2;
     pub const WAITING: i32 = 3;
     pub const FETCHING: i32 = 4;
     pub const FAILED: i32 = 5;
     pub const HANDED: i32 = 6;
+    /// No server the vault syncs through has an update published.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const NONE_PUBLISHED: i32 = 7;
 }
 
 /// What the Sync part of Settings shows (`sync-state`).
@@ -54,6 +58,8 @@ impl Controller {
     pub(super) fn sync_remove_backup(&self) {}
     pub(super) fn check_update(&self) {}
     pub(super) fn install_update(&self) {}
+    pub(super) fn sync_now(&self) {}
+    pub(super) fn update_put_off(&self) {}
     pub fn update_installing(&self, _error: &str) {}
     pub fn sync_round(&self) {}
 }
@@ -88,38 +94,83 @@ mod native {
     };
     use crate::{ui::DeviceRow, view};
 
-    /// Joins the server with the invite, or, when this phone already joined that vault there
-    /// (a setup that failed after joining, tried again), goes on with the key it has: an
-    /// invite works once, so trying again must not need a new one.
-    fn join_or_resume(
-        address: &str,
-        vault_id: &str,
-        device: DeviceId,
-        invite: &str,
-        role: Role,
-    ) -> Result<ServerTarget, String> {
-        let key_name = sync::sync_key_name(device, role);
-        if let Ok(Some(seed)) = secret_store::load_sync_key(vault_id, &key_name)
-            && let Ok(server) =
-                ServerTarget::new(address, vault_id, device, DeviceKey::from_seed(&seed))
-            && server.enrolled().is_ok()
-        {
-            return Ok(server);
-        }
-        let server = ServerTarget::join(address, vault_id, device, DEVICE_NAME, invite)
-            .map_err(|err| format!("{err:#}"))?;
-        secret_store::store_sync_key(vault_id, &key_name, &server.key_seed())
-            .map_err(|err| format!("{err:#}"))?;
-        Ok(server)
+    /// The ids a join of the vault may use: the one this phone syncs it as, and the new one
+    /// it enrolls as when it isn't enrolled there already (see `sync::join_server`).
+    #[derive(Clone, Copy)]
+    struct JoinIds {
+        current: DeviceId,
+        fresh: DeviceId,
     }
 
-    /// The backup server an invite line names, joined too when it answers (its address as
-    /// checked). Without it the phone syncs through the main server only.
+    impl JoinIds {
+        fn for_vault(vault_id: &str) -> Option<Self> {
+            let mut device_state = DeviceState::load().ok()?;
+            let ids = Self {
+                current: device_state.device_id_for(vault_id).ok()?,
+                fresh: device_state.joining_id_for(vault_id).ok()?,
+            };
+            device_state.save().ok()?;
+            Some(ids)
+        }
+
+        /// Joins the main server; the id it is enrolled as.
+        fn join(
+            self,
+            address: &str,
+            vault_id: &str,
+            invite: &str,
+        ) -> Result<(ServerTarget, DeviceId), String> {
+            sync::join_server(
+                address,
+                vault_id,
+                &[self.current],
+                self.fresh,
+                DEVICE_NAME,
+                invite,
+                Role::Main,
+            )
+            .map_err(|err| format!("{err:#}"))
+        }
+    }
+
+    /// The backup server an invite line names, joined too (as `device`, the id the main
+    /// server was joined as) when it answers; its address as checked. Without it the phone
+    /// syncs through the main server only.
     fn join_backup(link: &InviteLink, vault_id: &str, device: DeviceId) -> Option<String> {
         let (address, invite) = link.backup.as_ref()?;
         let address = sync::check_address(address).ok()?;
-        join_or_resume(&address, vault_id, device, invite, Role::Backup).ok()?;
+        sync::join_server(
+            &address,
+            vault_id,
+            &[],
+            device,
+            DEVICE_NAME,
+            invite,
+            Role::Backup,
+        )
+        .ok()?;
         Some(address)
+    }
+
+    /// A join succeeded as `device`: the vault syncs through `main` (and `backup`) as that id
+    /// from now on, and the keys of the id it synced as before are forgotten.
+    fn joined(
+        vault_id: &str,
+        device: DeviceId,
+        main: SyncTo,
+        backup: Option<SyncTo>,
+    ) -> Result<(), String> {
+        let mut device_state = DeviceState::load().unwrap_or_default();
+        let before = device_state
+            .adopt_device_id(vault_id, device)
+            .map_err(|err| err.to_string())?;
+        device_state.set_sync_to(vault_id, Some(main));
+        device_state.set_sync_backup(vault_id, backup);
+        device_state.save().map_err(|err| format!("{err:#}"))?;
+        if let Some(before) = before {
+            sync::forget_keys(vault_id, before);
+        }
+        Ok(())
     }
 
     /// After a save, how long to wait for more saves before one round.
@@ -145,12 +196,32 @@ mod native {
         sizes: HashMap<DeviceId, usize>,
         /// The devices behind Settings → Sync's rows, in order.
         devices: Vec<DeviceId>,
+        /// The devices with a copy where the vault syncs now (main or backup place), as the
+        /// last round found them; `None` before the first round.
+        here: Option<Vec<DeviceId>>,
+        /// When the servers were last asked for an update (Unix seconds): `None` until the
+        /// first round since unlock, and again after Sync now.
+        update_asked_at: Option<i64>,
+        /// The version put off with Later since unlock: not offered again until the next one.
+        update_put_off: Option<String>,
+    }
+
+    /// What the servers the vault syncs through have of the phone app.
+    enum Release {
+        /// A newer version than the one installed, on the server in this role.
+        Newer(String, Role),
+        /// The newest version there, which is this one or older.
+        Newest(String),
+        /// None of them has an update published.
+        Nothing,
     }
 
     struct Place {
         vault_id: String,
         device: DeviceId,
         place: SyncPlace,
+        /// The ids this phone synced the vault as before (out of its device list).
+        retired: Vec<DeviceId>,
     }
 
     impl Controller {
@@ -183,10 +254,12 @@ mod native {
             self.state.borrow().vault.as_ref().map(|v| v.id_hex())
         }
 
+        /// This phone's sync id for the open vault.
         fn device_id(&self) -> Option<DeviceId> {
+            let vault_id = self.vault_id()?;
             let mut device_state = DeviceState::load().ok()?;
             let had = device_state.has_device_id();
-            let id = device_state.device_id().ok()?;
+            let id = device_state.device_id_for(&vault_id).ok()?;
             if !had {
                 device_state.save().ok()?;
             }
@@ -195,11 +268,14 @@ mod native {
 
         fn sync_place(&self) -> Option<Place> {
             let vault_id = self.vault_id()?;
-            let place = DeviceState::load().ok()?.sync_place(&vault_id)?;
+            let device_state = DeviceState::load().ok()?;
+            let place = device_state.sync_place(&vault_id)?;
+            let retired = device_state.retired_ids(&vault_id);
             Some(Place {
                 vault_id,
                 device: self.device_id()?,
                 place,
+                retired,
             })
         }
 
@@ -208,6 +284,9 @@ mod native {
             self.stop_watch();
             self.state.borrow_mut().sync.tags = KnownTags::default();
             self.state.borrow_mut().sync.sizes.clear();
+            self.state.borrow_mut().sync.here = None;
+            self.state.borrow_mut().sync.update_asked_at = None;
+            self.state.borrow_mut().sync.update_put_off = None;
             let Some(place) = self.sync_place() else {
                 self.show_sync();
                 return;
@@ -300,16 +379,36 @@ mod native {
         /// new key in the credential store.
         pub(in crate::controller) fn sync_join(&self) {
             let app = self.app();
-            let (Some(vault_id), Some(device)) = (self.vault_id(), self.device_id()) else {
+            let Some(vault_id) = self.vault_id() else {
                 return;
             };
+            let Some(ids) = JoinIds::for_vault(&vault_id) else {
+                return self.sync_setup_failed("this phone's state can't be written");
+            };
+            // The whole vaultsync: line (scanned or pasted), or the server's address, its pin
+            // and the invite typed apart.
             let typed = app.get_sync_invite_typed().trim().to_owned();
             let link = match InviteLink::parse(&typed) {
-                Some(link) if link.vault == vault_id => link,
+                Some(link) if link.fits(&vault_id) => link,
                 Some(_) => return self.sync_setup_failed("that invite is for another vault"),
+                // Typed apart, only while those fields are open: the WebDAV form shares the
+                // address field.
+                None if app.get_sync_by_hand() && !app.get_sync_address().trim().is_empty() => {
+                    let server = match sync::with_pin(&app.get_sync_address(), &app.get_sync_pin())
+                    {
+                        Ok(server) => server,
+                        Err(err) => return self.sync_setup_failed(&format!("{err:#}")),
+                    };
+                    InviteLink {
+                        server,
+                        vault: vault_id.clone(),
+                        invite: typed.to_ascii_lowercase(),
+                        backup: None,
+                    }
+                }
                 None => {
                     return self.sync_setup_failed(
-                        "paste the whole line that starts with vaultsync:1? from Add a device on your computer",
+                        "paste the whole line that starts with vaultsync:1? (from Add a device on your computer, or from vault-server invite), or type the server's address and the invite",
                     );
                 }
             };
@@ -321,23 +420,21 @@ mod native {
             app.set_sync_detail(SharedString::new());
             let job = {
                 let (vault_id, address) = (vault_id.clone(), address.clone());
-                move || -> Result<Option<String>, String> {
-                    join_or_resume(&address, &vault_id, device, &link.invite, Role::Main)?;
-                    Ok(join_backup(&link, &vault_id, device))
+                move || -> Result<(DeviceId, Option<String>), String> {
+                    let (_, device) = ids.join(&address, &vault_id, &link.invite)?;
+                    Ok((device, join_backup(&link, &vault_id, device)))
                 }
             };
             self.off_thread(job, move |controller, result| {
                 let app = controller.app();
                 app.set_sync_busy(false);
                 match result {
-                    Ok(backup) => {
+                    Ok((device, backup)) => {
                         app.set_sync_invite_typed(SharedString::new());
-                        let mut device_state = DeviceState::load().unwrap_or_default();
-                        device_state.set_sync_to(&vault_id, Some(SyncTo::Server { url: address }));
-                        device_state
-                            .set_sync_backup(&vault_id, backup.map(|url| SyncTo::Server { url }));
-                        if let Err(err) = device_state.save() {
-                            return controller.sync_setup_failed(&format!("{err:#}"));
+                        let main = SyncTo::Server { url: address };
+                        let backup = backup.map(|url| SyncTo::Server { url });
+                        if let Err(why) = joined(&vault_id, device, main, backup) {
+                            return controller.sync_setup_failed(&why);
                         }
                         controller.start_sync();
                     }
@@ -405,7 +502,9 @@ mod native {
         pub(in crate::controller) fn setup_from_server(&self) {
             let app = self.app();
             let typed = app.get_setup_invite().trim().to_owned();
-            let Some(link) = InviteLink::parse(&typed) else {
+            let Some(link) = InviteLink::parse(&typed).filter(|link| !link.vault.is_empty()) else {
+                // A line good for any vault can't say which one to fetch: the one from Add a
+                // device on the computer (or `vault-server invite --vault`) does.
                 return self.set_error(super::super::error::NOT_INVITE, "");
             };
             let address = match sync::check_address(&link.server) {
@@ -414,7 +513,8 @@ mod native {
                     return self.set_error(super::super::error::SYNC_SETUP, &format!("{err:#}"));
                 }
             };
-            let Some(device) = self.device_id() else {
+            let vault_id = link.vault.clone();
+            let Some(ids) = JoinIds::for_vault(&vault_id) else {
                 return self.set_error(
                     super::super::error::SYNC_SETUP,
                     "this phone's state can't be written",
@@ -422,12 +522,10 @@ mod native {
             };
             self.set_error(super::super::error::NONE, "");
             app.set_sync_busy(true);
-            let vault_id = link.vault.clone();
             let job = {
                 let (vault_id, address) = (vault_id.clone(), address.clone());
-                move || -> Result<(Vec<u8>, Option<String>), String> {
-                    let server =
-                        join_or_resume(&address, &vault_id, device, &link.invite, Role::Main)?;
+                move || -> Result<(Vec<u8>, DeviceId, Option<String>), String> {
+                    let (server, device) = ids.join(&address, &vault_id, &link.invite)?;
                     let backup = join_backup(&link, &vault_id, device);
                     let fetched = sync::fetch(&server, device, &Tags::new())
                         .map_err(|err| format!("{err:#}"))?;
@@ -437,7 +535,7 @@ mod native {
                         .copies
                         .into_iter()
                         .max_by_key(|(_, bytes)| bytes.len())
-                        .map(|(_, bytes)| (bytes, backup))
+                        .map(|(_, bytes)| (bytes, device, backup))
                         .ok_or_else(|| {
                             "no device has put the vault on the server yet: press Sync now on the computer first".to_owned()
                         })
@@ -447,14 +545,11 @@ mod native {
                 let app = controller.app();
                 app.set_sync_busy(false);
                 match result {
-                    Ok((bytes, backup)) => {
-                        let mut device_state = DeviceState::load().unwrap_or_default();
-                        device_state.set_sync_to(&vault_id, Some(SyncTo::Server { url: address }));
-                        device_state
-                            .set_sync_backup(&vault_id, backup.map(|url| SyncTo::Server { url }));
-                        if let Err(err) = device_state.save() {
-                            return controller
-                                .set_error(super::super::error::SYNC_SETUP, &format!("{err:#}"));
+                    Ok((bytes, device, backup)) => {
+                        let main = SyncTo::Server { url: address };
+                        let backup = backup.map(|url| SyncTo::Server { url });
+                        if let Err(why) = joined(&vault_id, device, main, backup) {
+                            return controller.set_error(super::super::error::SYNC_SETUP, &why);
                         }
                         app.set_setup_invite(SharedString::new());
                         controller.bring_vault(bytes);
@@ -480,11 +575,7 @@ mod native {
             device_state.set_sync_to(&vault_id, None);
             let _ = device_state.save();
             if let Some(device) = self.device_id() {
-                let _ = secret_store::forget_sync_key(&vault_id, &device.to_hex());
-                let _ = secret_store::forget_sync_key(
-                    &vault_id,
-                    &sync::sync_key_name(device, Role::Backup),
-                );
+                sync::forget_keys(&vault_id, device);
             }
             let _ = secret_store::forget_webdav_password(&vault_id);
             self.app().set_sync_detail(SharedString::new());
@@ -529,23 +620,41 @@ mod native {
             let (round, joined) = {
                 let mut state = self.state.borrow_mut();
                 let vault = state.vault.as_mut().expect("checked above");
-                let joined = sync::join(vault, place.device, DEVICE_NAME).unwrap_or(false);
+                let joined = sync::join(vault, place.device, DEVICE_NAME).unwrap_or(false)
+                    | sync::retire(vault, &place.retired);
                 (
                     sync::merge_reading(vault, &reading, &mut place.place.seen),
                     joined,
                 )
             };
             if round.removed_here {
+                // Removed, not barred: the phone takes a new id for this vault and can join
+                // again with a new invite, as a new device.
                 let mut device_state = DeviceState::load().unwrap_or_default();
-                device_state.set_sync_to(&place.vault_id, None);
+                if device_state.removed_from(&place.vault_id).is_err() {
+                    device_state.set_sync_to(&place.vault_id, None);
+                }
                 let _ = device_state.save();
+                sync::forget_keys(&place.vault_id, place.device);
+                let _ = secret_store::forget_webdav_password(&place.vault_id);
                 self.stop_sync();
-                self.sync_setup_failed("this phone was removed from the vault on another device");
+                self.sync_setup_failed(
+                    "this phone was removed from the vault on another device: to sync it again, join with a new invite",
+                );
                 self.state.borrow_mut().sync.running = false;
                 return;
             }
             {
                 let mut state = self.state.borrow_mut();
+                let listed = reading.tags(&KnownTags::default());
+                state.sync.here = Some(
+                    listed
+                        .main
+                        .keys()
+                        .chain(listed.backup.keys())
+                        .copied()
+                        .collect(),
+                );
                 state.sync.tags = if round.waiting_for_lock() == 0 {
                     reading.tags(&state.sync.tags)
                 } else {
@@ -659,10 +768,47 @@ mod native {
             app.set_sync_state(state::FAILED);
         }
 
+        /// After a round that reached the servers: is there an update? Asked after the first
+        /// round of an unlock, after Sync now, and otherwise at most every [`UPDATE_EVERY`]
+        /// (rounds run every few minutes and after each save).
+        fn ask_for_update_soon(&self) {
+            if self.runs_inline() || !self.system().installs_updates() {
+                return;
+            }
+            let now = unix_now();
+            let due = self
+                .state
+                .borrow()
+                .sync
+                .update_asked_at
+                .is_none_or(|at| now < at || now - at >= UPDATE_EVERY);
+            if !due {
+                return;
+            }
+            self.state.borrow_mut().sync.update_asked_at = Some(now);
+            self.ask_for_update(true);
+        }
+
+        /// Settings → Sync now: a round, and the servers asked for an update after it.
+        pub(in crate::controller) fn sync_now(&self) {
+            self.state.borrow_mut().sync.update_asked_at = None;
+            self.sync_round();
+        }
+
+        /// The update sheet closed with Later: that version isn't offered again until the
+        /// next unlock (Settings → Updates still has it).
+        pub(in crate::controller) fn update_put_off(&self) {
+            let version = self.app().get_update_version().to_string();
+            if !version.is_empty() {
+                self.state.borrow_mut().sync.update_put_off = Some(version);
+            }
+        }
+
         fn sync_finished(&self) {
             self.state.borrow_mut().sync.running = false;
             self.app().set_sync_detail(SharedString::new());
             self.show_sync();
+            self.ask_for_update_soon();
             let again = std::mem::take(&mut self.state.borrow_mut().sync.again);
             if again {
                 self.sync_round();
@@ -728,33 +874,102 @@ mod native {
             });
         }
 
-        /// Settings → Updates: asks the vault server for the phone app's update (what its
+        /// The servers the vault syncs through (main, then backup), by role.
+        fn update_servers(place: &Place) -> Vec<(String, Role)> {
+            let mut servers = Vec::new();
+            if let SyncTo::Server { url } = &place.place.to {
+                servers.push((url.clone(), Role::Main));
+            }
+            if let Some(SyncTo::Server { url }) = &place.place.backup {
+                servers.push((url.clone(), Role::Backup));
+            }
+            servers
+        }
+
+        /// Asks every server the vault syncs through for the phone app's update (off the UI
+        /// thread) and compares the newest one with `installed`. A server that doesn't answer
+        /// is an error only when none answered.
+        fn newest_release(place: &Place, installed: &str) -> Result<Release, String> {
+            let mut newest: Option<(vault_sync_wire::AppRelease, Role)> = None;
+            let mut failed = None;
+            let mut answered = false;
+            for (url, role) in Self::update_servers(place) {
+                let asked = Self::server_for(place, &url, role)
+                    .and_then(|server| server.app_release().map_err(|err| format!("{err:#}")));
+                match asked {
+                    Ok(release) => {
+                        answered = true;
+                        if let Some(release) = release
+                            && newest.as_ref().is_none_or(|(known, _)| {
+                                vault_sync_wire::is_newer(&release.version, &known.version)
+                            })
+                        {
+                            newest = Some((release, role));
+                        }
+                    }
+                    Err(why) => failed = failed.or(Some(why)),
+                }
+            }
+            if !answered {
+                return Err(
+                    failed.unwrap_or_else(|| "this vault doesn't sync through a server".into())
+                );
+            }
+            Ok(match newest {
+                Some((release, role)) if vault_sync_wire::is_newer(&release.version, installed) => {
+                    Release::Newer(release.version, role)
+                }
+                Some((release, _)) => Release::Newest(release.version),
+                None => Release::Nothing,
+            })
+        }
+
+        /// Settings → Updates: asks the vault servers for the phone app's update (what their
         /// owner put there with `vault-server publish-app`).
         pub(in crate::controller) fn check_update(&self) {
+            self.ask_for_update(false);
+        }
+
+        /// Asks for an update; `quietly` (after the first round since unlock) only a newer
+        /// version is told, and nothing that went wrong.
+        fn ask_for_update(&self, quietly: bool) {
             let Some(place) = self.sync_place() else {
                 return;
             };
-            let SyncTo::Server { url } = place.place.to.clone() else {
+            if Self::update_servers(&place).is_empty() {
                 return;
-            };
+            }
             let installed = self.app().get_app_version().to_string();
-            self.app().set_update_state(update::ASKING);
-            let job = move || -> Result<Option<String>, String> {
-                let release = Self::server_for(&place, &url, Role::Main)?
-                    .app_release()
-                    .map_err(|err| format!("{err:#}"))?;
-                Ok(release
-                    .filter(|r| vault_sync_wire::is_newer(&r.version, &installed))
-                    .map(|r| r.version))
-            };
-            self.off_thread(job, |controller, result| {
+            if !quietly {
+                self.app().set_update_state(update::ASKING);
+            }
+            let job = move || Self::newest_release(&place, &installed);
+            self.off_thread(job, move |controller, result| {
                 let app = controller.app();
                 match result {
-                    Ok(Some(version)) => {
-                        app.set_update_version(version.into());
+                    Ok(Release::Newer(version, _)) => {
+                        app.set_update_version(version.as_str().into());
                         app.set_update_state(update::WAITING);
+                        let put_off = controller.state.borrow().sync.update_put_off.as_deref()
+                            == Some(version.as_str());
+                        if quietly && !put_off {
+                            // Asked in a sheet over the open vault; while another sheet is
+                            // up (a password being typed), a notice says it instead.
+                            if app.get_screen() == crate::ui::Screen::Vault
+                                && app.get_confirming() == 0
+                            {
+                                app.invoke_ask(super::super::sheet::UPDATE);
+                            } else {
+                                controller.notify(super::super::notice::UPDATE_READY, &version);
+                            }
+                        }
                     }
-                    Ok(None) => app.set_update_state(update::NEWEST),
+                    _ if quietly => {}
+                    Ok(Release::Newest(version)) => {
+                        app.set_update_version(version.into());
+                        app.set_update_state(update::NEWEST);
+                    }
+                    Ok(Release::Nothing) => app.set_update_state(update::NONE_PUBLISHED),
                     Err(why) => {
                         controller.set_error(error::UPDATE, &why);
                         app.set_update_state(update::FAILED);
@@ -763,20 +978,24 @@ mod native {
             });
         }
 
-        /// "Install version …": the package is fetched, checked against its release (size and
-        /// SHA-256) and handed to Android's installer, which asks the person and installs it
-        /// only if it is signed like the app already here.
+        /// "Install version …": the package is fetched from the server that has it, checked
+        /// against its release (size and SHA-256) and handed to Android's installer, which
+        /// asks the person and installs it only if it is signed like the app already here.
         pub(in crate::controller) fn install_update(&self) {
             let Some(place) = self.sync_place() else {
-                return;
-            };
-            let SyncTo::Server { url } = place.place.to.clone() else {
                 return;
             };
             let installed = self.app().get_app_version().to_string();
             self.app().set_update_state(update::FETCHING);
             let job = move || -> Result<Vec<u8>, String> {
-                let server = Self::server_for(&place, &url, Role::Main)?;
+                let Release::Newer(_, role) = Self::newest_release(&place, &installed)? else {
+                    return Err("the server has no newer version any more".into());
+                };
+                let (url, _) = Self::update_servers(&place)
+                    .into_iter()
+                    .find(|(_, r)| *r == role)
+                    .ok_or("the server has no newer version any more")?;
+                let server = Self::server_for(&place, &url, role)?;
                 let release = server
                     .app_release()
                     .map_err(|err| format!("{err:#}"))?
@@ -879,7 +1098,7 @@ mod native {
             };
             let typed = app.get_sync_backup_invite().trim().to_owned();
             let (address, invite) = match InviteLink::parse(&typed) {
-                Some(link) if link.vault != vault_id => {
+                Some(link) if !link.fits(&vault_id) => {
                     return self.sync_setup_failed("that invite is for another vault");
                 }
                 Some(link) => (link.server, link.invite),
@@ -902,7 +1121,17 @@ mod native {
             let job = {
                 let (vault_id, address) = (vault_id.clone(), address.clone());
                 move || -> Result<(), String> {
-                    join_or_resume(&address, &vault_id, device, &invite, Role::Backup).map(|_| ())
+                    sync::join_server(
+                        &address,
+                        &vault_id,
+                        &[],
+                        device,
+                        DEVICE_NAME,
+                        &invite,
+                        Role::Backup,
+                    )
+                    .map(|_| ())
+                    .map_err(|err| format!("{err:#}"))
                 }
             };
             self.off_thread(job, move |controller, result| {
@@ -976,12 +1205,14 @@ mod native {
             self.notify(super::super::notice::DEVICE_REMOVED, &name);
             if let Some(place) = self.sync_place() {
                 let job = move || {
-                    sync::open_target(&place.vault_id, place.device, &place.place.to)
-                        .and_then(|target| target.remove(id))
-                        .map_err(|err| format!("{err:#}"))
+                    let backup = place.place.backup.as_ref().map(|to| (to, Role::Backup));
+                    for (to, role) in std::iter::once((&place.place.to, Role::Main)).chain(backup) {
+                        let _ = sync::open_target_as(&place.vault_id, place.device, to, role)
+                            .and_then(|target| target.remove(id));
+                    }
                 };
                 // A copy left behind is refused anyway: nothing to say if it couldn't go.
-                self.off_thread(job, |_, _| {});
+                self.off_thread(job, |_, ()| {});
             }
             self.show_sync();
         }
@@ -998,12 +1229,16 @@ mod native {
                 let mut devices: Vec<_> = vault.sync_devices().to_vec();
                 // This phone first, then the others as they joined.
                 devices.sort_by_key(|d| (d.id != own, d.added_at));
+                let here = state.sync.here.as_ref();
                 let rows: Vec<DeviceRow> = devices
                     .iter()
                     .map(|d| DeviceRow {
                         name: d.name.as_str().into(),
                         added: view::date(d.added_at).into(),
                         own: d.id == own,
+                        // Listed in the vault, but without a copy where it syncs now: it
+                        // synced through another place, or hasn't joined this one yet.
+                        away: d.id != own && here.is_some_and(|here| !here.contains(&d.id)),
                     })
                     .collect();
                 (rows, devices.iter().map(|d| d.id).collect(), own)
@@ -1108,6 +1343,9 @@ mod native {
         }
         slint::Image::from_rgb8(buffer)
     }
+
+    /// How often the servers are asked for an update between rounds (seconds).
+    const UPDATE_EVERY: i64 = 10 * 60;
 
     fn unix_now() -> i64 {
         std::time::SystemTime::now()

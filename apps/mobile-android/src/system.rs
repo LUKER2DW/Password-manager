@@ -107,6 +107,14 @@ impl System for AndroidSystem {
         });
     }
 
+    fn utc_offset_minutes(&self) -> i32 {
+        with_activity(|env, activity| {
+            env.call_method(activity, "utcOffsetMinutes", "()I", &[])?
+                .i()
+        })
+        .unwrap_or(0)
+    }
+
     fn autofill(&self) -> Option<bool> {
         let state = with_activity(|env, activity| {
             env.call_method(activity, "autofillState", "()I", &[])?.i()

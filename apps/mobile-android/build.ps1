@@ -45,11 +45,15 @@ try {
     cargo build -p vault-mobile-android --profile $cargoProfile --target $Target
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 
-    # Where build.gradle takes the native library from (jniLibs), one folder per ABI.
+    # Where build.gradle takes the native library from (jniLibs), one folder per ABI. The copy
+    # loses its symbol table (about a third of the file; the phone never shows a backtrace),
+    # which cargo's own output keeps for the next incremental build.
     $libs = "target/android-libs"
     Remove-Item -Recurse -Force $libs -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force "$libs/$abi" | Out-Null
-    Copy-Item "target/android/$Target/$cargoProfile/libvault_mobile_android.so" "$libs/$abi/"
+    & "$bin\llvm-strip.exe" --strip-all -o "$libs/$abi/libvault_mobile_android.so" `
+        "target/android/$Target/$cargoProfile/libvault_mobile_android.so"
+    if ($LASTEXITCODE -ne 0) { throw "llvm-strip failed" }
 
     Push-Location apps/mobile-android
     try {

@@ -150,6 +150,7 @@ impl Controller {
     pub(super) fn publish_generated(&self) {
         let app = self.app();
         let shown = app.get_gen_history_shown();
+        let offset = self.system().utc_offset_minutes();
         let rows: Vec<GenRow> = self
             .shown_generated()
             .iter()
@@ -159,7 +160,7 @@ impl Controller {
                 } else {
                     "•".repeat(entry.password.chars().count().min(24)).into()
                 },
-                when: view::date(entry.at).into(),
+                when: view::date_time(entry.at, offset).into(),
             })
             .collect();
         app.set_gen_history(ModelRc::new(VecModel::from(rows)));

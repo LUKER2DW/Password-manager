@@ -6,7 +6,7 @@
 use slint::{ModelRc, VecModel};
 use vault_core::{ItemId, health};
 
-use super::{Controller, initial, tint};
+use super::{Controller, icons, initial, tint};
 use crate::{
     ui::{HealthRow, Page},
     view,
@@ -34,7 +34,7 @@ impl Controller {
     fn health_ready(&self, report: health::HealthReport) {
         let app = self.app();
         let now = view::now_unix();
-        let (rows, ids, counts) = {
+        let (rows, counts) = {
             let state = self.state.borrow();
             let Some(vault) = state.vault.as_ref() else {
                 return;
@@ -56,6 +56,7 @@ impl Controller {
                 };
                 let url = item.urls.first().cloned().unwrap_or_default();
                 let (icon, has_icon) = self.picture(&url, &item.icon_url);
+                let (glyph, glyph_color, glyph_bg) = icons::look_of(&item.icon_url);
                 // The worst first: leaked, weak, reused, then old.
                 let rank = if is_leaked {
                     0
@@ -70,6 +71,7 @@ impl Controller {
                     rank,
                     HealthRow {
                         title: item.title.as_str().into(),
+                        username: item.username.as_str().into(),
                         leaked: is_leaked,
                         weak: is_weak,
                         reused: i32::try_from(login.reused_by).unwrap_or(i32::MAX),
@@ -82,6 +84,9 @@ impl Controller {
                         has_icon,
                         initial: initial(&item.title),
                         tint: tint(item.kind, if url.is_empty() { &item.title } else { &url }),
+                        glyph,
+                        glyph_color,
+                        glyph_bg,
                     },
                     login.id,
                 ));
@@ -90,9 +95,9 @@ impl Controller {
                 a.0.cmp(&b.0)
                     .then_with(|| a.1.title.to_lowercase().cmp(&b.1.title.to_lowercase()))
             });
-            let ids: Vec<ItemId> = found.iter().map(|(_, _, id)| *id).collect();
-            let rows: Vec<HealthRow> = found.into_iter().map(|(_, row, _)| row).collect();
-            (rows, ids, (weak, reused, old, leaked, report.logins.len()))
+            let rows: Vec<(HealthRow, ItemId)> =
+                found.into_iter().map(|(_, row, id)| (row, id)).collect();
+            (rows, (weak, reused, old, leaked, report.logins.len()))
         };
         let (weak, reused, old, leaked, logins) = counts;
         let problems = i32::try_from(rows.len()).unwrap_or(i32::MAX);
@@ -103,6 +108,35 @@ impl Controller {
         app.set_health_reused(reused);
         app.set_health_old(old);
         app.set_health_leaked(leaked);
+        self.state.borrow_mut().health_all = rows;
+        self.show_health_rows();
+    }
+
+    /// The health page's list: every login that needs a look, or (a count tapped) only those
+    /// with that problem: 0 leaked, 1 weak, 2 reused, 3 old.
+    pub(super) fn show_health_rows(&self) {
+        let app = self.app();
+        let filter = app.get_health_filter();
+        let (rows, ids): (Vec<HealthRow>, Vec<ItemId>) = {
+            let state = self.state.borrow();
+            state
+                .health_all
+                .iter()
+                .filter(|(row, _)| match filter {
+                    0 => row.leaked,
+                    1 => row.weak,
+                    2 => row.reused > 0,
+                    3 => row.old_years > 0,
+                    _ => true,
+                })
+                .map(|(row, id)| (row.clone(), *id))
+                .unzip()
+        };
+        // A filter that matches nothing any more (all fixed) shows everything again.
+        if rows.is_empty() && filter >= 0 && !self.state.borrow().health_all.is_empty() {
+            app.set_health_filter(-1);
+            return self.show_health_rows();
+        }
         app.set_health_rows(ModelRc::new(VecModel::from(rows)));
         self.state.borrow_mut().health_ids = ids;
     }

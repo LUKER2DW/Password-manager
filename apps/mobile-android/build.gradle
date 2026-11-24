@@ -52,6 +52,14 @@ android {
         }
     }
 
+    // The Rust library is compressed in the APK (about half its size), as cargo-apk did: an
+    // APK to send and install is a third of the size. Android unpacks it once at install.
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11

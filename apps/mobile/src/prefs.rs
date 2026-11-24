@@ -37,6 +37,9 @@ pub struct Prefs {
     /// The leak watch: every login's password checked once a day while the vault is open (it
     /// uses the network on its own, so it is off until turned on).
     pub leak_watch: bool,
+    /// The order the person gave the Codes page, per vault (its id): item ids (hex), first
+    /// to last. Codes not listed come after them, by title. Kept on this phone only.
+    pub code_order: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 /// A vault this phone keeps: its file (a bare name, next to `settings.json`) and the name it
@@ -83,6 +86,7 @@ impl Default for Prefs {
             vaults: Vec::new(),
             current: String::new(),
             leak_watch: false,
+            code_order: std::collections::BTreeMap::new(),
         }
     }
 }

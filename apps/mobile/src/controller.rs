@@ -59,9 +59,16 @@ mod field {
     pub const IMPORT_PASSWORD: usize = 8;
     /// Settings → Import and export: the password a protected export is sealed with.
     pub const EXPORT_PASSWORD: usize = 9;
-    /// Settings → Import and export: the master password, asked again before any export.
+    /// The master password, asked again before an export or a sensitive change (removing the
+    /// vault from the phone, stopping sync, removing or adding a device, the backup server).
     pub const EXPORT_MASTER: usize = 10;
-    pub const COUNT: usize = 11;
+    /// The passphrase of an SSH key brought into the editor, used once to open it.
+    pub const SSH_PASSPHRASE: usize = 11;
+    /// Recovery with the emergency kit: the parts, typed or scanned (any order).
+    pub const PART_A: usize = 12;
+    pub const PART_B: usize = 13;
+    pub const PART_C: usize = 14;
+    pub const COUNT: usize = 15;
 }
 
 /// The shortest master password the phone sets (the desktop's rule).
@@ -112,15 +119,37 @@ mod error {
     pub const EXPORT: i32 = 31;
     /// Some items are behind the item lock: an export would leave their secrets out.
     pub const EXPORT_LOCKED: i32 = 32;
+    /// SSH keys: a public key brought in instead of the private one; a form of key not read
+    /// here; a passphrase that doesn't open the key.
+    pub const KEY_PUBLIC_ONLY: i32 = 33;
+    pub const KEY_UNSUPPORTED: i32 = 34;
+    pub const KEY_PASSPHRASE: i32 = 35;
+    /// Recovery: a part with a typo; the same part twice; parts of another vault or an older
+    /// kit; a vault without recovery parts.
+    pub const PART_TYPO: i32 = 36;
+    pub const PARTS_SAME: i32 = 37;
+    pub const PARTS_WRONG: i32 = 38;
+    pub const NO_PARTS: i32 = 39;
+    /// Recovery: the picture chosen holds no recovery part (or not the exact pixels any more).
+    pub const PART_PICTURE: i32 = 40;
 }
 
 /// The sheets that ask for a password (app.slint `ask`, `confirming`).
 mod sheet {
+    /// The sensitive changes the master password confirms (`check_master_then`).
+    pub const REMOVE_VAULT: i32 = 1;
+    pub const STOP_SYNC: i32 = 2;
+    pub const REMOVE_DEVICE: i32 = 3;
+    pub const REMOVE_BACKUP: i32 = 4;
     pub const EXPORT_JSON: i32 = 6;
     pub const EXPORT_CSV: i32 = 8;
     pub const IMPORT: i32 = 11;
     pub const MASTER_PASSWORD: i32 = 12;
     pub const ITEM_CHECK: i32 = 13;
+    pub const ADD_DEVICE: i32 = 16;
+    pub const SSH_PASSPHRASE: i32 = 17;
+    /// A newer version of the app on the vault's server: Install, or Later.
+    pub const UPDATE: i32 = 18;
 }
 
 /// Where the line of a scanned QR code goes (the screens' `scan-invite` purpose).
@@ -131,6 +160,10 @@ pub mod scan {
     pub const JOIN: i32 = 1;
     /// The editor: a one-time code's setup key (an otpauth:// link).
     pub const OTP: i32 = 2;
+    /// Recovery: a recovery part from the emergency kit (into the first empty field).
+    pub const PART: i32 = 3;
+    /// Unlock: the Secret Key from the emergency kit.
+    pub const SECRET_KEY: i32 = 4;
 }
 
 /// The editor's kinds (`ed-kind`), the desktop's: an authenticator item is a login kept for
@@ -182,6 +215,8 @@ mod notice {
     pub const DROPPED: i32 = 20;
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub const LEAKS_NEW: i32 = 21;
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const UPDATE_READY: i32 = 22;
 }
 
 /// How long a copied secret may stay on the clipboard (Settings), in seconds.
@@ -210,6 +245,31 @@ fn stand_ins(text: &str) -> String {
             }
         })
         .collect()
+}
+
+/// One edit of a secret field's input (the system keyboard) put into its buffer. The input
+/// held a stand-in for each character of the buffer and now holds `text`, with the cursor at
+/// byte `cursor`. The stand-ins missing were deleted where the edit happened, and what isn't a
+/// stand-in was typed (or pasted) there: where the first such character is, or, when something
+/// was only deleted, where the cursor is now. Returns where the cursor is, in characters.
+fn system_edit(buffer: &mut SecretBuffer, text: &str, cursor: usize) -> usize {
+    let kept = text.chars().filter(|c| is_stand_in(*c)).count();
+    let removed = buffer.char_count().saturating_sub(kept);
+    let at = match text.chars().position(SecretBuffer::takes) {
+        Some(first) => text.chars().take(first).filter(|c| is_stand_in(*c)).count(),
+        None => text
+            .char_indices()
+            .take_while(|(at, _)| *at < cursor)
+            .filter(|(_, c)| is_stand_in(*c))
+            .count(),
+    };
+    buffer.remove(at, removed);
+    let typed = Zeroizing::new(
+        text.chars()
+            .filter(|c| SecretBuffer::takes(*c))
+            .collect::<String>(),
+    );
+    at + buffer.insert_str(at, &typed)
 }
 const NOTICE_FOR: Duration = Duration::from_secs(3);
 const LOCK_CHOICES: [Duration; 3] = [
@@ -355,6 +415,8 @@ struct State {
     /// SHA-256 of the vault file as last read or written here.
     file_hash: Option<[u8; 32]>,
     secrets: [SecretBuffer; field::COUNT],
+    /// Where each field's cursor is, in characters (`Secrets.carets`).
+    carets: [usize; field::COUNT],
     /// The fields whose eye is open (their text is on screen while it is).
     showing: [bool; field::COUNT],
     /// The items behind the list's rows and the Codes rows, in order.
@@ -383,6 +445,8 @@ struct State {
     /// The editor's files and SSH private key (attachments.rs), never in a Slint string.
     editor_files: Vec<vault_core::Attachment>,
     editor_ssh: Option<Zeroizing<String>>,
+    /// An SSH key brought in that waits for its passphrase (the sheet, `ask(17)`).
+    ssh_pending: Option<Zeroizing<String>>,
     /// SHA-256 of a file handed out to be saved, until it is read back.
     file_expected: Option<[u8; 32]>,
     /// While another vault is being added: the one to go back to.
@@ -401,6 +465,8 @@ struct State {
     watch_looked: Option<Instant>,
     /// The logins on the health page, in order.
     health_ids: Vec<ItemId>,
+    /// Every login the health page lists, before its filter.
+    health_all: Vec<(crate::ui::HealthRow, ItemId)>,
     /// The vault's folders on screen, in order.
     folder_ids: Vec<vault_core::FolderId>,
     /// An export made and waiting for the shell to save it (its name and bytes).
@@ -474,6 +540,7 @@ impl Controller {
                 secret_key: None,
                 file_hash: None,
                 secrets: std::array::from_fn(|_| SecretBuffer::new()),
+                carets: [0; field::COUNT],
                 showing: [false; field::COUNT],
                 shown: Vec::new(),
                 code_ids: Vec::new(),
@@ -491,6 +558,7 @@ impl Controller {
                 backup_expected: None,
                 editor_files: Vec::new(),
                 editor_ssh: None,
+                ssh_pending: None,
                 file_expected: None,
                 previous: None,
                 bio: settings::BioPending::None,
@@ -500,6 +568,7 @@ impl Controller {
                 leaked: std::collections::HashSet::new(),
                 watch_looked: None,
                 health_ids: Vec::new(),
+                health_all: Vec::new(),
                 folder_ids: Vec::new(),
                 export_pending: None,
                 import_pending: None,
@@ -567,11 +636,16 @@ impl Controller {
             c.show_entry();
         });
         on!(on_unlock, |c| c.unlock());
+        on!(on_start_recovery, |c, mode| c.start_recovery(mode));
+        on!(on_cancel_recovery, |c| c.show_entry());
+        on!(on_recover, |c| c.recover());
+        on!(on_recovered_done, |c| c.recovered_done());
+        on!(on_copy_recovered_key, |c| c.copy_recovered_key());
         on!(on_sync_join, |c| c.sync_join());
         on!(on_setup_from_server, |c| c.setup_from_server());
         on!(on_scan_invite, |c, purpose| c.scan_invite(purpose));
         on!(on_sync_use_webdav, |c| c.sync_use_webdav());
-        on!(on_sync_now, |c| c.sync_round());
+        on!(on_sync_now, |c| c.sync_now());
         on!(on_sync_stop, |c| c.sync_stop());
         on!(on_search_changed, |c, _text| c.refresh_list());
         on!(on_filter_changed, |c, _index| c.refresh_list());
@@ -613,6 +687,8 @@ impl Controller {
         on!(on_cancel_edit, |c| c.close_editor());
         on!(on_delete_item, |c| c.delete_item());
         on!(on_copy_code, |c, index| c.copy_code(index));
+        on!(on_move_code, |c, from, to| c.move_code(from, to));
+        on!(on_ed_website_changed, |c| c.editor_site_icon());
         on!(on_gen_changed, |c| c.generate());
         on!(on_gen_copy, |c| c.copy_generated());
         on!(on_theme_changed, |c, dark| {
@@ -680,11 +756,16 @@ impl Controller {
         on!(on_change_password, |c| c.change_password());
         on!(on_health_opened, |c| c.refresh_health());
         on!(on_health_open, |c, index| c.health_open(index));
+        on!(on_health_filtered, |c, _which| c.show_health_rows());
         on!(on_folder_edit, |c, index| c.folder_edit(index));
         on!(on_folder_save, |c| c.folder_save());
         on!(on_folder_delete, |c| c.folder_delete());
-        on!(on_vault_icon_changed, |c, name| c.vault_icon_changed(&name));
+        on!(on_vault_icon_changed, |c, name, color, background| c
+            .vault_icon_changed(&name, color, background));
+        on!(on_vault_rename, |c| c.vault_rename());
         on!(on_export_vault, |c, format| c.export_vault(format));
+        on!(on_check_master, |c, kind| c.check_master_then(kind));
+        on!(on_ssh_passphrase, |c| c.ssh_passphrase());
         on!(on_toggle_card, |c| {
             let shown = !c.state.borrow().show_card;
             c.state.borrow_mut().show_card = shown;
@@ -732,16 +813,50 @@ impl Controller {
         let weak = Rc::downgrade(self);
         secrets.on_insert(move |id, text| {
             if let Some(c) = weak.upgrade() {
-                c.with_secret(id, |buffer| {
-                    buffer.push_str(&text);
+                c.with_secret_at(id, |buffer, caret| {
+                    *caret += buffer.insert_str(*caret, &text);
                 });
             }
         });
         let weak = Rc::downgrade(self);
         secrets.on_backspace(move |id| {
             if let Some(c) = weak.upgrade() {
-                c.with_secret(id, SecretBuffer::backspace);
+                c.with_secret_at(id, |buffer, caret| {
+                    if *caret > 0 {
+                        buffer.remove(*caret - 1, 1);
+                        *caret -= 1;
+                    }
+                });
             }
+        });
+        let weak = Rc::downgrade(self);
+        secrets.on_delete(move |id| {
+            if let Some(c) = weak.upgrade() {
+                c.with_secret_at(id, |buffer, caret| buffer.remove(*caret, 1));
+            }
+        });
+        let weak = Rc::downgrade(self);
+        secrets.on_move_caret(move |id, to| {
+            if let Some(c) = weak.upgrade() {
+                c.with_secret_at(id, |buffer, caret| {
+                    *caret = usize::try_from(to).unwrap_or(0).min(buffer.char_count());
+                });
+            }
+        });
+        // Offsets in a field's input (stand-ins, bytes) and character counts.
+        secrets.on_char_at(|text, byte| {
+            let byte = usize::try_from(byte).unwrap_or(0);
+            i32::try_from(text.char_indices().take_while(|(at, _)| *at < byte).count())
+                .unwrap_or(i32::MAX)
+        });
+        secrets.on_byte_at(|text, index| {
+            let index = usize::try_from(index).unwrap_or(0);
+            i32::try_from(
+                text.char_indices()
+                    .nth(index)
+                    .map_or(text.len(), |(at, _)| at),
+            )
+            .unwrap_or(i32::MAX)
         });
         let weak = Rc::downgrade(self);
         secrets.on_toggle_shown(move |id| {
@@ -761,22 +876,17 @@ impl Controller {
                 c.with_secret(id, SecretBuffer::clear);
             }
         });
-        // The system keyboard (Android): each edit of the hidden input, whose cursor stays at
-        // the end. Stand-ins are what the field already holds; fewer of them is that many
-        // deleted, anything else is what was typed (or pasted). The input gets stand-ins back
-        // at once, laid out like what came in.
+        // The system keyboard (Android): each edit of the field's input, with where its cursor
+        // is now. The input gets stand-ins back at once, laid out like what came in, so the
+        // cursor stays where it is.
         let weak = Rc::downgrade(self);
-        secrets.on_typed(move |id, text| {
+        secrets.on_typed(move |id, text, cursor| {
             let Some(c) = weak.upgrade() else {
                 return SharedString::new();
             };
-            let kept = text.chars().filter(|ch| is_stand_in(*ch)).count();
-            c.with_secret(id, |buffer| {
-                for _ in kept..buffer.char_count() {
-                    buffer.backspace();
-                }
-                // The buffer skips the stand-ins.
-                buffer.push_str(&text);
+            let cursor = usize::try_from(cursor).unwrap_or(0);
+            c.with_secret_at(id, |buffer, caret| {
+                *caret = system_edit(buffer, &text, cursor);
             });
             SharedString::from(stand_ins(&text).as_str())
         });
@@ -794,11 +904,12 @@ impl Controller {
                 };
                 let line = pasted.lines().next().unwrap_or_default().to_owned();
                 let line = Zeroizing::new(line);
-                c.with_secret(id, |buffer| {
+                c.with_secret_at(id, |buffer, caret| {
                     if replace {
                         buffer.clear();
+                        *caret = 0;
                     }
-                    buffer.push_str(&line);
+                    *caret += buffer.insert_str(*caret, &line);
                 });
             }
         });
@@ -824,14 +935,27 @@ impl Controller {
 
     // ---- secure fields ----
 
+    /// Changes a secret field's text as a whole (cleared, generated); the cursor goes to its
+    /// end.
     fn with_secret(&self, id: i32, change: impl FnOnce(&mut SecretBuffer)) {
+        self.with_secret_at(id, |buffer, caret| {
+            change(buffer);
+            *caret = buffer.char_count();
+        });
+    }
+
+    /// Changes a secret field's text where its cursor is (`caret`, in characters, moved by
+    /// `change` as needed).
+    fn with_secret_at(&self, id: i32, change: impl FnOnce(&mut SecretBuffer, &mut usize)) {
         let Some(index) = usize::try_from(id).ok().filter(|i| *i < field::COUNT) else {
             return;
         };
         {
             let mut state = self.state.borrow_mut();
             state.last_touch = Instant::now();
-            change(&mut state.secrets[index]);
+            let state = &mut *state;
+            change(&mut state.secrets[index], &mut state.carets[index]);
+            state.carets[index] = state.carets[index].min(state.secrets[index].char_count());
         }
         // A password typed over a shown one is no longer the one on screen.
         if index == field::ITEM_PASSWORD && !self.app().get_ed_password().is_empty() {
@@ -859,10 +983,30 @@ impl Controller {
         // The UI learns how many characters each field holds, nothing more; and the text only
         // of a field whose eye the person opened.
         let mut lengths = vec![0i32; 15];
+        let mut carets = vec![0i32; 15];
+        // The editor's password shows through its own eye (`ed-password`).
+        let editor_shown = !self.app().get_ed_password().is_empty();
         let state = self.state.borrow();
         for (slot, buffer) in lengths.iter_mut().zip(&state.secrets) {
             *slot = i32::try_from(buffer.char_count()).unwrap_or(i32::MAX);
         }
+        for (slot, caret) in carets.iter_mut().zip(&state.carets) {
+            *slot = i32::try_from(*caret).unwrap_or(i32::MAX);
+        }
+        let chars: Vec<ModelRc<SharedString>> = (0..field::COUNT)
+            .map(|index| {
+                if state.showing[index] || (index == field::ITEM_PASSWORD && editor_shown) {
+                    let chars: Vec<SharedString> = state.secrets[index]
+                        .as_str()
+                        .chars()
+                        .map(|c| SharedString::from(&*c.encode_utf8(&mut [0; 4])))
+                        .collect();
+                    ModelRc::new(VecModel::from(chars))
+                } else {
+                    ModelRc::default()
+                }
+            })
+            .collect();
         let shown: Vec<SharedString> = state
             .secrets
             .iter()
@@ -895,9 +1039,11 @@ impl Controller {
         let app = self.app();
         let secrets = app.global::<Secrets>();
         secrets.set_lengths(ModelRc::new(VecModel::from(lengths)));
+        secrets.set_carets(ModelRc::new(VecModel::from(carets)));
         secrets.set_showing(ModelRc::new(VecModel::from(showing)));
         secrets.set_shown(ModelRc::new(VecModel::from(shown)));
         secrets.set_shown_cells(ModelRc::new(VecModel::from(cells)));
+        secrets.set_shown_chars(ModelRc::new(VecModel::from(chars)));
     }
 
     fn clear_secrets(&self) {
@@ -906,6 +1052,7 @@ impl Controller {
             for buffer in &mut state.secrets {
                 buffer.clear();
             }
+            state.carets = [0; field::COUNT];
             state.showing = [false; field::COUNT];
         }
         self.publish_lengths();
@@ -1167,6 +1314,231 @@ impl Controller {
         );
     }
 
+    // ---- recovery with the emergency kit ----
+
+    /// "Forgot your master password?" (`mode` 0) or "No Secret Key? Use two recovery parts"
+    /// (1), from the unlock screen.
+    fn start_recovery(&self, mode: i32) {
+        self.clear_secrets();
+        self.set_error(error::NONE, "");
+        let app = self.app();
+        app.set_recover_mode(mode);
+        app.set_recovered_key(SharedString::new());
+        app.set_screen(Screen::Recover);
+    }
+
+    /// The recovery parts typed (or scanned) into `fields`, each a different one.
+    fn typed_parts<const N: usize>(
+        &self,
+        fields: [usize; N],
+    ) -> Result<[vault_core::RecoveryPart; N], i32> {
+        let mut parts: Vec<vault_core::RecoveryPart> = Vec::with_capacity(N);
+        for index in fields {
+            let part = vault_core::RecoveryPart::parse(self.secret(index).trim())
+                .map_err(|_| error::PART_TYPO)?;
+            if parts.iter().any(|other| other.label() == part.label()) {
+                return Err(error::PARTS_SAME);
+            }
+            parts.push(part);
+        }
+        parts.try_into().map_err(|_| error::PART_TYPO)
+    }
+
+    /// Recovery. With two parts the Secret Key comes back (no password hashing) and the
+    /// master password opens the vault as usual. With three, a new master password is set
+    /// and a new Secret Key made (the old one may be what was lost or seen); the parts used
+    /// stop working, fingerprint unlock goes, and the new Secret Key is shown before the
+    /// vault opens.
+    fn recover(&self) {
+        let app = self.app();
+        if app.get_busy() {
+            return;
+        }
+        self.set_error(error::NONE, "");
+        let (incoming, path) = {
+            let state = self.state.borrow();
+            (state.incoming.clone(), state.path.clone())
+        };
+        let bytes = match incoming.map_or_else(|| files::read(&path), Ok) {
+            Ok(bytes) => bytes,
+            Err(err) => return self.set_error(error::UNREADABLE, &err.to_string()),
+        };
+        let info = match Vault::inspect(&bytes) {
+            Ok(info) => info,
+            Err(err) => return self.set_error(error::UNREADABLE, &err.to_string()),
+        };
+        if !info.has_recovery_parts {
+            return self.set_error(error::NO_PARTS, "");
+        }
+        let wrong_parts = |err: CoreError| match err {
+            CoreError::NoMatchingSlot => error::NO_PARTS,
+            _ => error::PARTS_WRONG,
+        };
+        if app.get_recover_mode() == 1 {
+            let [first, second] = match self.typed_parts([field::PART_A, field::PART_B]) {
+                Ok(parts) => parts,
+                Err(code) => return self.set_error(code, ""),
+            };
+            let secret_key = match Vault::recover_secret_key(&bytes, &first, &second) {
+                Ok(key) => key,
+                Err(err) => return self.set_error(wrong_parts(err), ""),
+            };
+            let password = self.secret(field::MASTER);
+            return self.run(
+                move || {
+                    let vault = Vault::open(
+                        &bytes,
+                        Unlock::Password {
+                            password: &password,
+                            secret_key: &secret_key,
+                        },
+                    );
+                    Opened {
+                        vault,
+                        secret_key,
+                        typed_key: true,
+                        hash: fingerprint(&bytes),
+                        by_password: true,
+                    }
+                },
+                |c, opened| c.opened(opened),
+            );
+        }
+        let parts = match self.typed_parts([field::PART_A, field::PART_B, field::PART_C]) {
+            Ok(parts) => parts,
+            Err(code) => return self.set_error(code, ""),
+        };
+        let password = self.secret(field::NEW);
+        if password.chars().count() < MIN_MASTER_PASSWORD_CHARS {
+            return self.set_error(error::TOO_SHORT, "");
+        }
+        if *password != *self.secret(field::NEW_AGAIN) {
+            return self.set_error(error::MISMATCH, "");
+        }
+        self.run(
+            move || -> Result<(Vault, SecretKey, Vec<u8>), (i32, String)> {
+                let [a, b, c] = &parts;
+                let mut vault =
+                    Vault::open(&bytes, Unlock::Parts([a, b, c])).map_err(|err| match err {
+                        CoreError::NoMatchingSlot => (error::NO_PARTS, String::new()),
+                        CoreError::DecryptionFailed => (error::PARTS_WRONG, String::new()),
+                        other => (error::UNREADABLE, other.to_string()),
+                    })?;
+                let secret_key =
+                    SecretKey::generate().map_err(|e| (error::NOT_SAVED, e.to_string()))?;
+                let kdf = vault.kdf_params().clone();
+                // A keyfile may be what was lost: the new lock is password + Secret Key.
+                vault
+                    .change_password(&password, &secret_key, None, &kdf)
+                    .map_err(|e| (error::NOT_SAVED, e.to_string()))?;
+                // Recovery parts work once.
+                vault.clear_recovery_parts();
+                let written = vault
+                    .to_bytes()
+                    .map_err(|e| (error::NOT_SAVED, e.to_string()))?;
+                Ok((vault, secret_key, written))
+            },
+            |c, result| c.recovered(result),
+        );
+    }
+
+    /// A new master password and Secret Key were set: the file is written, the new key kept
+    /// in the phone's keystore, and the key shown before the vault opens.
+    fn recovered(&self, result: Result<(Vault, SecretKey, Vec<u8>), (i32, String)>) {
+        let (vault, secret_key, bytes) = match result {
+            Ok(done) => done,
+            Err((code, detail)) => return self.set_error(code, &detail),
+        };
+        let path = self.state.borrow().path.clone();
+        let written = path
+            .parent()
+            .map_or(Ok(()), files::create_dir_all)
+            .map_err(|e| e.to_string())
+            .and_then(|()| files::write_atomic(&path, &bytes).map_err(|e| e.to_string()));
+        if let Err(detail) = written {
+            return self.set_error(error::NOT_SAVED, &detail);
+        }
+        // What was chosen is the vault now written; nothing waits any more.
+        self.state.borrow_mut().incoming = None;
+        let id = vault.id_hex();
+        // Fingerprint unlock was bound to the old master password.
+        self.forget_biometrics(&id);
+        let shown = secret_key.to_display_string();
+        self.opened(Opened {
+            vault: Ok(vault),
+            secret_key,
+            typed_key: true,
+            hash: fingerprint(&bytes),
+            by_password: true,
+        });
+        if self.state.borrow().vault.is_some() {
+            let app = self.app();
+            app.set_recovered_key(SharedString::from(shown.as_str()));
+            app.set_screen(Screen::Recover);
+        }
+    }
+
+    /// "Open my vault" under the new Secret Key: it leaves the screen.
+    fn recovered_done(&self) {
+        let app = self.app();
+        app.set_recovered_key(SharedString::new());
+        if self.state.borrow().vault.is_some() {
+            app.set_screen(Screen::Vault);
+        } else {
+            self.show_entry();
+        }
+    }
+
+    fn copy_recovered_key(&self) {
+        let key = self.app().get_recovered_key();
+        if !key.is_empty() {
+            self.copy_secret(&key, notice::COPIED);
+        }
+    }
+
+    /// A part or the Secret Key scanned from the kit's QR code goes straight into its secure
+    /// field (never through the screen's text).
+    pub(super) fn kit_code_scanned(&self, purpose: i32, text: &str) {
+        let index = if purpose == scan::SECRET_KEY {
+            field::SECRET_KEY
+        } else {
+            let state = self.state.borrow();
+            let count = if self.app().get_recover_mode() == 0 {
+                3
+            } else {
+                2
+            };
+            let empty = [field::PART_A, field::PART_B, field::PART_C]
+                .into_iter()
+                .take(count)
+                .find(|index| state.secrets[*index].char_count() == 0);
+            match empty {
+                Some(index) => index,
+                None => field::PART_A,
+            }
+        };
+        let value = text.trim();
+        self.with_secret(i32::try_from(index).unwrap_or(-1), |buffer| {
+            buffer.set(value);
+        });
+        self.set_error(error::NONE, "");
+    }
+
+    /// A picture chosen on the recovery screen: the part hidden in it goes into the first
+    /// empty field, as a scanned one does. The part never becomes a Slint string.
+    pub(super) fn part_picture_picked(&self, bytes: &[u8]) {
+        #[cfg(not(target_arch = "wasm32"))]
+        match vault_platform::part_picture::read(bytes) {
+            Ok(part) => self.kit_code_scanned(scan::PART, &part.to_display_string()),
+            Err(err) => self.set_error(error::PART_PICTURE, &format!("{err:#}")),
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = bytes;
+            self.set_error(error::PART_PICTURE, "not in a browser");
+        }
+    }
+
     fn opened(&self, opened: Opened) {
         let vault = match opened.vault {
             Ok(vault) => vault,
@@ -1294,6 +1666,8 @@ impl Controller {
             state.secret_key = None;
             state.shown.clear();
             state.code_ids.clear();
+            state.health_ids.clear();
+            state.health_all.clear();
             state.selected = None;
             state.editing = None;
             state.master_checked = false;
@@ -1303,6 +1677,7 @@ impl Controller {
             state.watch_looked = None;
             state.export_pending = None;
             state.import_pending = None;
+            state.ssh_pending = None;
         }
         *self.icons.borrow_mut() = icons::Icons::default();
         let app = self.app();
@@ -1321,6 +1696,8 @@ impl Controller {
         app.set_folder_filter(-1);
         app.set_health_rows(ModelRc::default());
         app.set_health_problems(0);
+        app.set_health_filter(-1);
+        app.set_recovered_key(SharedString::new());
         app.set_confirming(0);
         self.forget_generated_rows();
         self.clear_item_page();
@@ -1379,9 +1756,13 @@ impl Controller {
             sheet::EXPORT_JSON..=sheet::EXPORT_CSV => {
                 &[field::EXPORT_MASTER, field::EXPORT_PASSWORD]
             }
+            sheet::REMOVE_VAULT..=sheet::REMOVE_BACKUP | sheet::ADD_DEVICE => {
+                &[field::EXPORT_MASTER]
+            }
             sheet::IMPORT => &[field::IMPORT_PASSWORD],
             sheet::MASTER_PASSWORD => &[field::CURRENT, field::NEW, field::NEW_AGAIN],
             sheet::ITEM_CHECK => &[field::ITEM_CHECK],
+            sheet::SSH_PASSPHRASE => &[field::SSH_PASSPHRASE],
             _ => &[],
         }
     }
@@ -1410,6 +1791,12 @@ impl Controller {
         if kind == sheet::IMPORT {
             self.state.borrow_mut().import_pending = None;
             self.app().set_import_name(SharedString::new());
+        }
+        if kind == sheet::SSH_PASSPHRASE {
+            self.state.borrow_mut().ssh_pending = None;
+        }
+        if kind == sheet::UPDATE {
+            self.update_put_off();
         }
         self.set_error(error::NONE, "");
     }
@@ -1552,7 +1939,8 @@ impl Controller {
             .map(str::to_owned)
             .collect();
         let filter = app.get_filter();
-        let folder = self.folder_at(app.get_folder_filter());
+        // A folder shows its items and those of the folders inside it.
+        let folders = self.folder_and_inside(app.get_folder_filter());
         let (rows, ids, total) = {
             let state = self.state.borrow();
             let Some(vault) = state.vault.as_ref() else {
@@ -1574,7 +1962,9 @@ impl Controller {
                 };
                 let text = format!("{} {} {}", item.title, item.username, item.url).to_lowercase();
                 if !fits
-                    || folder.is_some_and(|folder| item.folder != Some(folder))
+                    || folders
+                        .as_ref()
+                        .is_some_and(|inside| !item.folder.is_some_and(|f| inside.contains(&f)))
                     || !words.iter().all(|word| text.contains(word))
                 {
                     continue;
@@ -1585,9 +1975,12 @@ impl Controller {
                     .cloned()
                     .unwrap_or_default();
                 let (icon, has_icon) = self.picture(&item.url, &item.icon_url);
+                let (glyph, glyph_color, glyph_bg) = icons::look_of(&item.icon_url);
                 rows.push(ItemRow {
                     brand: view::brand_mark(item.card_brand),
-                    glyph: icons::glyph_of(&item.icon_url).into(),
+                    glyph,
+                    glyph_color,
+                    glyph_bg,
                     http: icons::plain_http(&item.url),
                     icon,
                     has_icon,
@@ -1690,7 +2083,10 @@ impl Controller {
         let (icon, has_icon) = self.picture(&website, &item.icon_url);
         app.set_d_icon(icon);
         app.set_d_has_icon(has_icon);
-        app.set_d_glyph(icons::glyph_of(&item.icon_url).into());
+        let (glyph, glyph_color, glyph_bg) = icons::look_of(&item.icon_url);
+        app.set_d_glyph(glyph);
+        app.set_d_glyph_color(glyph_color);
+        app.set_d_glyph_bg(glyph_bg);
         app.set_d_http(icons::plain_http(&website));
         let folder = item.folder.and_then(|id| {
             vault
@@ -2010,7 +2406,21 @@ impl Controller {
             };
             let mut summaries = vault.summaries().unwrap_or_default();
             summaries.retain(|item| item.has_totp);
-            summaries.sort_by_key(|item| item.title.to_lowercase());
+            // In the order the person gave them (held and dragged), the rest after them by
+            // title.
+            let order = state
+                .prefs
+                .code_order
+                .get(&vault.id_hex())
+                .cloned()
+                .unwrap_or_default();
+            summaries.sort_by_cached_key(|item| {
+                let hex = item.id.to_hex();
+                (
+                    order.iter().position(|id| *id == hex).unwrap_or(usize::MAX),
+                    item.title.to_lowercase(),
+                )
+            });
             let mut rows = Vec::new();
             let mut ids = Vec::new();
             for summary in &summaries {
@@ -2027,8 +2437,11 @@ impl Controller {
                     None => (String::new(), 0, 30),
                 };
                 let (icon, has_icon) = self.picture(&summary.url, &summary.icon_url);
+                let (glyph, glyph_color, glyph_bg) = icons::look_of(&summary.icon_url);
                 rows.push(CodeRow {
-                    glyph: icons::glyph_of(&summary.icon_url).into(),
+                    glyph,
+                    glyph_color,
+                    glyph_bg,
                     counter: Totp::parse(&item.totp).is_ok_and(|t| t.is_counter_based()),
                     icon,
                     has_icon,
@@ -2053,6 +2466,31 @@ impl Controller {
         };
         self.state.borrow_mut().code_ids = ids;
         self.app().set_codes(ModelRc::new(VecModel::from(rows)));
+    }
+
+    /// A code's card was held and dragged from place `from` to place `to`: the Codes page
+    /// keeps that order (on this phone).
+    fn move_code(&self, from: i32, to: i32) {
+        let (Ok(from), Ok(to)) = (usize::try_from(from), usize::try_from(to)) else {
+            return;
+        };
+        let order = {
+            let state = self.state.borrow();
+            let Some(vault) = state.vault.as_ref() else {
+                return;
+            };
+            let mut ids: Vec<String> = state.code_ids.iter().map(ItemId::to_hex).collect();
+            if from >= ids.len() || to >= ids.len() || from == to {
+                return;
+            }
+            let moved = ids.remove(from);
+            ids.insert(to, moved);
+            (vault.id_hex(), ids)
+        };
+        self.change_prefs(move |prefs| {
+            prefs.code_order.insert(order.0, order.1);
+        });
+        self.refresh_codes();
     }
 
     fn copy_code(&self, index: i32) {
@@ -2096,6 +2534,8 @@ impl Controller {
         app.set_ed_confirm_delete(false);
         app.set_ed_folder(-1);
         app.set_ed_glyph(SharedString::new());
+        app.set_ed_glyph_color(0);
+        app.set_ed_glyph_bg(0);
         app.set_ed_counter(false);
         app.set_ed_card_mark(0);
         self.clear_editor_files();
@@ -2121,6 +2561,7 @@ impl Controller {
             state.confirm_delete = false;
             let password = item.as_ref().map_or("", |item| item.password.as_str());
             state.secrets[field::ITEM_PASSWORD].set(password);
+            state.carets[field::ITEM_PASSWORD] = state.secrets[field::ITEM_PASSWORD].char_count();
         }
         if let Some(item) = &item {
             app.set_ed_title(item.title.as_str().into());
@@ -2130,7 +2571,10 @@ impl Controller {
             app.set_ed_notes(item.notes.as_str().into());
             app.set_ed_favorite(item.favorite);
             app.set_ed_folder(self.folder_index(item.folder));
-            app.set_ed_glyph(icons::glyph_of(&item.icon_url).into());
+            let (glyph, glyph_color, glyph_bg) = icons::look_of(&item.icon_url);
+            app.set_ed_glyph(glyph);
+            app.set_ed_glyph_color(glyph_color);
+            app.set_ed_glyph_bg(glyph_bg);
             app.set_ed_counter(Totp::parse(&item.totp).is_ok_and(|t| t.is_counter_based()));
             if item.kind == ItemKind::Card {
                 let details = CardDetails::from_item(item);
@@ -2146,7 +2590,17 @@ impl Controller {
         }
         self.editor_files_from(item.as_ref());
         self.publish_lengths();
+        self.editor_site_icon();
         app.set_page(Page::Editor);
+    }
+
+    /// The site's icon next to the editor's Website field, from what is already known (the
+    /// list asks for new sites' icons once the item is saved).
+    fn editor_site_icon(&self) {
+        let app = self.app();
+        let (icon, found) = self.picture(&app.get_ed_website(), "");
+        app.set_ed_site_icon(icon);
+        app.set_ed_has_site_icon(found);
     }
 
     fn show_editor_password(&self, shown: bool) {
@@ -2158,6 +2612,7 @@ impl Controller {
             SharedString::new()
         };
         self.app().set_ed_password(text);
+        self.publish_lengths();
     }
 
     fn close_editor(&self) {
@@ -2196,6 +2651,7 @@ impl Controller {
         };
         let folder = self.folder_at(app.get_ed_folder());
         let glyph = app.get_ed_glyph().to_string();
+        let look = view::IconLook::new(&glyph, app.get_ed_glyph_color(), app.get_ed_glyph_bg());
         if kind == editor::AUTHENTICATOR && totp.is_empty() {
             return self.set_error(error::SETUP_KEY, "");
         }
@@ -2289,7 +2745,7 @@ impl Controller {
             // A chosen line icon is kept where a chosen site or picture is; choosing none
             // leaves a site or picture chosen on the desktop as it was.
             if !glyph.is_empty() {
-                item.icon_url = format!("{}{glyph}", icons::GLYPH);
+                item.icon_url = look.icon_url();
             } else if item.icon_url.starts_with(icons::GLYPH) {
                 item.icon_url.clear();
             }
@@ -2493,9 +2949,10 @@ impl Controller {
         if password.is_empty() {
             return;
         }
-        self.state.borrow_mut().secrets[field::ITEM_PASSWORD].set(&password);
+        self.with_secret(field::ITEM_PASSWORD as i32, |buffer| {
+            buffer.set(&password);
+        });
         self.record_generated(&password);
-        self.publish_lengths();
         self.show_editor_password(true);
         self.generator_back();
     }
@@ -2515,9 +2972,10 @@ impl Controller {
             return;
         }
         self.open_editor(None);
-        self.state.borrow_mut().secrets[field::ITEM_PASSWORD].set(&password);
+        self.with_secret(field::ITEM_PASSWORD as i32, |buffer| {
+            buffer.set(&password);
+        });
         self.record_generated(&password);
-        self.publish_lengths();
         self.show_editor_password(true);
     }
 

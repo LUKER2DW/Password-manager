@@ -154,6 +154,11 @@ impl Controller {
     /// The camera read a QR code: its line goes where the scan was asked for, and is used at
     /// once, as if pasted and confirmed.
     pub fn code_scanned(&self, purpose: i32, text: &str) {
+        // A part or the Secret Key from the emergency kit goes into its secure field, never
+        // into the screen's text.
+        if purpose == scan::PART || purpose == scan::SECRET_KEY {
+            return self.kit_code_scanned(purpose, text);
+        }
         let app = self.app();
         let line = SharedString::from(text.trim());
         match purpose {
@@ -240,10 +245,14 @@ impl Controller {
                 .collect()
         };
         let index = kept.iter().position(|v| v.file == current);
+        // A vault's icon on this phone, with its colours (`view::IconLook`, as `home:2:5`).
+        let look = |spec: &str| crate::view::IconLook::parse(spec).unwrap_or_default();
         let rows: Vec<VaultRow> = kept
             .iter()
             .map(|known| VaultRow {
-                icon: known.icon.as_str().into(),
+                icon: look(&known.icon).name.as_str().into(),
+                icon_color: look(&known.icon).color,
+                icon_bg: look(&known.icon).background,
                 name: known.name.as_str().into(),
                 initial: super::initial(&known.name),
                 tint: super::tint(vault_core::ItemKind::Login, &known.name),
@@ -261,26 +270,63 @@ impl Controller {
                     .unwrap_or_default(),
             );
         }
-        app.set_vault_icon(
-            index
-                .and_then(|i| kept.get(i))
-                .map(|v| v.icon.as_str().into())
-                .unwrap_or_default(),
-        );
+        let own = index
+            .and_then(|i| kept.get(i))
+            .map(|v| look(&v.icon))
+            .unwrap_or_default();
+        app.set_vault_icon(own.name.as_str().into());
+        app.set_vault_icon_color(own.color);
+        app.set_vault_icon_bg(own.background);
         app.set_vaults(ModelRc::new(VecModel::from(rows)));
         app.set_vault_current(index.map_or(-1, |i| i32::try_from(i).unwrap_or(0)));
     }
 
-    /// Settings → Vaults → Icon on this phone: kept with this phone's list of vaults.
-    pub(super) fn vault_icon_changed(&self, name: &str) {
+    /// Settings → Vaults → Icon on this phone, and its colours: kept with this phone's list of
+    /// vaults ("" = its initial).
+    pub(super) fn vault_icon_changed(&self, name: &str, color: i32, background: i32) {
         let current = self.current_file();
         let name = name.chars().take(32).collect::<String>();
+        let spec = if name.is_empty() {
+            String::new()
+        } else {
+            crate::view::IconLook::new(&name, color, background).spec()
+        };
         self.change_prefs(|prefs| {
             if let Some(known) = prefs.vaults.iter_mut().find(|v| v.file == current) {
-                known.icon = name;
+                known.icon = spec;
             }
         });
         self.publish_vaults();
+    }
+
+    /// Settings → Vaults → Name: the vault's own name, kept in the vault (so it syncs) and in
+    /// this phone's list of vaults.
+    pub(super) fn vault_rename(&self) {
+        let app = self.app();
+        let name = app.get_vault_new_name().trim().to_owned();
+        if name.is_empty() {
+            return self.set_error(error::NAME, "");
+        }
+        let renamed = {
+            let mut state = self.state.borrow_mut();
+            let Some(vault) = state.vault.as_mut() else {
+                return;
+            };
+            let mut settings = vault.settings().clone();
+            settings.name.clone_from(&name);
+            vault.set_settings(settings)
+        };
+        if let Err(err) = renamed {
+            return self.set_error(error::NOT_SAVED, &err.to_string());
+        }
+        if !self.save() {
+            return;
+        }
+        self.set_error(error::NONE, "");
+        app.set_vault_renaming(false);
+        app.set_vault_name(name.as_str().into());
+        self.remember_open_vault();
+        self.notify(super::notice::SAVED, "");
     }
 
     /// An export, confirmed (app.slint `ask`): 0 protected (.vaultx, sealed under the password
@@ -366,6 +412,86 @@ impl Controller {
                         c.app().invoke_save_file(-1);
                     }
                     Err((code, detail)) => c.set_error(code, &detail),
+                }
+            },
+        );
+    }
+
+    /// A sensitive change confirmed in the sheet with the master password (app.slint `ask`):
+    /// removing the vault from the phone, stopping sync, removing a device or the backup
+    /// server, adding a device. As for an export, the password is checked against the vault
+    /// file first; then the sheet closes and the change is made.
+    pub(super) fn check_master_then(&self, kind: i32) {
+        if self.app().get_busy() {
+            return;
+        }
+        let master = self.secret(field::EXPORT_MASTER);
+        if master.is_empty() {
+            return self.set_error(error::WRONG_CURRENT, "");
+        }
+        self.set_error(error::NONE, "");
+        let (vault, secret_key, path) = {
+            let mut state = self.state.borrow_mut();
+            let (Some(vault), Some(secret_key)) = (state.vault.take(), state.secret_key.take())
+            else {
+                return;
+            };
+            (vault, secret_key, state.path.clone())
+        };
+        struct Checked {
+            vault: Vault,
+            secret_key: SecretKey,
+            kind: i32,
+            outcome: Result<(), (i32, String)>,
+        }
+        self.run(
+            move || {
+                let outcome = files::read(&path)
+                    .map_err(|e| (error::UNREADABLE, e.to_string()))
+                    .and_then(|bytes| {
+                        Vault::open(
+                            &bytes,
+                            Unlock::Password {
+                                password: &master,
+                                secret_key: &secret_key,
+                            },
+                        )
+                        .map(drop)
+                        .map_err(|err| match err {
+                            CoreError::DecryptionFailed => (error::WRONG_CURRENT, String::new()),
+                            other => (error::UNREADABLE, other.to_string()),
+                        })
+                    });
+                Checked {
+                    vault,
+                    secret_key,
+                    kind,
+                    outcome,
+                }
+            },
+            |c, checked| {
+                {
+                    let mut state = c.state.borrow_mut();
+                    state.vault = Some(checked.vault);
+                    state.secret_key = Some(checked.secret_key);
+                }
+                c.clear_fields(&[field::EXPORT_MASTER]);
+                if let Err((code, detail)) = checked.outcome {
+                    return c.set_error(code, &detail);
+                }
+                c.close_sheet(checked.kind);
+                let app = c.app();
+                match checked.kind {
+                    sheet::REMOVE_VAULT => c.remove_vault(),
+                    sheet::STOP_SYNC => c.sync_stop(),
+                    sheet::REMOVE_DEVICE => {
+                        let index = app.get_sync_removing();
+                        app.set_sync_removing(-1);
+                        c.sync_remove_device(index);
+                    }
+                    sheet::REMOVE_BACKUP => c.sync_remove_backup(),
+                    sheet::ADD_DEVICE => c.sync_add_device(),
+                    _ => {}
                 }
             },
         );

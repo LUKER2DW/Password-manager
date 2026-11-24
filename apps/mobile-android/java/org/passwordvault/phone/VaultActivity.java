@@ -155,9 +155,16 @@ public class VaultActivity extends NativeActivity {
     private ParcelFileDescriptor pdfFile;
     private File pdfPath;
 
+    /** Whether the person kept the app out of screenshots (Settings), see {@link #setSecure}. */
+    private boolean secure;
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        // The recent apps view never shows what was on screen, screenshots allowed or not.
+        if (Build.VERSION.SDK_INT >= 33) {
+            setRecentsScreenshotEnabled(false);
+        }
         // A preview's file left behind when the app was stopped while drawing it.
         File[] left = getCacheDir().listFiles((dir, name) -> name.startsWith("preview") && name.endsWith(".pdf"));
         if (left != null) {
@@ -305,12 +312,18 @@ public class VaultActivity extends NativeActivity {
     /** Keeps the app out of screenshots, recordings and the recent apps view, or not. */
     public void setSecure(boolean on) {
         runOnUiThread(() -> {
+            secure = on;
             if (on) {
                 getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
             } else {
                 getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
             }
         });
+    }
+
+    /** How far this phone's clock is from UTC now, in minutes (summer time included). */
+    public int utcOffsetMinutes() {
+        return java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60000;
     }
 
     /** -1 no autofill on this phone, 0 another service (or none), 1 this app. */
@@ -418,6 +431,25 @@ public class VaultActivity extends NativeActivity {
     }
 
     // ---- leaving and coming back ----
+
+    // Before Android 13 there is no way to leave the screen out of the recent apps view but
+    // the secure flag: set while the app is in the background, so the picture Android takes
+    // as it leaves is blank, and taken off again on return when screenshots are allowed.
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (Build.VERSION.SDK_INT < 33 && !secure) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (Build.VERSION.SDK_INT < 33 && !secure) {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        }
+    }
 
     @Override
     protected void onStop() {

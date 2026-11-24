@@ -149,6 +149,41 @@ fn length(app: &PhoneWindow, field: usize) -> i32 {
         .unwrap()
 }
 
+/// An Ed25519 key with the passphrase "test passphrase" (`ssh-keygen -a 16`), made for these
+/// tests only and used nowhere else.
+const TEST_KEY_WITH_PASSPHRASE: &str = "-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABA0TjAB38
+/sg1ThhtxIUIrWAAAAEAAAAAEAAAAzAAAAC3NzaC1lZDI1NTE5AAAAIIoWYkuAAQY0S/aO
+sdrqJB5LP0uxLhmWnAw72FYU0prvAAAAkNYSHmRVPZ2HrZW6em03/rdF4JNdpZ4zLsn2pM
+hZrUpq/EM7MrDjl02ntzjYCY3da9wWOCj7wAco4y5RjA+Ga4ThXNwSDjIGttUkNVLzbNBU
+YN2/uZfR9kREhL4bPgjwnGEgQq9pKW2VzA/CgSGzJJEZINpVZAE2yCsoFzqo0csEE16SRm
+ka3lGSi0BDvKit3g==
+-----END OPENSSH PRIVATE KEY-----
+";
+
+/// An edit of a secret field's input on the phone, with the keyboard's cursor at its end.
+fn typed_end(secrets: &Secrets<'_>, id: i32, text: slint::SharedString) -> slint::SharedString {
+    let end = i32::try_from(text.len()).unwrap();
+    secrets.invoke_typed(id, text, end)
+}
+
+/// What a secret field holds, read through its eye (opened and closed again).
+fn field_text(app: &PhoneWindow, field: i32) -> String {
+    let secrets = app.global::<Secrets>();
+    secrets.invoke_toggle_shown(field);
+    let index = usize::try_from(field).unwrap();
+    let text = secrets.get_shown().row_data(index).unwrap().to_string();
+    secrets.invoke_toggle_shown(field);
+    text
+}
+
+fn caret(app: &PhoneWindow, field: usize) -> i32 {
+    app.global::<Secrets>()
+        .get_carets()
+        .row_data(field)
+        .unwrap()
+}
+
 fn open_file(path: &Path, secret_key: &str) -> Vault {
     let key = SecretKey::parse(secret_key).unwrap();
     Vault::open(
@@ -212,21 +247,21 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         let secrets = app.global::<Secrets>();
         let p = '\u{1}';
         assert_eq!(secrets.invoke_placeholders(0), "");
-        assert_eq!(secrets.invoke_typed(0, "ab".into()), format!("{p}{p}"));
+        assert_eq!(typed_end(&secrets, 0, "ab".into()), format!("{p}{p}"));
         assert_eq!(length(&app, 0), 2);
         // One more letter after the stand-ins.
         assert_eq!(
-            secrets.invoke_typed(0, format!("{p}{p}c").into()),
+            typed_end(&secrets, 0, format!("{p}{p}c").into()),
             format!("{p}{p}{p}")
         );
         // Backspace: one stand-in gone.
         assert_eq!(
-            secrets.invoke_typed(0, format!("{p}{p}").into()),
+            typed_end(&secrets, 0, format!("{p}{p}").into()),
             format!("{p}{p}")
         );
         assert_eq!(length(&app, 0), 2);
         // All selected and typed over: none left, the new letter in.
-        assert_eq!(secrets.invoke_typed(0, "x".into()), format!("{p}"));
+        assert_eq!(typed_end(&secrets, 0, "x".into()), format!("{p}"));
         assert_eq!(secrets.invoke_placeholders(0), format!("{p}"));
         secrets.invoke_clear(0);
         assert_eq!(length(&app, 0), 0);
@@ -235,26 +270,59 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         // UTF-16, so the keyboard's cursor (placed by Slint right after) is never inside one.
         // With same-length stand-ins, this is where typing on the phone crashed the app.
         let typed = "aé€😀";
-        let back = secrets.invoke_typed(0, typed.into());
+        let back = typed_end(&secrets, 0, typed.into());
         assert_eq!(back.len(), typed.len());
         assert_eq!(back.encode_utf16().count(), typed.encode_utf16().count());
         assert!((0..=typed.len()).all(|i| typed.is_char_boundary(i) == back.is_char_boundary(i)));
         assert!(!back.chars().any(|c| typed.contains(c)));
         assert_eq!(length(&app, 0), 4);
         // Then a pasted line after them, and one of them deleted from the end.
-        let back = secrets.invoke_typed(0, format!("{back}ção").into());
+        let back = typed_end(&secrets, 0, format!("{back}ção").into());
         assert_eq!(back.len(), format!("{typed}ção").len());
         assert_eq!(length(&app, 0), 7);
         let shorter: String = back.chars().take(6).collect();
-        assert_eq!(secrets.invoke_typed(0, shorter.as_str().into()), shorter);
+        assert_eq!(typed_end(&secrets, 0, shorter.as_str().into()), shorter);
         assert_eq!(length(&app, 0), 6);
         // A control character the keyboard sent isn't in the field, and stays as it is.
-        let back = secrets.invoke_typed(0, format!("{shorter}\t").into());
+        let back = typed_end(&secrets, 0, format!("{shorter}\t").into());
         assert!(back.ends_with('\t'));
         assert_eq!(length(&app, 0), 6);
-        assert_eq!(secrets.invoke_typed(0, shorter.as_str().into()), shorter);
+        assert_eq!(typed_end(&secrets, 0, shorter.as_str().into()), shorter);
         assert_eq!(length(&app, 0), 6);
         secrets.invoke_clear(0);
+
+        // The cursor anywhere in the field: a mistake is put right where it is.
+        typed_end(&secrets, 0, "abcd".into());
+        assert_eq!((field_text(&app, 0).as_str(), caret(&app, 0)), ("abcd", 4));
+        // A letter typed with the keyboard's cursor after the second character.
+        let back = secrets.invoke_typed(0, format!("{p}{p}X{p}{p}").into(), 3);
+        assert_eq!(back, format!("{p}{p}{p}{p}{p}"));
+        assert_eq!((field_text(&app, 0).as_str(), caret(&app, 0)), ("abXcd", 3));
+        // Backspace there: the cursor now after the second character, one stand-in fewer.
+        secrets.invoke_typed(0, format!("{p}{p}{p}{p}").into(), 2);
+        assert_eq!((field_text(&app, 0).as_str(), caret(&app, 0)), ("abcd", 2));
+        // A selection typed over: the second and third characters replaced by one.
+        secrets.invoke_typed(0, format!("{p}Y{p}").into(), 2);
+        assert_eq!((field_text(&app, 0).as_str(), caret(&app, 0)), ("aYd", 2));
+        // The app's own keyboard and a computer's: keys go in at the cursor, which the
+        // arrows (and a tap) move; Backspace takes the character before it, Delete the one
+        // after.
+        secrets.invoke_move_caret(0, 1);
+        secrets.invoke_insert(0, "Z".into());
+        assert_eq!((field_text(&app, 0).as_str(), caret(&app, 0)), ("aZYd", 2));
+        secrets.invoke_delete(0);
+        assert_eq!(field_text(&app, 0), "aZd");
+        secrets.invoke_backspace(0);
+        assert_eq!((field_text(&app, 0).as_str(), caret(&app, 0)), ("ad", 1));
+        secrets.invoke_move_caret(0, 99);
+        assert_eq!(caret(&app, 0), 2);
+        // Offsets in the input and character counts, both ways.
+        let input = "\u{1}\u{80}\u{E000}\u{F0000}";
+        assert_eq!(secrets.invoke_char_at(input.into(), 3), 2);
+        assert_eq!(secrets.invoke_byte_at(input.into(), 3), 6);
+        assert_eq!(secrets.invoke_byte_at(input.into(), 9), 10);
+        secrets.invoke_clear(0);
+        assert_eq!(caret(&app, 0), 0);
     }
 
     // ---- no vault on the phone: one is brought in, never made ----
@@ -290,13 +358,11 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     let mut input = secrets.invoke_placeholders(0).to_string();
     for (i, letter) in PASSWORD.chars().enumerate() {
         if i == 3 {
-            input = secrets.invoke_typed(0, format!("{input}#").into()).into();
+            input = typed_end(&secrets, 0, format!("{input}#").into()).into();
             input.pop();
-            input = secrets.invoke_typed(0, input.as_str().into()).into();
+            input = typed_end(&secrets, 0, input.as_str().into()).into();
         }
-        input = secrets
-            .invoke_typed(0, format!("{input}{letter}").into())
-            .into();
+        input = typed_end(&secrets, 0, format!("{input}{letter}").into()).into();
     }
     assert!(!input.chars().any(|c| PASSWORD.contains(c)));
     app.invoke_unlock();
@@ -455,6 +521,35 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         22,
         "a .pub file isn't the private key"
     );
+    // A key with a passphrase (made for this test only): the sheet asks for it; a wrong one
+    // says so, the right one opens it and the key is kept without it.
+    let generated_public = app.get_ed_ssh_public();
+    controller.picked_file(
+        2,
+        "id_ed25519",
+        TEST_KEY_WITH_PASSPHRASE.as_bytes().to_vec(),
+    );
+    assert_eq!(app.get_confirming(), 17, "asks for the passphrase");
+    assert_eq!(
+        app.get_ed_ssh_public(),
+        generated_public,
+        "the key in hand stays"
+    );
+    type_secret(&app, 11, "not the passphrase");
+    app.invoke_confirmed(17);
+    assert_eq!((app.get_error_code(), app.get_confirming()), (35, 17));
+    assert_eq!(length(&app, 11), 0, "typed again after a try");
+    type_secret(&app, 11, "test passphrase");
+    app.invoke_confirmed(17);
+    assert_eq!((app.get_error_code(), app.get_confirming()), (0, 0));
+    assert_eq!(app.get_ed_ssh_type(), "Ed25519");
+    assert_eq!(
+        app.get_ed_ssh_public(),
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIoWYkuAAQY0S/aOsdrqJB5LP0uxLhmWnAw72FYU0prv test@phone"
+    );
+    assert!(app.get_ed_ssh_fingerprint().starts_with("SHA256:"));
+    // Back to a key made here for the rest of the test.
+    app.invoke_ed_ssh_generate();
     controller.picked_file(1, "scan.pdf", b"%PDF test".to_vec());
     controller.picked_file(1, "too big", vec![0; vault_core::Attachment::MAX_BYTES + 1]);
     assert_eq!(app.get_error_code(), 23);
@@ -577,7 +672,24 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         app.get_gen_history().row_data(0).unwrap().text,
         app.get_gen_password()
     );
-    app.invoke_gen_history_delete(0);
+    // When: the day and the time, to the minute.
+    let when = app.get_gen_history().row_data(0).unwrap().when;
+    assert_eq!(when.len(), "2026-11-23 19:42".len(), "{when}");
+    // Deleting one, as the screen does it: the sheet asks first, Cancel keeps it.
+    app.set_gen_deleting(0);
+    app.invoke_ask(15);
+    app.set_confirming(0);
+    app.invoke_sheet_closed(15);
+    assert_eq!(app.get_gen_history().row_count(), 1, "kept on Cancel");
+    app.set_gen_deleting(0);
+    app.invoke_ask(15);
+    app.invoke_confirmed(15);
+    assert_eq!(app.get_gen_history().row_count(), 0);
+    assert_eq!((app.get_confirming(), app.get_gen_deleting()), (0, -1));
+    // The whole list, the same way.
+    app.invoke_gen_copy();
+    app.invoke_ask(14);
+    app.invoke_confirmed(14);
     assert_eq!(app.get_gen_history().row_count(), 0);
     app.set_gen_history_shown(false);
     // "New login with it": the editor opens with the password in it.
@@ -608,20 +720,92 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     );
     app.set_ed_folder(0);
     app.set_ed_glyph("wifi".into());
+    app.set_ed_glyph_color(3);
+    app.set_ed_glyph_bg(9);
     app.invoke_save_item();
     assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
     assert_eq!(
         (app.get_d_folder().as_str(), app.get_d_glyph().as_str()),
         ("Work", "wifi")
     );
+    assert_eq!((app.get_d_glyph_color(), app.get_d_glyph_bg()), (3, 9));
     assert!(!app.get_d_created().is_empty());
     app.invoke_close_item();
     assert_eq!(app.get_folders().row_data(0).unwrap().count, 1);
     app.set_folder_filter(0);
     app.invoke_filter_changed(0);
     assert_eq!(app.get_items().row_count(), 1, "only the folder's items");
+    let row = app.get_items().row_data(0).unwrap();
+    assert_eq!(
+        (row.glyph.as_str(), row.glyph_color, row.glyph_bg),
+        ("wifi", 3, 9)
+    );
     app.set_folder_filter(-1);
     app.invoke_filter_changed(0);
+
+    // A folder inside it (Inside: Work), with an icon colour: shown under Work, by its own
+    // name; Work counts and shows the items of both.
+    app.set_folder_editing(-1);
+    app.set_folder_name("Old".into());
+    app.set_folder_parent(0);
+    app.set_folder_icon("database".into());
+    app.set_folder_color(4);
+    app.invoke_folder_save();
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    let inner = app.get_folders().row_data(1).unwrap();
+    assert_eq!(
+        (
+            inner.name.as_str(),
+            inner.label.as_str(),
+            inner.depth,
+            inner.color
+        ),
+        ("Work/Old", "Old", 1, 4)
+    );
+    app.invoke_new_item();
+    app.set_ed_kind(2);
+    app.set_ed_title("Old router".into());
+    app.set_ed_folder(1);
+    app.invoke_save_item();
+    app.invoke_close_item();
+    assert_eq!(
+        app.get_folders().row_data(0).unwrap().count,
+        2,
+        "Work and Old"
+    );
+    assert_eq!(app.get_folders().row_data(1).unwrap().count, 1);
+    app.set_folder_filter(0);
+    app.invoke_filter_changed(0);
+    assert_eq!(app.get_items().row_count(), 2, "Work shows Old's items too");
+    app.set_folder_filter(-1);
+    app.invoke_filter_changed(0);
+    // Work renamed: Old follows it. Work can't go inside Old.
+    app.invoke_folder_edit(0);
+    assert_eq!(app.get_folder_not_parent().row_data(1), Some(true));
+    app.set_folder_parent(1);
+    app.invoke_folder_save();
+    assert_eq!(app.get_error_code(), 5, "not inside a folder inside it");
+    app.set_folder_parent(-1);
+    app.set_folder_name("Office".into());
+    app.invoke_folder_save();
+    assert_eq!(app.get_folders().row_data(1).unwrap().name, "Office/Old");
+    // Old leaves (its item stays, in no folder), the rest goes back as it was.
+    app.invoke_folder_edit(1);
+    assert_eq!(
+        (app.get_folder_name().as_str(), app.get_folder_parent()),
+        ("Old", 0)
+    );
+    app.invoke_folder_delete();
+    app.invoke_folder_edit(0);
+    app.set_folder_name("Work".into());
+    app.invoke_folder_save();
+    let index = (0..app.get_items().row_count())
+        .find(|&i| app.get_items().row_data(i).unwrap().title == "Old router")
+        .unwrap();
+    app.invoke_open_item(i32::try_from(index).unwrap());
+    app.invoke_edit_item();
+    app.invoke_ask(5);
+    app.invoke_confirmed(5);
 
     // ---- a counter-based code: Next moves it on, in the item (it syncs) ----
     app.invoke_new_code();
@@ -698,10 +882,35 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     app.invoke_sheet_closed(8);
     assert_eq!(length(&app, 10), 0);
 
-    // ---- the vault's icon on this phone ----
-    app.invoke_vault_icon_changed("home".into());
+    // ---- the vault's icon on this phone, its colours, its name ----
+    app.invoke_vault_icon_changed("home".into(), 0, 0);
     assert_eq!(app.get_vault_icon(), "home");
-    app.invoke_vault_icon_changed("".into());
+    app.invoke_vault_icon_changed("home".into(), 2, 9);
+    assert_eq!(
+        (app.get_vault_icon_color(), app.get_vault_icon_bg()),
+        (2, 9)
+    );
+    let row = app.get_vaults().row_data(0).unwrap();
+    assert_eq!(
+        (row.icon.as_str(), row.icon_color, row.icon_bg),
+        ("home", 2, 9)
+    );
+    app.invoke_vault_icon_changed("".into(), 0, 0);
+    assert_eq!(app.get_vault_icon(), "");
+    let before = app.get_vault_name();
+    app.set_vault_new_name("   ".into());
+    app.invoke_vault_rename();
+    assert_eq!(app.get_error_code(), 5, "a name is needed");
+    app.set_vault_new_name("Renamed on the phone".into());
+    app.invoke_vault_rename();
+    assert_eq!(app.get_vault_name(), "Renamed on the phone");
+    assert!(!app.get_vault_renaming());
+    assert_eq!(
+        app.get_vaults().row_data(0).unwrap().name,
+        "Renamed on the phone"
+    );
+    app.set_vault_new_name(before);
+    app.invoke_vault_rename();
 
     // What these steps made goes again, for what follows: the two items, the folder.
     for title in ["Office wifi", "Bank token"] {
@@ -1247,7 +1456,9 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         &vault_id,
         pc_id,
         "PC",
-        &vault_server::admin_invite(server.data.path(), 1).unwrap().0,
+        &vault_server::admin_invite(server.data.path(), 1, None)
+            .unwrap()
+            .0,
     )
     .unwrap();
     let mut pc = open_file(&path, &secret_key);
@@ -1286,6 +1497,19 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     app.invoke_sync_join();
     assert_eq!(app.get_sync_state(), 3);
     assert!(app.get_sync_detail().contains("vaultsync"));
+    // Typed apart (Type the address): a pin that isn't one is refused before anything is sent.
+    app.set_sync_by_hand(true);
+    app.set_sync_address(server.url.as_str().into());
+    app.set_sync_pin("not a pin".into());
+    app.invoke_sync_join();
+    assert_eq!(app.get_sync_state(), 3);
+    assert!(
+        app.get_sync_detail().contains("pin"),
+        "{}",
+        app.get_sync_detail()
+    );
+    app.set_sync_by_hand(false);
+    app.set_sync_pin("".into());
     app.set_sync_invite_typed(link.as_str().into());
     app.invoke_sync_join();
     assert_eq!(
@@ -1364,8 +1588,17 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         devices,
         [("Phone".to_owned(), true), ("PC".to_owned(), false)]
     );
-    // Settings → Sync, as on a computer: invite another device (a QR code and its line).
-    app.invoke_sync_add_device();
+    // Settings → Sync, as on a computer: invite another device (a QR code and its line),
+    // once the master password is typed again in the sheet.
+    app.invoke_ask(16);
+    type_secret(&app, 10, "not the password");
+    app.invoke_confirmed(16);
+    assert_eq!((app.get_error_code(), app.get_confirming()), (13, 16));
+    assert!(app.get_sync_invite().is_empty(), "no invite without it");
+    type_secret(&app, 10, PASSWORD);
+    app.invoke_confirmed(16);
+    assert_eq!(app.get_confirming(), 0);
+    assert_eq!(length(&app, 10), 0);
     assert!(
         app.get_sync_invite().starts_with("vaultsync:"),
         "{}",
@@ -1389,7 +1622,9 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     assert_eq!(app.get_sync_place(), renamed.as_str());
     assert_eq!(app.get_sync_state(), 1, "{}", app.get_sync_detail());
     // A backup server: joined with an invite from `vault-server invite`, then removed.
-    let backup_invite = vault_server::admin_invite(other.data.path(), 1).unwrap().0;
+    let backup_invite = vault_server::admin_invite(other.data.path(), 1, None)
+        .unwrap()
+        .0;
     app.set_sync_backup_invite(backup_invite.as_str().into());
     app.set_sync_backup_address(other.url.as_str().into());
     app.invoke_sync_join_backup();
@@ -1404,8 +1639,8 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     app.invoke_check_update();
     assert_eq!(
         app.get_update_state(),
-        2,
-        "nothing published yet: the newest"
+        7,
+        "nothing published yet: the server has none"
     );
     let package = b"PK a test package, not an app".to_vec();
     let store = vault_server::Store::open(server.data.path()).unwrap();

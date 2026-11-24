@@ -253,6 +253,54 @@ impl SecretBuffer {
         self.chars -= 1;
     }
 
+    /// Where character `index` starts, in bytes (the end for an index past it).
+    pub fn byte_offset(&self, index: usize) -> usize {
+        self.as_str()
+            .char_indices()
+            .nth(index)
+            .map_or(self.len, |(at, _)| at)
+    }
+
+    /// Inserts the characters it takes before character `index`; returns how many went in.
+    pub fn insert_str(&mut self, index: usize, text: &str) -> usize {
+        let mut at = self.byte_offset(index);
+        let mut added = 0;
+        for c in text.chars() {
+            if !Self::takes(c) {
+                continue;
+            }
+            let mut encoded = [0u8; 4];
+            let width = c.encode_utf8(&mut encoded).len();
+            if self.len + width > MAX_SECRET_BYTES {
+                encoded.zeroize();
+                break;
+            }
+            self.bytes.copy_within(at..self.len, at + width);
+            self.bytes[at..at + width].copy_from_slice(&encoded[..width]);
+            encoded.zeroize();
+            self.len += width;
+            self.chars += 1;
+            at += width;
+            added += 1;
+        }
+        added
+    }
+
+    /// Removes `count` characters from character `index` on, wiping the bytes left free.
+    pub fn remove(&mut self, index: usize, count: usize) {
+        if count == 0 || index >= self.chars {
+            return;
+        }
+        let count = count.min(self.chars - index);
+        let start = self.byte_offset(index);
+        let end = self.byte_offset(index + count);
+        self.bytes.copy_within(end..self.len, start);
+        let len = self.len - (end - start);
+        self.bytes[len..self.len].zeroize();
+        self.len = len;
+        self.chars -= count;
+    }
+
     pub fn clear(&mut self) {
         self.bytes.zeroize();
         self.len = 0;

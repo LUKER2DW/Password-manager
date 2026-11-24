@@ -138,6 +138,8 @@ fn demo_vaults(first_open: bool) -> slint::ModelRc<vault_mobile::ui::VaultRow> {
     slint::ModelRc::new(slint::VecModel::from(vec![
         vault_mobile::ui::VaultRow {
             icon: "".into(),
+            icon_color: 0,
+            icon_bg: 0,
             name: "Personal".into(),
             initial: "P".into(),
             tint: slint::Color::from_rgb_u8(0x3D, 0x6F, 0xD6),
@@ -146,6 +148,8 @@ fn demo_vaults(first_open: bool) -> slint::ModelRc<vault_mobile::ui::VaultRow> {
         },
         vault_mobile::ui::VaultRow {
             icon: "briefcase".into(),
+            icon_color: 0,
+            icon_bg: 0,
             name: "Work".into(),
             initial: "W".into(),
             tint: slint::Color::from_rgb_u8(0xC0, 0x4A, 0x84),
@@ -248,6 +252,13 @@ fn main() {
     type_secret(&app, 1, &key.to_display_string());
     type_secret(&app, 0, PASSWORD);
     camera.shot("first-unlock", "The first time: the Secret Key, once");
+    // Its eye: the key as the kit prints it, two groups to a line.
+    app.global::<Secrets>().invoke_toggle_shown(1);
+    camera.shot(
+        "first-unlock-key-shown",
+        "The Secret Key shown, box by box as on the kit",
+    );
+    app.global::<Secrets>().invoke_toggle_shown(1);
     // On Android: no file picker yet, and the app's own keyboard for the secret fields.
     app.set_can_pick_file(false);
     app.set_drawn_keyboard(true);
@@ -347,8 +358,30 @@ fn main() {
         "editor-end",
         "The editor's end: folder, icon, favourite, delete",
     );
+    app.set_ed_glyph("bank".into());
+    app.set_ed_glyph_color(0);
+    app.set_ed_glyph_bg(0);
+    app.set_ed_icons_open(true);
+    camera.shot_scrolled(
+        "editor-icons",
+        "Choose: a line icon in its own colours, or colours chosen",
+    );
+    app.set_ed_glyph_bg(1);
+    camera.shot_scrolled("editor-icons-tile", "The same icon on a blue tile");
+    app.set_ed_icons_open(false);
     app.invoke_cancel_edit();
     app.invoke_close_item();
+
+    app.invoke_new_item();
+    app.set_ed_kind(4);
+    app.set_ed_title("Home server".into());
+    app.set_ed_username("me@laptop".into());
+    app.invoke_ed_ssh_generate();
+    camera.shot(
+        "editor-ssh",
+        "An SSH key: its type, fingerprint and public half",
+    );
+    app.invoke_cancel_edit();
 
     app.invoke_new_item();
     camera.shot("new", "A new login or note");
@@ -357,10 +390,7 @@ fn main() {
     app.invoke_cancel_edit();
 
     app.set_place(Place::Codes);
-    camera.shot("codes", "One-time codes with their countdown");
-    app.set_code_open(0);
-    camera.shot("codes-swiped", "A code swiped to the right: Edit");
-    app.set_code_open(-1);
+    camera.shot("codes", "One-time codes with their countdown and seconds");
     app.set_place(Place::Generator);
     app.invoke_gen_changed();
     camera.shot("generator", "The generator: characters");
@@ -483,16 +513,19 @@ fn main() {
             name: "Phone".into(),
             added: "2026-11-20".into(),
             own: true,
+            away: false,
         },
         vault_mobile::ui::DeviceRow {
             name: "Desktop".into(),
             added: "2026-11-02".into(),
             own: false,
+            away: false,
         },
         vault_mobile::ui::DeviceRow {
             name: "Laptop".into(),
             added: "2026-11-12".into(),
             own: false,
+            away: true,
         },
     ])));
     app.set_sync_pinned(true);
@@ -548,16 +581,43 @@ fn main() {
         "settings-health",
         "Password health: what needs a look, and why",
     );
+    app.set_health_filter(1);
+    app.invoke_health_filtered(1);
+    camera.shot(
+        "settings-health-weak",
+        "Password health: a count tapped, only those logins",
+    );
+    app.set_health_filter(-1);
+    app.invoke_health_filtered(-1);
     app.set_settings_section(8);
     app.set_folder_editing(-1);
     app.set_folder_name("Work".into());
     app.set_folder_icon("briefcase".into());
     app.invoke_folder_save();
+    app.set_folder_editing(-1);
+    app.set_folder_name("Old".into());
+    app.set_folder_parent(0);
+    app.set_folder_icon("database".into());
+    app.set_folder_color(4);
+    app.invoke_folder_save();
     camera.shot(
         "settings-folders",
-        "Folders: made, renamed and given an icon",
+        "Folders: a folder inside another, each with an icon",
     );
+    app.invoke_folder_edit(1);
+    app.set_folder_choosing_parent(true);
+    camera.shot_scrolled(
+        "settings-folder-inside",
+        "A folder's form: what it is inside",
+    );
+    app.set_folder_editing(-2);
     app.set_settings_section(2);
+    app.set_vault_icons_open(true);
+    camera.shot_scrolled(
+        "settings-vault-icon",
+        "The vault's icon on this phone, and its colours",
+    );
+    app.set_vault_icons_open(false);
     app.invoke_ask(1);
     camera.shot(
         "settings-vault-remove-asked",
@@ -565,6 +625,20 @@ fn main() {
     );
     app.set_confirming(0);
     app.set_settings_section(-1);
+
+    // The folders, as the list shows them (after the change of place has settled: it closes
+    // the folder picker).
+    app.set_place(Place::Items);
+    camera.shot("vault-with-folders", "The list, with the Folders button");
+    app.set_folders_open(true);
+    camera.shot("vault-folders", "Folders: every one, with its count");
+    app.set_folders_open(false);
+    app.set_folder_filter(0);
+    app.invoke_filter_changed(0);
+    camera.shot("vault-in-folder", "In a folder: its name, and x to leave");
+    app.set_folder_filter(-1);
+    app.invoke_filter_changed(0);
+    camera.shot_scrolled("vault-folders-under-all", "Under All: the folders");
 
     app.global::<Theme>().set_dark(false);
     app.set_place(Place::Items);
@@ -588,6 +662,20 @@ fn main() {
     type_secret(&app, 0, "not the password");
     app.invoke_unlock();
     camera.shot("unlock-wrong", "A wrong password, in words");
+    app.invoke_start_recovery(0);
+    camera.shot(
+        "recover",
+        "Forgot the master password: the kit's three parts, then a new one",
+    );
+    app.invoke_recover();
+    camera.shot("recover-wrong", "Recovery: what is missing, in words");
+    app.set_recovered_key("S0-ABCDEFG-HJKMNPQ-RSTVWXY-Z012345".into());
+    camera.shot(
+        "recover-key",
+        "Recovered: the new Secret Key, before the vault opens (demo value)",
+    );
+    app.set_recovered_key("".into());
+    app.invoke_cancel_recovery();
     controller.bring_vault_file(&from_computer);
     camera.shot(
         "newer-copy",
