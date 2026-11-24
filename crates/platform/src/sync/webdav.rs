@@ -186,16 +186,16 @@ fn parse_listing(xml: &[u8]) -> Result<Vec<Listed>> {
             .context("the WebDAV listing can't be read")?
         {
             Event::Start(e) => match e.local_name().as_ref() {
-                b"response" => {
+                "response" => {
                     href.clear();
                     etag.clear();
                 }
-                b"href" => field = Some("href"),
-                b"getetag" => field = Some("etag"),
+                "href" => field = Some("href"),
+                "getetag" => field = Some("etag"),
                 _ => {}
             },
             Event::Text(text) => {
-                let text = text.decode().unwrap_or_default();
+                let text = text.xml10_content();
                 match field {
                     Some("href") => href.push_str(&text),
                     Some("etag") => etag.push_str(&text),
@@ -203,8 +203,8 @@ fn parse_listing(xml: &[u8]) -> Result<Vec<Listed>> {
                 }
             }
             Event::End(e) => match e.local_name().as_ref() {
-                b"href" | b"getetag" => field = None,
-                b"response" => {
+                "href" | "getetag" => field = None,
+                "response" => {
                     let name = href.trim_end_matches('/').rsplit('/').next().unwrap_or("");
                     if let Some(device) = name.strip_suffix(".vault").and_then(DeviceId::from_hex) {
                         let tag = etag.trim().trim_start_matches("W/").trim_matches('"');
