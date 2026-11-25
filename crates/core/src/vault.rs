@@ -87,6 +87,11 @@ pub struct VaultInfo {
     pub has_recovery_parts: bool,
     /// The master password alone doesn't open it: a keyfile is needed too.
     pub needs_keyfile: bool,
+    /// Names what opens this copy (its key slots and kit), without telling anything about
+    /// them: it changes with a new master password, Secret Key, keyfile or kit, and with a
+    /// renewed vault key. A device keeps the ones it retired by renewing or taking a new key
+    /// ([`Vault::unlock_id`]), so a copy it can't open is known as one written before.
+    pub unlock_id: [u8; 16],
 }
 
 /// An unlocked vault. Items stay encrypted in memory; each one is decrypted only when asked for.
@@ -117,6 +122,49 @@ pub struct VaultSnapshot {
     settings: VaultSettings,
     guard: ItemGuard,
     sync: SyncState,
+}
+
+/// What [`Vault::renew_key`] hands back.
+pub struct RenewedKey {
+    /// The vault's new Secret Key: shown once (with the new kit) and kept on this device.
+    pub secret_key: SecretKey,
+    /// The new emergency kit's recovery parts.
+    pub parts: RecoveryParts,
+    /// The vault key this copy had before, for what this device sealed with it.
+    pub former: FormerKey,
+}
+
+impl fmt::Debug for RenewedKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RenewedKey(<redacted>)")
+    }
+}
+
+/// A vault key this copy no longer uses, after [`Vault::renew_key`] or [`Vault::adopt_key`].
+/// It opens only what this device sealed with it outside the vault file
+/// ([`Vault::seal_local`]: the generator's history, the extension's connection key...), so
+/// that can be sealed again under the new key; it is wiped when dropped. Keep it no longer
+/// than that.
+pub struct FormerKey {
+    vault_key: VaultKey,
+    vault_id: [u8; 16],
+}
+
+impl FormerKey {
+    /// Opens data [`Vault::seal_local`] sealed with this key for `purpose`.
+    pub fn open_local(&self, purpose: &str, sealed: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+        aead::open(
+            &local_key(&self.vault_key, &self.vault_id, purpose),
+            sealed,
+            &local_aad(&self.vault_id, purpose),
+        )
+    }
+}
+
+impl fmt::Debug for FormerKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("FormerKey(<redacted>)")
+    }
 }
 
 impl fmt::Debug for VaultSnapshot {
@@ -849,8 +897,14 @@ impl Vault {
             has_recovery_key: parsed.header.slot(SlotKind::Recovery).is_some(),
             has_recovery_parts: parsed.header.parts.is_some(),
             needs_keyfile: parsed.header.slot(SlotKind::PasswordKeyfile).is_some(),
+            unlock_id: unlock_id(&parsed.header),
             kdf: parsed.header.kdf,
         })
+    }
+
+    /// [`VaultInfo::unlock_id`] of this copy as it is in memory now.
+    pub fn unlock_id(&self) -> [u8; 16] {
+        unlock_id(&self.header)
     }
 
     /// Checks that `bytes` is a whole, readable copy of this vault, with the key already in
@@ -905,8 +959,22 @@ impl Vault {
     }
 
     fn local_key(&self, purpose: &str) -> Zeroizing<aead::Key> {
-        let label = [b"local/".as_slice(), purpose.as_bytes()].concat();
-        self.vault_key.subkey(&label, &self.header.vault_id)
+        local_key(&self.vault_key, &self.header.vault_id, purpose)
+    }
+
+    /// What [`Vault::seal_local`] sealed for `purpose` under `former` (this vault's key before
+    /// [`Vault::renew_key`] or [`Vault::adopt_key`]), sealed again under the key it has now.
+    pub fn reseal_local(
+        &self,
+        former: &FormerKey,
+        purpose: &str,
+        sealed: &[u8],
+    ) -> Result<Vec<u8>> {
+        if former.vault_id != self.header.vault_id {
+            return Err(Error::OtherVault);
+        }
+        let plain = former.open_local(purpose, sealed)?;
+        self.seal_local(purpose, &plain)
     }
 
     /// Random identifier of this vault, as hex.
@@ -1338,6 +1406,124 @@ impl Vault {
         Ok(())
     }
 
+    /// Renews the vault key (CRYPTO.md §3.8): a new vault key, a new Secret Key and a new
+    /// recovery kit, with the master password the person just typed. Every item's key is
+    /// wrapped again under the new vault key (its sealed contents stay as they are, so other
+    /// devices still recognise each item), the body is sealed under it from the next
+    /// [`Vault::to_bytes`] on, and the header keeps only the new password slot and the new
+    /// kit's parts.
+    ///
+    /// That is what a new master password, Secret Key or kit alone doesn't do: the vault key
+    /// never changes with them, so whoever opened an older copy of the file (with its old
+    /// factors, or its kit) would hold the key to every newer copy too. After a renewal, an
+    /// older copy opens only itself.
+    ///
+    /// `password`, `secret_key` and `keyfile` must open this vault now (a typo must not
+    /// become the master password); they are checked against the current password slot.
+    /// Nothing changes when that or anything else fails. The item lock keeps its key (it is
+    /// wrapped by its PIN or password, not by the vault key). Other devices take the new key
+    /// with [`Vault::adopt_key`].
+    pub fn renew_key(
+        &mut self,
+        password: &str,
+        secret_key: &SecretKey,
+        keyfile: Option<&Keyfile>,
+    ) -> Result<RenewedKey> {
+        let vault_id = self.header.vault_id;
+        let kind = if self.needs_keyfile() {
+            SlotKind::PasswordKeyfile
+        } else {
+            SlotKind::Password
+        };
+        if kind == SlotKind::PasswordKeyfile && keyfile.is_none() {
+            return Err(Error::KeyfileRequired);
+        }
+        let keyfile = keyfile.filter(|_| kind == SlotKind::PasswordKeyfile);
+        let slot = self.header.slot(kind).ok_or(Error::NoMatchingSlot)?;
+        let kek = keys::password_kek(password, secret_key, keyfile, &self.header.kdf, &vault_id)?;
+        let opened = aead::open(&kek, &slot.wrapped_vault_key, &slot_aad(&vault_id, kind))?;
+        if opened.as_slice() != self.vault_key.as_bytes().as_slice() {
+            return Err(Error::DecryptionFailed);
+        }
+
+        let new_key = VaultKey::generate()?;
+        let items = self
+            .items
+            .iter()
+            .map(|record| rewrap_item_key(record, &self.vault_key, &new_key, &vault_id))
+            .collect::<Result<Vec<_>>>()?;
+        let new_secret_key = SecretKey::generate()?;
+        let parts = RecoveryParts::generate()?;
+        let kdf = self.header.kdf.with_fresh_salt()?;
+
+        let former = std::mem::replace(&mut self.vault_key, new_key);
+        let (header, sync) = (self.header.clone(), self.sync.clone());
+        let built = (|| -> Result<()> {
+            let slot = self.password_slot(password, &new_secret_key, keyfile, &kdf)?;
+            self.header.kdf = kdf;
+            // Only the new password slot: a Recovery Key of an older kit goes too.
+            self.header.slots = vec![slot];
+            self.header.parts = None;
+            self.set_recovery_parts(&parts, &new_secret_key)
+        })();
+        if let Err(err) = built {
+            self.vault_key = former;
+            self.header = header;
+            self.sync = sync;
+            return Err(err);
+        }
+        self.items = items;
+        Ok(RenewedKey {
+            secret_key: new_secret_key,
+            parts,
+            former: FormerKey {
+                vault_key: former,
+                vault_id,
+            },
+        })
+    }
+
+    /// Takes the vault key another device renewed ([`Vault::renew_key`]): `renewed` is that
+    /// device's copy, opened with the master password and the new Secret Key from the new
+    /// kit. This copy's items are wrapped under the new key and its header becomes the
+    /// renewed one (the new password slot and kit), so the renewed copy merges as usual
+    /// afterwards ([`Vault::merge`]). Returns the key this copy had, for what this device
+    /// sealed with it, or `None` when both already share one key (nothing changes then).
+    pub fn adopt_key(&mut self, renewed: &Vault) -> Result<Option<FormerKey>> {
+        if renewed.header.vault_id != self.header.vault_id {
+            return Err(Error::OtherVault);
+        }
+        if renewed.vault_key.as_bytes() == self.vault_key.as_bytes() {
+            return Ok(None);
+        }
+        let vault_id = self.header.vault_id;
+        let items = self
+            .items
+            .iter()
+            .map(|record| rewrap_item_key(record, &self.vault_key, &renewed.vault_key, &vault_id))
+            .collect::<Result<Vec<_>>>()?;
+        let former = std::mem::replace(&mut self.vault_key, renewed.vault_key.duplicate());
+        self.items = items;
+        self.header = renewed.header.clone();
+        self.sync.unlock_revision = self.sync.unlock_revision.max(renewed.sync.unlock_revision);
+        Ok(Some(FormerKey {
+            vault_key: former,
+            vault_id,
+        }))
+    }
+
+    /// Undoes [`Vault::renew_key`] or [`Vault::adopt_key`] when what follows them fails (the
+    /// write, or keeping the new Secret Key): `snapshot` is [`Vault::snapshot`] taken right
+    /// before, `former` the key they handed back. The vault is then as it was, key and all.
+    pub fn put_back_key(&mut self, snapshot: VaultSnapshot, former: FormerKey) -> Result<()> {
+        if former.vault_id != self.header.vault_id {
+            return Err(Error::OtherVault);
+        }
+        self.vault_key = former.vault_key;
+        self.roll_back(snapshot);
+        Ok(())
+    }
+
     /// Retires the recovery parts: once used (typed on a device to bring back the Secret Key,
     /// or to choose a new master password), a kit's parts stop opening anything, and a new
     /// kit takes their place. Nothing else changes; without parts, nothing happens.
@@ -1611,6 +1797,53 @@ fn device_aad(header: &VaultHeader) -> Result<Vec<u8>> {
         slot_hash.as_slice(),
     ]
     .concat())
+}
+
+/// A digest of the header's key slots and kit: public bytes only, so it says nothing that
+/// the header doesn't.
+fn unlock_id(header: &VaultHeader) -> [u8; 16] {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"vault-v0/unlock-id");
+    hash.update(header.vault_id);
+    for slot in &header.slots {
+        hash.update([slot.kind.aad_byte()]);
+        hash.update((slot.wrapped_vault_key.len() as u64).to_le_bytes());
+        hash.update(&slot.wrapped_vault_key);
+    }
+    if let Some(parts) = &header.parts {
+        hash.update(parts.kit_id);
+        hash.update(&parts.vault_key);
+    }
+    let digest = hash.finalize();
+    let mut id = [0u8; 16];
+    id.copy_from_slice(&digest[..16]);
+    id
+}
+
+fn local_key(vault_key: &VaultKey, vault_id: &[u8; 16], purpose: &str) -> Zeroizing<aead::Key> {
+    let label = [b"local/".as_slice(), purpose.as_bytes()].concat();
+    vault_key.subkey(&label, vault_id)
+}
+
+/// `record` with its item key wrapped under `to` instead of `from`; its sealed contents (and
+/// so its digest, which sync compares) stay the same.
+fn rewrap_item_key(
+    record: &ItemRecord,
+    from: &VaultKey,
+    to: &VaultKey,
+    vault_id: &[u8; 16],
+) -> Result<ItemRecord> {
+    let aad = item_key_aad(vault_id, &record.id);
+    let item_key = aead::open(
+        &from.subkey(SUBKEY_ITEM_WRAP, vault_id),
+        &record.wrapped_key,
+        &aad,
+    )?;
+    Ok(ItemRecord {
+        wrapped_key: aead::seal(&to.subkey(SUBKEY_ITEM_WRAP, vault_id), &item_key, &aad)?,
+        ..record.clone()
+    })
 }
 
 fn local_aad(vault_id: &[u8; 16], purpose: &str) -> Vec<u8> {

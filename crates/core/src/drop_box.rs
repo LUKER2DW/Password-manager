@@ -18,7 +18,7 @@
 use crypto_box::{PublicKey, SecretKey as BoxSecret, aead::OsRng};
 use zeroize::Zeroizing;
 
-use crate::{Error, Result, Vault, padding};
+use crate::{Error, FormerKey, Result, Vault, padding};
 
 const PURPOSE: &str = "browser-drop-box";
 /// Bytes of a public key.
@@ -63,6 +63,13 @@ impl DropBoxKey {
         Ok(Self {
             secret: BoxSecret::from_bytes(*array),
         })
+    }
+
+    /// The key [`DropBoxKey::seal_with`] sealed under `former` (the vault key before a
+    /// renewal), sealed again under the vault's key now; the key itself, and so the entries
+    /// sealed to it, stay the same.
+    pub fn reseal_with(vault: &Vault, former: &FormerKey, sealed: &[u8]) -> Result<Vec<u8>> {
+        vault.reseal_local(former, PURPOSE, sealed)
     }
 
     /// Opens one entry written by [`seal_entry`] for this vault.

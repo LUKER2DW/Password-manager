@@ -51,7 +51,7 @@ pub use item::{
 pub use kdf::{KdfMethod, KdfParams, KdfStrength, PasswordKdf};
 pub use keys::{Keyfile, PartLabel, RecoveryKey, RecoveryPart, RecoveryParts, SecretKey};
 pub use passkey::Passkey;
-pub use vault::{Unlock, Vault, VaultInfo, VaultSnapshot};
+pub use vault::{FormerKey, RenewedKey, Unlock, Vault, VaultInfo, VaultSnapshot};
 
 /// Convenience alias used throughout the crate.
 pub type Result<T> = std::result::Result<T, Error>;
