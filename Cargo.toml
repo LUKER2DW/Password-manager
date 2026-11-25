@@ -16,6 +16,8 @@ members = [
     "apps/mobile-web",
     "apps/server",
 ]
+# cargo-fuzz targets (fuzz/README.md): built by `cargo fuzz` on nightly, not with the workspace.
+exclude = ["fuzz"]
 
 [workspace.package]
 edition = "2024"

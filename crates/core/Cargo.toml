@@ -31,7 +31,7 @@ getrandom = "0.4"
 hkdf = "0.13"
 hmac = { version = "0.13", features = ["zeroize"] }
 pbkdf2 = { version = "0.13", default-features = false }
-postcard = { version = "1.1", features = ["use-std"] }
+postcard = { version = "1.1", default-features = false, features = ["use-std"] }
 # Passkeys (passkey.rs): ES256, ECDSA over P-256 with SHA-256, the signature WebAuthn sites expect.
 # Deterministic nonces (RFC 6979); keys come from the OS randomness (random.rs).
 p256 = { version = "0.14", default-features = false, features = ["ecdsa", "pkcs8", "pem"] }
