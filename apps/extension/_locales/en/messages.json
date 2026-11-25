@@ -117,6 +117,18 @@
   "noFields": {
     "message": "No sign-in fields were found on this page. Nothing was typed."
   },
+  "notSavedTitle": {
+    "message": "Not saved"
+  },
+  "notSavedText": {
+    "message": "The app could not write it to the vault file (it was changed elsewhere, or the disk refused). Nothing was kept. Try again in a moment."
+  },
+  "chooseField": {
+    "message": "This page has more than one sign-in form. Click into the one to fill, then try again. Nothing was typed."
+  },
+  "insecureForm": {
+    "message": "This form sends what is typed without encryption (http). Nothing was typed."
+  },
   "filledUsername": {
     "message": "Username filled. Continue to the password step, then click the button again."
   },
@@ -238,6 +250,21 @@
   },
   "savedToast": {
     "message": "Saved to your vault."
+  },
+  "saveGone": {
+    "message": "Not saved: this offer is no longer waiting. Sign in again to be asked again."
+  },
+  "saveClose": {
+    "message": "Close"
+  },
+  "updateChangedSince": {
+    "message": "Not updated: this login was changed in Vault since. Nothing was replaced."
+  },
+  "changedSinceTitle": {
+    "message": "Not updated"
+  },
+  "changedSinceText": {
+    "message": "This login was changed in Vault after the update was offered (edited, or by a sync). Nothing was replaced. Sign in again to be asked again."
   },
   "offerText": {
     "message": "You signed in as $USERNAME$. Save this login to your vault?",
@@ -368,6 +395,9 @@
   "noCodeField": {
     "message": "No field for a one-time code on this page"
   },
+  "chooseCodeField": {
+    "message": "This page asks for a one-time code in more than one form. Click into the one to fill, then try again. Nothing was typed."
+  },
   "updateTitle": {
     "message": "Update the saved password?"
   },
@@ -395,7 +425,7 @@
     "message": "Vault offers to save passwords, not the browser"
   },
   "prefsSavingHint": {
-    "message": "Turns off the browser's own “Offer to save passwords and passkeys”, so only Vault asks. The browser's settings then say that Vault controls it; turning this off gives it back."
+    "message": "On, Vault offers to save or update a login after you sign in, and the browser's own “Offer to save passwords and passkeys” is off (the browser's settings say Vault controls it). Off, Vault keeps and offers nothing you type into sign-in forms, and the browser's own saving is back. Filling from Vault works either way."
   },
   "prefsSavingOther": {
     "message": "Another extension controls this browser setting. Turn that one off to let Vault have it."
@@ -453,6 +483,23 @@
   },
   "passkeyFailed": {
     "message": "Vault couldn't do that. Try again, or use another device."
+  },
+  "passkeyForSite": {
+    "message": "for $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "passkeyMadeNotSent": {
+    "message": "Vault saved the passkey, but the page changed or stopped waiting before it got it, so the site can't use it. You can delete it from this site's login in the app, then try again on the page."
+  },
+  "passkeyMadeNotSentReplaced": {
+    "message": "Vault saved the passkey, but the page changed or stopped waiting before it got it, so the site can't use it. It took the place of the passkey saved before for this account, which is no longer in Vault: sign in to the site another way (your password), then make a passkey again."
+  },
+  "passkeyClose": {
+    "message": "Close"
   },
   "prefsPasskeys": {
     "message": "Vault keeps passkeys, not the browser"

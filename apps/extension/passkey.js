@@ -1,6 +1,7 @@
 // The extension's window for a page's passkey request (opened by passkey-worker.js). A page
-// can't draw over it or click in it. It shows the site, and the passkeys Vault has for it
-// (or the account a new one is for), and sends the person's choice to the background worker.
+// can't draw over it or click in it. It shows the page that asks and the site its passkeys
+// belong to, the passkeys Vault has there (or the account a new one is for), and sends the
+// person's choice to the background worker.
 // No key or signature passes through here; a PIN typed for the item lock goes to the app, as
 // in the extension's popup.
 
@@ -67,8 +68,14 @@ function busy(on) {
 function render() {
   const get = state.kind === "get";
   document.title = t(get ? "passkeyGetTitle" : "passkeyCreateTitle");
-  $("icon").replaceChildren(siteIcon(state.site, state.site));
-  $("site").textContent = state.site;
+  // The page that asks, in full, and the site its passkey belongs to when that is another
+  // name: a page under example.com may use example.com's passkeys, and which page it is
+  // (accounts.example.com, or someone's corner of a shared domain) is the person's call.
+  const page = state.host || state.site;
+  $("icon").replaceChildren(siteIcon(page, page));
+  $("site").textContent = page;
+  $("for").hidden = page === state.site;
+  $("for").textContent = page === state.site ? "" : t("passkeyForSite", state.site);
   $("title").textContent = t(get ? "passkeyGetTitle" : "passkeyCreateTitle");
   $("other").textContent = t("passkeyOther");
   $("no").textContent = t("cancelButton");
@@ -119,11 +126,30 @@ function render() {
   }
 }
 
+/**
+ * The passkey is in the vault but the page was gone (or had cancelled, or passkeys were
+ * turned off) before it could get it: the site doesn't know it. Said here, with only Close.
+ * `replaced`: it took the place of the passkey kept before for this account, which the site
+ * may still expect and which is no longer in the vault.
+ */
+function madeNotSent(replaced) {
+  for (const id of ["list", "make", "locked", "check", "other", "yes"]) $(id).hidden = true;
+  problem(t(replaced ? "passkeyMadeNotSentReplaced" : "passkeyMadeNotSent"));
+  $("no").textContent = t("passkeyClose");
+  $("no").focus();
+}
+
 /** What the worker answered to a choice. */
 function answered(reply) {
+  // The app is still at work on an earlier click: its answer comes with that one.
+  if (reply?.code === "busy") return;
   busy(false);
   if (!reply || reply.gone || reply.done) {
     window.close();
+    return;
+  }
+  if (reply.code === "made_not_sent") {
+    madeNotSent(reply.replaced === true);
     return;
   }
   if (reply.code === "item_locked" || reply.code === "wrong_check") {

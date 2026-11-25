@@ -7,13 +7,15 @@
 //
 // The frame's address says what to show and where the field is: `#logins`, `#code`, `#new`
 // or `#save`, with `:up` when the card sits above the field, then `|` and the page's colour
-// scheme. The content script changes only that part when the card has to move above, which
-// doesn't reload this page.
+// scheme, then `|` and the offer: which field of the page the card was shown under. A login
+// picked here is typed into that field's form only (fill.js). The content script changes only
+// the first part when the card has to move above, which doesn't reload this page.
 
 const t = (key, ...parts) => chrome.i18n.getMessage(key, parts) || key;
 const $ = (id) => document.getElementById(id);
 const say = (message) => chrome.runtime.sendMessage(message).catch(() => undefined);
 const [mode = "logins"] = location.hash.slice(1).split("|")[0].split(":");
+const offer = location.hash.slice(1).split("|")[2] || "";
 // The card under a field (logins or a new password) and the one in the corner (save).
 const which = mode === "save" ? "save" : "logins";
 
@@ -41,9 +43,10 @@ let visibleSince = 0;
 new IntersectionObserver(
   (entries) => {
     const seen = entries[entries.length - 1];
-    // `isVisible` is the browser's own word that nothing covers, fades or distorts us. A
-    // browser that can't tell leaves it undefined; there only the frame's size is known.
-    const visible = seen.isIntersecting && seen.isVisible !== false;
+    // `isVisible` is the browser's own word that nothing covers, fades or distorts us; every
+    // Chrome and Edge this extension runs in (127 and later) gives it. Not given, or the frame
+    // not wholly inside the viewport, counts as not visible: a click then does nothing.
+    const visible = seen.isIntersecting && seen.intersectionRatio >= 1 && seen.isVisible === true;
     visibleSince = visible ? visibleSince || performance.now() : 0;
   },
   { threshold: 1, trackVisibility: true, delay: 100 },
@@ -85,6 +88,7 @@ function siteIcon(origin, letter) {
   img.src = `${chrome.runtime.getURL("/_favicon/")}?pageUrl=${encodeURIComponent(origin)}&size=32`;
   img.addEventListener("error", () => {
     const tile = document.createElement("span");
+    if (img.id) tile.id = img.id;
     tile.className = "letter";
     tile.textContent = (letter || "?").trim().charAt(0);
     img.replaceWith(tile);
@@ -152,7 +156,7 @@ async function showLogins() {
     row.addEventListener("click", async (event) => {
       if (!genuine(event)) return;
       for (const other of rows) other.disabled = true;
-      await say({ kind: codes ? "frame-code" : "frame-fill", id: entry.id });
+      await say({ kind: codes ? "frame-code" : "frame-fill", id: entry.id, offer });
     });
     return row;
   });
@@ -190,34 +194,85 @@ async function showSave() {
   const info = await say({ kind: "frame-save-info" });
   if (!info?.origin) return say({ kind: "frame-dismiss", which });
   $("save").hidden = false;
+  drawSave(info);
+}
+
+/** "Not now" for the offer `info`: with a newer one waiting, the card shows that one. */
+async function dismissSave(info) {
+  const outcome = await say({ kind: "frame-dismiss", which, offer: info.id });
+  if (outcome?.redraw) await redraw();
+}
+
+/** The card for offer `info`: its site and username, and Save and Not now for it alone. */
+function drawSave(info) {
   const site = info.origin.replace(/^https:\/\//, "");
-  $("save-icon").replaceWith(siteIcon(info.origin, site));
+  const icon = siteIcon(info.origin, site);
+  icon.id = "save-icon";
+  $("save-icon").replaceWith(icon);
   $("save-title").textContent = t(info.update ? "updateTitle" : "saveTitle");
   $("save-who").textContent = `${info.username || t("noUsername")} ${t("saveOn", site)}`;
   const yes = $("save-yes");
   const no = $("save-no");
+  const note = $("save-note");
   yes.textContent = t(info.update ? "updateYes" : "saveYes");
   no.textContent = t("saveNo");
-  no.onclick = (event) => event.isTrusted && say({ kind: "frame-dismiss", which });
+  yes.hidden = false;
+  no.hidden = false;
+  yes.disabled = false;
+  note.classList.remove("good");
+  note.textContent = "";
+  no.onclick = (event) => event.isTrusted && dismissSave(info);
   yes.onclick = async (event) => {
     if (!genuine(event)) return;
     yes.disabled = true;
-    const outcome = await say({ kind: "frame-save" });
+    // The offer this card shows: Save acts on it, not on a newer one it didn't show.
+    const outcome = await say({ kind: "frame-save", offer: info.id });
     if (outcome?.queued) {
       // Locked: kept for the next unlock. Said for a moment, then the card goes.
-      $("save-note").classList.add("good");
-      $("save-note").textContent = t("savedQueued");
+      note.classList.add("good");
+      note.textContent = t("savedQueued");
       yes.hidden = true;
       no.hidden = true;
       fit();
-      setTimeout(() => say({ kind: "frame-dismiss", which }), 2600);
+      setTimeout(() => dismissSave(info), 2600);
       return;
     }
     if (outcome?.done || outcome?.popup) return;
+    // No longer the offer waiting (another sign-in replaced it, or it ran out): the card
+    // shows the one waiting now, or says that nothing was saved. Never closed silently.
+    if (outcome?.stale) return redraw();
+    if (outcome?.changed) {
+      // The login was changed in Vault since the card was offered: nothing was replaced.
+      note.textContent = t("updateChangedSince");
+      yes.hidden = true;
+      no.textContent = t("saveClose");
+      fit();
+      return;
+    }
     yes.disabled = false;
-    $("save-note").textContent = t("saveFailed");
+    note.textContent = t("saveFailed");
     fit();
   };
+  fit();
+}
+
+/** Loads the offer waiting now into the card, or says there is none (nothing was saved). */
+async function redraw() {
+  const info = await say({ kind: "frame-save-info" });
+  if (info?.origin) {
+    drawSave(info);
+    // What the card shows changed under the pointer: clicks count again only once the
+    // browser has reported it visible for the full moment, as for a new card.
+    if (visibleSince) visibleSince = performance.now();
+    return;
+  }
+  const note = $("save-note");
+  note.classList.remove("good");
+  note.textContent = t("saveGone");
+  $("save-yes").hidden = true;
+  $("save-no").textContent = t("saveClose");
+  // Closes the card, or shows an offer that came meanwhile.
+  $("save-no").onclick = (event) => event.isTrusted && dismissSave({ id: "" });
   fit();
 }
 

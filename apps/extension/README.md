@@ -59,7 +59,10 @@ Status: alpha, like the rest of the project (loaded unpacked; not in a store yet
 - **Chrome's own saving:** while "Vault offers to save passwords, not the browser" is on (the
   default, in the extension's Settings), Chrome's "Offer to save passwords and passkeys" is off,
   and Chrome's settings say the extension controls it. That is what the `privacy` permission
-  is for, and nothing else.
+  is for, and nothing else. Turned off, Vault keeps and offers nothing typed into sign-in
+  forms: what a page sends is not read (nor compared with a saved login), an offer still
+  waiting is dropped, and *Save* refuses; the browser's own saving is back. Filling works
+  either way.
 - **What the app allows:** the desktop app's Settings → Browser extension can turn off saving
   logins from pages (new ones, changed passwords, those saved while locked) and the vault's
   passkeys. The app then refuses those requests (`turned_off`) and says so in its answers
@@ -69,7 +72,16 @@ Status: alpha, like the rest of the project (loaded unpacked; not in a store yet
 - **Passkeys:** the page's address is the tab's own; the app decides which site the page may
   use passkeys for (its own host, or a domain above it that is not a public suffix), writes
   and signs the client data itself, and the answer reaches the page only while it still shows
-  that origin. Nothing is made or signed before you choose in the passkey window.
+  that origin. Nothing is made or signed before you choose in the passkey window, which names
+  the page that asks and, when it is another name, the site the passkey belongs to as the app
+  checked it ("accounts.example.com, for example.com"; while the vault is locked the app
+  hasn't, and the window names the page alone, never a site the page wrote). The app is asked
+  to make or sign only while the very document that asked (same tab, same document, same
+  origin) still waits for that request and passkeys are still Vault's, and the same is checked
+  again before the answer goes back. A passkey the app made for a page that went away (or
+  cancelled) in between stays in the vault, unknown to the site: the window says so instead of
+  closing. A new passkey takes the place of the one kept before for the same site and account
+  (as a security key does); when that happened too, the window says the earlier one is gone.
 
 - Every password comes from the app, which decides whether a page may have it: the exact site
   saved in the login, top frame only, nothing while the vault is locked. Each fill or shown
@@ -85,16 +97,46 @@ Status: alpha, like the rest of the project (loaded unpacked; not in a store yet
   minutes, and goes to the app only if you choose *Save*. Before offering an update, the app
   is asked whether that password differs from the saved one; it answers only for a login
   that is not behind the item lock (for a locked one it says it can't tell), so the extension
-  can't test guesses against locked logins.
+  can't test guesses against locked logins. The page itself can see whether the update card
+  appears, so for an open login it learns whether the password in its fields was the saved
+  one. That is accepted: the card appears only on the login's own site, which Vault fills
+  that password into anyway and whose own sign-in answers "right or wrong" for any guess;
+  here each guess needs an act of yours in that form just before it is sent (below).
+  An update is for the version of the login the app compared, and its username: when the
+  login was changed since (edited in the app, merged by a sync), nothing is replaced and the
+  card says so.
 - A one-time code, like a password, leaves the app only for a page of the login's own site.
-- Only what the person does counts as signing in: submits and clicks a page script makes up
-  are ignored, so a page can't get an offer for a password it chose by itself. A page that
-  sets its fields before a real click still can, which is why an update always asks and
-  keeps the old password in the login's history.
+- Only what the person does counts as signing in: clicks and key presses a page script makes
+  up are ignored. A form's `submit` is different: the browser reports it as the person's even
+  when a page script asks for it (`requestSubmit()`, or `click()` on its button), so it counts
+  only within a few seconds after your own click or Enter in that same form, and one act
+  counts for one submit. So a page can't get an offer, or learn from one, for passwords it
+  submits by itself. A page that sets its fields before your real click still can, which is
+  why an update always asks and keeps the old password in the login's history.
+- Only the form that is sent is read: its submit, Enter in one of its fields, or a click on
+  one of its buttons that reads like signing in ("Sign in", "Entrar", "Next"…, but not "Sign
+  in with Google", "Login help" or "Can't log in?"). A help link, an eye that shows the
+  password, a menu or a button of another form reads nothing by its click. Sign-in fields
+  outside any `<form>` are read only for Enter in them or a click on such a button next to
+  them. With saving left to the browser (above), nothing typed is read at all.
+- A login picked in the frame under a field goes into that field's own form, never into
+  another sign-in form of the page, and not at all when the page has since removed the field,
+  moved it into another form or changed where its form sends (its action, a submit button's
+  `formaction`, or the page's `<base>`). Fields outside any `<form>` go together only when they
+  sit next to each other: the password never goes into another box, nor before the field
+  picked. From the extension's window it goes into the focused field's form when that is a
+  sign-in field (not a search box or a code), else the page's only sign-in form; with several
+  and none focused, nothing is guessed. A form that may send over plain `http:` (its action or
+  a button's) gets nothing. A one-time code gets the same checks.
+- A site's `pattern` for new passwords is checked against the suggestion only when it is
+  plainly cheap to run (no repeated group, few repeats in a row): a pattern built to make the
+  browser's regular expressions run for ages could otherwise stall the extension in every tab.
 
 To use one login on several sites, save `*.example.com` as its website in the app: it then
 covers `example.com` and every site under it. A name anyone can register under (`*.co.uk`,
-`*.github.io`, from the Public Suffix List built into the app) is not accepted.
+`*.github.io`, from the Public Suffix List built into the app) is not accepted, nor one right
+above such names (`*.nom.br`, where each `name.nom.br` is one), and an entry never reaches past
+one below it (`*.amazonaws.com` doesn't cover `x.s3.amazonaws.com`, someone else's).
 
 ## Install (development)
 
@@ -135,7 +177,7 @@ The `key` in `manifest.json` fixes the extension's id, which is the only id the 
 | `generator.js` | Reads a field's password rules for the app's generator |
 | `tokens.css` | Colours and shared pieces (the desktop app's tokens) |
 | `_locales/en/messages.json` | Every text shown |
-| `test/*.test.mjs` | Tests: `node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs` |
+| `test/*.test.mjs` | Tests: `node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs` |
 | `test/preview.html` | Visual review of the window and the frames with fixed test data |
 | `test/pages/clickjacking.html` | Manual test page that tries to steal a fill |
 

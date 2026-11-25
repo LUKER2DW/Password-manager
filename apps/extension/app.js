@@ -44,12 +44,55 @@ export function originOf(url) {
 // A login typed into a page and not saved yet waits here, per tab, for the person's answer.
 // `chrome.storage.session` lives in memory only, is never written to disk, and is closed to
 // content scripts; an offer not answered within two minutes is dropped.
+//
+// The extension's setting "Vault offers to save passwords, not the browser" decides whether
+// anything typed is kept at all. Turned off, Vault keeps and offers nothing typed into
+// sign-in forms (the browser's own saving takes over): the background worker reads nothing
+// a page sends, an offer already waiting is dropped, and none is handed out or saved.
 
 const PENDING = "pendingSaves";
 const PENDING_FOR_MS = 2 * 60 * 1000;
 
-async function pendingSaves() {
-  const all = (await chrome.storage.session.get(PENDING))[PENDING] || {};
+/** Whether Vault keeps and offers to save what is typed into sign-in forms (on unless turned off). */
+export async function vaultSaves() {
+  const { vaultSaves: on = true } = await chrome.storage.local.get("vaultSaves");
+  return on === true;
+}
+
+// The waiting logins are one stored map, read and written by the worker and the extension's
+// window: every change runs alone (a lock both share), so one based on an old copy can't
+// bring back an offer just dropped or lose another tab's.
+let queue = Promise.resolve();
+function alone(work) {
+  const locks = globalThis.navigator?.locks;
+  if (locks?.request) return locks.request(PENDING, () => work());
+  // No Web Locks here (not in an extension): one at a time in this context.
+  const run = queue.then(work, work);
+  queue = run.catch(() => {});
+  return run;
+}
+
+async function stored() {
+  return (await chrome.storage.session.get(PENDING))[PENDING] || {};
+}
+
+// The helpers below run inside `alone` only.
+
+async function clearAll() {
+  const all = await stored();
+  if (Object.keys(all).length === 0) return;
+  await chrome.storage.session.set({ [PENDING]: {} });
+  for (const tab of Object.keys(all)) {
+    chrome.tabs.sendMessage(Number(tab), { kind: "close", which: "save" }, { frameId: 0 }).catch(() => {});
+  }
+}
+
+async function current() {
+  if (!(await vaultSaves())) {
+    await clearAll();
+    return {};
+  }
+  const all = await stored();
   const now = Date.now();
   let dropped = false;
   for (const tab of Object.keys(all)) {
@@ -62,14 +105,51 @@ async function pendingSaves() {
   return all;
 }
 
-/** The login waiting to be saved for this tab, or `undefined`. */
-export async function pendingSave(tabId) {
-  return (await pendingSaves())[tabId];
+/** Drops every login waiting to be saved, and closes the cards that offer them. */
+export function dropPendingSaves() {
+  return alone(clearAll);
 }
 
-export async function setPendingSave(tabId, pending) {
-  const all = await pendingSaves();
-  if (pending) all[tabId] = { ...pending, at: Date.now() };
-  else delete all[tabId];
-  await chrome.storage.session.set({ [PENDING]: all });
+/** The login waiting to be saved for this tab, or `undefined` (always, while saving is off). */
+export function pendingSave(tabId) {
+  return alone(async () => (await current())[tabId]);
+}
+
+/** Keeps (or, with `undefined`, drops) the login waiting for this tab; kept only while saving is on. */
+export function setPendingSave(tabId, pending) {
+  return alone(async () => {
+    const all = await current();
+    if (pending && !(await vaultSaves())) return;
+    if (pending) all[tabId] = { ...pending, at: Date.now() };
+    else delete all[tabId];
+    await chrome.storage.session.set({ [PENDING]: all });
+    // Turned off while this was written: nothing typed stays.
+    if (pending && !(await vaultSaves())) await clearAll();
+  });
+}
+
+/**
+ * Drops the login waiting for this tab only if it still is offer `id` (the one a card or the
+ * window acted on), never a newer one that came meanwhile. Whether it was dropped.
+ */
+export function dropPendingSave(tabId, id) {
+  return alone(async () => {
+    const all = await current();
+    if (typeof id !== "string" || all[tabId]?.id !== id) return false;
+    delete all[tabId];
+    await chrome.storage.session.set({ [PENDING]: all });
+    return true;
+  });
+}
+
+/**
+ * The request that updates the saved password of a waiting offer. With the stamp the app gave
+ * when it compared (newer apps), it is bound to that version of the login and its username:
+ * the app refuses (`changed_since`) a login changed since. An older app gave none, and gets
+ * the request it knows.
+ */
+export function updateRequest(pending) {
+  const request = { type: "update", url: pending.url, id: pending.update.id, password: pending.password };
+  if (pending.update.stamp) Object.assign(request, { username: pending.username, stamp: pending.update.stamp });
+  return request;
 }

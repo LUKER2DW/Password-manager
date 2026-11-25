@@ -104,6 +104,11 @@
             get: async (key) => ({ [key]: session[key] }),
             set: async (values) => Object.assign(session, values),
           },
+          // The extension's settings: none changed (Vault offers to save, and keeps passkeys).
+          local: {
+            get: async () => ({}),
+            set: async () => {},
+          },
         },
         tabs: {
           query: async () => [{ id: 1, url: page }],

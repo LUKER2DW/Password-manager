@@ -13,7 +13,16 @@
 // - a page's passkey request is answered only after the person chose in the extension's own
 //   window, and only for the tab's own origin (passkey-worker.js).
 
-import { ask, originOf, pendingSave, setPendingSave } from "./app.js";
+import {
+  ask,
+  dropPendingSave,
+  dropPendingSaves,
+  originOf,
+  pendingSave,
+  setPendingSave,
+  updateRequest,
+  vaultSaves,
+} from "./app.js";
 import { fillCode, fillLogin } from "./fill.js";
 import { fallbacks, patternTest, rulesFor } from "./generator.js";
 import { fromPasskeyWindow, passkeyCancelled, passkeyFromPage, passkeyFromWindow } from "./passkey-worker.js";
@@ -24,14 +33,10 @@ const INLINE = chrome.runtime.getURL("inline.html");
 //
 // While the person leaves it to Vault (the default), Chrome's "Offer to save passwords and
 // passkeys" is off, and Chrome's settings say that this extension controls it, with a way to
-// take it back. Turning it off here gives the setting back. The `privacy` permission is used
-// for this one setting only.
-
-/** Whether Vault offers to save passwords instead of the browser (the extension's setting). */
-export async function vaultSaves() {
-  const { vaultSaves: on = true } = await chrome.storage.local.get("vaultSaves");
-  return on;
-}
+// take it back. Turning it off here gives the setting back, and Vault then keeps and offers
+// nothing typed into sign-in forms (`vaultSaves` in app.js): what the page sends is not read,
+// an offer already waiting is dropped, and Save refuses. The `privacy` permission is used for
+// this one setting only.
 
 /** Applies the setting to Chrome's own, when this extension may control it. */
 export async function applySaving() {
@@ -47,6 +52,12 @@ export async function applySaving() {
 
 chrome.runtime.onInstalled.addListener(() => applySaving().catch(() => {}));
 chrome.runtime.onStartup.addListener(() => applySaving().catch(() => {}));
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !("vaultSaves" in changes) || changes.vaultSaves.newValue === true) return;
+  // Turned off: what was typed and still waits goes too.
+  usernames.clear();
+  dropPendingSaves().catch(() => {});
+});
 
 // Answers for "does this page have logins?", kept a few seconds per tab so that clicking
 // between two fields does not ask the app twice.
@@ -98,7 +109,7 @@ async function suggestFor(tab, rules) {
   return undefined;
 }
 
-async function fillFromFrame(tab, id) {
+async function fillFromFrame(tab, id, offer) {
   const listed = await loginsFor(tab);
   const entry = listed.type === "logins" ? listed.items.find((item) => item.id === id) : undefined;
   if (!entry) return { done: false };
@@ -115,7 +126,8 @@ async function fillFromFrame(tab, id) {
     const [result] = await chrome.scripting.executeScript({
       target: { tabId: tab.id, frameIds: [0] },
       func: fillLogin,
-      args: [reply.origin, reply.username, reply.password],
+      // The card's offer: only the field it was shown under, and that field's form, get it.
+      args: [reply.origin, reply.username, reply.password, offer],
     });
     return { done: ["both", "password", "username"].includes(result?.result) };
   } catch {
@@ -124,7 +136,7 @@ async function fillFromFrame(tab, id) {
 }
 
 /** Types the current one-time code of login `id` into the page's code field. */
-async function codeFromFrame(tab, id) {
+async function codeFromFrame(tab, id, offer) {
   const listed = await loginsFor(tab);
   const entry =
     listed.type === "logins" ? listed.items.find((item) => item.id === id && item.has_code) : undefined;
@@ -140,7 +152,7 @@ async function codeFromFrame(tab, id) {
     const [result] = await chrome.scripting.executeScript({
       target: { tabId: tab.id, frameIds: [0] },
       func: fillCode,
-      args: [reply.origin, reply.code],
+      args: [reply.origin, reply.code, offer],
     });
     return { done: result?.result === "filled" };
   } catch {
@@ -149,6 +161,8 @@ async function codeFromFrame(tab, id) {
 }
 
 async function submitted(tab, message) {
+  // Saving left to the browser: nothing typed is kept, compared or offered.
+  if (!(await vaultSaves())) return;
   const password = typeof message.password === "string" ? message.password : "";
   let username = typeof message.username === "string" ? message.username : "";
   if (!password || password.length > 1024 || username.length > 1024) return;
@@ -169,31 +183,57 @@ async function submitted(tab, message) {
   if (saved) {
     // Already saved: offered again only as an update, when the app says the password typed is
     // another one (or can't tell, for a locked login).
+    //
+    // The page can see whether the card appears, so for an open login it learns whether the
+    // password in its fields was the saved one. That is kept on purpose rather than made
+    // indistinguishable (a card after every sign-in, or one that always asks): the card is
+    // shown only on the site the login is saved for, which Vault fills that very password
+    // into when asked and whose own sign-in already answers "right or wrong" for any guess,
+    // faster and without anyone's help. Here each guess needs the person's own click or
+    // Enter in that form (content.js takes a submit only right after one, since a submit a
+    // page script asks for is trusted too), and a login behind the item lock is never
+    // compared (the app answers "can't tell", and the card always comes).
     const reply = await ask({ type: "changed", url: tab.url, username, password });
     if (reply.type !== "changed" || reply.changed === false) return;
-    update = { id: reply.id, locked: reply.changed === null || saved.locked };
+    // The stamp names the version of the login the app compared: the update the card offers
+    // is for that version only (`updateRequest`).
+    const stamp = typeof reply.stamp === "string" && reply.stamp.length <= 128 ? reply.stamp : "";
+    update = { id: reply.id, locked: reply.changed === null || saved.locked, stamp };
   }
-  await setPendingSave(tab.id, { url: tab.url, origin, username, password, update });
+  // Each offer has an id: the card says which login it shows, and Save acts on that one only,
+  // never on a later offer of the same tab (another sign-in, another page) it didn't show.
+  await setPendingSave(tab.id, { id: crypto.randomUUID(), url: tab.url, origin, username, password, update });
   tell(tab.id, { kind: "offer-save" });
 }
 
-async function saveFromFrame(tab) {
+/**
+ * Saves (or updates) the login of offer `offer`, the one the card shows. The card may sit on
+ * another site than the one the login was typed on (a sign-in that leads to another host): it
+ * names that site, and the login is saved for the address it was typed on (`pending.url`),
+ * whatever the tab shows now. `stale` when the offer is no longer the tab's (replaced by a
+ * newer one, run out, dropped): the card then shows what waits now, or says nothing was saved.
+ */
+async function saveFromFrame(tab, offer) {
+  // Saving left to the browser meanwhile: the offer is gone (`pendingSave` drops it too).
+  if (!(await vaultSaves())) return { done: false, stale: true };
   const pending = await pendingSave(tab.id);
-  if (!pending) return { done: false };
+  if (!pending || typeof offer !== "string" || pending.id !== offer) return { done: false, stale: true };
   if (pending.update) {
     const listed = await loginsFor(tab);
     const hello = pending.update.locked && listed.type === "logins" && listed.hello;
-    const reply = await ask({
-      type: "update",
-      url: pending.url,
-      id: pending.update.id,
-      password: pending.password,
-      hello,
-    });
+    const reply = await ask({ ...updateRequest(pending), hello });
     if (reply.type === "updated") {
-      await setPendingSave(tab.id, undefined);
+      // Only this offer is done with: one that came meanwhile stays.
+      await dropPendingSave(tab.id, pending.id);
       known.delete(tab.id);
       return { done: true, queued: false };
+    }
+    if (reply.code === "changed_since") {
+      // The login was changed since the card was offered: nothing was replaced, and this
+      // offer can't be taken again.
+      await dropPendingSave(tab.id, pending.id);
+      known.delete(tab.id);
+      return { done: false, changed: true };
     }
     const popup = reply.code === "item_locked" && (await continueInPopup());
     return { done: false, popup };
@@ -205,7 +245,7 @@ async function saveFromFrame(tab) {
     password: pending.password,
   });
   if (reply.type === "saved") {
-    await setPendingSave(tab.id, undefined);
+    await dropPendingSave(tab.id, pending.id);
     known.delete(tab.id);
     // Queued: the vault is locked; the frame says so before it closes.
     return { done: true, queued: Boolean(reply.queued) };
@@ -217,7 +257,9 @@ async function saveFromFrame(tab) {
 async function handle(message, sender) {
   const tab = sender.tab;
   if (sender.id !== chrome.runtime.id || typeof message?.kind !== "string") return undefined;
-  if (fromPasskeyWindow(sender)) return message.kind.startsWith("passkey-") ? passkeyFromWindow(message) : undefined;
+  if (fromPasskeyWindow(sender)) {
+    return message.kind.startsWith("passkey-") ? passkeyFromWindow(message, sender) : undefined;
+  }
   if (!tab?.id) return undefined;
   const fromFrame = typeof sender.url === "string" && sender.url.startsWith(INLINE);
   const fromPage = !fromFrame && sender.frameId === 0;
@@ -249,6 +291,7 @@ async function handle(message, sender) {
         return { show: listed.type === "logins" && listed.items.length > 0 };
       }
       case "username-step":
+        if (!(await vaultSaves())) return undefined;
         if (typeof message.username === "string" && message.username.length <= 1024) {
           usernames.set(tab.id, { origin: originOf(tab.url), username: message.username });
         }
@@ -259,7 +302,8 @@ async function handle(message, sender) {
       case "pending":
         return { offer: Boolean(await pendingSave(tab.id)) };
       case "passkey":
-        return passkeyFromPage(tab, String(message.id), message.request);
+        // The document that asked (the browser's id for it): answered for that document only.
+        return passkeyFromPage(tab, String(message.id), message.request, sender.documentId);
       case "passkey-cancel":
         passkeyCancelled(tab.id, String(message.id));
         return undefined;
@@ -286,12 +330,12 @@ async function handle(message, sender) {
       };
     }
     case "frame-fill": {
-      const outcome = await fillFromFrame(tab, String(message.id));
+      const outcome = await fillFromFrame(tab, String(message.id), String(message.offer ?? ""));
       tell(tab.id, { kind: "close", which: "logins" });
       return outcome;
     }
     case "frame-code": {
-      const outcome = await codeFromFrame(tab, String(message.id));
+      const outcome = await codeFromFrame(tab, String(message.id), String(message.offer ?? ""));
       tell(tab.id, { kind: "close", which: "logins" });
       return outcome;
     }
@@ -316,10 +360,13 @@ async function handle(message, sender) {
     }
     case "frame-save-info": {
       const pending = await pendingSave(tab.id);
-      return pending ? { origin: pending.origin, username: pending.username, update: Boolean(pending.update) } : {};
+      return pending
+        ? { id: pending.id, origin: pending.origin, username: pending.username, update: Boolean(pending.update) }
+        : {};
     }
     case "frame-save": {
-      const outcome = await saveFromFrame(tab);
+      const outcome = await saveFromFrame(tab, message.offer);
+      // A stale offer or a changed login: the card says so itself (or shows the newer offer).
       if ((outcome.done && !outcome.queued) || outcome.popup) tell(tab.id, { kind: "close", which: "save" });
       return outcome;
     }
@@ -330,7 +377,13 @@ async function handle(message, sender) {
       return undefined;
     }
     case "frame-dismiss":
-      if (message.which === "save") await setPendingSave(tab.id, undefined);
+      if (message.which === "save") {
+        // "Not now" drops the offer the card shows, never a newer one: with a newer one
+        // waiting, the card shows that one instead of closing.
+        const pending = await pendingSave(tab.id);
+        if (pending && pending.id !== String(message.offer ?? "")) return { redraw: true };
+        if (pending) await dropPendingSave(tab.id, pending.id);
+      }
       tell(tab.id, { kind: "close", which: message.which === "save" ? "save" : "logins" });
       return undefined;
     case "frame-size":

@@ -9,7 +9,16 @@
 // allowed there. Every request is signed with it; the browser holds it as a key object that
 // scripts (this one included) can use but not read.
 
-import { ask, originOf, pendingSave, send, setPendingSave } from "./app.js";
+import {
+  ask,
+  dropPendingSave,
+  dropPendingSaves,
+  originOf,
+  pendingSave,
+  send,
+  updateRequest,
+  vaultSaves,
+} from "./app.js";
 import { fillCode, fillLogin } from "./fill.js";
 import { dropKey, loadKey, saveKey, startWaiting, stopWaiting, waitingCode } from "./link.js";
 
@@ -62,6 +71,13 @@ function explain(code) {
       return say(t("goneTitle"), t("goneText"), connected);
     case "turned_off":
       return say(t("turnedOffTitle"), t("turnedOffText"), connected);
+    case "not_saved":
+      // The app could not write it (the vault file changed elsewhere, or the disk refused):
+      // nothing was kept, and it may be tried again.
+      return say(t("notSavedTitle"), t("notSavedText"), { ...connected, isError: true });
+    case "changed_since":
+      // The login an update was offered for was changed since: nothing was replaced.
+      return say(t("changedSinceTitle"), t("changedSinceText"), { ...connected, isError: true });
     case "not_paired":
       return connect();
     default:
@@ -229,6 +245,10 @@ async function fill(entry, back) {
       return say(t("filledUsername"));
     case "wrong_page":
       return say(t("pageChanged"), "", { isError: true });
+    case "choose_field":
+      return say(t("chooseField"), "", { isError: true });
+    case "insecure_form":
+      return say(t("insecureForm"), "", { isError: true });
     case "none":
       return say(t("noFields"), "", { isError: true });
     default:
@@ -374,6 +394,8 @@ async function fillTheCode(entry, back) {
   }
   if (outcome === "filled") return window.close();
   if (outcome === "wrong_page") return say(t("pageChanged"), "", { isError: true });
+  if (outcome === "choose_field") return say(t("chooseCodeField"), "", { isError: true });
+  if (outcome === "insecure_form") return say(t("insecureForm"), "", { isError: true });
   return say(t(outcome === "none" ? "noCodeField" : "failed"), "", { isError: true });
 }
 
@@ -388,7 +410,8 @@ function showOffer() {
   no.textContent = t("saveNo");
   const done = async () => {
     here.pending = undefined;
-    await setPendingSave(here.tab.id, undefined);
+    // Only the offer shown here is done with: a newer one of the tab stays.
+    if (!(await dropPendingSave(here.tab.id, pending.id))) return;
     chrome.tabs.sendMessage(here.tab.id, { kind: "close", which: "save" }).catch(() => {});
   };
   no.onclick = async () => {
@@ -396,6 +419,12 @@ function showOffer() {
     showSite();
   };
   yes.onclick = async () => {
+    // Still the offer shown here: not answered in the page meanwhile, not run out, and not
+    // dropped because saving was left to the browser.
+    if ((await pendingSave(here.tab.id))?.id !== pending.id) {
+      here.pending = undefined;
+      return showSite();
+    }
     yes.disabled = true;
     // A new login asks for nothing (no PIN, no Windows Hello): the item lock seals it later.
     const title = originOf(pending.url).replace(/^https:\/\//, "");
@@ -403,10 +432,13 @@ function showOffer() {
       // Changing a locked login's password opens it first, as a fill does.
       const entry = { title, username: pending.username, locked: update.locked };
       const listing = here.site || { hello: false };
-      const request = { type: "update", url: pending.url, id: update.id, password: pending.password };
+      // For the version of the login the app compared, and its username (`updateRequest`).
+      const request = updateRequest(pending);
       const reply = await guarded(entry, listing, request, t("updateYes"), showSite);
       yes.disabled = false;
       if (!reply) return;
+      // Changed since: nothing was replaced, and this offer can't be taken again.
+      if (reply.code === "changed_since") await done();
       if (reply.type !== "updated") return explain(reply.code);
       await done();
       toast(t(reply.changed ? "updatedToast" : "alreadySavedToast"));
@@ -728,7 +760,8 @@ function showNewLogin(generated) {
 /**
  * The extension's own settings: whether Vault offers to save passwords instead of Chrome
  * (Chrome's "Offer to save passwords and passkeys" is then off, and Chrome says this extension
- * controls it). Back goes to where the person was.
+ * controls it). Turned off, Vault keeps and offers nothing typed into sign-in forms (app.js).
+ * Back goes to where the person was.
  */
 async function showPrefs(back) {
   view("prefs", "foot");
@@ -747,20 +780,28 @@ async function showPrefs(back) {
   const box = $("prefs-saving");
   const state = $("prefs-saving-state");
   const saving = chrome.privacy.services.passwordSavingEnabled;
+  const mine = (details) =>
+    ["controllable_by_this_extension", "controlled_by_this_extension"].includes(details.levelOfControl);
+  // The box is what Vault does with what is typed into sign-in forms, whoever holds the
+  // browser's own setting; the line under it says when that one isn't Vault's to turn off.
   const refresh = async () => {
-    const { vaultSaves = true } = await chrome.storage.local.get("vaultSaves");
     const details = await saving.get({});
-    const mine = ["controllable_by_this_extension", "controlled_by_this_extension"].includes(details.levelOfControl);
-    box.checked = vaultSaves && mine;
-    box.disabled = !mine;
-    state.textContent = mine
+    box.checked = await vaultSaves();
+    state.textContent = mine(details)
       ? ""
       : t(details.levelOfControl === "not_controllable" ? "prefsSavingPolicy" : "prefsSavingOther");
   };
   box.onchange = async () => {
     await chrome.storage.local.set({ vaultSaves: box.checked });
-    if (box.checked) await saving.set({ value: false });
-    else await saving.clear({});
+    if (!box.checked) {
+      // Off: an offer still waiting goes, here and in the page.
+      here.pending = undefined;
+      await dropPendingSaves();
+    }
+    if (mine(await saving.get({}))) {
+      if (box.checked) await saving.set({ value: false });
+      else await saving.clear({});
+    }
     await refresh();
   };
   await refresh();

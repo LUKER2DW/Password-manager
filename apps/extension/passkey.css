@@ -30,12 +30,19 @@ header .lines {
   min-width: 0;
 }
 
+/* The page's name is shown whole, wrapped if need be: the end of a name (example.com in
+   example.com.other.example) is the part that must not be cut. */
 h1 {
   font-size: 17px;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+#for {
+  margin: 1px 0 0;
+  color: var(--graphite);
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .stroke {
