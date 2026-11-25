@@ -160,7 +160,7 @@ impl ServerTarget {
         if let Some(agent) = agent.as_ref() {
             return Ok(agent.clone());
         }
-        let made = http::agent_for(&self.address, false)?;
+        let made = http::agent_for(&self.address)?;
         *agent = Some(made.clone());
         Ok(made)
     }
@@ -245,9 +245,12 @@ fn check(response: &mut Response<ureq::Body>) -> Result<()> {
     Err(match (status.as_u16(), reason.as_str()) {
         (401, "invite") => anyhow!("the invite is wrong, used or expired: make a new one"),
         (401, "clock") => anyhow!("this device's clock is off by more than 5 minutes"),
-        (401, "unknown_device") => {
-            anyhow!("this device isn't allowed in on the server any more: join it again")
-        }
+        // One answer for a device the server doesn't have and for a key that isn't the one it
+        // has, so a stranger can't tell them apart.
+        (401, "unknown_device") => anyhow!(
+            "this device isn't allowed in on the server (it was taken out, or its key isn't the \
+             one it joined with): join it again"
+        ),
         (401, _) => anyhow!("the server refused this device's signature"),
         (403, "new_vault_only") => anyhow!(
             "that invite only starts a new vault, and this vault is on the server already: use \

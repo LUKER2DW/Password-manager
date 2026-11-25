@@ -1,6 +1,7 @@
 //! A WebDAV collection (Nextcloud, ownCloud, a NAS, any WebDAV host) as a sync target:
-//! `<address>/<vault id>/devices/<device>.vault`, Basic authentication over HTTPS. The
-//! password comes from the OS credential store and is never written anywhere else.
+//! `<address>/<vault id>/devices/<device>.vault`, Basic authentication over HTTPS (plain
+//! HTTP only to this computer, [`super::check_webdav_address`]). The password comes from the
+//! OS credential store and is never written anywhere else.
 
 use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine as _;
@@ -36,12 +37,9 @@ impl WebDavTarget {
         if user.contains(':') || user.chars().any(char::is_control) {
             bail!("the user name can't contain ':'");
         }
-        let base = http::check_address(address)?;
-        if http::split_pin(&base).1.is_some() {
-            bail!(
-                "a pinned certificate is for the vault server; use the WebDAV server's https:// address"
-            );
-        }
+        // Checked before the password is put in a header: every request carries it, so the
+        // address must be https:// (or this computer) whatever its range.
+        let base = http::check_webdav_address(address)?;
         let credentials = Zeroizing::new(format!("{user}:{password}"));
         let authorization = Zeroizing::new(format!(
             "Basic {}",
@@ -52,7 +50,7 @@ impl WebDavTarget {
             devices_url: format!("{vault_url}devices/"),
             vault_url,
             authorization,
-            agent: http::agent(true),
+            agent: http::webdav_agent(&base),
         })
     }
 
@@ -272,5 +270,36 @@ mod tests {
             format!("https://example.com/dav/{id}/devices/")
         );
         assert!(!format!("{target:?}").contains("pw"));
+    }
+
+    /// The password goes in every request's header: an http:// address in Tailscale's range
+    /// (or any other that isn't this computer) gives no target at all, so no request can be
+    /// made with it.
+    #[test]
+    fn credentials_go_over_plain_http_only_to_this_computer() {
+        let id = "a".repeat(32);
+        for refused in [
+            "http://100.64.0.1/dav",
+            "http://100.101.102.103:8080/dav",
+            "http://100.127.255.254/dav",
+            "http://[fd7a:115c:a1e0::1]:8080/dav",
+        ] {
+            let err = WebDavTarget::new(refused, &id, "dav-tester", "dav test password")
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("https://"), "{refused}: {err}");
+            assert!(!err.contains("dav test password"), "{err}");
+        }
+        for taken in [
+            "https://100.101.102.103/dav",
+            "http://127.0.0.1:8080/dav",
+            "http://localhost:8080/dav",
+            "http://[::1]:8080/dav",
+        ] {
+            let target = WebDavTarget::new(taken, &id, "dav-tester", "dav test password");
+            assert!(target.is_ok(), "{taken}");
+        }
+        let pinned = "https://192.168.1.10:8750#pin=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+        assert!(WebDavTarget::new(pinned, &id, "dav-tester", "pw").is_err());
     }
 }

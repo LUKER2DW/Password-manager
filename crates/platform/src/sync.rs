@@ -14,6 +14,7 @@ use std::{
     fs,
     io::Read,
     path::{Path, PathBuf},
+    time::{Duration, SystemTime},
 };
 
 use anyhow::{Context, Result, bail};
@@ -22,7 +23,7 @@ use vault_core::{
     sync::{DeviceId, MergeReport, SeenRevisions},
 };
 
-pub use http::{check_address, pin_text, split_pin, with_pin};
+pub use http::{check_address, check_webdav_address, pin_text, split_pin, with_pin};
 pub use server::ServerTarget;
 pub use webdav::WebDavTarget;
 
@@ -31,6 +32,10 @@ use crate::{SyncPlace, SyncTo, secret_store};
 /// Copies bigger than this are not read: a vault is kilobytes to a few MB (pictures stay in
 /// each device's cache), and a target is not trusted to hand over something sane.
 pub const MAX_COPY_BYTES: u64 = 64 * 1024 * 1024;
+
+/// How long a temporary file in a sync folder must have been left alone to be taken for what an
+/// interrupted write left behind: far longer than writing a copy takes, on any share.
+const LEFTOVER_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Where copies are kept. Every call may be slow (a network share, a cloud drive fetching a
 /// file on demand): run them off the UI thread.
@@ -82,6 +87,115 @@ impl FolderTarget {
     fn path(&self, device: DeviceId) -> PathBuf {
         self.devices.join(format!("{}.vault", device.to_hex()))
     }
+
+    /// A fresh name next to the copies for `own`'s next copy while it is written:
+    /// `.<device>.<32 random hex>.vault.tmp`, which `list` and the watch ignore. Random, so
+    /// another program writing in the shared folder can't have a file or a link waiting under
+    /// it.
+    fn temp_path(&self, own: DeviceId) -> Result<PathBuf> {
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).map_err(|err| anyhow::anyhow!("no randomness: {err}"))?;
+        let tag: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        Ok(self
+            .devices
+            .join(format!(".{}.{tag}.vault.tmp", own.to_hex())))
+    }
+
+    /// Whether `name` is one `device`'s copy is written under before it is renamed into place:
+    /// [`FolderTarget::temp_path`]'s, or the fixed one of older versions.
+    fn is_temp_name(name: &str, device: DeviceId) -> bool {
+        let Some(rest) = name.strip_prefix(&format!(".{}.", device.to_hex())) else {
+            return false;
+        };
+        rest == "vault.tmp"
+            || rest.strip_suffix(".vault.tmp").is_some_and(|random| {
+                random.len() == 32 && random.bytes().all(|b| b.is_ascii_hexdigit())
+            })
+    }
+
+    /// Deletes what writes of `device`'s copy left behind when they were cut short (the app
+    /// killed, the power gone): each is a sealed copy, or part of one, that everyone with access
+    /// to the folder could read for good, also after the master password was changed. Only
+    /// files and links under its temporary names (a link itself, never what it points at) that
+    /// were last written `age` ago or more, so one being written is left alone. Best effort:
+    /// what can't be deleted is tried again after the next copy.
+    fn clear_leftovers(&self, device: DeviceId, age: Duration) {
+        let Ok(entries) = fs::read_dir(&self.devices) else {
+            return;
+        };
+        let now = SystemTime::now();
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if !name
+                .to_str()
+                .is_some_and(|name| Self::is_temp_name(name, device))
+            {
+                continue;
+            }
+            // Of the entry itself: a link is not followed.
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+            let left_alone = meta
+                .modified()
+                .ok()
+                .and_then(|at| now.duration_since(at).ok())
+                .is_some_and(|since| since >= age);
+            if left_alone && !meta.is_dir() {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    /// The folders the copies go in, made if they aren't there yet. Links are refused before
+    /// they are made (nothing is made inside one) and after (one put there meanwhile).
+    fn make_folders(&self) -> Result<()> {
+        self.refuse_links()?;
+        fs::create_dir_all(&self.devices).context("creating the sync folder")?;
+        self.refuse_links()
+    }
+
+    /// Refuses to write when the vault's folder or its `devices` folder is a link: someone
+    /// else writing in the shared folder could otherwise have this device's copy written, or a
+    /// copy removed, in a folder of their choosing. The folder the person chose may be a link;
+    /// these two are made here and never are.
+    fn refuse_links(&self) -> Result<()> {
+        for dir in self.devices.ancestors().take(2) {
+            if fs::symlink_metadata(dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
+                bail!(
+                    "{} is a link, not a folder: this device writes its copy only in a real folder",
+                    dir.display()
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Writes `bytes` under `temp`, which must not exist yet, and renames it over `own`'s
+    /// copy. Whatever is already under `temp` (a file, a link, a folder) makes it fail and is
+    /// left as it is: the file is created new, never opened, so nothing is written through a
+    /// link or into someone else's file. When writing or the rename fails, only the file made
+    /// here is removed (removing a link removes the link, never what it points at).
+    fn put_through(&self, temp: &Path, own: DeviceId, bytes: &[u8]) -> Result<()> {
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(temp)
+            .context("writing to the sync folder")?;
+        let written = file
+            .write_all(bytes)
+            .and_then(|()| file.sync_all())
+            .and_then(|()| {
+                drop(file);
+                fs::rename(temp, self.path(own))
+            });
+        if let Err(err) = written {
+            let _ = fs::remove_file(temp);
+            return Err(err).context("writing to the sync folder");
+        }
+        Ok(())
+    }
 }
 
 impl Target for FolderTarget {
@@ -131,27 +245,22 @@ impl Target for FolderTarget {
     }
 
     fn put(&self, own: DeviceId, bytes: &[u8]) -> Result<()> {
-        fs::create_dir_all(&self.devices).context("creating the sync folder")?;
-        let path = self.path(own);
-        // Written beside it under a name `list` ignores, then renamed over it.
-        let temp = self.devices.join(format!(".{}.vault.tmp", own.to_hex()));
-        {
-            use std::io::Write;
-            let mut file = fs::File::create(&temp).context("writing to the sync folder")?;
-            file.write_all(bytes)?;
-            file.sync_all()?;
-        }
-        fs::rename(&temp, &path).inspect_err(|_| {
-            let _ = fs::remove_file(&temp);
-        })?;
+        self.make_folders()?;
+        // Written beside it under a fresh name `list` ignores, then renamed over it.
+        self.put_through(&self.temp_path(own)?, own, bytes)?;
+        self.clear_leftovers(own, LEFTOVER_AGE);
         Ok(())
     }
 
     fn remove(&self, device: DeviceId) -> Result<()> {
+        self.refuse_links()?;
         match fs::remove_file(self.path(device)) {
-            Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(err.into()),
-            _ => Ok(()),
+            Err(err) if err.kind() != std::io::ErrorKind::NotFound => return Err(err.into()),
+            _ => {}
         }
+        // It writes no copy here again, so nothing else would clear these.
+        self.clear_leftovers(device, Duration::ZERO);
+        Ok(())
     }
 }
 
@@ -159,7 +268,8 @@ impl Target for FolderTarget {
 /// `changed` (on this thread) when another device's copy appears, changes or goes: a second
 /// after the last such event, so a copy written in pieces counts once. This device's own
 /// copy and temporary files are ignored. Returns at once if the folder can't be watched
-/// (some network shares): the regular rounds still run.
+/// (some network shares, or a link where the vault's folder should be, which is neither
+/// watched nor written through): the regular rounds still run.
 pub fn watch_folder(
     folder: &Path,
     vault_id: &str,
@@ -167,14 +277,14 @@ pub fn watch_folder(
     stop: &std::sync::atomic::AtomicBool,
     changed: impl Fn(),
 ) {
-    use std::{sync::atomic::Ordering, time::Duration};
+    use std::sync::atomic::Ordering;
 
     use notify::{RecursiveMode, Watcher};
 
     let Ok(target) = FolderTarget::new(folder, vault_id) else {
         return;
     };
-    if fs::create_dir_all(&target.devices).is_err() {
+    if target.make_folders().is_err() {
         return;
     }
     let own_name = format!("{}.vault", own.to_hex());
@@ -328,10 +438,13 @@ pub fn open_target_as(
             )?)
         }
         SyncTo::Webdav { url, user } => {
+            // An address the password may not go to (one kept before plain http:// was
+            // limited to this computer) is refused before the password leaves the store.
+            let url = check_webdav_address(url)?;
             let password =
                 secret_store::load_webdav_password(&webdav_password_name(vault_id, role))?
                     .context("the WebDAV password isn't saved on this device: set it again")?;
-            Box::new(WebDavTarget::new(url, vault_id, user, &password)?)
+            Box::new(WebDavTarget::new(&url, vault_id, user, &password)?)
         }
     })
 }
@@ -722,6 +835,348 @@ mod tests {
         assert_eq!(heard.load(Ordering::SeqCst), 1, "one change, heard once");
         stop.store(true, Ordering::SeqCst);
         watching.join().unwrap();
+    }
+
+    /// Makes `link` a symbolic link to the file `target`, where this computer allows it.
+    #[cfg(unix)]
+    fn link_file(target: &Path, link: &Path) -> bool {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+
+    #[cfg(windows)]
+    fn link_file(target: &Path, link: &Path) -> bool {
+        std::os::windows::fs::symlink_file(target, link).is_ok()
+    }
+
+    /// Makes `link` point at the folder `target`: a symbolic link, or on Windows without the
+    /// right to make one, a junction.
+    #[cfg(unix)]
+    fn link_dir(target: &Path, link: &Path) -> bool {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+
+    #[cfg(windows)]
+    fn link_dir(target: &Path, link: &Path) -> bool {
+        std::os::windows::fs::symlink_dir(target, link).is_ok()
+            || std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .output()
+                .is_ok_and(|out| out.status.success())
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// The name a copy used to be written under before it was renamed into place.
+    fn old_temp_name(device: DeviceId) -> String {
+        format!(".{}.vault.tmp", device.to_hex())
+    }
+
+    #[test]
+    fn a_file_or_link_at_the_old_temporary_name_is_not_written_through() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let id = "d".repeat(32);
+        let target = FolderTarget::new(dir.path(), &id).unwrap();
+        let devices = dir.path().join(&id).join("devices");
+        fs::create_dir_all(&devices).unwrap();
+        // Another writer in the shared folder leaves, under the names this device used to
+        // write through: a hard link to a file of theirs elsewhere, a file, and (where links
+        // can be made) a symbolic link to that file.
+        let theirs = outside.path().join("theirs.txt");
+        fs::write(&theirs, b"a file outside the sync folder").unwrap();
+        fs::hard_link(&theirs, devices.join(old_temp_name(device(1)))).unwrap();
+        fs::write(devices.join(old_temp_name(device(2))), b"left here").unwrap();
+        let linked = link_file(&theirs, &devices.join(old_temp_name(device(3))));
+        if !linked {
+            eprintln!("no symbolic links on this computer: that case is skipped");
+        }
+
+        for n in 1..=3 {
+            target.put(device(n), b"sealed copy").unwrap();
+            target.put(device(n), b"sealed copy, newer").unwrap();
+        }
+        assert_eq!(
+            fs::read(&theirs).unwrap(),
+            b"a file outside the sync folder"
+        );
+        assert_eq!(
+            fs::read(devices.join(old_temp_name(device(1)))).unwrap(),
+            b"a file outside the sync folder"
+        );
+        assert_eq!(
+            fs::read(devices.join(old_temp_name(device(2)))).unwrap(),
+            b"left here"
+        );
+        if linked {
+            assert_eq!(
+                fs::read_link(devices.join(old_temp_name(device(3)))).unwrap(),
+                theirs
+            );
+        }
+        for n in 1..=3 {
+            assert_eq!(target.get(device(n)).unwrap(), b"sealed copy, newer");
+        }
+        // The copies, and what was left there: nothing of this device's writing remains.
+        let mut expected: Vec<String> = (1..=3)
+            .map(|n| format!("{}.vault", device(n).to_hex()))
+            .chain([old_temp_name(device(1)), old_temp_name(device(2))])
+            .chain(linked.then(|| old_temp_name(device(3))))
+            .collect();
+        expected.sort();
+        assert_eq!(names(&devices), expected);
+        assert_eq!(names(outside.path()), ["theirs.txt"]);
+    }
+
+    #[test]
+    fn a_taken_temporary_name_fails_without_touching_anything() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let id = "e".repeat(32);
+        let target = FolderTarget::new(dir.path(), &id).unwrap();
+        target.put(device(1), b"old copy").unwrap();
+        target.put(device(2), b"a neighbour's copy").unwrap();
+        let devices = dir.path().join(&id).join("devices");
+
+        // A file under the name picked.
+        let taken = devices.join("taken.vault.tmp");
+        fs::write(&taken, b"someone else's").unwrap();
+        assert!(target.put_through(&taken, device(1), b"new copy").is_err());
+        assert_eq!(fs::read(&taken).unwrap(), b"someone else's", "kept");
+        // A folder under it.
+        let folder = devices.join("folder.vault.tmp");
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("inside"), b"inside").unwrap();
+        assert!(target.put_through(&folder, device(1), b"new copy").is_err());
+        assert_eq!(fs::read(folder.join("inside")).unwrap(), b"inside");
+        // A link to a file that isn't there yet: not followed, so nothing is made there.
+        let missing = outside.path().join("made-through-the-link");
+        let dangling = devices.join("dangling.vault.tmp");
+        if link_file(&missing, &dangling) {
+            assert!(
+                target
+                    .put_through(&dangling, device(1), b"new copy")
+                    .is_err()
+            );
+            assert!(fs::symlink_metadata(&dangling).is_ok(), "the link is kept");
+        } else {
+            eprintln!("no symbolic links on this computer: that case is skipped");
+        }
+        assert!(!missing.exists());
+
+        assert_eq!(target.get(device(1)).unwrap(), b"old copy");
+        assert_eq!(target.get(device(2)).unwrap(), b"a neighbour's copy");
+        assert!(names(outside.path()).is_empty());
+    }
+
+    #[test]
+    fn a_copy_that_cant_be_put_in_place_leaves_nothing_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "f".repeat(32);
+        let target = FolderTarget::new(dir.path(), &id).unwrap();
+        let devices = dir.path().join(&id).join("devices");
+        // A folder where this device's copy goes: the rename fails.
+        let in_the_way = target.path(device(1));
+        fs::create_dir_all(&in_the_way).unwrap();
+        fs::write(in_the_way.join("inside"), b"inside").unwrap();
+        assert!(target.put(device(1), b"copy").is_err());
+        assert_eq!(fs::read(in_the_way.join("inside")).unwrap(), b"inside");
+        assert_eq!(names(&devices), [format!("{}.vault", device(1).to_hex())]);
+    }
+
+    #[test]
+    fn temporary_names_are_fresh_and_never_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = FolderTarget::new(dir.path(), &"a".repeat(32)).unwrap();
+        let one = target.temp_path(device(1)).unwrap();
+        let two = target.temp_path(device(1)).unwrap();
+        assert_ne!(one, two);
+        for temp in [&one, &two] {
+            let name = temp.file_name().unwrap().to_str().unwrap();
+            assert!(
+                name.starts_with(&format!(".{}.", device(1).to_hex())),
+                "{name}"
+            );
+            assert!(name.ends_with(".vault.tmp"), "{name}");
+            assert_ne!(name, old_temp_name(device(1)));
+            assert_eq!(temp.parent(), Some(target.devices.as_path()));
+        }
+        fs::create_dir_all(&target.devices).unwrap();
+        fs::write(&one, b"half a copy").unwrap();
+        assert!(target.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_linked_vault_or_devices_folder_is_not_written_through() {
+        for linked in ["vault", "devices"] {
+            let dir = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            let id = "b".repeat(32);
+            let vault_dir = dir.path().join(&id);
+            let link = if linked == "vault" {
+                vault_dir.clone()
+            } else {
+                fs::create_dir(&vault_dir).unwrap();
+                vault_dir.join("devices")
+            };
+            if !link_dir(outside.path(), &link) {
+                eprintln!("no links to folders on this computer: skipped");
+                return;
+            }
+            // A copy of theirs under the name a removed device's copy would have.
+            let theirs = outside.path().join(format!("{}.vault", device(2).to_hex()));
+            fs::write(&theirs, b"theirs").unwrap();
+            let target = FolderTarget::new(dir.path(), &id).unwrap();
+            let refused = format!("{:#}", target.put(device(1), b"copy").unwrap_err());
+            assert!(refused.contains("link"), "{refused}");
+            assert!(target.remove(device(2)).is_err());
+            assert_eq!(fs::read(&theirs).unwrap(), b"theirs");
+            assert_eq!(
+                names(outside.path()),
+                [format!("{}.vault", device(2).to_hex())],
+                "nothing made there ({linked})"
+            );
+        }
+    }
+
+    #[test]
+    fn a_watch_makes_nothing_inside_a_link() {
+        for linked in ["vault", "devices"] {
+            let dir = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            let id = "9".repeat(32);
+            let vault_dir = dir.path().join(&id);
+            let link = if linked == "vault" {
+                vault_dir.clone()
+            } else {
+                fs::create_dir(&vault_dir).unwrap();
+                vault_dir.join("devices")
+            };
+            if !link_dir(outside.path(), &link) {
+                eprintln!("no links to folders on this computer: skipped");
+                return;
+            }
+            // Told to stop already, so the watch only makes its folders and returns.
+            let stop = std::sync::atomic::AtomicBool::new(true);
+            watch_folder(dir.path(), &id, device(1), &stop, || {
+                panic!("nothing is heard through a link");
+            });
+            assert!(
+                names(outside.path()).is_empty(),
+                "nothing made there ({linked})"
+            );
+            let target = FolderTarget::new(dir.path(), &id).unwrap();
+            assert!(target.make_folders().is_err(), "{linked}");
+        }
+        // Real folders are made and watched.
+        let dir = tempfile::tempdir().unwrap();
+        let id = "8".repeat(32);
+        let stop = std::sync::atomic::AtomicBool::new(true);
+        watch_folder(dir.path(), &id, device(1), &stop, || {});
+        assert!(dir.path().join(&id).join("devices").is_dir());
+    }
+
+    /// Makes `path` look last written `ago`.
+    fn age(path: &Path, ago: Duration) {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(SystemTime::now() - ago)
+            .unwrap();
+    }
+
+    #[test]
+    fn what_an_interrupted_write_left_behind_is_cleared_later() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = FolderTarget::new(dir.path(), &"7".repeat(32)).unwrap();
+        target.put(device(1), b"first copy").unwrap();
+        let devices = &target.devices;
+        let (day, hour) = (Duration::from_secs(86_400), Duration::from_secs(3_600));
+        let left = |name: &str, ago: Duration| {
+            let path = devices.join(name);
+            fs::write(&path, b"part of a sealed copy").unwrap();
+            age(&path, ago);
+            path
+        };
+        let fresh_name = |n: u8| {
+            let path = target.temp_path(device(n)).unwrap();
+            path.file_name().unwrap().to_str().unwrap().to_owned()
+        };
+        // This device's, from days ago: an interrupted write's, and an older version's.
+        let old = left(&fresh_name(1), 3 * day);
+        let older = left(&old_temp_name(device(1)), 3 * day);
+        // Being written now (or an hour ago, on a slow share), another device's, and names
+        // this app doesn't write under.
+        let other = left(&fresh_name(2), 3 * day);
+        let own = device(1).to_hex();
+        let kept = [
+            left(&fresh_name(1), hour),
+            other.clone(),
+            left(&format!(".{own}.notes.vault.tmp"), 3 * day),
+            left(&format!(".{own}.vault.tmp.txt"), 3 * day),
+            left(&format!("{own}.vault.tmp"), 3 * day),
+            left("notes.txt", 3 * day),
+        ];
+        // A folder under such a name is no leftover.
+        let folder = devices.join(fresh_name(1));
+        fs::create_dir(&folder).unwrap();
+
+        target.put(device(1), b"second copy").unwrap();
+        assert!(!old.exists(), "an interrupted write's");
+        assert!(!older.exists(), "an older version's");
+        for path in &kept {
+            assert!(path.exists(), "{}", path.display());
+        }
+        assert!(folder.is_dir());
+        assert_eq!(target.get(device(1)).unwrap(), b"second copy");
+
+        // A device removed from the vault writes nothing here again: its leftovers go with its
+        // copy, however recent, and a link under such a name goes alone.
+        let theirs = outside.path().join("theirs.txt");
+        fs::write(&theirs, b"theirs").unwrap();
+        target.put(device(2), b"another device's copy").unwrap();
+        let recent = left(&fresh_name(2), Duration::from_secs(5));
+        let link = devices.join(old_temp_name(device(2)));
+        let linked = link_file(&theirs, &link);
+        if linked {
+            // A link's own time is when it was made.
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        target.remove(device(2)).unwrap();
+        assert!(!recent.exists() && !other.exists());
+        if linked {
+            assert!(fs::symlink_metadata(&link).is_err(), "the link is gone");
+        }
+        assert_eq!(fs::read(&theirs).unwrap(), b"theirs");
+        assert_eq!(target.get(device(1)).unwrap(), b"second copy");
+    }
+
+    #[test]
+    fn a_webdav_place_on_plain_http_is_refused_before_its_password_is_read() {
+        for url in [
+            "http://100.101.102.103:8080/dav",
+            "http://[fd7a:115c:a1e0::1]:8080/dav",
+        ] {
+            let to = SyncTo::Webdav {
+                url: url.into(),
+                user: "dav-tester".into(),
+            };
+            let refused = open_target(&"e".repeat(32), device(1), &to)
+                .err()
+                .expect("refused");
+            let refused = format!("{refused:#}");
+            assert!(refused.contains("https://"), "{url}: {refused}");
+        }
     }
 
     #[test]

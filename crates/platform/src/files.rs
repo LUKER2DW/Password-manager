@@ -50,6 +50,62 @@ pub fn wipe(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// [`wipe`], only when the file still holds `expected`: the bytes read from it before (an
+/// export just imported). A file put in its place meanwhile (in a shared or synced folder,
+/// say) is left alone, and the error says so. It is an error too when no file is there any
+/// more, or it can't be looked at: one moved elsewhere still holds the passwords, so `Ok` means
+/// it was wiped (the `std::io::Error` is in the error, for a caller that words "gone" itself).
+/// The check and the overwrite go through one open handle, so what is zeroed is what was
+/// compared.
+pub fn wipe_if_same(path: &Path, expected: &[u8]) -> Result<()> {
+    use std::io::{ErrorKind, Read, Seek, SeekFrom};
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(err) => {
+            let why = match err.kind() {
+                ErrorKind::NotFound => "is not there any more",
+                _ => "can't be looked at",
+            };
+            let message = format!("{} {why}: nothing was wiped", path.display());
+            return Err(anyhow::Error::new(err).context(message));
+        }
+    };
+    if is_link(&meta) || !meta.is_file() {
+        anyhow::bail!(
+            "{} is not the file that was read: nothing was wiped",
+            path.display()
+        );
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .context("cannot open the file")?;
+    // One byte more than expected, so that a longer file shows, and of that size from the
+    // start: a buffer that grows leaves copies of the passwords behind.
+    let mut now = zeroize::Zeroizing::new(vec![0; expected.len() + 1]);
+    let mut read = 0;
+    while read < now.len() {
+        match file.read(&mut now[read..]) {
+            Ok(0) => break,
+            Ok(more) => read += more,
+            Err(err) if err.kind() == ErrorKind::Interrupted => {}
+            Err(err) => return Err(err).context("cannot read the file"),
+        }
+    }
+    if &now[..read] != expected {
+        anyhow::bail!(
+            "{} changed since it was read: nothing was wiped",
+            path.display()
+        );
+    }
+    file.seek(SeekFrom::Start(0))?;
+    overwrite_with_zeros(&mut file, expected.len() as u64)?;
+    drop(file);
+    std::fs::remove_file(path).context("cannot delete the file")?;
+    Ok(())
+}
+
 /// Writes `len` zero bytes from the start of `file` and flushes them.
 pub fn overwrite_with_zeros(file: &mut std::fs::File, len: u64) -> std::io::Result<()> {
     let zeros = vec![0u8; 64 * 1024];
@@ -154,5 +210,66 @@ mod tests {
         wipe(&path).unwrap();
         assert!(!path.exists());
         wipe(&path).unwrap(); // missing file: fine
+    }
+
+    #[test]
+    fn only_the_file_that_was_read_is_wiped() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("export.csv");
+        std::fs::write(&path, b"name,password\nmail,pw1\n").unwrap();
+        let read = std::fs::read(&path).unwrap();
+        // Put in its place before the wipe was approved: left alone.
+        std::fs::write(&path, b"someone else's file").unwrap();
+        assert!(wipe_if_same(&path, &read).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"someone else's file");
+        // A longer file that starts the same is another file too.
+        std::fs::write(&path, [read.as_slice(), b"more"].concat()).unwrap();
+        assert!(wipe_if_same(&path, &read).is_err());
+        assert!(path.exists());
+        // The very file read: wiped.
+        std::fs::write(&path, &read).unwrap();
+        wipe_if_same(&path, &read).unwrap();
+        assert!(!path.exists());
+    }
+
+    /// A file moved or renamed before the wipe still holds the passwords somewhere: it is not
+    /// reported as wiped.
+    #[test]
+    fn a_file_that_is_gone_is_not_reported_as_wiped() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("export.csv");
+        let moved = dir.path().join("moved.csv");
+        std::fs::write(&path, b"name,password\nmail,pw1\n").unwrap();
+        let read = std::fs::read(&path).unwrap();
+        std::fs::rename(&path, &moved).unwrap();
+        let err = wipe_if_same(&path, &read).unwrap_err();
+        assert!(err.to_string().contains("nothing was wiped"), "{err}");
+        assert!(!format!("{err:#}").contains("pw1"));
+        assert_eq!(
+            err.downcast_ref::<std::io::Error>().map(|e| e.kind()),
+            Some(std::io::ErrorKind::NotFound),
+            "a caller can tell it is gone"
+        );
+        assert_eq!(std::fs::read(&moved).unwrap(), read);
+        // A folder there instead: not wiped either.
+        std::fs::create_dir(&path).unwrap();
+        assert!(wipe_if_same(&path, &read).is_err());
+        assert!(path.is_dir());
+    }
+
+    #[test]
+    fn the_comparison_covers_every_byte() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("export.csv");
+        std::fs::write(&path, b"").unwrap();
+        wipe_if_same(&path, b"").unwrap();
+        assert!(!path.exists());
+        std::fs::write(&path, b"longer").unwrap();
+        assert!(wipe_if_same(&path, b"").is_err());
+        assert!(wipe_if_same(&path, b"longeR").is_err());
+        assert!(wipe_if_same(&path, b"longer and longer").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"longer");
+        wipe_if_same(&path, b"longer").unwrap();
+        assert!(!path.exists());
     }
 }
