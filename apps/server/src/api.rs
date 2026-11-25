@@ -1,5 +1,11 @@
 //! The HTTP API (SYNC.md §5.3). Every route but `/v1/health` and `/v1/enroll` takes a request
 //! signed by a device enrolled for that vault.
+//!
+//! A device's removal holds from the moment it is made, also for its requests let in before
+//! it: a change it asked for (its copy, a removal, an invite) is made only if it is still
+//! enrolled at that moment, checked under the store's lock, and an answer read from the disk
+//! for it is handed over only if it still is once read. The long-poll's answer, a number, is
+//! the one left as it is.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -88,7 +94,11 @@ struct LiveVault {
     /// One write at a time per vault.
     write: tokio::sync::Mutex<()>,
     seq: watch::Sender<u64>,
-    copies: Mutex<Option<Vec<Copy>>>,
+    /// The listing of the copies with the store's generation it was read at
+    /// ([`Store::listing`]). It answers only while the store's files still say that
+    /// generation: a copy removed by `vault-server remove`, a process of its own that can't
+    /// clear this, moves the generation too.
+    copies: Mutex<Option<(String, Vec<Copy>)>>,
 }
 
 impl Server {
@@ -132,12 +142,80 @@ impl Server {
         live.seq
             .send_modify(|seq| *seq = (*seq + 1).max(now_millis()));
     }
+
+    /// Compares the listing kept for `live` with `generation`, what the store's files say now.
+    /// One kept at another generation was overtaken by a change this server didn't make (an
+    /// admin's removal): it is dropped, and the devices waiting for news are told.
+    fn check_generation(&self, live: &LiveVault, generation: &str) {
+        let overtaken = {
+            let mut kept = live.copies.lock().unwrap();
+            let overtaken = kept.as_ref().is_some_and(|(at, _)| at != generation);
+            if overtaken {
+                *kept = None;
+            }
+            overtaken
+        };
+        if overtaken {
+            self.changed(live);
+        }
+    }
+
+    /// The listing kept for `live`, if it is at `generation`.
+    fn kept_listing(&self, live: &LiveVault, generation: &str) -> Option<Vec<Copy>> {
+        self.check_generation(live, generation);
+        live.copies
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(at, _)| at == generation)
+            .map(|(_, copies)| copies.clone())
+    }
+
+    /// The store's generation for `vault` (see [`Store::generation`]).
+    async fn generation(&self, vault: &str) -> Answer<String> {
+        let (store, vault) = (self.store.clone(), vault.to_owned());
+        blocking(move || store.generation(&vault)).await
+    }
 }
+
+/// Refuses to hand over an answer put together for `signer` once it was taken out of
+/// `vault`: a request let in just before the removal (one that waited for a download slot,
+/// say) gets nothing after it.
+async fn still_enrolled(server: &Arc<Server>, vault: &str, signer: &Device) -> Answer<()> {
+    let (store, vault, signer) = (server.store.clone(), vault.to_owned(), signer.clone());
+    if blocking(move || store.still_enrolled(&vault, &signer)).await? {
+        Ok(())
+    } else {
+        Err(revoked())
+    }
+}
+
+/// The answer to a request no enrolled key signed: from a device that isn't enrolled (any
+/// more), or with a wrong signature. One answer for both, so whoever holds no key of a vault
+/// doesn't learn which device ids it has.
+fn revoked() -> Refused {
+    Refused(StatusCode::UNAUTHORIZED, "unknown_device")
+}
+
+/// A public key whose private half no one has: made when first needed and dropped at once, so
+/// no signature checks against it.
+fn nobodys_key() -> [u8; 32] {
+    static KEY: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
+    *KEY.get_or_init(|| wire::DeviceKey::generate().public_key())
+}
+
+/// The most an enrollment's body may hold: a few ids, a key, a signature and a name of at most
+/// [`wire::MAX_NAME_CHARS`] characters (escaped in JSON, under 1.5 KiB). It is read before
+/// anyone is known, so it gets far less room than the signed requests.
+const ENROLL_BYTES: usize = 4 * 1024;
 
 pub fn router(server: Arc<Server>) -> Router {
     Router::new()
         .route("/v1/health", get(health))
-        .route("/v1/enroll", post(enroll))
+        .route(
+            "/v1/enroll",
+            post(enroll).layer(DefaultBodyLimit::max(ENROLL_BYTES)),
+        )
         .route("/v1/vaults/{vault}/devices", get(list))
         // A copy is read by `put_copy` itself, only once the request is known to come from
         // an enrolled device; every other body is small.
@@ -383,16 +461,17 @@ async fn verify_request(
         return Err(unauthorized("clock"));
     }
     let (store, vault_id, id) = (server.store.clone(), vault.to_owned(), device_id.to_owned());
-    let device = blocking(move || store.device(&vault_id, &id))
-        .await?
-        .ok_or(unauthorized("unknown_device"))?;
-    let key = device.public_key().ok_or(unauthorized("unknown_device"))?;
+    let device = blocking(move || store.device(&vault_id, &id)).await?;
     let path = uri.path_and_query().map_or(uri.path(), |p| p.as_str());
     let message =
         wire::request_message_for(method.as_str(), path, device_id, time, nonce, body_digest);
-    if !wire::verify(&key, &message, signature) {
-        return Err(unauthorized("signature"));
-    }
+    let key = device.as_ref().and_then(Device::public_key);
+    // Without a device, the signature is checked all the same, against a key no one holds:
+    // how long the answer takes doesn't tell an enrolled id from another either.
+    let signed = wire::verify(&key.unwrap_or_else(nobodys_key), &message, signature);
+    let device = device
+        .filter(|_| signed && key.is_some())
+        .ok_or_else(revoked)?;
     // Only after the signature: a stranger can't fill the nonce cache.
     if !server
         .nonces
@@ -414,6 +493,9 @@ async fn enroll(
     // 128-bit invite can't be guessed at all).
     count_against(&server, &address)?;
     let bad = |why| Refused(StatusCode::BAD_REQUEST, why);
+    // A stranger's bytes, read only into plain data: a body of at most `ENROLL_BYTES`, parsed
+    // into a fixed struct of strings and a number (nothing picks a type or runs code from what
+    // it reads), every field checked below before anything is looked up or stored.
     let request: Enroll = serde_json::from_slice(&body).map_err(|_| bad("bad_request"))?;
     if !wire::is_id(&request.vault)
         || !wire::is_id(&request.device)
@@ -448,6 +530,8 @@ async fn enroll(
         )
     })
     .await?;
+    // Without a good invite the answer is always `invite`; the others go only to someone
+    // holding one (see `Store::enroll_with_invite`).
     if let Err(why) = outcome {
         return Err(match why {
             store::Refusal::Invite => Refused(StatusCode::UNAUTHORIZED, "invite"),
@@ -472,20 +556,25 @@ async fn list(
     parts: Parts,
     body: Bytes,
 ) -> Answer<Json<Copies>> {
-    authorize(&server, &address, &vault, &parts, &body).await?;
+    let signer = authorize(&server, &address, &vault, &parts, &body).await?;
     let live = server.live(&vault);
+    // The counter before the listing: a change after it moves the counter past this one, so
+    // the device that waits from here hears of it.
     let seq = *live.seq.borrow();
-    let cached = live.copies.lock().unwrap().clone();
-    let copies = match cached {
+    let generation = server.generation(&vault).await?;
+    let copies = match server.kept_listing(&live, &generation) {
         Some(copies) => copies,
         None => {
             let store = server.store.clone();
             let id = vault.clone();
-            let copies = blocking(move || store.copies(&id)).await?;
-            *live.copies.lock().unwrap() = Some(copies.clone());
+            let (at, copies) = blocking(move || store.listing(&id)).await?;
+            // Kept with the generation read before the copies: if a change came in between,
+            // the next listing sees a newer generation and reads them again.
+            *live.copies.lock().unwrap() = Some((at, copies.clone()));
             copies
         }
     };
+    still_enrolled(&server, &vault, &signer).await?;
     Ok(Json(Copies { copies, seq }))
 }
 
@@ -521,9 +610,10 @@ async fn get_copy(
     }
     let sending = download_slot(&server, &vault, &signer).await?;
     let store = server.store.clone();
-    let bytes = blocking(move || store.get(&vault, &device))
-        .await?
-        .ok_or(Refused(StatusCode::NOT_FOUND, "not_found"))?;
+    let id = vault.clone();
+    let bytes = blocking(move || store.get(&id, &device)).await?;
+    still_enrolled(&server, &vault, &signer).await?;
+    let bytes = bytes.ok_or(Refused(StatusCode::NOT_FOUND, "not_found"))?;
     let tag = format!("\"{}\"", wire::tag(&bytes));
     let unchanged = parts
         .headers
@@ -553,11 +643,11 @@ async fn app_release(
     parts: Parts,
     body: Bytes,
 ) -> Answer<Response> {
-    authorize(&server, &address, &vault, &parts, &body).await?;
+    let signer = authorize(&server, &address, &vault, &parts, &body).await?;
     let store = server.store.clone();
-    let release = blocking(move || store.app_release())
-        .await?
-        .ok_or(Refused(StatusCode::NOT_FOUND, "no_update"))?;
+    let release = blocking(move || store.app_release()).await?;
+    still_enrolled(&server, &vault, &signer).await?;
+    let release = release.ok_or(Refused(StatusCode::NOT_FOUND, "no_update"))?;
     Ok(Json(release).into_response())
 }
 
@@ -572,9 +662,9 @@ async fn app_package(
     let signer = authorize(&server, &address, &vault, &parts, &body).await?;
     let sending = download_slot(&server, &vault, &signer).await?;
     let store = server.store.clone();
-    let package = blocking(move || store.app_package())
-        .await?
-        .ok_or(Refused(StatusCode::NOT_FOUND, "no_update"))?;
+    let package = blocking(move || store.app_package()).await?;
+    still_enrolled(&server, &vault, &signer).await?;
+    let package = package.ok_or(Refused(StatusCode::NOT_FOUND, "no_update"))?;
     Ok((
         [(
             header::CONTENT_TYPE,
@@ -612,7 +702,7 @@ async fn before_upload(
     let (store, vault, device) = (server.store.clone(), vault.to_owned(), device.to_owned());
     blocking(move || store.device(&vault, &device))
         .await?
-        .ok_or(unauthorized("unknown_device"))?;
+        .ok_or_else(revoked)?;
     Ok(())
 }
 
@@ -708,22 +798,22 @@ async fn put_copy(
         .headers
         .get(header::IF_MATCH)
         .and_then(|v| v.to_str().ok())
-        .map(|v| v.trim_matches('"').to_owned());
+        .map(|v| v.trim_matches('"').to_owned())
+        .filter(|e| e != "*");
     let store = server.store.clone();
     let tag = wire::tag(&body);
-    let outcome = blocking(move || {
-        if let Some(expected) = expected.filter(|e| e != "*") {
-            let current = store.get(&vault, &device)?.map(|b| wire::tag(&b));
-            if current.as_deref() != Some(expected.as_str()) {
-                return Ok(false);
-            }
-        }
-        store.put(&vault, &device, &body)?;
-        Ok(true)
-    })
-    .await?;
-    if !outcome {
-        return Err(Refused(StatusCode::PRECONDITION_FAILED, "changed"));
+    // Let in when the request arrived, the device is asked about again where the copy is put
+    // in place: one removed while its copy was arriving doesn't bring it back.
+    let outcome =
+        blocking(move || store.put_for(&vault, &signer, &body, expected.as_deref())).await;
+    if outcome.is_err() {
+        // It may have failed after the copy was in place: the listing is read again.
+        server.changed(&live);
+    }
+    match outcome? {
+        Err(store::Revoked) => return Err(revoked()),
+        Ok(false) => return Err(Refused(StatusCode::PRECONDITION_FAILED, "changed")),
+        Ok(true) => {}
     }
     server.changed(&live);
     Ok(Json(serde_json::json!({ "tag": tag })))
@@ -736,15 +826,23 @@ async fn remove_device(
     parts: Parts,
     body: Bytes,
 ) -> Answer<StatusCode> {
-    authorize(&server, &address, &vault, &parts, &body).await?;
+    let signer = authorize(&server, &address, &vault, &parts, &body).await?;
     if !wire::is_id(&device) {
         return Err(Refused(StatusCode::NOT_FOUND, "not_found"));
     }
     let live = server.live(&vault);
     let _write = live.write.lock().await;
     let store = server.store.clone();
-    blocking(move || store.remove(&vault, &device)).await?;
-    server.changed(&live);
+    // Let in when the request arrived, the device is asked about again where the removal is
+    // made: one taken out meanwhile takes no one else out.
+    let outcome = blocking(move || store.remove_for(&vault, &signer, &device)).await;
+    if !matches!(outcome, Ok(Err(store::Revoked))) {
+        // Also after a failure, which may have come with the copy gone already.
+        server.changed(&live);
+    }
+    if outcome?.is_err() {
+        return Err(revoked());
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -755,9 +853,16 @@ async fn enrolled(
     parts: Parts,
     body: Bytes,
 ) -> Answer<Json<Vec<EnrolledDevice>>> {
-    authorize(&server, &address, &vault, &parts, &body).await?;
+    let signer = authorize(&server, &address, &vault, &parts, &body).await?;
     let store = server.store.clone();
     let devices = blocking(move || store.devices(&vault)).await?;
+    // Read after the request was let in: without the signer in it, it was taken out meanwhile.
+    if !devices
+        .iter()
+        .any(|d| d.device == signer.device && d.key == signer.key)
+    {
+        return Err(revoked());
+    }
     Ok(Json(
         devices
             .into_iter()
@@ -778,23 +883,25 @@ async fn invite(
     parts: Parts,
     body: Bytes,
 ) -> Answer<Json<Invite>> {
-    authorize(&server, &address, &vault, &parts, &body).await?;
+    let signer = authorize(&server, &address, &vault, &parts, &body).await?;
     let invite = wire::new_invite();
     let now = unix_now();
     let expires_at = now + DEVICE_INVITE_SECONDS;
     let store = server.store.clone();
-    let text = invite.to_string();
-    let added = blocking(move || {
-        Ok(store
-            .add_invite(Some(&vault), &text, expires_at, now)
-            .is_ok())
-    })
-    .await?;
-    if !added {
-        return Err(Refused(
-            StatusCode::INSUFFICIENT_STORAGE,
-            "too_many_invites",
-        ));
+    let text = invite.clone();
+    // Stored only if the device is still in when it is: one taken out while this request was
+    // under way leaves no invite behind.
+    let added =
+        blocking(move || store.add_invite_for(&vault, &signer, &text, expires_at, now)).await?;
+    match added {
+        Err(store::Revoked) => return Err(revoked()),
+        Ok(false) => {
+            return Err(Refused(
+                StatusCode::INSUFFICIENT_STORAGE,
+                "too_many_invites",
+            ));
+        }
+        Ok(true) => {}
     }
     Ok(Json(Invite {
         invite: invite.to_string(),
@@ -823,7 +930,12 @@ async fn changes(
         .waits
         .take(&format!("{vault}/{}", device.device), MAX_WAITS_PER_DEVICE)
         .ok_or(Refused(StatusCode::TOO_MANY_REQUESTS, "slow_down"))?;
-    let mut seq = server.live(&vault).seq.subscribe();
+    let live = server.live(&vault);
+    // A change this server didn't make (an admin's removal) moves the counter here, so the
+    // devices that wait hear of it when their next wait starts.
+    let generation = server.generation(&vault).await?;
+    server.check_generation(&live, &generation);
+    let mut seq = live.seq.subscribe();
     let seconds = wait.wait.min(wire::MAX_WAIT_SECONDS);
     let _ = tokio::time::timeout(
         Duration::from_secs(seconds),
