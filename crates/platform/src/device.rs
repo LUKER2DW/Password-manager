@@ -71,6 +71,11 @@ struct VaultState {
     /// entries in the vault's device list, taken out at the next round.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     retired_ids: Vec<String>,
+    /// What opened this vault before this device renewed its key or took one renewed
+    /// elsewhere (`VaultInfo::unlock_id`, hex): a copy that still carries one of these, and
+    /// that this device can't open, was written before by a device yet to take the new key.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    retired_unlocks: Vec<String>,
 }
 
 /// How many of a vault's earlier ids on this device are remembered.
@@ -349,6 +354,28 @@ impl DeviceState {
         }
     }
 
+    /// Remembers that this device stopped using what `unlock_id` names for vault `vault_id`:
+    /// it renewed the vault key, or took one renewed on another device. The last few are kept.
+    pub fn retire_unlock(&mut self, vault_id: &str, unlock_id: &[u8; 16]) {
+        const KEEP: usize = 16;
+        let entry = self.vaults.entry(vault_id.to_owned()).or_default();
+        let id = hex(unlock_id);
+        if !entry.retired_unlocks.contains(&id) {
+            entry.retired_unlocks.push(id);
+        }
+        let extra = entry.retired_unlocks.len().saturating_sub(KEEP);
+        entry.retired_unlocks.drain(..extra);
+    }
+
+    /// Whether this device retired what `unlock_id` names for vault `vault_id`
+    /// ([`DeviceState::retire_unlock`]).
+    pub fn unlock_retired(&self, vault_id: &str, unlock_id: &[u8; 16]) -> bool {
+        let id = hex(unlock_id);
+        self.vaults
+            .get(vault_id)
+            .is_some_and(|entry| entry.retired_unlocks.contains(&id))
+    }
+
     pub fn record_revision(&mut self, vault_id: &str, revision: u64) {
         let entry = self.vaults.entry(vault_id.to_owned()).or_default();
         entry.highest_revision = entry.highest_revision.max(revision);
@@ -540,6 +567,10 @@ pub fn record_revision(vault_id: &str, revision: u64) -> Result<()> {
     let mut state = DeviceState::load()?;
     state.record_revision(vault_id, revision);
     state.save()
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 #[cfg(test)]

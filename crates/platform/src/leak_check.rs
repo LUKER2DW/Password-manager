@@ -62,7 +62,8 @@ pub fn count(password: &str) -> Result<u64, String> {
 /// How often the leak watch asks again: the breach service adds new leaks all the time.
 pub const WATCH_EVERY: i64 = 24 * 60 * 60;
 
-const WATCH_PURPOSE: &str = "leak-watch";
+/// What the leak watch's memory is sealed for (`Vault::seal_local`).
+pub const WATCH_PURPOSE: &str = "leak-watch";
 
 /// The leak watch's memory for one vault on this device: when it last asked, and how often each
 /// login's password was found then. Keys are `<item id>:<prefix>` (the 5 hex characters the

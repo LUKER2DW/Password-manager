@@ -19,7 +19,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use vault_core::{
-    Vault,
+    FormerKey, Keyfile, SecretKey, Unlock, Vault,
     sync::{DeviceId, MergeReport, SeenRevisions},
 };
 
@@ -640,6 +640,118 @@ impl Round {
     }
 }
 
+/// The copies a round couldn't open with the vault key held here (`DecryptionFailed`), told
+/// apart by their public header (`VaultInfo::unlock_id`, see `DeviceState::retire_unlock`).
+#[derive(Debug, Default)]
+pub struct KeyMismatch {
+    /// Written before this device renewed the vault key or took a renewed one: each waits for
+    /// its device to take the new key (nothing to do here).
+    pub behind: Vec<DeviceId>,
+    /// Sealed under a key this device doesn't hold: the vault key may have been renewed on
+    /// that device. The master password and the new Secret Key open them
+    /// ([`take_renewed_key`]).
+    pub renewed: Vec<(DeviceId, Vec<u8>)>,
+}
+
+impl KeyMismatch {
+    pub fn is_empty(&self) -> bool {
+        self.behind.is_empty() && self.renewed.is_empty()
+    }
+}
+
+/// Sorts the copies of `round` refused because the vault key held here doesn't open them.
+pub fn key_mismatch(
+    vault_id: &str,
+    reading: &Reading,
+    round: &Round,
+    state: &crate::DeviceState,
+) -> KeyMismatch {
+    let copies: Vec<&(DeviceId, Vec<u8>)> = reading
+        .answered()
+        .flat_map(|(_, fetched)| fetched.copies.iter())
+        .collect();
+    key_mismatch_in(vault_id, copies, round, state)
+}
+
+/// [`key_mismatch`] for a round merged from `copies` (one place's [`Fetched::copies`]).
+pub fn key_mismatch_in<'a>(
+    vault_id: &str,
+    copies: impl IntoIterator<Item = &'a (DeviceId, Vec<u8>)>,
+    round: &Round,
+    state: &crate::DeviceState,
+) -> KeyMismatch {
+    let copies: Vec<&(DeviceId, Vec<u8>)> = copies.into_iter().collect();
+    let mut mismatch = KeyMismatch::default();
+    for (device, err) in &round.refused {
+        if !matches!(err, vault_core::Error::DecryptionFailed) {
+            continue;
+        }
+        let Some(bytes) = copies
+            .iter()
+            .find(|(d, _)| d == device)
+            .map(|(_, bytes)| bytes)
+        else {
+            continue;
+        };
+        let Ok(info) = Vault::inspect(bytes) else {
+            continue;
+        };
+        if info.id_hex != vault_id {
+            continue;
+        }
+        if state.unlock_retired(vault_id, &info.unlock_id) {
+            mismatch.behind.push(*device);
+        } else if !mismatch.renewed.iter().any(|(d, _)| d == device) {
+            mismatch.renewed.push((*device, bytes.clone()));
+        }
+    }
+    mismatch
+}
+
+/// Takes the vault key another device renewed into `vault` (`Vault::adopt_key`): the first of
+/// `copies` that the master password and the new Secret Key (with the keyfile, when the vault
+/// needs one) open gives it, and what opened `vault` before is remembered as retired in
+/// `state`. `Ok(None)`: the copy opened but shares this key already. Fails with
+/// `DecryptionFailed` when none opens (a wrong Secret Key or password); nothing changes then.
+/// The caller saves the vault, keeps `secret_key` on the device and seals again what it
+/// sealed with the former key.
+pub fn take_renewed_key(
+    vault: &mut Vault,
+    copies: &[(DeviceId, Vec<u8>)],
+    password: &str,
+    secret_key: &SecretKey,
+    keyfile: Option<&Keyfile>,
+    state: &mut crate::DeviceState,
+) -> vault_core::Result<Option<FormerKey>> {
+    let before = vault.unlock_id();
+    let mut why = vault_core::Error::DecryptionFailed;
+    for (_, bytes) in copies {
+        let unlock = match keyfile {
+            Some(keyfile) => Unlock::PasswordAndKeyfile {
+                password,
+                secret_key,
+                keyfile,
+            },
+            None => Unlock::Password {
+                password,
+                secret_key,
+            },
+        };
+        match Vault::open(bytes, unlock) {
+            Ok(renewed) => {
+                let former = vault.adopt_key(&renewed)?;
+                if former.is_some() {
+                    state.retire_unlock(&vault.id_hex(), &before);
+                }
+                return Ok(former);
+            }
+            Err(vault_core::Error::KeyfileRequired) => why = vault_core::Error::KeyfileRequired,
+            Err(_) => {}
+        }
+    }
+    Err(why)
+}
+
 /// Folds every fetched copy into `vault`. Runs where the vault is (the UI thread), and is
 /// quick: no file or network access.
 pub fn merge_all(vault: &mut Vault, fetched: &Fetched, seen: &mut SeenRevisions) -> Round {
@@ -1189,5 +1301,97 @@ mod tests {
         let fetched = fetch(&target, device(9), &Tags::new()).unwrap();
         assert_eq!(fetched.copies.len(), 1);
         assert_eq!(fetched.unreadable.len(), 1);
+    }
+
+    /// A device on the old key can't read a copy sealed under a renewed one: the round says
+    /// so, the new Secret Key and the master password take the new key, and the device that
+    /// renewed knows the other's old copy for what it is.
+    #[test]
+    fn a_renewed_vault_key_is_told_apart_and_taken() {
+        use vault_core::{ItemData, KdfParams};
+        const PASSWORD: &str = "test master password";
+        let secret_key = SecretKey::generate().unwrap();
+        let mut first =
+            Vault::create(PASSWORD, &secret_key, None, KdfParams::minimum().unwrap()).unwrap();
+        first
+            .add_item(&ItemData::login(
+                "Shared",
+                "me",
+                "test-pw",
+                "shared.example",
+            ))
+            .unwrap();
+        let bytes = first.to_bytes().unwrap();
+        let open = |bytes: &[u8]| {
+            let mut vault = Vault::open(
+                bytes,
+                vault_core::Unlock::Password {
+                    password: PASSWORD,
+                    secret_key: &secret_key,
+                },
+            )
+            .unwrap();
+            vault.set_device(DeviceId::generate().unwrap());
+            vault
+        };
+        let (mut a, mut b) = (open(&bytes), open(&bytes));
+        let vault_id = a.id_hex();
+        let reading_of = |device: DeviceId, copy: Vec<u8>| Reading {
+            main: Ok(Fetched {
+                copies: vec![(device, copy)],
+                ..Fetched::default()
+            }),
+            backup: None,
+        };
+        let b_old_copy = b.to_bytes().unwrap();
+
+        // A renews, remembering what opened it before.
+        let mut state_a = crate::DeviceState::default();
+        let before = a.unlock_id();
+        let renewed = a.renew_key(PASSWORD, &secret_key, None).unwrap();
+        state_a.retire_unlock(&vault_id, &before);
+        let a_copy = a.to_bytes().unwrap();
+
+        // B can't read it, and doesn't know that header: maybe renewed there.
+        let mut state_b = crate::DeviceState::default();
+        let reading = reading_of(device(1), a_copy.clone());
+        let round = merge_reading(&mut b, &reading, &mut SeenRevisions::new());
+        let mismatch = key_mismatch(&vault_id, &reading, &round, &state_b);
+        assert!(mismatch.behind.is_empty());
+        assert_eq!(mismatch.renewed.len(), 1);
+        // A wrong Secret Key takes nothing; the new one does.
+        let wrong = SecretKey::generate().unwrap();
+        assert!(matches!(
+            take_renewed_key(
+                &mut b,
+                &mismatch.renewed,
+                PASSWORD,
+                &wrong,
+                None,
+                &mut state_b
+            ),
+            Err(vault_core::Error::DecryptionFailed)
+        ));
+        let b_before = b.unlock_id();
+        let former = take_renewed_key(
+            &mut b,
+            &mismatch.renewed,
+            PASSWORD,
+            &renewed.secret_key,
+            None,
+            &mut state_b,
+        )
+        .unwrap();
+        assert!(former.is_some());
+        assert!(state_b.unlock_retired(&vault_id, &b_before));
+        let round = merge_reading(&mut b, &reading, &mut SeenRevisions::new());
+        assert!(round.refused.is_empty(), "{:?}", round.refused);
+
+        // A, which renewed, sees B's copy from before as waiting for B, not as news.
+        let reading = reading_of(device(2), b_old_copy);
+        let round = merge_reading(&mut a, &reading, &mut SeenRevisions::new());
+        let mismatch = key_mismatch(&vault_id, &reading, &round, &state_a);
+        assert_eq!(mismatch.behind, [device(2)]);
+        assert!(mismatch.renewed.is_empty());
     }
 }

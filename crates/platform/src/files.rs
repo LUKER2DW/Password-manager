@@ -9,6 +9,30 @@ use anyhow::{Context, Result};
 
 use crate::paths;
 
+/// Seals the file at `path` again under the vault's key, after a renewal of the vault key
+/// (`Vault::renew_key`, `Vault::adopt_key`): all of it was sealed with `Vault::seal_local` for
+/// `purpose` under `former`. Its `.bak` copy (still under the former key) goes. A file that
+/// isn't there, or that the former key doesn't open, is left as it is; `true` when it was
+/// sealed again.
+pub fn reseal(
+    path: &Path,
+    vault: &vault_core::Vault,
+    former: &vault_core::FormerKey,
+    purpose: &str,
+) -> bool {
+    let Ok(sealed) = std::fs::read(path) else {
+        return false;
+    };
+    let Ok(again) = vault.reseal_local(former, purpose, &sealed) else {
+        return false;
+    };
+    if vault_core::storage::write_atomic(path, &again).is_err() {
+        return false;
+    }
+    let _ = std::fs::remove_file(vault_core::storage::backup_path(path));
+    true
+}
+
 /// Folder for files made only to be printed. Emptied (overwritten, then deleted) on lock, on
 /// exit and at the next start.
 pub fn print_dir() -> Result<PathBuf> {
@@ -201,6 +225,40 @@ fn shell_open(target: &std::ffi::OsStr) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_file_sealed_under_the_former_key_is_sealed_again() {
+        use vault_core::{KdfParams, SecretKey, Vault};
+        let secret_key = SecretKey::generate().unwrap();
+        let mut vault = Vault::create(
+            "test master password",
+            &secret_key,
+            None,
+            KdfParams::minimum().unwrap(),
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.bin");
+        std::fs::write(&path, vault.seal_local("test", b"kept here").unwrap()).unwrap();
+        let renewed = vault
+            .renew_key("test master password", &secret_key, None)
+            .unwrap();
+        assert!(reseal(&path, &vault, &renewed.former, "test"));
+        let sealed = std::fs::read(&path).unwrap();
+        assert_eq!(
+            vault.open_local("test", &sealed).unwrap().as_slice(),
+            b"kept here"
+        );
+        assert!(!vault_core::storage::backup_path(&path).exists());
+        // Once is enough: under the new key, the former one opens it no more.
+        assert!(!reseal(&path, &vault, &renewed.former, "test"));
+        assert!(!reseal(
+            &dir.path().join("missing.bin"),
+            &vault,
+            &renewed.former,
+            "test"
+        ));
+    }
 
     #[test]
     fn wipe_removes_the_file() {
