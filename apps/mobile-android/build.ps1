@@ -6,8 +6,10 @@
 # the NDK's linker, then Gradle (gradlew, build.gradle) packages it with the Java shell (java/),
 # the manifest and res/, and the one library the Java side uses: Google's code scanner. The
 # first build fetches Gradle and that library; later builds use Gradle's cache.
-# The APK is signed with the Android debug key (~/.android/debug.keystore, made if missing):
-# fine for trying it, never for publishing it.
+# The APK is signed with the release key when make-release-key.ps1 made one
+# (%APPDATA%\PasswordVault\signingelease.p12, its password sealed for this Windows user),
+# else with the Android debug key (~/.android/debug.keystore, made if missing): fine for trying
+# it, never for publishing it.
 # Speed: the Rust library is built with the `fast` profile (Cargo.toml: optimized, parallel,
 # incremental; a rebuild after a change takes a fraction of a full one); -Release uses the
 # release profile (one codegen unit, LTO: smaller and a little faster, much slower to build).
@@ -31,11 +33,22 @@ foreach ($t in @("aarch64-linux-android", "x86_64-linux-android")) {
 }
 $abi = @{ "aarch64-linux-android" = "arm64-v8a"; "x86_64-linux-android" = "x86_64" }[$Target]
 if (-not $abi) { throw "unknown target $Target" }
-$keystore = "$HOME\.android\debug.keystore"
-if (-not (Test-Path $keystore)) {
-    New-Item -ItemType Directory -Force (Split-Path $keystore) | Out-Null
-    keytool -genkeypair -keystore $keystore -storepass android -alias androiddebugkey `
-        -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+$signing = "$env:APPDATA\PasswordVault\signing"
+$releaseStore = Join-Path $signing "release.p12"
+if (Test-Path $releaseStore) {
+    # Handed to Gradle through this process's environment only, and removed after it.
+    $sealedPassword = (Get-Content -Raw (Join-Path $signing "release.pass")).Trim()
+    $env:VAULT_SIGNING_STORE = $releaseStore
+    $env:VAULT_SIGNING_PASSWORD = [System.Net.NetworkCredential]::new("", (ConvertTo-SecureString $sealedPassword)).Password
+    Write-Host "Signing with the release key ($releaseStore)."
+} else {
+    $keystore = "$HOME\.android\debug.keystore"
+    if (-not (Test-Path $keystore)) {
+        New-Item -ItemType Directory -Force (Split-Path $keystore) | Out-Null
+        keytool -genkeypair -keystore $keystore -storepass android -alias androiddebugkey `
+            -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+    }
+    Write-Warning "Signing with the Android debug key: fine for trying it, never for publishing it (make-release-key.ps1 makes the release key)."
 }
 Push-Location "$PSScriptRoot/../.."
 try {
@@ -73,5 +86,6 @@ try {
     Write-Host "Built target/release/apk/vault-mobile-android.apk. Install: adb install -r target/release/apk/vault-mobile-android.apk"
 } finally {
     $env:CARGO_TARGET_DIR = $targetDirBefore
+    Remove-Item Env:\VAULT_SIGNING_PASSWORD, Env:\VAULT_SIGNING_STORE -ErrorAction SilentlyContinue
     Pop-Location
 }

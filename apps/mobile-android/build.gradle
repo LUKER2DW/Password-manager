@@ -13,6 +13,10 @@ def (major, minor, patch) = [cargoVersion[1], cargoVersion[2], cargoVersion[3]].
 
 layout.buildDirectory = file('../../target/gradle/vault-mobile-android')
 
+// The release key (make-release-key.ps1), which build.ps1 hands over through the environment
+// when it is there; without it, the Android debug key.
+def releaseStore = System.getenv('VAULT_SIGNING_STORE')
+
 android {
     namespace 'org.passwordvault.phone'
     compileSdk 35
@@ -34,8 +38,9 @@ android {
         }
     }
 
-    // Signed with the Android debug key (~/.android/debug.keystore, made by build.ps1 if
-    // missing): fine for trying it, never for publishing it.
+    // Signed with the release key when build.ps1 found one: the only key updates are taken
+    // from. Otherwise with the Android debug key (~/.android/debug.keystore, made by build.ps1
+    // if missing): fine for trying it, never for publishing it.
     signingConfigs {
         trial {
             storeFile file("${System.getProperty('user.home')}/.android/debug.keystore")
@@ -43,11 +48,20 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (releaseStore) {
+            vault {
+                storeFile file(releaseStore)
+                storeType 'pkcs12'
+                storePassword System.getenv('VAULT_SIGNING_PASSWORD')
+                keyAlias 'vault'
+                keyPassword System.getenv('VAULT_SIGNING_PASSWORD')
+            }
+        }
     }
 
     buildTypes {
         release {
-            signingConfig signingConfigs.trial
+            signingConfig releaseStore ? signingConfigs.vault : signingConfigs.trial
             minifyEnabled false
         }
     }
