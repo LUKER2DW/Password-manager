@@ -37,6 +37,13 @@ fn history_path(vault_id: &str) -> Option<PathBuf> {
     )
 }
 
+/// After a renewal of the vault key: the history sealed again under the new key.
+pub(super) fn reseal(vault: &vault_core::Vault, former: &vault_core::FormerKey) {
+    if let Some(path) = history_path(&vault.id_hex()) {
+        vault_platform::files::reseal(&path, vault, former, PURPOSE);
+    }
+}
+
 fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

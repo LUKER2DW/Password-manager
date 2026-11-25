@@ -62,6 +62,24 @@ fn write(vault_id: &str, file: &DropFile) -> Option<()> {
     storage::write_atomic(&path, &bytes).ok()
 }
 
+/// After a renewal of the vault key: the drop box's key sealed again under the new one (the
+/// key itself stays, so the logins sealed to it while locked still open).
+pub(super) fn reseal(vault: &Vault, former: &vault_core::FormerKey) {
+    let id = vault.id_hex();
+    let Some(mut file) = read(&id) else {
+        return;
+    };
+    let Ok(sealed_key) = DropBoxKey::reseal_with(vault, former, &file.sealed_key) else {
+        return;
+    };
+    file.sealed_key = sealed_key;
+    if write(&id, &file).is_some()
+        && let Some(path) = path(&id)
+    {
+        let _ = std::fs::remove_file(storage::backup_path(&path));
+    }
+}
+
 pub(super) fn remove(vault_id: &str) {
     if let Some(path) = path(vault_id) {
         let _ = std::fs::remove_file(storage::backup_path(&path));

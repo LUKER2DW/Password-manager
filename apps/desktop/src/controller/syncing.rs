@@ -89,6 +89,44 @@ pub(super) struct SyncStatus {
     busy: bool,
     /// The person was told that a newer item lock from another device waits here.
     lock_told: bool,
+    /// Copies sealed under a vault key renewed on another device (SYNC.md §4.7), kept until
+    /// this computer takes the new key (Settings → Sync asks for its Secret Key).
+    renewed: Vec<(DeviceId, Vec<u8>)>,
+    /// The person was told about them.
+    renewed_told: bool,
+    /// Devices whose copies are still sealed under a key this computer renewed or took.
+    behind: Vec<DeviceId>,
+}
+
+impl SyncStatus {
+    /// The copies sealed under a vault key renewed on another device.
+    pub(super) fn renewed_copies(&self) -> &[(DeviceId, Vec<u8>)] {
+        &self.renewed
+    }
+
+    /// The vault key changed here: what was refused for it is read again.
+    pub(super) fn key_changed(&mut self) {
+        self.renewed.clear();
+        self.renewed_told = false;
+        self.behind.clear();
+        self.tags = KnownTags::default();
+    }
+
+    /// Folds in what a round found about other vault keys: a renewed copy replaces the one of
+    /// the same device kept before, and a device whose copy merged is no longer behind.
+    fn note_key_mismatch(&mut self, mismatch: sync::KeyMismatch, merged: &[DeviceId]) {
+        self.behind.retain(|device| !merged.contains(device));
+        for device in mismatch.behind {
+            if !self.behind.contains(&device) {
+                self.behind.push(device);
+            }
+        }
+        self.renewed.retain(|(device, _)| !merged.contains(device));
+        for (device, bytes) in mismatch.renewed {
+            self.renewed.retain(|(kept, _)| *kept != device);
+            self.renewed.push((device, bytes));
+        }
+    }
 }
 
 /// Items, or whole copies, that wait for the item lock: the items a merge left as they were
@@ -169,6 +207,7 @@ impl Controller {
         self.state.borrow_mut().sync.tags = KnownTags::default();
         self.state.borrow_mut().sync.here = None;
         self.state.borrow_mut().sync.lock_told = false;
+        self.state.borrow_mut().sync.key_changed();
         let Some(place) = self.sync_place() else {
             self.show_sync_settings();
             return;
@@ -761,6 +800,17 @@ impl Controller {
             0,
         );
         let _ = device_state.save();
+        // Copies under another vault key: renewed on their device (its new Secret Key is
+        // asked once), or still under a key this computer renewed or took.
+        let mismatch = sync::key_mismatch(&place.vault_id, &reading, &round, &device_state);
+        let merged: Vec<DeviceId> = round.reports.iter().map(|report| report.writer).collect();
+        let tell_renewed = {
+            let mut state = self.state.borrow_mut();
+            state.sync.note_key_mismatch(mismatch, &merged);
+            let renewed = !state.sync.renewed.is_empty();
+            let told = std::mem::replace(&mut state.sync.renewed_told, renewed);
+            renewed && !told
+        };
 
         // What the person should know.
         let came: usize = round
@@ -776,11 +826,18 @@ impl Controller {
             let told = std::mem::replace(&mut state.sync.lock_told, lock_waits);
             lock_waits && !told
         };
-        let refused = round
-            .refused
-            .iter()
-            .find(|(_, err)| !matches!(err, vault_core::Error::SecretsLocked));
-        if round.unlock_changed() {
+        // Copies that wait for the item lock, or that are under another vault key, are said
+        // apart.
+        let refused = round.refused.iter().find(|(_, err)| {
+            !matches!(
+                err,
+                vault_core::Error::SecretsLocked | vault_core::Error::DecryptionFailed
+            )
+        });
+        if tell_renewed {
+            self.notify_long(notice::SYNC_KEY_RENEWED, "");
+            self.show_sync_settings();
+        } else if round.unlock_changed() {
             self.notify_long(notice::SYNC_UNLOCK_CHANGED, "");
         } else if guard_changed {
             self.notify_long(notice::GUARD_MOVED, "");
@@ -1195,6 +1252,11 @@ impl Controller {
         };
         let waiting = self.state.borrow().sync.waiting;
         app.set_sync_waiting(i32::try_from(waiting).unwrap_or(i32::MAX));
+        {
+            let state = self.state.borrow();
+            app.set_sync_key_renewed(!state.sync.renewed.is_empty());
+            app.set_sync_key_behind(i32::try_from(state.sync.behind.len()).unwrap_or(i32::MAX));
+        }
         if !running && app.get_sync_state() != state::FAILED {
             app.set_sync_state(if waiting > 0 {
                 state::WAITING

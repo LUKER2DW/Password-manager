@@ -477,6 +477,57 @@ export component ConfirmDialog inherits Modal {
     }
 }
 
+// Settings → Sync, once another device renewed the vault key: its new Secret Key (from the
+// new kit) and the master password.
+export component TakeKeyDialog inherits Modal {
+    in property <bool> busy;
+    in property <int> error-code;
+    in property <string> error-detail;
+    callback confirmed();
+    callback cancelled();
+    card-width: 540px;
+    focus-on-open: false;
+    dismissed => { if (!root.busy) { root.cancelled(); } }
+    Text {
+        text: @tr("Use the renewed vault key");
+        font-size: Theme.title;
+        color: Theme.ink;
+    }
+    Text {
+        text: @tr("Another device renewed the vault key and printed a new kit. Type the Secret Key from that kit, and your master password: this computer then keeps the new key and syncs again. Windows Hello turns off until you turn it on again.");
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    SecretField {
+        field: 2;
+        label: @tr("New Secret Key");
+        required: true;
+        eye: true;
+        cells: true;
+        placeholder: "S0-";
+        error: root.error-code == 2 || root.error-code == 3 || root.error-code == 61;
+        init => { self.focus(); }
+    }
+    SecretField {
+        field: 20;
+        eye: true;
+        label: @tr("Master password");
+        icon: "key";
+        required: true;
+        error: root.error-code == 11 || root.error-code == 34 || root.error-code == 61;
+        accepted => { root.confirmed(); }
+    }
+    DialogError { code: root.error-code; detail: root.error-detail; }
+    DialogButtons {
+        action: @tr("Use the new key");
+        busy-text: @tr("Working…");
+        busy: root.busy;
+        confirmed => { root.confirmed(); }
+        cancelled => { root.cancelled(); }
+    }
+}
+
 // Settings → Security → Change master password.
 export component MasterPasswordDialog inherits Modal {
     in property <bool> busy;

@@ -119,6 +119,31 @@ fn has_index(vault_id: &str) -> bool {
     index_path(vault_id).is_some_and(|path| path.exists())
 }
 
+/// After a renewal of the vault key: the index's copies of its keys for the vault sealed
+/// again under the new key (those for Windows Hello stay as they are).
+pub(super) fn reseal(vault: &Vault, former: &vault_core::FormerKey) {
+    let id = vault.id_hex();
+    let Some(mut file) = read_index(&id) else {
+        return;
+    };
+    let (Ok(key), Ok(public)) = (
+        vault.reseal_local(former, PURPOSE, &file.key_by_vault),
+        vault.reseal_local(former, PUBLIC_PURPOSE, &file.guarded_public_by_vault),
+    ) else {
+        return;
+    };
+    file.key_by_vault = key;
+    file.guarded_public_by_vault = public;
+    let Some(path) = index_path(&id) else {
+        return;
+    };
+    if let Ok(bytes) = postcard::to_allocvec(&file)
+        && storage::write_atomic(&path, &bytes).is_ok()
+    {
+        let _ = std::fs::remove_file(storage::backup_path(&path));
+    }
+}
+
 pub(super) fn remove_index(vault_id: &str) {
     remove_with_backup(legacy_path(vault_id));
     remove_with_backup(index_path(vault_id));

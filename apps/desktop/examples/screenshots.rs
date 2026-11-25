@@ -660,6 +660,24 @@ fn main() {
         "settings-sync-waiting",
         "Settings → Sync: two edits waiting for the item lock",
     );
+    // The vault key renewed on the laptop: its new Secret Key is asked here once; the phone
+    // still uses the former key.
+    app.set_sync_waiting(0);
+    app.set_sync_state(1);
+    app.set_sync_key_renewed(true);
+    app.set_sync_key_behind(1);
+    camera.shot(
+        "settings-sync-renewed",
+        "Settings → Sync: the vault key was renewed on another device",
+    );
+    app.invoke_open_settings_dialog(14);
+    camera.shot(
+        "settings-sync-take-key",
+        "Settings → Sync: the new Secret Key and the master password",
+    );
+    app.invoke_close_settings_dialog();
+    app.set_sync_key_renewed(false);
+    app.set_sync_key_behind(0);
     app.set_sync_detail(r"the folder D:\Sync\Vault can't be reached".into());
     app.set_sync_state(3);
     camera.shot("settings-sync-failed", "Settings → Sync: failed");
@@ -873,6 +891,12 @@ fn main() {
             let _ = std::fs::copy(entry.path(), dir.join("emergency-kit-demo.pdf"));
         }
     }
+    app.set_kit_confirming_renew(true);
+    camera.shot(
+        "kit-renew-ask",
+        "Emergency kit: renewing the vault key asks in a dialog",
+    );
+    app.set_kit_confirming_renew(false);
     app.invoke_hide_kit();
 
     // ---- where the doodle texture goes (the page is the default), for review ----

@@ -35,7 +35,7 @@ const PAIRING: i32 = 14;
 
 /// A vault file at `dir/name` with one login per `(title, password)`, its Secret Key in the
 /// credential store (forgotten when the returned guard drops).
-fn vault_file(
+pub(super) fn vault_file(
     dir: &Path,
     name: &str,
     logins: &[(&str, &str)],
@@ -57,7 +57,7 @@ fn vault_file(
     (path, key, ForgetOnDrop(vault.id_hex()))
 }
 
-fn open_file(path: &Path, key: &SecretKey) -> Vault {
+pub(super) fn open_file(path: &Path, key: &SecretKey) -> Vault {
     Vault::open(
         &std::fs::read(path).unwrap(),
         Unlock::Password {
@@ -69,7 +69,7 @@ fn open_file(path: &Path, key: &SecretKey) -> Vault {
 }
 
 /// The app on `path`, unlocked.
-fn open_app(path: &Path, hello: Option<Arc<FakeHello>>) -> (AppWindow, Rc<Controller>) {
+pub(super) fn open_app(path: &Path, hello: Option<Arc<FakeHello>>) -> (AppWindow, Rc<Controller>) {
     let app = AppWindow::new().unwrap();
     apply_sketches(&app);
     let verifier = hello.map(|hello| hello as Arc<dyn DeviceVerifier>);
@@ -103,7 +103,7 @@ fn waiting(app: &AppWindow) -> i32 {
 
 /// Puts `vault`'s copy as another device's in the sync folder `dir`, as that device's sync
 /// would.
-fn publish(dir: &Path, vault: &mut Vault, device: DeviceId) {
+pub(super) fn publish(dir: &Path, vault: &mut Vault, device: DeviceId) {
     let devices = dir.join(vault.id_hex()).join("devices");
     std::fs::create_dir_all(&devices).unwrap();
     std::fs::write(

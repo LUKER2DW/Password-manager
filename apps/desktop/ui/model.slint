@@ -219,6 +219,9 @@ export global Messages {
         if (code == 54) { return @tr("This form of key isn't read here (PuTTY's .ppk, or an older encrypted form). ssh-keygen -p -f with the key's file writes it in OpenSSH's form; then bring that."); }
         if (code == 55) { return @tr("That passphrase doesn't open the key. Try again."); }
         if (code == 60) { return @tr("That opened the new item lock, set on another device. Now type the PIN or password this computer asked for until now: then the locked items move to the new lock."); }
+        if (code == 61) { return @tr("That Secret Key and master password open none of the renewed copies. Use the Secret Key of the kit made when the vault key was renewed."); }
+        if (code == 62) { return @tr("This computer couldn't keep the new Secret Key ({}), so nothing was changed.", detail); }
+        if (code == 63) { return @tr("This computer couldn't keep the new Secret Key ({}), and the vault file now opens only with it: keep the new emergency kit at hand, it is asked at the next unlock.", detail); }
         if (code == 9) { return @tr("Give the item a title."); }
         if (code == 10) { return @tr("The one-time code secret isn't valid. Paste the otpauth:// link or the key shown by the website."); }
         if (code == 11) { return @tr("The current master password is wrong."); }
@@ -380,6 +383,10 @@ export global Messages {
         if (code == 82) { return @tr("The vault locked before the item lock was saved, so it was not changed. Windows Hello for locked items, if it was being set up, is off until the item lock is saved again."); }
         if (code == 83) { return @tr("Filling while the vault is locked needs setting up again after this update: open a locked item with Windows Hello once, or turn the option off and on in Settings → Browser extension."); }
         if (code == 84) { return arg == "1" ? @tr("A login saved from the browser while the vault was locked waits for the item lock: a locked login for that site has the same username. Open the item lock to add its new password.") : @tr("{} logins saved from the browser while the vault was locked wait for the item lock: locked logins for those sites have the same usernames. Open the item lock to add their new passwords.", arg); }
+        if (code == 85) { return arg == "1" ? @tr("The vault key was renewed: the old kit, the old Secret Key and older copies of the file no longer open it. Print the new kit now. Windows Hello is off until you turn it on again.") : @tr("The vault key was renewed: the old kit, the old Secret Key and older copies of the file no longer open it. Print the new kit now."); }
+        if (code == 86) { return arg == "1" ? @tr("This computer uses the renewed vault key now and syncs again. Windows Hello is off until you turn it on again.") : @tr("This computer uses the renewed vault key now and syncs again."); }
+        if (code == 87) { return @tr("The vault key was renewed on another device. Settings → Sync asks once for the new Secret Key, from the new emergency kit."); }
+        if (code == 88) { return @tr("The vault key was renewed, but the vault locked before the new kit showed. Open Emergency kit and issue new recovery parts: the ones made then can't be shown again."); }
         return "";
     }
 

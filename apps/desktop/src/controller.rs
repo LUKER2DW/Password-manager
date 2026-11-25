@@ -17,8 +17,9 @@ use slint::{
     TimerMode, VecModel,
 };
 use vault_core::{
-    CustomField, Error as CoreError, FolderId, GuardCheck, ItemData, ItemGuard, ItemId, ItemKind,
-    KdfParams, RecoveryCode, RecoveryKey, RecoveryPart, RecoveryParts, SecretKey, Unlock, Vault,
+    CustomField, Error as CoreError, FolderId, FormerKey, GuardCheck, ItemData, ItemGuard, ItemId,
+    ItemKind, KdfParams, RecoveryCode, RecoveryKey, RecoveryPart, RecoveryParts, SecretKey, Unlock,
+    Vault,
     card::{self, CardDetails, CardProblem},
     generator::{self, PassphraseOptions},
     health::HealthReport,
@@ -53,6 +54,7 @@ mod generated;
 mod locked_fill;
 mod navigation;
 mod protection;
+mod renew;
 mod syncing;
 mod watch;
 
@@ -167,6 +169,12 @@ mod error {
     /// What was typed opened only the newer item lock set on another device: this copy's
     /// own PIN or password is asked next (not a wrong try).
     pub const GUARD_NEWER_OPENED: i32 = 60;
+    /// The vault key renewed on another device: the Secret Key and master password typed open
+    /// none of its copies; this computer couldn't keep the new Secret Key (nothing changed);
+    /// it couldn't, and the file opens only with the new kit now.
+    pub const KEY_NOT_TAKEN: i32 = 61;
+    pub const KEY_NOT_KEPT: i32 = 62;
+    pub const KEY_ONLY_KIT: i32 = 63;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -253,6 +261,13 @@ mod notice {
     /// Logins saved from the browser while locked wait for the item lock (a login for the
     /// same site and username is locked here).
     pub const BROWSER_DROPPED_WAITING: i32 = 84;
+    /// The vault key was renewed here, or one renewed on another device taken ("1": Windows
+    /// Hello was turned off with it); one was renewed on another device (Settings → Sync
+    /// asks for it); renewed here, but the vault locked before the new kit showed.
+    pub const KEY_RENEWED: i32 = 85;
+    pub const KEY_TAKEN: i32 = 86;
+    pub const SYNC_KEY_RENEWED: i32 = 87;
+    pub const KEY_RENEWED_UNSEEN: i32 = 88;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -299,6 +314,8 @@ mod dialog {
     /// The address of the server the vault syncs through, and of the backup server.
     pub const SERVER_ADDRESS: i32 = 12;
     pub const BACKUP_ADDRESS: i32 = 13;
+    /// The new Secret Key of a vault key renewed on another device, and the master password.
+    pub const TAKE_KEY: i32 = 14;
 }
 
 /// Results of background work, sent back to the UI thread.
@@ -403,6 +420,16 @@ enum JobResult {
     PartsIssued {
         session: Session,
         parts: RecoveryParts,
+    },
+    /// The vault key was renewed here (`parts`: the new kit's) or one renewed on another
+    /// device taken (`parts` is `None`); `former` opens what this computer sealed before.
+    /// `not_kept` says why this computer doesn't hold the new Secret Key, when the file opens
+    /// only with it all the same.
+    KeyRenewed {
+        session: Session,
+        parts: Option<RecoveryParts>,
+        former: FormerKey,
+        not_kept: Option<String>,
     },
     /// `session` is handed back when the job borrowed an open vault.
     Failed {
@@ -1035,6 +1062,8 @@ impl Controller {
             clear_kit_parts(&app);
         });
         on!(on_new_parts, |c| c.verify_then(KitAction::NewParts));
+        on!(on_renew_key, |c| c.verify_then(KitAction::RenewKey));
+        on!(on_sync_take_key, |c| c.take_new_key());
         on!(on_save_part_picture, |c| c.save_part_picture());
     }
 
@@ -1529,6 +1558,12 @@ impl Controller {
                 clear_kit_parts(&app);
                 self.state.borrow_mut().session = Some(session);
             }
+            JobResult::KeyRenewed {
+                session,
+                parts,
+                former,
+                not_kept,
+            } => self.key_renewed(session, parts, former, not_kept),
             JobResult::PartsIssued { session, parts } => {
                 self.clear_secret(field::CURRENT);
                 app.set_kit_secret_key(SharedString::from(
@@ -1559,6 +1594,12 @@ impl Controller {
     /// A job's result that no longer belongs here (see `finish_job`): dropped, keys and all.
     /// What the job already did outside the vault is undone where it would mislead.
     fn drop_job_result(&self, result: JobResult) {
+        if let JobResult::KeyRenewed {
+            session, former, ..
+        } = result
+        {
+            return self.key_renewed_unseen(session, former);
+        }
         if let JobResult::GuardVerified { session, hello, .. } = result {
             // The item lock was changed only in the memory that goes now: it stays as it is
             // on disk. Windows Hello's key for it was made anew by then, so the copy of the
@@ -5390,6 +5431,7 @@ impl Controller {
             }
             match action {
                 KitAction::Show => JobResult::KitVerified { session },
+                KitAction::RenewKey => renew::renew(&path, expected, &current, session),
                 KitAction::Export => {
                     // The master password just typed also opens locked secrets for the
                     // export, when the item lock kept a copy of its key for it.
@@ -5490,6 +5532,9 @@ enum KitAction {
     Show,
     /// A new kit: new recovery parts, the old ones (or the Recovery Key) stop working.
     NewParts,
+    /// A new vault key, Secret Key and kit (CRYPTO.md §3.8): older copies of the file, the old
+    /// kit and the old Secret Key stop opening it.
+    RenewKey,
     /// Unencrypted export (the file is chosen after the password check).
     Export,
 }

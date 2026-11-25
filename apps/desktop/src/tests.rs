@@ -30,6 +30,8 @@ use crate::{
 const PASSWORD: &str = "desktop test passphrase one";
 const NEW_PASSWORD: &str = "desktop test passphrase two";
 
+/// Renewing the vault key, and taking one renewed on another device.
+mod renew;
 /// What the review of the audit fixes found, each on a vault of its own.
 mod review;
 

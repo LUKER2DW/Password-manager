@@ -32,6 +32,18 @@ fn watch_path(vault_id: &str) -> Option<PathBuf> {
     )
 }
 
+/// After a renewal of the vault key: what the watch found, sealed again under the new key.
+pub(super) fn reseal(vault: &vault_core::Vault, former: &vault_core::FormerKey) {
+    if let Some(path) = watch_path(&vault.id_hex()) {
+        vault_platform::files::reseal(
+            &path,
+            vault,
+            former,
+            vault_platform::leak_check::WATCH_PURPOSE,
+        );
+    }
+}
+
 /// What a check hands back.
 struct Checked {
     vault_id: String,

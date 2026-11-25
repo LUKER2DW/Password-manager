@@ -2220,6 +2220,10 @@ export component SettingsPage inherits Rectangle {
     in property <string> sync-main-down;
     in property <string> sync-backup-down;
     in-out property <bool> sync-backup-form;
+    // The vault key was renewed on another device (its copies wait for the new Secret Key),
+    // and how many devices still use the key this one renewed or took.
+    in property <bool> sync-key-renewed;
+    in property <int> sync-key-behind;
     callback sync-choose();
     callback sync-now();
     // Keyfile: whether the vault needs one, where it is.
@@ -2675,6 +2679,35 @@ export component SettingsPage inherits Rectangle {
                             if root.sync-state == 4: Fact {
                                 label: @tr("Waiting");
                                 value: @tr("{n} item changed on two devices waits for the item lock" | "{n} items changed on two devices wait for the item lock" % root.sync-waiting);
+                            }
+                            if root.sync-key-behind > 0: Fact {
+                                label: @tr("Former key");
+                                value: @tr("{n} device still uses the vault's former key: its changes come in once it takes the new one" | "{n} devices still use the vault's former key: their changes come in once they take the new one" % root.sync-key-behind);
+                            }
+                        }
+                        if root.sync-kind != 0 && root.sync-key-renewed: Rectangle {
+                            border-radius: Theme.radius;
+                            border-width: 1px;
+                            border-color: Theme.seal;
+                            background: Theme.sheet;
+                            VerticalLayout {
+                                padding: 12px;
+                                spacing: 10px;
+                                Text {
+                                    text: @tr("The vault key was renewed on another device: its copies open only with the new Secret Key, from the new emergency kit made there. Type it once here to keep syncing.");
+                                    font-size: Theme.body;
+                                    color: Theme.ink;
+                                    wrap: word-wrap;
+                                }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    QuietButton {
+                                        outlined: true;
+                                        icon: "key";
+                                        text: @tr("Type the new Secret Key…");
+                                        clicked => { root.open-dialog(14); }
+                                    }
+                                }
                             }
                         }
                         if root.sync-backup != "" && (root.sync-main-down != "" || root.sync-backup-down != ""): Rectangle {
@@ -3994,8 +4027,10 @@ export component KitPage inherits Rectangle {
     callback save-kit();
     callback save-part-picture();
 
-    // "Issue new parts" asked in a dialog over the window (app.slint), and "Show my kit".
+    // "Issue new parts" and "Renew the vault key" asked in dialogs over the window
+    // (app.slint), and "Show my kit".
     in-out property <bool> confirming-new-key;
+    in-out property <bool> confirming-renew;
     in-out property <bool> asking-kit;
     // Part C was saved in a picture: the printed kit leaves it out unless asked otherwise.
     in property <bool> part-c-pictured;
@@ -4003,7 +4038,10 @@ export component KitPage inherits Rectangle {
     changed kit-secret-key => {
         if (root.kit-secret-key != "") { root.asking-kit = false; }
     }
-    changed kit-part-a => { root.confirming-new-key = false; }
+    changed kit-part-a => {
+        root.confirming-new-key = false;
+        root.confirming-renew = false;
+    }
 
     ScrollView {
         VerticalLayout {
@@ -4081,10 +4119,18 @@ export component KitPage inherits Rectangle {
                     VerticalLayout {
                         alignment: center;
                         QuietButton {
+                            text: @tr("Renew the vault key…");
+                            clicked => { root.confirming-renew = true; }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        QuietButton {
                             text: @tr("Hide");
                             tint: Theme.graphite;
                             clicked => {
                                 root.confirming-new-key = false;
+                                root.confirming-renew = false;
                                 root.hide-kit();
                             }
                         }

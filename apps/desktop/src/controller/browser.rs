@@ -89,6 +89,14 @@ fn pairing_path(vault_id: &str) -> Option<PathBuf> {
     )
 }
 
+/// After a renewal of the vault key: the connection key sealed again under the new key (its
+/// copy for the Windows user stays as it is).
+pub(super) fn reseal_pairing(vault: &Vault, former: &vault_core::FormerKey) {
+    if let Some(path) = pairing_path(&vault.id_hex()) {
+        vault_platform::files::reseal(&path, vault, former, PAIRING_PURPOSE);
+    }
+}
+
 /// The connection key again, protected for the Windows user (DPAPI), so requests can be
 /// checked while the vault is locked.
 fn pairing_path_locked(vault_id: &str) -> Option<PathBuf> {

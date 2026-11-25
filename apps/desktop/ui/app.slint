@@ -6,7 +6,7 @@ import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, Co
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage } from "pages.slint";
-import { FolderDialog, PairingDialog, PartsUsedDialog, ConfirmDialog, MasterPasswordDialog, ItemLockDialog, ServerJoinDialog, ServerAddressDialog, ExportDialog, WebDavDialog, BackupServerDialog, InviteDialog } from "dialogs.slint";
+import { FolderDialog, PairingDialog, PartsUsedDialog, ConfirmDialog, MasterPasswordDialog, TakeKeyDialog, ItemLockDialog, ServerJoinDialog, ServerAddressDialog, ExportDialog, WebDavDialog, BackupServerDialog, InviteDialog } from "dialogs.slint";
 import { MenuCard, MenuEntry, MenuRule, Backdrop } from "widgets.slint";
 import { Glyph } from "icons.slint";
 // A second window: the notification area icon's menu (src/tray.rs).
@@ -206,6 +206,8 @@ export component AppWindow inherits Window {
     // The emergency kit page's "Issue new parts" and "Show my kit", asked in dialogs, and
     // Import & export's "Export…".
     in-out property <bool> kit-confirming-new-parts;
+    // "Renew the vault key", asked in a dialog with the master password.
+    in-out property <bool> kit-confirming-renew;
     // Part C saved in a picture (since the parts were shown), and whether the printed kit
     // leaves it out then.
     in property <bool> kit-part-c-pictured;
@@ -346,6 +348,11 @@ export component AppWindow inherits Window {
     in property <string> sync-main-down;
     in property <string> sync-backup-down;
     in-out property <bool> sync-backup-form;
+    // The vault key renewed on another device, and the devices still on the key this one
+    // renewed or took (see SettingsPage); dialog 14 takes the new key.
+    in property <bool> sync-key-renewed;
+    in property <int> sync-key-behind;
+    callback sync-take-key();
     in-out property <string> sync-backup-address;
     in-out property <string> sync-backup-invite;
     callback sync-join-backup();
@@ -660,6 +667,7 @@ export component AppWindow inherits Window {
     callback show-kit();
     callback hide-kit();
     callback new-parts();
+    callback renew-key();
     callback save-part-picture();
     callback open-kit();
     callback print-kit();
@@ -1093,6 +1101,8 @@ export component AppWindow inherits Window {
                 sync-main-down: root.sync-main-down;
                 sync-backup-down: root.sync-backup-down;
                 sync-backup-form <=> root.sync-backup-form;
+                sync-key-renewed: root.sync-key-renewed;
+                sync-key-behind: root.sync-key-behind;
                 sync-choose => { root.sync-choose(); }
                 sync-now => { root.sync-now(); }
                 guard-hello <=> root.guard-hello;
@@ -1207,6 +1217,7 @@ export component AppWindow inherits Window {
                 vault-recovery: root.vault-recovery;
                 kit-filled <=> root.kit-filled;
                 confirming-new-key <=> root.kit-confirming-new-parts;
+                confirming-renew <=> root.kit-confirming-renew;
                 asking-kit <=> root.kit-asking;
                 part-c-pictured: root.kit-part-c-pictured;
                 leave-c-out <=> root.kit-leave-c-out;
@@ -1322,6 +1333,21 @@ export component AppWindow inherits Window {
         confirmed => { root.new-parts(); }
         cancelled => { root.kit-confirming-new-parts = false; }
     }
+    if root.screen == Screen.vault && root.panel == Panel.kit && root.kit-confirming-renew: ConfirmDialog {
+        width: root.width;
+        height: root.height;
+        title: @tr("Renew the vault key?");
+        text: @tr("The vault gets a new key, a new Secret Key and a new kit; the master password stays. The old kit, the old Secret Key and every older copy of the file (a backup, a stolen copy) stop opening it, and what changes from now on is out of their reach. Each of your other devices asks once for the new Secret Key. Print the new kit right after.");
+        action: @tr("Renew the key");
+        danger: true;
+        asks-master: true;
+        field: 5;
+        busy: root.busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        confirmed => { root.renew-key(); }
+        cancelled => { root.kit-confirming-renew = false; }
+    }
     if root.in-settings && root.settings-dialog == 1: MasterPasswordDialog {
         width: root.width;
         height: root.height;
@@ -1403,6 +1429,15 @@ export component AppWindow inherits Window {
         error-code: root.error-code;
         error-detail: root.error-detail;
         confirmed => { root.confirm-settings(root.settings-dialog); }
+        cancelled => { root.close-settings-dialog(); }
+    }
+    if root.in-settings && root.settings-dialog == 14: TakeKeyDialog {
+        width: root.width;
+        height: root.height;
+        busy: root.busy || root.sync-busy;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
+        confirmed => { root.sync-take-key(); }
         cancelled => { root.close-settings-dialog(); }
     }
     if root.in-settings && (root.settings-dialog == 12 || root.settings-dialog == 13): ServerAddressDialog {
