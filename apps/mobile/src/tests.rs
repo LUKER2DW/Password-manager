@@ -1,23 +1,28 @@
 //! The phone app end to end, headless: a vault made on the computer is brought in, then
 //! items, the item page, codes, generator, lock, unlock, a newer copy, and sync through a
-//! running server. Slow work runs
-//! inline; test values only.
+//! running server. Then, each on a phone of its own: leaving the app while a job holds the
+//! vault, recovery with two parts of the kit, fingerprint unlock's 14 days, the generator's
+//! history behind the item lock. Slow work runs inline; test values only.
 
 use std::{
     cell::{Cell, RefCell},
-    path::Path,
+    path::{Path, PathBuf},
     rc::Rc,
+    sync::{Mutex, MutexGuard, PoisonError},
 };
 
 use slint::{ComponentHandle, Model};
-use vault_core::{GuardCheck, ItemData, ItemKind, KdfParams, SecretKey, Unlock, Vault};
+use vault_core::{
+    GuardCheck, ItemData, ItemKind, KdfParams, PartLabel, RecoveryParts, SecretKey, Unlock, Vault,
+};
 use zeroize::Zeroizing;
 
 use vault_platform::sync::{self, ServerTarget, Target as _};
 
 use crate::{
     Controller,
-    system::{PromptWords, System},
+    autofill::{self, Asker, Kept, Recipient},
+    system::{PdfPage, PdfPages, PromptWords, System},
     ui::{Page, PhoneWindow, Place, Screen, Secrets, Words},
 };
 
@@ -83,6 +88,34 @@ impl System for FakeSystem {
 
 fn flip(bytes: &[u8]) -> Vec<u8> {
     bytes.iter().map(|b| b ^ 0x5a).collect()
+}
+
+/// The tests that open windows here point `VAULT_HOME` (the app's folder: device state, the
+/// leak watch, caches) at a folder of their own: one at a time.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+/// Takes this test's turn and points `VAULT_HOME` at `home` while it is held.
+fn app_home(home: &Path) -> MutexGuard<'static, ()> {
+    let turn = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+    // SAFETY: every test that sets the environment holds this turn while it does, and the
+    // other tests of this crate don't read it.
+    #[allow(unsafe_code)]
+    unsafe {
+        std::env::set_var("VAULT_HOME", home);
+    }
+    turn
+}
+
+thread_local! {
+    /// Slint's test platform, set up once on each test's thread.
+    static SLINT: std::cell::OnceCell<()> = const { std::cell::OnceCell::new() };
+}
+
+fn window() -> PhoneWindow {
+    SLINT.with(|ready| {
+        ready.get_or_init(i_slint_backend_testing::init_no_event_loop);
+    });
+    PhoneWindow::new().unwrap()
 }
 
 const PASSWORD: &str = "phone test master passphrase";
@@ -199,11 +232,7 @@ fn open_file(path: &Path, secret_key: &str) -> Vault {
 #[test]
 fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     let dir = tempfile::tempdir().unwrap();
-    // SAFETY: the only test of this crate; nothing else reads the environment meanwhile.
-    #[allow(unsafe_code)]
-    unsafe {
-        std::env::set_var("VAULT_HOME", dir.path().join("home"));
-    }
+    let _turn = app_home(&dir.path().join("home"));
 
     // ---- the vault, as the desktop app made it ----
     let key = SecretKey::generate().unwrap();
@@ -217,8 +246,7 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     let vault_id = made.id_hex();
     drop(made);
 
-    i_slint_backend_testing::init_no_event_loop();
-    let app = PhoneWindow::new().unwrap();
+    let app = window();
     let path = dir.path().join("phone").join("vault.vault");
     let controller = Controller::start(&app, path.clone(), true);
     // The phone's own language may be Portuguese (this computer's): the test starts in English.
@@ -1670,7 +1698,7 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     // A new phone is set up from the server alone: the invite line on its start screen.
     {
         // Its own app folder: a new phone has no device state yet.
-        // SAFETY: the only test of this crate; set back below.
+        // SAFETY: this test holds the turn (`app_home`); set back below.
         #[allow(unsafe_code)]
         unsafe {
             std::env::set_var("VAULT_HOME", dir.path().join("second phone home"));
@@ -1779,4 +1807,1296 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     app.invoke_lock_now();
     assert!(!app.get_needs_secret_key(), "kept on the phone from now on");
     vault_platform::secret_store::forget(&vault_id).unwrap();
+}
+
+/// A phone of its own for one test: a vault as the computer makes it (`PASSWORD`, a new
+/// Secret Key), brought in. Its Secret Key leaves the credential store at the end.
+struct Phone {
+    controller: Rc<Controller>,
+    app: PhoneWindow,
+    /// The phone's copy of the vault.
+    path: PathBuf,
+    secret_key: String,
+    vault_id: String,
+    _dir: tempfile::TempDir,
+    _turn: MutexGuard<'static, ()>,
+}
+
+impl Phone {
+    /// The vault (`made` adds to it) brought to a new phone: the unlock screen, nothing typed.
+    fn brought(made: impl FnOnce(&mut Vault, &SecretKey)) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let turn = app_home(&dir.path().join("home"));
+        let key = SecretKey::generate().unwrap();
+        let mut vault = Vault::create(PASSWORD, &key, None, KdfParams::minimum().unwrap()).unwrap();
+        made(&mut vault, &key);
+        let from_computer = dir.path().join("from-the-computer.vault");
+        std::fs::write(&from_computer, vault.to_bytes().unwrap()).unwrap();
+        let app = window();
+        let path = dir.path().join("phone").join("vault.vault");
+        let controller = Controller::start(&app, path.clone(), true);
+        app.invoke_language_changed(1);
+        controller.bring_vault_file(&from_computer);
+        assert_eq!(app.get_screen(), Screen::Unlock);
+        Self {
+            controller,
+            app,
+            path,
+            secret_key: key.to_display_string().to_string(),
+            vault_id: vault.id_hex(),
+            _dir: dir,
+            _turn: turn,
+        }
+    }
+
+    /// [`Phone::brought`], then opened with the master password and the Secret Key.
+    fn open(made: impl FnOnce(&mut Vault, &SecretKey)) -> Self {
+        let phone = Self::brought(made);
+        type_secret(&phone.app, 1, &phone.secret_key);
+        phone.unlock(PASSWORD);
+        phone
+    }
+
+    fn unlock(&self, password: &str) {
+        type_secret(&self.app, 0, password);
+        self.app.invoke_unlock();
+        assert_eq!(
+            self.app.get_screen(),
+            Screen::Vault,
+            "{}",
+            self.app.get_error_detail()
+        );
+    }
+
+    /// The vault file on the phone, as another device's sync would see it.
+    fn file(&self) -> Vault {
+        open_file(&self.path, &self.secret_key)
+    }
+
+    fn has_recovery_parts(&self) -> bool {
+        Vault::inspect(&std::fs::read(&self.path).unwrap())
+            .unwrap()
+            .has_recovery_parts
+    }
+
+    fn keeps_secret_key(&self) -> bool {
+        vault_platform::secret_store::load(&self.vault_id)
+            .unwrap()
+            .is_some()
+    }
+
+    fn open_item(&self, title: &str) {
+        let index = (0..self.app.get_items().row_count())
+            .find(|&i| self.app.get_items().row_data(i).unwrap().title == title)
+            .unwrap();
+        self.app.invoke_open_item(i32::try_from(index).unwrap());
+    }
+}
+
+impl Drop for Phone {
+    fn drop(&mut self) {
+        let _ = vault_platform::secret_store::forget(&self.vault_id);
+    }
+}
+
+#[test]
+fn leaving_the_app_while_a_job_holds_the_vault_locks_it() {
+    let phone = Phone::open(|vault, _| {
+        vault
+            .add_item(&ItemData::login(
+                "Mail",
+                "me",
+                "mail-test-password",
+                "mail.example",
+            ))
+            .unwrap();
+    });
+    let (app, controller) = (&phone.app, &phone.controller);
+    app.invoke_lock_on_leave_changed(true);
+    // The job starts, the app goes to the background before it is back, then it comes back.
+    let leave_during = |start: &dyn Fn()| {
+        controller.hold_jobs();
+        start();
+        assert!(app.get_busy(), "the job is on its way");
+        controller.left_app();
+        assert!(!controller.is_unlocked(), "locked although a job held it");
+        controller.finish_held_jobs();
+        assert!(
+            !controller.is_unlocked(),
+            "the job's end doesn't open it again"
+        );
+        assert_eq!(app.get_screen(), Screen::Unlock);
+        assert_eq!(app.get_items().row_count(), 0);
+        assert!(!app.get_busy());
+    };
+
+    // An export: nothing waits to be saved.
+    leave_during(&|| {
+        app.invoke_ask(6);
+        type_secret(app, 10, PASSWORD);
+        app.invoke_confirmed(6);
+    });
+    assert!(
+        controller.file_to_save(-1).is_none(),
+        "the export was dropped"
+    );
+    phone.unlock(PASSWORD);
+
+    // A confirmation of a sensitive change: removing the vault from the phone isn't done.
+    leave_during(&|| {
+        app.invoke_ask(1);
+        type_secret(app, 10, PASSWORD);
+        app.invoke_confirmed(1);
+    });
+    assert!(phone.path.exists(), "the vault is still on the phone");
+    assert_eq!(app.get_vaults().row_count(), 1);
+    phone.unlock(PASSWORD);
+    assert_eq!(app.get_total(), 1);
+
+    // An unlock on its way when the app is left opens nothing.
+    app.invoke_lock_now();
+    controller.hold_jobs();
+    type_secret(app, 0, PASSWORD);
+    app.invoke_unlock();
+    controller.left_app();
+    controller.finish_held_jobs();
+    assert!(!controller.is_unlocked());
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    phone.unlock(PASSWORD);
+
+    // A new master password: written before the job came back, so that is said, and it is
+    // the one that opens the vault now; the vault stays locked meanwhile.
+    const NEW_PASSWORD: &str = "phone new master passphrase";
+    leave_during(&|| {
+        app.invoke_ask(12);
+        type_secret(app, 5, PASSWORD);
+        type_secret(app, 6, NEW_PASSWORD);
+        type_secret(app, 7, NEW_PASSWORD);
+        app.invoke_confirmed(12);
+    });
+    assert_eq!(app.get_notice_code(), 10, "the change is told");
+    type_secret(app, 0, PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(
+        app.get_screen(),
+        Screen::Unlock,
+        "the old one no longer opens it"
+    );
+    phone.unlock(NEW_PASSWORD);
+    assert_eq!(app.get_total(), 1);
+
+    // Without the setting, leaving the app locks nothing (and the job's end puts it back).
+    app.invoke_lock_on_leave_changed(false);
+    controller.hold_jobs();
+    app.invoke_ask(6);
+    type_secret(app, 10, NEW_PASSWORD);
+    app.invoke_confirmed(6);
+    controller.left_app();
+    assert!(controller.is_unlocked());
+    controller.finish_held_jobs();
+    assert_eq!(app.get_screen(), Screen::Vault);
+    assert!(controller.file_to_save(-1).is_some());
+}
+
+/// The vault with an emergency kit's three parts, and a login.
+fn with_kit(parts: &RecoveryParts) -> impl FnOnce(&mut Vault, &SecretKey) + '_ {
+    |vault, key| {
+        vault.set_recovery_parts(parts, key).unwrap();
+        vault
+            .add_item(&ItemData::login("Mail", "me", "mail-test-password", ""))
+            .unwrap();
+    }
+}
+
+/// Recovery with two parts, from the unlock screen of a phone without the Secret Key.
+fn recover_with(phone: &Phone, parts: &RecoveryParts, labels: [PartLabel; 2]) {
+    let app = &phone.app;
+    assert!(app.get_needs_secret_key());
+    app.invoke_start_recovery(1);
+    type_secret(app, 12, &parts.part(labels[0]).to_display_string());
+    type_secret(app, 13, &parts.part(labels[1]).to_display_string());
+    type_secret(app, 0, PASSWORD);
+    app.invoke_recover();
+}
+
+#[test]
+fn two_recovery_parts_work_once_on_the_phone() {
+    let parts = RecoveryParts::generate().unwrap();
+    // A chosen file, on a phone without the Secret Key.
+    let phone = Phone::brought(with_kit(&parts));
+    let app = &phone.app;
+    recover_with(&phone, &parts, [PartLabel::A, PartLabel::B]);
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "{}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_total(), 1);
+    assert!(
+        !phone.has_recovery_parts(),
+        "the file written has no recovery parts any more"
+    );
+    assert!(phone.keeps_secret_key(), "kept once they were retired");
+    // They don't work again, nor does any other pair of that kit.
+    app.invoke_lock_now();
+    vault_platform::secret_store::forget(&phone.vault_id).unwrap();
+    app.invoke_lock_now();
+    recover_with(&phone, &parts, [PartLabel::B, PartLabel::C]);
+    assert_eq!(
+        (app.get_error_code(), app.get_screen()),
+        (39, Screen::Recover),
+        "no recovery parts any more"
+    );
+    assert!(!phone.keeps_secret_key());
+}
+
+#[test]
+fn two_part_recovery_keeps_the_parts_when_it_cannot_finish() {
+    let parts = RecoveryParts::generate().unwrap();
+    let phone = Phone::open(with_kit(&parts));
+    let (app, controller) = (&phone.app, &phone.controller);
+    // The Secret Key leaves the phone: its own copy is what is recovered from now on.
+    app.invoke_lock_now();
+    vault_platform::secret_store::forget(&phone.vault_id).unwrap();
+    app.invoke_lock_now();
+    let refused = |what: &str| {
+        assert_eq!(
+            (app.get_error_code(), app.get_screen()),
+            (41, Screen::Recover),
+            "{what}: {}",
+            app.get_error_detail()
+        );
+        assert!(!controller.is_unlocked(), "{what}");
+        assert!(phone.has_recovery_parts(), "{what}: the parts still work");
+        assert!(
+            !phone.keeps_secret_key(),
+            "{what}: the Secret Key wasn't kept"
+        );
+    };
+
+    // The file can't be written (where its `.bak` copy goes, a folder that can't be
+    // replaced): said so, nothing changed.
+    let before = std::fs::read(&phone.path).unwrap();
+    let in_the_way = phone.path.with_file_name("vault.vault.bak");
+    std::fs::create_dir_all(in_the_way.join("inside")).unwrap();
+    recover_with(&phone, &parts, [PartLabel::A, PartLabel::B]);
+    refused("a failed write");
+    assert_eq!(std::fs::read(&phone.path).unwrap(), before);
+    std::fs::remove_dir_all(&in_the_way).unwrap();
+
+    // The keystore refuses the Secret Key: the file is put back as it was.
+    controller.refuse_secret_keys(true);
+    recover_with(&phone, &parts, [PartLabel::A, PartLabel::B]);
+    refused("a refused Secret Key");
+    assert_eq!(std::fs::read(&phone.path).unwrap(), before, "put back");
+    controller.refuse_secret_keys(false);
+
+    // Another device's sync writes the file while the master password is checked: what it
+    // wrote stays.
+    controller.hold_jobs();
+    recover_with(&phone, &parts, [PartLabel::A, PartLabel::C]);
+    let mut other = phone.file();
+    other
+        .add_item(&ItemData::new(ItemKind::SecureNote, "From another device"))
+        .unwrap();
+    let theirs = other.to_bytes().unwrap();
+    std::fs::write(&phone.path, &theirs).unwrap();
+    controller.finish_held_jobs();
+    refused("a file changed meanwhile");
+    assert_eq!(
+        std::fs::read(&phone.path).unwrap(),
+        theirs,
+        "not written over"
+    );
+
+    // Then it works, on the newest file.
+    recover_with(&phone, &parts, [PartLabel::A, PartLabel::C]);
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "{}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_total(), 2, "the other device's note is there");
+    assert!(!phone.has_recovery_parts());
+    assert!(phone.keeps_secret_key());
+}
+
+#[test]
+fn fingerprint_unlock_renews_nothing_but_the_master_password() {
+    let phone = Phone::open(|_, _| {});
+    let (app, controller) = (&phone.app, &phone.controller);
+    let system = Rc::new(FakeSystem::default());
+    controller.set_system(system.clone());
+    let unlock_file = phone
+        .path
+        .with_file_name(format!("unlock-{}.json", phone.vault_id));
+    let password_at = || -> i64 {
+        let json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&unlock_file).unwrap()).unwrap();
+        json["password_at"].as_i64().unwrap()
+    };
+    let set_password_at = |at: i64| {
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&unlock_file).unwrap()).unwrap();
+        json["password_at"] = at.into();
+        std::fs::write(&unlock_file, serde_json::to_vec(&json).unwrap()).unwrap();
+    };
+    let turn_on = || {
+        app.invoke_bio_toggled(true);
+        let secret = system.handed.borrow_mut().take().expect("a secret to seal");
+        controller.biometric_sealed(Ok(flip(&secret)));
+        assert!(app.get_bio_on());
+    };
+    let now = crate::view::now_unix();
+    let day = 86_400;
+
+    // The master password was typed 13 days ago: turning fingerprint unlock on (and off and
+    // on again, with nothing but the open vault) starts from then, not from now.
+    controller.set_password_typed_at(&phone.vault_id, now - 13 * day);
+    turn_on();
+    assert_eq!(password_at(), now - 13 * day);
+    app.invoke_bio_toggled(false);
+    turn_on();
+    assert_eq!(
+        password_at(),
+        now - 13 * day,
+        "turned on again: the same date"
+    );
+    app.invoke_lock_now();
+    assert!(app.get_bio_ready());
+
+    // 15 days ago: on again, it asks for the master password at once.
+    phone.unlock(PASSWORD);
+    controller.set_password_typed_at(&phone.vault_id, now - 15 * day);
+    app.invoke_bio_toggled(false);
+    turn_on();
+    assert_eq!(password_at(), now - 15 * day);
+    app.invoke_lock_now();
+    assert!(!app.get_bio_ready() && app.get_bio_stale());
+
+    // Typing the master password renews it.
+    phone.unlock(PASSWORD);
+    assert!(password_at() >= now, "{}", password_at());
+    app.invoke_lock_now();
+    assert!(app.get_bio_ready());
+
+    // A date still to come (the clock moved back since) counts as long ago.
+    set_password_at(crate::view::now_unix() + day);
+    controller.came_back(false);
+    assert!(!app.get_bio_ready() && app.get_bio_stale());
+    app.invoke_bio_unlock();
+    assert!(system.handed.borrow().is_none(), "no prompt");
+
+    // The 14 days run out while the prompt is open: the fingerprint opens nothing.
+    set_password_at(crate::view::now_unix());
+    controller.came_back(false);
+    assert!(app.get_bio_ready());
+    app.invoke_bio_unlock();
+    let sealed = system.handed.borrow_mut().take().expect("the prompt");
+    set_password_at(crate::view::now_unix() - 14 * day);
+    controller.biometric_opened(Ok(Zeroizing::new(flip(&sealed))));
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    assert!(!controller.is_unlocked());
+    assert!(app.get_bio_stale(), "the master password is asked");
+    phone.unlock(PASSWORD);
+}
+
+#[test]
+fn the_generator_history_waits_for_the_item_lock() {
+    const PIN: &str = "4821";
+    let phone = Phone::open(|vault, _| {
+        vault
+            .set_item_guard(true, GuardCheck::Pin, Some(PIN), None)
+            .unwrap();
+        vault
+            .add_item(&ItemData::login(
+                "Sealed",
+                "me",
+                "sealed-test-password",
+                "sealed.example",
+            ))
+            .unwrap();
+    });
+    let app = &phone.app;
+    assert!(app.get_items().row_data(0).unwrap().locked);
+    let history = || app.get_gen_history().row_count();
+
+    // A copied password waits in the list, masked and not copied while an item's secrets
+    // are sealed: it may be that item's password.
+    app.set_place(Place::Generator);
+    app.invoke_gen_changed();
+    app.invoke_gen_copy();
+    assert_eq!(history(), 1);
+    assert!(app.get_gen_history_locked());
+    app.set_gen_history_shown(true);
+    app.invoke_gen_history_toggled();
+    let row = app.get_gen_history().row_data(0).unwrap().text;
+    assert!(row.chars().all(|c| c == '•'), "masked: {row}");
+    app.set_notice_code(0);
+    app.invoke_gen_history_copy(0);
+    assert_eq!(app.get_notice_code(), 0, "nothing copied");
+
+    // Put into a new login: it leaves the list for good, and the generator's page, which the
+    // item page goes back to, shows another one (the item lock decides about this one now).
+    let used = app.get_gen_password();
+    app.invoke_gen_new_login();
+    app.set_ed_title("Made here".into());
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    assert_eq!(history(), 0, "the login uses it now");
+    assert_ne!(app.get_gen_password(), used, "not on the generator's page");
+    assert_eq!(app.get_place(), Place::Generator);
+    app.invoke_close_item();
+    app.invoke_lock_now();
+    phone.unlock(PASSWORD);
+    assert_eq!(history(), 0, "gone from the file too");
+
+    // One copied here and then used by a login another device sealed (or one used before
+    // this rule): after the next unlock it can't be seen or copied here.
+    app.set_place(Place::Generator);
+    app.invoke_gen_changed();
+    let used_elsewhere = app.get_gen_password().to_string();
+    app.invoke_gen_copy();
+    app.invoke_lock_now();
+    {
+        let mut other = phone.file();
+        assert!(other.unlock_secrets(PIN).unwrap());
+        other
+            .add_item(&ItemData::login(
+                "From another device",
+                "me",
+                &used_elsewhere,
+                "other.example",
+            ))
+            .unwrap();
+        std::fs::write(&phone.path, other.to_bytes().unwrap()).unwrap();
+    }
+    phone.unlock(PASSWORD);
+    app.set_place(Place::Generator);
+    assert_eq!(history(), 1);
+    assert!(app.get_gen_history_locked());
+    app.set_gen_history_shown(true);
+    app.invoke_gen_history_toggled();
+    let row = app.get_gen_history().row_data(0).unwrap().text;
+    assert!(!row.contains(used_elsewhere.as_str()) && row.chars().all(|c| c == '•'));
+    app.set_notice_code(0);
+    app.invoke_gen_history_copy(0);
+    assert_eq!(app.get_notice_code(), 0, "nothing copied");
+
+    // The lock opened: its secrets tell, and the entry goes.
+    app.set_place(Place::Items);
+    phone.open_item("From another device");
+    assert_eq!(app.get_d_check(), 2);
+    app.invoke_ask(13);
+    type_secret(app, 2, PIN);
+    app.invoke_confirmed(13);
+    assert_eq!(app.get_d_check(), 0, "{}", app.get_error_detail());
+    assert_eq!(history(), 0);
+    app.invoke_close_item();
+    app.invoke_lock_now();
+    phone.unlock(PASSWORD);
+    assert_eq!(history(), 0, "for good");
+}
+
+/// PM-13 on the phone: once a sync takes another device's item lock, whatever the replaced
+/// lock opened here closes (the item's page, an editor on a guarded item), and the next look
+/// asks for the check again.
+#[test]
+fn taking_another_devices_item_lock_closes_what_the_old_one_opened() {
+    const PIN: &str = "4821";
+    let phone = Phone::open(|vault, _| {
+        vault
+            .set_item_guard(true, GuardCheck::Pin, Some(PIN), None)
+            .unwrap();
+        vault
+            .add_item(&ItemData::login(
+                "Sealed",
+                "me",
+                "sealed-test-password",
+                "sealed.example",
+            ))
+            .unwrap();
+    });
+    let (app, controller) = (&phone.app, &phone.controller);
+    let open_with_pin = || {
+        phone.open_item("Sealed");
+        assert_eq!(app.get_d_check(), 2, "the PIN is asked");
+        app.invoke_ask(13);
+        type_secret(app, 2, PIN);
+        app.invoke_confirmed(13);
+        assert_eq!(app.get_d_check(), 0, "{}", app.get_error_detail());
+        assert_eq!(app.get_page(), Page::Item);
+    };
+
+    // The item's page, opened by the old lock.
+    open_with_pin();
+    controller.after_guard_changed();
+    assert_eq!(app.get_page(), Page::None, "back to the list");
+    phone.open_item("Sealed");
+    assert_eq!(app.get_d_check(), 2, "asked again");
+    app.invoke_close_item();
+
+    // Its editor, too.
+    open_with_pin();
+    app.invoke_edit_item();
+    assert_eq!(app.get_page(), Page::Editor);
+    controller.after_guard_changed();
+    assert_eq!(app.get_page(), Page::None, "the editor closed");
+    phone.open_item("Sealed");
+    assert_eq!(app.get_d_check(), 2, "asked again");
+}
+
+#[test]
+fn the_generator_history_waits_for_a_locked_item_sync_brings() {
+    const PIN: &str = "4821";
+    let phone = Phone::open(|vault, _| {
+        vault
+            .set_item_guard(true, GuardCheck::Pin, Some(PIN), None)
+            .unwrap();
+    });
+    let app = &phone.app;
+    // Copied here, shown on the generator's page: no item is behind the lock yet.
+    app.set_place(Place::Generator);
+    app.invoke_gen_changed();
+    let copied = app.get_gen_password().to_string();
+    app.invoke_gen_copy();
+    app.set_gen_history_shown(true);
+    app.invoke_gen_history_toggled();
+    assert!(!app.get_gen_history_locked());
+    assert_eq!(app.get_gen_history().row_data(0).unwrap().text, copied);
+
+    // The computer puts it into a login behind the item lock, and the phone syncs it in while
+    // the page is on screen: it is masked at once, as after an unlock.
+    let server = TestServer::start();
+    let pc_id = vault_core::sync::DeviceId::generate().unwrap();
+    let pc_server = ServerTarget::join(
+        &server.url,
+        &phone.vault_id,
+        pc_id,
+        "PC",
+        &vault_server::admin_invite(server.data.path(), 1, None)
+            .unwrap()
+            .0,
+    )
+    .unwrap();
+    let mut pc = phone.file();
+    sync::join(&mut pc, pc_id, "PC").unwrap();
+    assert!(pc.unlock_secrets(PIN).unwrap());
+    let mut sealed = ItemData::login("Sealed on the computer", "me", &copied, "pc.example");
+    sealed.reprompt = true;
+    pc.add_item(&sealed).unwrap();
+    pc_server.put(pc_id, &pc.to_bytes().unwrap()).unwrap();
+    let link = pc_server
+        .invite_link(&pc_server.invite().unwrap())
+        .to_text()
+        .to_string();
+    app.set_sync_invite_typed(link.as_str().into());
+    app.invoke_sync_join();
+    assert_eq!(
+        (app.get_sync_state(), app.get_sync_detail().as_str()),
+        (1, ""),
+        "joined and synced"
+    );
+    assert_eq!(app.get_total(), 1, "the computer's login came in");
+    assert!(app.get_gen_history_locked());
+    let row = app.get_gen_history().row_data(0).unwrap().text;
+    assert!(
+        !row.contains(copied.as_str()) && row.chars().all(|c| c == '•'),
+        "masked: {row}"
+    );
+}
+
+#[test]
+fn a_website_rule_autofill_skips_is_told_on_the_item_page() {
+    let phone = Phone::open(|vault, _| {
+        for (title, url) in [
+            ("Too wide", "*.co.uk"),
+            ("Own site", "*.shop.co.uk"),
+            ("Plain", "https://example.com"),
+        ] {
+            vault
+                .add_item(&ItemData::login(title, "me", "test-pw", url))
+                .unwrap();
+        }
+    });
+    for (title, wide) in [("Too wide", true), ("Own site", false), ("Plain", false)] {
+        phone.open_item(title);
+        assert_eq!(phone.app.get_d_wide(), wide, "{title}");
+        phone.app.invoke_close_item();
+        assert!(!phone.app.get_d_wide(), "nothing stays from {title}");
+    }
+}
+
+/// An app's own sign-in form, as Android describes it to autofill.
+fn form_of(package: &str) -> Recipient {
+    Recipient::of(&Asker {
+        app: package.into(),
+        ..Asker::default()
+    })
+    .unwrap()
+}
+
+/// Username, password and "behind the lock" of every item in the phone's vault file.
+fn logins_in(file: &Vault) -> Vec<(String, String, bool)> {
+    let mut found: Vec<_> = file
+        .item_ids()
+        .map(|id| {
+            let item = file.get_item(&id).unwrap();
+            (item.username.clone(), item.password.clone(), item.reprompt)
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn autofill_changes_no_login_behind_the_item_lock() {
+    let phone = Phone::open(|vault, _| {
+        vault
+            .set_item_guard(false, GuardCheck::Master, None, None)
+            .unwrap();
+        for (title, username, reprompt) in [("Guarded", "guarded", true), ("Open", "open", false)] {
+            let mut item =
+                ItemData::login(title, username, "old-pw", "androidapp://com.example.app");
+            item.reprompt = reprompt;
+            vault.add_item(&item).unwrap();
+        }
+    });
+    let (app, controller) = (&phone.app, &phone.controller);
+    let from = form_of("com.example.app");
+    let offered = || -> Vec<String> {
+        let logins = controller.autofill_logins(&from).unwrap();
+        logins.into_iter().map(|login| login.username).collect()
+    };
+    let entry = |username: &str, password: &str, locked: bool| {
+        (username.to_owned(), password.to_owned(), locked)
+    };
+    assert_eq!(offered(), ["open"]);
+    let save = |username: &str, password: &str| controller.autofill_save(&from, username, password);
+    assert_eq!(save("open", "new-pw"), Some(Kept::Replaced));
+    assert_eq!(save("guarded", "new-pw"), Some(Kept::AddedBeside));
+    let expected = [
+        entry("guarded", "new-pw", true),
+        entry("guarded", "old-pw", true),
+        entry("open", "new-pw", false),
+    ];
+    assert_eq!(logins_in(&phone.file()), expected);
+    assert_eq!(offered(), ["open"], "the new one is behind the lock too");
+
+    // Its check passed on the item's page is the app's, not another app's.
+    phone.open_item("Guarded");
+    assert_eq!(app.get_d_check(), 1);
+    app.invoke_ask(13);
+    type_secret(app, 2, PASSWORD);
+    app.invoke_confirmed(13);
+    assert_eq!(app.get_d_check(), 0, "{}", app.get_error_detail());
+    assert_eq!(save("guarded", "newer-pw"), Some(Kept::AddedBeside));
+    assert!(logins_in(&phone.file()).contains(&entry("guarded", "old-pw", true)));
+    assert_eq!(offered(), ["open"]);
+
+    // Locked, the vault neither offers nor takes anything here (the drop box does that).
+    app.invoke_lock_now();
+    assert!(controller.autofill_logins(&from).is_none());
+    assert_eq!(save("open", "late-pw"), None);
+}
+
+#[test]
+fn what_autofill_saves_is_in_the_vault_only_once_it_is_written() {
+    let phone = Phone::open(|vault, _| {
+        vault
+            .add_item(&ItemData::login(
+                "Open",
+                "open",
+                "old-pw",
+                "androidapp://com.example.app",
+            ))
+            .unwrap();
+    });
+    let (app, controller) = (&phone.app, &phone.controller);
+    let from = form_of("com.example.app");
+    let offered = || -> Vec<(String, String)> {
+        let logins = controller.autofill_logins(&from).unwrap();
+        logins
+            .into_iter()
+            .map(|login| (login.username, login.password.to_string()))
+            .collect()
+    };
+    let open = ("open".to_owned(), "old-pw".to_owned());
+    // The vault file can't be written: its backup can't take the place of a folder.
+    let backup = phone.path.with_extension("vault.bak");
+    let block = || {
+        let _ = std::fs::remove_file(&backup);
+        std::fs::create_dir(&backup).unwrap();
+    };
+    let before = std::fs::read(&phone.path).unwrap();
+    block();
+    assert_eq!(controller.autofill_save(&from, "open", "new-pw"), None);
+    assert_eq!(app.get_error_code(), 6);
+    assert_eq!(controller.autofill_save(&from, "other", "new-pw"), None);
+    let unchanged = std::slice::from_ref(&open);
+    assert_eq!(offered(), unchanged, "nor does the open vault have it");
+    assert_eq!(std::fs::read(&phone.path).unwrap(), before);
+
+    // The same for the logins that waited in the drop box: they go on waiting there.
+    app.invoke_lock_now();
+    let folder = phone.path.parent().unwrap();
+    assert!(autofill::keep_locked(folder, &from, "waiting", "kept-pw"));
+    phone.unlock(PASSWORD);
+    assert_eq!(app.get_error_code(), 6);
+    assert_eq!(offered(), unchanged);
+    // A save that works brings in what it saves, and nothing of those.
+    std::fs::remove_dir(&backup).unwrap();
+    assert_eq!(
+        controller.autofill_save(&from, "third", "third-pw"),
+        Some(Kept::Added)
+    );
+    let third = ("third".to_owned(), "third-pw".to_owned());
+    assert_eq!(logins_in(&phone.file()).len(), 2);
+    let mut now = offered();
+    now.sort();
+    assert_eq!(now, [open.clone(), third.clone()]);
+    // At the next unlock the one that waited comes in, once.
+    app.invoke_lock_now();
+    phone.unlock(PASSWORD);
+    let mut now = offered();
+    now.sort();
+    let waited = ("waiting".to_owned(), "kept-pw".to_owned());
+    assert_eq!(now, [open, third, waited]);
+    app.invoke_lock_now();
+    phone.unlock(PASSWORD);
+    assert_eq!(offered().len(), 3);
+}
+
+/// A phone that draws PDFs: what it hands back for any of them.
+struct PdfSystem(RefCell<Result<PdfPages, String>>);
+
+impl System for PdfSystem {
+    fn renders_pdf(&self) -> bool {
+        true
+    }
+
+    fn render_pdf(&self, _: &[u8]) -> Result<PdfPages, String> {
+        self.0.borrow().clone()
+    }
+}
+
+#[test]
+fn a_pdf_preview_shows_no_more_than_its_budget() {
+    let phone = Phone::open(|vault, _| {
+        let mut item = ItemData::new(ItemKind::SecureNote, "Contract");
+        let pdf = vault_core::Attachment::new("contract.pdf", b"%PDF-1.7 test".to_vec()).unwrap();
+        item.attachments.push(pdf);
+        vault.add_item(&item).unwrap();
+    });
+    let app = &phone.app;
+    let system = Rc::new(PdfSystem(RefCell::new(Ok(PdfPages::default()))));
+    phone.controller.set_system(system.clone());
+    phone.open_item("Contract");
+    let pages = |total: u32, count: usize, width: u32, height: u32| {
+        let pixels = vec![0xFF; width as usize * height as usize * 4];
+        let page = PdfPage {
+            width,
+            height,
+            pixels,
+        };
+        Ok(PdfPages {
+            total,
+            pages: vec![page; count],
+        })
+    };
+    // The preview's kind, how many pages it shows, and the notice.
+    let shown = |drawn: Result<PdfPages, String>| {
+        *system.0.borrow_mut() = drawn;
+        app.invoke_close_preview();
+        app.set_notice_code(0);
+        app.invoke_preview_file(0);
+        (
+            app.get_preview_kind(),
+            app.get_preview_pages().row_count(),
+            app.get_notice_code(),
+        )
+    };
+    assert_eq!(shown(pages(2, 2, 8, 4)), (3, 2, 0));
+    assert_eq!(app.get_preview_name(), "contract.pdf");
+    // More pages than a preview may have, and pages the system didn't draw.
+    assert_eq!(shown(pages(60, 60, 1, 1)), (3, 40, 40));
+    assert_eq!(app.get_preview_name(), "contract.pdf · 40/60");
+    assert_eq!(shown(pages(9, 3, 1, 1)), (3, 3, 40));
+    assert_eq!(app.get_notice_arg(), "3");
+    // Not even the first page: none drawn, or drawn larger than a page may be.
+    assert_eq!(shown(pages(1, 0, 1, 1)), (0, 0, 41));
+    assert_eq!(shown(pages(1, 1, 1081, 1)), (0, 0, 41));
+    assert_eq!(shown(pages(1, 1, 1, 4097)), (0, 0, 41));
+    assert_eq!(app.get_error_code(), 0);
+    // One that can't be read, or has no pages.
+    for drawn in [Err("broken".to_owned()), Ok(PdfPages::default())] {
+        assert_eq!(shown(drawn), (0, 0, 0));
+        assert_eq!(app.get_error_code(), 4);
+    }
+    let words = app.global::<Words>();
+    for code in [40, 41] {
+        assert!(!words.invoke_notice(code, "3".into()).is_empty());
+    }
+}
+
+#[test]
+fn an_update_the_phone_refuses_says_why() {
+    let phone = Phone::brought(|_, _| {});
+    let words = phone.app.global::<Words>();
+    let general = words.invoke_error(27, "something else".into());
+    // The reasons Java gives, each with words of its own.
+    let source = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../mobile-android/java/org/passwordvault/phone/Updates.java"),
+    )
+    .unwrap();
+    let reasons: Vec<&str> = source
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("static final String "))
+        .filter_map(|rest| rest.split('"').nth(1))
+        .collect();
+    assert_eq!(reasons, ["package", "signature", "older", "installer"]);
+    for reason in reasons {
+        let text = words.invoke_error(27, reason.into());
+        assert!(text.starts_with("The update wasn't installed"), "{reason}");
+        assert_ne!(text, general);
+        phone.controller.update_installing(reason);
+        assert_eq!(phone.app.get_error_code(), 27);
+    }
+}
+
+#[test]
+fn three_part_recovery_writes_over_no_other_device() {
+    const NEW_PASSWORD: &str = "phone recovered master passphrase";
+    let parts = RecoveryParts::generate().unwrap();
+    let phone = Phone::open(with_kit(&parts));
+    let (app, controller) = (&phone.app, &phone.controller);
+    app.invoke_lock_now();
+    let recover = || {
+        app.invoke_start_recovery(0);
+        for (field, label) in [(12, PartLabel::A), (13, PartLabel::B), (14, PartLabel::C)] {
+            type_secret(app, field, &parts.part(label).to_display_string());
+        }
+        type_secret(app, 6, NEW_PASSWORD);
+        type_secret(app, 7, NEW_PASSWORD);
+        app.invoke_recover();
+    };
+    // Another device's sync writes the file while the parts are checked: what it wrote
+    // stays, and the parts still work.
+    controller.hold_jobs();
+    recover();
+    let mut other = phone.file();
+    other
+        .add_item(&ItemData::new(ItemKind::SecureNote, "From another device"))
+        .unwrap();
+    let theirs = other.to_bytes().unwrap();
+    std::fs::write(&phone.path, &theirs).unwrap();
+    controller.finish_held_jobs();
+    assert_eq!(
+        (app.get_error_code(), app.get_screen()),
+        (41, Screen::Recover),
+        "{}",
+        app.get_error_detail()
+    );
+    assert_eq!(std::fs::read(&phone.path).unwrap(), theirs);
+    assert!(phone.has_recovery_parts());
+    // Then on the newest file: a new Secret Key, shown, and the new master password.
+    recover();
+    let shown = app.get_recovered_key().to_string();
+    assert!(!shown.is_empty(), "{}", app.get_error_detail());
+    assert!(!phone.has_recovery_parts());
+    let reopened = Vault::open(
+        &std::fs::read(&phone.path).unwrap(),
+        Unlock::Password {
+            password: NEW_PASSWORD,
+            secret_key: &SecretKey::parse(&shown).unwrap(),
+        },
+    )
+    .unwrap();
+    assert_eq!(reopened.len(), 2, "the other device's note is there");
+}
+
+#[test]
+fn recovery_of_an_older_copy_writes_nothing() {
+    const NEW_PASSWORD: &str = "phone recovered master passphrase";
+    let parts = RecoveryParts::generate().unwrap();
+    let phone = Phone::open(with_kit(&parts));
+    let (app, controller) = (&phone.app, &phone.controller);
+    // The copy as it is now; then two changes saved here, so this phone has seen newer ones.
+    let old = std::fs::read(&phone.path).unwrap();
+    for title in ["Newer", "Newest"] {
+        app.invoke_new_item();
+        app.set_ed_kind(2);
+        app.set_ed_title(title.into());
+        app.invoke_save_item();
+        assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+        app.invoke_close_item();
+    }
+    app.invoke_lock_now();
+    // An old copy put in its place: it doesn't open...
+    std::fs::write(&phone.path, &old).unwrap();
+    type_secret(app, 0, PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_error_code(), 8, "{}", app.get_error_detail());
+    // ...nor is it written over under a new Secret Key that would never be shown: the vault
+    // would be lost. The parts still work, on the newest copy.
+    app.invoke_start_recovery(0);
+    for (field, label) in [(12, PartLabel::A), (13, PartLabel::B), (14, PartLabel::C)] {
+        type_secret(app, field, &parts.part(label).to_display_string());
+    }
+    type_secret(app, 6, NEW_PASSWORD);
+    type_secret(app, 7, NEW_PASSWORD);
+    app.invoke_recover();
+    assert_eq!(
+        (app.get_error_code(), app.get_screen()),
+        (8, Screen::Recover),
+        "{}",
+        app.get_error_detail()
+    );
+    assert!(!controller.is_unlocked());
+    assert!(
+        std::fs::read(&phone.path).unwrap() == old,
+        "nothing written"
+    );
+    assert!(phone.has_recovery_parts());
+    assert!(
+        Vault::open(
+            &old,
+            Unlock::Password {
+                password: PASSWORD,
+                secret_key: &SecretKey::parse(&phone.secret_key).unwrap(),
+            },
+        )
+        .is_ok(),
+        "the Secret Key still opens it"
+    );
+    // Two parts, on a phone without the Secret Key: the same, and nothing kept.
+    vault_platform::secret_store::forget(&phone.vault_id).unwrap();
+    app.invoke_lock_now();
+    recover_with(&phone, &parts, [PartLabel::A, PartLabel::B]);
+    assert_eq!(app.get_error_code(), 8, "{}", app.get_error_detail());
+    assert!(
+        std::fs::read(&phone.path).unwrap() == old,
+        "nothing written"
+    );
+    assert!(phone.has_recovery_parts());
+    assert!(!phone.keeps_secret_key());
+}
+
+/// A login with two websites, a hidden field, a one-time code, recovery codes, an attached
+/// file, a passkey and an earlier password (the one in use starts like a formula); a card with
+/// a PIN; a note.
+fn add_what_exports_lose(vault: &mut Vault) {
+    let mut mail = ItemData::login("Mail", "me", "first password", "https://mail.example");
+    mail.urls.push("https://webmail.example".into());
+    mail.totp = "JBSWY3DPEHPK3PXP".into();
+    mail.custom_fields.push(vault_core::CustomField {
+        name: "Answer".into(),
+        value: "blue".into(),
+        sensitive: true,
+    });
+    mail.recovery_codes = vault_core::RecoveryCode::parse_list("test-code-1\ntest-code-2");
+    mail.attachments
+        .push(vault_core::Attachment::new("scan.txt", b"test attachment".to_vec()).unwrap());
+    mail.passkeys
+        .push(vault_core::Passkey::new("mail.example", b"user-1", "me", "Me").unwrap());
+    let id = vault.add_item(&mail).unwrap();
+    let mut changed = vault.get_item(&id).unwrap();
+    changed.password = "=second password".into();
+    vault.update_item(&id, &changed).unwrap();
+    let mut visa = ItemData::new(vault_core::ItemKind::Card, "Visa");
+    visa.password = "4821".into();
+    visa.custom_fields.push(vault_core::CustomField {
+        name: vault_core::card::NUMBER.into(),
+        value: "4111111111111111".into(),
+        sensitive: true,
+    });
+    vault.add_item(&visa).unwrap();
+    let mut note = ItemData::new(vault_core::ItemKind::SecureNote, "Wifi");
+    note.notes = "router".into();
+    vault.add_item(&note).unwrap();
+}
+
+#[test]
+fn an_export_sheet_says_first_what_the_file_leaves_out() {
+    use crate::ui::ExportCounts;
+    let phone = Phone::open(|vault, _| add_what_exports_lose(vault));
+    let (app, controller) = (&phone.app, &phone.controller);
+    let notes = || app.get_export_notes().to_string();
+
+    // Protected: what no export carries. Nothing is readable.
+    app.invoke_ask(7);
+    assert_eq!((app.get_confirming(), app.get_error_code()), (7, 0));
+    let sealed = ExportCounts {
+        attachments: 1,
+        passkeys: 1,
+        ..ExportCounts::default()
+    };
+    assert_eq!(app.get_export_counts(), sealed);
+    assert_eq!(notes(), "Not in this file: 1 attached file, 1 passkey.");
+
+    // JSON: the earlier password stays behind too, and everything else is in the clear.
+    app.invoke_ask(6);
+    let json = ExportCounts {
+        earlier_passwords: 1,
+        passwords: 2,
+        otp_secrets: 1,
+        hidden_fields: 2,
+        recovery_codes: 2,
+        notes: 1,
+        ..sealed.clone()
+    };
+    assert_eq!(app.get_export_counts(), json);
+    assert_eq!(
+        notes(),
+        "Not in this file: 1 attached file, 1 passkey, 1 earlier password.\n\
+         Readable by anyone with this file: 2 passwords, 1 one-time code secret, \
+         2 hidden fields, 2 recovery codes, the notes of 1 item."
+    );
+
+    // CSV: what it has no place for, and no file for a spreadsheet.
+    app.invoke_ask(8);
+    let csv = ExportCounts {
+        extra_websites: 1,
+        dates: true,
+        hidden_marks: 2,
+        recovery_code_lists: 1,
+        kinds_changed: 1,
+        formula_like: 1,
+        ..json.clone()
+    };
+    assert_eq!(app.get_export_counts(), csv);
+    assert_eq!(
+        notes(),
+        "Not in this file: 1 attached file, 1 passkey, 1 earlier password, \
+         1 website after an item's first, the dates of the items.\n\
+         In another form: 2 hidden fields not marked hidden, \
+         1 list of recovery codes as text, 1 item as another kind.\n\
+         Readable by anyone with this file: 2 passwords, 1 one-time code secret, \
+         2 hidden fields, 2 recovery codes, the notes of 1 item.\n\
+         Don't open this file in a spreadsheet: 1 password or code secret starts like a \
+         formula, and a spreadsheet may run it."
+    );
+    // Confirmed: the file holds what was said, and not what was said to stay behind.
+    type_secret(app, 10, PASSWORD);
+    app.invoke_confirmed(8);
+    assert_eq!(
+        (app.get_error_code(), app.get_confirming()),
+        (0, 0),
+        "{}",
+        app.get_error_detail()
+    );
+    let (name, bytes) = controller.file_to_save(-1).unwrap();
+    assert!(name.ends_with(".csv"));
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    for (held, text_of) in [
+        (true, "=second password"),
+        (true, "JBSWY3DPEHPK3PXP"),
+        (true, "test-code-2"),
+        (true, "4111111111111111"),
+        (false, "first password"),
+        (false, "webmail.example"),
+        (false, "test attachment"),
+    ] {
+        assert_eq!(text.contains(text_of), held, "{text_of}");
+    }
+
+    // The vault changes while the sheet is open (a sync): what the file would hold now is
+    // shown, and confirmed again before it is made.
+    app.invoke_ask(6);
+    app.invoke_new_item();
+    app.set_ed_title("New".into());
+    type_secret(app, 3, "another password");
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    type_secret(app, 10, PASSWORD);
+    app.invoke_confirmed(6);
+    assert!(
+        controller.file_to_save(-1).is_none(),
+        "not made with other counts shown"
+    );
+    assert_eq!(app.get_confirming(), 6);
+    assert!(app.get_export_recounted());
+    assert_eq!(app.get_export_counts().passwords, 3);
+    app.invoke_confirmed(6);
+    assert_eq!(app.get_confirming(), 0, "{}", app.get_error_detail());
+    assert!(controller.file_to_save(-1).is_some());
+    // Counted afresh the next time, and said for exports only.
+    app.invoke_ask(7);
+    assert!(!app.get_export_recounted());
+    assert_eq!(app.get_export_counts(), sealed);
+    // While something else runs too: never the last sheet's numbers under another name.
+    app.set_busy(true);
+    app.invoke_ask(8);
+    assert_eq!(app.get_export_counts().formula_like, 1);
+    assert_eq!(app.get_export_counts().passwords, 3);
+    app.set_busy(false);
+    app.invoke_ask(12);
+    assert_eq!(notes(), "");
+}
+
+#[test]
+fn an_export_of_locked_items_is_refused_when_its_sheet_opens() {
+    let phone = Phone::open(|vault, _| {
+        add_what_exports_lose(vault);
+        vault
+            .set_item_guard(
+                true,
+                vault_core::GuardCheck::Pin,
+                Some("2468"),
+                Some(PASSWORD),
+            )
+            .unwrap();
+    });
+    let (app, controller) = (&phone.app, &phone.controller);
+    for kind in 6..=8 {
+        app.invoke_ask(kind);
+        assert_eq!((app.get_confirming(), app.get_error_code()), (kind, 32));
+        assert_eq!(
+            app.get_export_counts(),
+            crate::ui::ExportCounts::default(),
+            "nothing counted: nothing claimed"
+        );
+        type_secret(app, 9, "an export password");
+        type_secret(app, 10, PASSWORD);
+        app.invoke_confirmed(kind);
+        assert_eq!((app.get_confirming(), app.get_error_code()), (kind, 32));
+        assert!(controller.file_to_save(-1).is_none());
+    }
+}
+
+#[test]
+fn a_plain_csv_export_is_not_called_the_logins_only() {
+    let phone = Phone::open(|vault, _| add_what_exports_lose(vault));
+    let app = &phone.app;
+    let words = app.global::<Words>();
+    // Like the JSON, the CSV holds every item's password: a note's, a card's PIN, an SSH key.
+    assert_eq!(
+        words.invoke_confirm_title(8, "".into()),
+        words.invoke_confirm_title(6, "".into())
+    );
+    let said = words.invoke_confirm_text(8, "".into());
+    assert!(said.contains("every password"), "{said}");
+    // And the sheet counts them so: the card's PIN is one of its passwords.
+    app.invoke_ask(8);
+    assert_eq!(app.get_export_counts().passwords, 2);
+}
+
+#[test]
+fn an_import_on_the_phone_shows_what_it_left_behind() {
+    let phone = Phone::open(|_, _| {});
+    let (app, controller) = (&phone.app, &phone.controller);
+
+    // A plain file: the first four, a line each, and how many more there are.
+    let items: Vec<String> = (1..=6)
+        .map(|n| {
+            format!(
+                r#"{{"type": 1, "name": "Item {n}", "login": {{"username": "me", "password": "import-test-pw-{n}"}},
+                    "leftOut": {{"attachments": {n}, "passkeys": 1}}}}"#
+            )
+        })
+        .collect();
+    let json = format!(r#"{{"items": [{}]}}"#, items.join(","));
+    controller.picked_file(3, "export.json", json.into_bytes());
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    assert_eq!((app.get_import_added(), app.get_import_skipped()), (6, 0));
+    let shown = app.get_import_warnings().to_string();
+    let lines: Vec<&str> = shown.lines().collect();
+    assert_eq!(lines.len(), 4, "{shown}");
+    assert_eq!(
+        lines[0],
+        "\"Item 1\": 1 attached file and 1 passkey were not in this export; they are only in the vault it was made from"
+    );
+    assert!(lines[3].starts_with("\"Item 4\": 4 attached files"));
+    assert_eq!(app.get_import_more(), 2);
+    assert!(!shown.contains("import-test-pw"));
+
+    // Its titles come from the file: a long one, or one of several lines, stays one line.
+    let odd = format!(
+        r#"{{"items": [{{"type": 1, "name": "One\nTwo", "login": {{"password": "x1"}}, "leftOut": {{"passkeys": 1}}}},
+                       {{"type": 1, "name": "{}", "login": {{"password": "x2"}}, "leftOut": {{"passkeys": 1}}}}]}}"#,
+        "a".repeat(5000)
+    );
+    controller.picked_file(3, "export.json", odd.into_bytes());
+    let shown = app.get_import_warnings().to_string();
+    assert_eq!(shown.lines().count(), 2, "{shown}");
+    assert!(shown.starts_with("\"One Two\": 1 passkey"));
+    assert!(shown.chars().count() < 1000 && shown.ends_with('…'));
+    assert_eq!(app.get_import_more(), 0);
+
+    // A file with a password: told when its sheet closes, not lost with it.
+    let mut other = Vault::create(
+        PASSWORD,
+        &SecretKey::generate().unwrap(),
+        None,
+        KdfParams::minimum().unwrap(),
+    )
+    .unwrap();
+    add_what_exports_lose(&mut other);
+    let sealed = vault_import::export_sealed(&other, "an export password").unwrap();
+    controller.picked_file(3, "vault-export.vaultx", sealed);
+    assert_eq!(app.get_confirming(), 11);
+    type_secret(app, 8, "an export password");
+    app.invoke_confirmed(11);
+    assert_eq!(
+        (app.get_error_code(), app.get_confirming()),
+        (0, 0),
+        "{}",
+        app.get_error_detail()
+    );
+    assert_eq!((app.get_import_added(), app.get_import_skipped()), (3, 0));
+    assert_eq!(
+        app.get_import_warnings(),
+        "\"Mail\": 1 attached file and 1 passkey were not in this export; they are only in the vault it was made from"
+    );
+
+    // Nothing left behind: nothing said, and nothing of the last import stays.
+    let csv = "name,url,username,password\nForum,https://forum.example.com,tester,import-test-pw\n";
+    controller.picked_file(3, "export.csv", csv.as_bytes().to_vec());
+    assert_eq!(app.get_import_added(), 1);
+    assert_eq!(
+        (app.get_import_warnings().as_str(), app.get_import_more()),
+        ("", 0)
+    );
+
+    // Locked: no title of it stays on the window.
+    controller.picked_file(
+        3,
+        "export.json",
+        br#"{"items": [{"type": 1, "name": "Last", "login": {"password": "x3"}, "leftOut": {"passkeys": 1}}]}"#
+            .to_vec(),
+    );
+    assert!(app.get_import_warnings().contains("Last"));
+    app.invoke_lock_now();
+    assert_eq!(
+        (app.get_import_warnings().as_str(), app.get_import_more()),
+        ("", 0)
+    );
+}
+
+#[test]
+fn an_import_that_was_not_saved_is_never_called_imported() {
+    let phone = Phone::open(|_, _| {});
+    let (app, controller) = (&phone.app, &phone.controller);
+    let csv = "name,url,username,password\nForum,https://forum.example.com,tester,import-test-pw\n";
+    let import = || controller.picked_file(3, "export.csv", csv.as_bytes().to_vec());
+
+    // The vault file was written by something else: nothing can be saved over it.
+    let ours = std::fs::read(&phone.path).unwrap();
+    std::fs::write(&phone.path, b"changed by something else").unwrap();
+    for _ in 0..2 {
+        import();
+        assert_eq!(app.get_error_code(), 6, "{}", app.get_error_detail());
+        assert_eq!(app.get_import_added(), -1, "nothing is said to be in it");
+        assert_eq!(app.get_import_warnings(), "");
+    }
+
+    // Once it can be saved, it is imported (not "already in the vault"), and in the file.
+    std::fs::write(&phone.path, ours).unwrap();
+    import();
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    assert_eq!((app.get_import_added(), app.get_import_skipped()), (1, 0));
+    assert_eq!(phone.file().len(), 1);
 }

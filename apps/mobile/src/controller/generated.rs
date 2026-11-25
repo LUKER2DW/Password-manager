@@ -1,7 +1,10 @@
 //! The generator's history on the phone: the passwords copied or used from it, newest first,
 //! at most [`KEEP`], in a file sealed with the vault's key next to the phone's copy (as the
-//! desktop keeps its own). One that a login uses leaves the list: it is in the vault now.
-//! The list is masked until the person asks to see it; one entry or all can be deleted.
+//! desktop keeps its own). One that an item uses leaves the list for good, once that item's
+//! secrets are read here: it is in the vault now, shown and copied only as the item allows.
+//! While some item's secrets are behind the item lock, any entry may be that item's password,
+//! so the list stays masked and nothing in it is copied (as on the desktop). The list is
+//! masked until the person asks to see it; one entry or all can be deleted.
 
 use std::path::PathBuf;
 
@@ -122,37 +125,51 @@ impl Controller {
         self.publish_generated();
     }
 
-    /// The entries shown: the ones no login uses (as far as the open secrets tell).
-    fn shown_generated(&self) -> Vec<Entry> {
-        // The passwords the logins use, as fingerprints (no copy of a password is kept).
-        let used: std::collections::HashSet<[u8; 32]> = {
+    /// The entries listed: the ones no item uses, and whether they wait for the item lock.
+    ///
+    /// An entry that an item's password is, as far as the secrets read now tell, leaves the
+    /// file for good. While some item's secrets are sealed behind the item lock, the entries
+    /// left may still be such an item's password (one used before this rule, or on another
+    /// device): they wait (`true`), masked and not copied, until the lock is open.
+    fn shown_generated(&self) -> (Vec<Entry>, bool) {
+        // The passwords the items use, as fingerprints (no copy of a password is kept).
+        let (used, waits) = {
             let state = self.state.borrow();
-            state
-                .vault
-                .as_ref()
-                .map(|vault| {
-                    vault
-                        .item_ids()
-                        .filter_map(|id| vault.get_item(&id).ok())
-                        .filter(|item| !item.password.is_empty())
-                        .map(|item| super::fingerprint(item.password.as_bytes()))
-                        .collect()
-                })
-                .unwrap_or_default()
+            let mut used = std::collections::HashSet::new();
+            let mut waits = false;
+            if let Some(vault) = state.vault.as_ref() {
+                for item in vault.item_ids().filter_map(|id| vault.get_item(&id).ok()) {
+                    if item.is_locked() {
+                        waits = true;
+                    } else if !item.password.is_empty() {
+                        used.insert(super::fingerprint(item.password.as_bytes()));
+                    }
+                }
+            }
+            (used, waits)
         };
-        self.generated_entries()
+        let (gone, kept): (Vec<Entry>, Vec<Entry>) = self
+            .generated_entries()
             .into_iter()
-            .filter(|entry| !used.contains(&super::fingerprint(entry.password.as_bytes())))
-            .collect()
+            .partition(|entry| used.contains(&super::fingerprint(entry.password.as_bytes())));
+        if !gone.is_empty() {
+            self.store_generated(&kept);
+        }
+        (kept, waits)
     }
 
-    /// The list on the generator page, masked unless asked to show.
+    /// The list on the generator page, masked unless asked to show (and always while it waits
+    /// for the item lock).
     pub(super) fn publish_generated(&self) {
         let app = self.app();
-        let shown = app.get_gen_history_shown();
         let offset = self.system().utc_offset_minutes();
-        let rows: Vec<GenRow> = self
-            .shown_generated()
+        let (entries, waits) = self.shown_generated();
+        if waits {
+            // Masked again once the lock is open, until asked.
+            app.set_gen_history_shown(false);
+        }
+        let shown = app.get_gen_history_shown();
+        let rows: Vec<GenRow> = entries
             .iter()
             .map(|entry| GenRow {
                 text: if shown {
@@ -163,13 +180,18 @@ impl Controller {
                 when: view::date_time(entry.at, offset).into(),
             })
             .collect();
+        app.set_gen_history_locked(waits);
         app.set_gen_history(ModelRc::new(VecModel::from(rows)));
     }
 
     pub(super) fn copy_generated_entry(&self, index: i32) {
+        let (entries, waits) = self.shown_generated();
+        if waits {
+            return;
+        }
         let entry = usize::try_from(index)
             .ok()
-            .and_then(|index| self.shown_generated().into_iter().nth(index));
+            .and_then(|index| entries.into_iter().nth(index));
         if let Some(entry) = entry {
             self.copy_secret(&entry.password, notice::COPIED);
         }
@@ -178,7 +200,7 @@ impl Controller {
     pub(super) fn delete_generated_entry(&self, index: i32) {
         let Some(gone) = usize::try_from(index)
             .ok()
-            .and_then(|index| self.shown_generated().into_iter().nth(index))
+            .and_then(|index| self.shown_generated().0.into_iter().nth(index))
         else {
             return;
         };
@@ -198,6 +220,7 @@ impl Controller {
     pub(super) fn forget_generated_rows(&self) {
         let app = self.app();
         app.set_gen_history_shown(false);
+        app.set_gen_history_locked(false);
         app.set_gen_history(ModelRc::default());
     }
 }

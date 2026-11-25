@@ -48,6 +48,9 @@ zeroize = "1.9"
 vault-platform = { path = "../../crates/platform" }
 # Sync: the invite line a computer shows.
 vault-sync-wire = { path = "../../crates/sync-wire" }
+# Autofill: which site a saved `*.example.com` covers, by the browser extension's own rule (no
+# `*.` over a public suffix such as `*.co.uk` or `*.github.io`).
+vault-browser = { path = "../../crates/browser" }
 # Settings → Import and export: another manager's export (no browser stores on a phone).
 vault-import = { path = "../../crates/import", default-features = false }
 # Settings → Sync → Add a device: the invite as a QR code (the desktop's).

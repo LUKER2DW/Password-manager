@@ -40,6 +40,10 @@ pub struct Prefs {
     /// The order the person gave the Codes page, per vault (its id): item ids (hex), first
     /// to last. Codes not listed come after them, by title. Kept on this phone only.
     pub code_order: std::collections::BTreeMap<String, Vec<String>>,
+    /// When the master password was last typed here and checked against the vault, per vault
+    /// (its id), in Unix seconds. Fingerprint unlock asks for it again 14 days after that
+    /// (`crate::bio`); turning fingerprint unlock on starts from this time, not from now.
+    pub password_typed_at: std::collections::BTreeMap<String, i64>,
 }
 
 /// A vault this phone keeps: its file (a bare name, next to `settings.json`) and the name it
@@ -87,6 +91,7 @@ impl Default for Prefs {
             current: String::new(),
             leak_watch: false,
             code_order: std::collections::BTreeMap::new(),
+            password_typed_at: std::collections::BTreeMap::new(),
         }
     }
 }

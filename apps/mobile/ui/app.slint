@@ -10,6 +10,7 @@ import "../../desktop/ui/fonts/JetBrainsMono-SemiBold.ttf";
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Slider, Choice, ItemIcon, MarkStroke, Logo, Rule, Backdrop } from "../../desktop/ui/widgets.slint";
 import { Glyph, FolderLook, FieldColors, BrandMark, IconLook } from "../../desktop/ui/icons.slint";
 import { StrengthMeter } from "../../desktop/ui/strength.slint";
+import { ExportCounts, Messages } from "../../desktop/ui/model.slint";
 
 export { Theme, Sketch, Secrets }
 
@@ -173,10 +174,16 @@ export global Words {
         if (code == 38) { return @tr("These recovery parts aren't this vault's, or they are from an older kit. Use the parts of the newest emergency kit."); }
         if (code == 39) { return @tr("This vault has no recovery parts: its emergency kit was made before they existed, or they were used. Make a new kit on your computer."); }
         if (code == 40) { return @tr("That picture holds no recovery part: {}", detail); }
+        if (code == 41) { return @tr("The recovery didn't finish ({}). Nothing changed: the recovery parts still work, and this phone didn't keep the Secret Key. Try again.", detail); }
+        if (code == 42) { return @tr("This phone couldn't keep the Secret Key ({}), and the recovery parts you used no longer work. Write the Secret Key below on your emergency kit now, then make a new kit on your computer.", detail); }
         if (code == 23) { return @tr("That file is too large: an item keeps files of up to 5 MB, and up to 10 of them."); }
         if (code == 24) { return @tr("Unlock with the phone didn't work ({}).", detail); }
         if (code == 25) { return @tr("That file can't be imported ({}).", detail); }
         if (code == 26) { return @tr("That isn't the file's password. Try again."); }
+        if (code == 27 && detail == "signature") { return @tr("The update wasn't installed: it isn't signed like the app you have, so it may not be from the same maker."); }
+        if (code == 27 && detail == "package") { return @tr("The update wasn't installed: the file isn't this app."); }
+        if (code == 27 && detail == "older") { return @tr("The update wasn't installed: the file isn't newer than the app you have."); }
+        if (code == 27 && detail == "installer") { return @tr("The update wasn't installed: Android's installer didn't answer as it should. Try again."); }
         if (code == 27) { return @tr("The update couldn't be fetched ({}).", detail); }
         if (code == 12) { return @tr("The phone couldn't be set up from the server ({}).", detail); }
         if (code == 28) { return @tr("That isn't an invite. On the computer: Settings, Sync, Add a device; scan its QR code, or paste the whole line that starts with vaultsync:."); }
@@ -196,7 +203,8 @@ export global Words {
         if (kind == 5) { return @tr("Delete “{}”?", arg); }
         if (kind == 6) { return @tr("Export every password unencrypted?"); }
         if (kind == 7) { return @tr("Save a protected export?"); }
-        if (kind == 8) { return @tr("Export the logins unencrypted?"); }
+        // CSV too holds every item's password (a note's, a card's PIN, an SSH key).
+        if (kind == 8) { return @tr("Export every password unencrypted?"); }
         if (kind == 9) { return @tr("Delete the folder “{}”?", arg); }
         if (kind == 10) { return @tr("Make a new password?"); }
         if (kind == 11) { return @tr("“{}” has a password", arg); }
@@ -217,7 +225,7 @@ export global Words {
         if (kind == 5) { return @tr("It is deleted from this vault and, at the next sync, from your other devices. This can't be undone."); }
         if (kind == 6) { return @tr("The JSON file holds every password, note and card in plain text. Anyone or any app that gets the file reads them. Delete it once it has been imported."); }
         if (kind == 7) { return @tr("The file is encrypted with a password you choose here. It opens only with that password, in this app or the desktop one."); }
-        if (kind == 8) { return @tr("The CSV file holds the logins' passwords in plain text. Anyone or any app that gets the file reads them. Delete it once it has been imported."); }
+        if (kind == 8) { return @tr("The CSV file holds every password, note and card in plain text. Anyone or any app that gets the file reads them. Delete it once it has been imported."); }
         if (kind == 9) { return @tr("Its items stay in the vault, in no folder."); }
         if (kind == 10) { return @tr("The generator opens with your last settings. Change the length and the kinds of characters, then tap Use to bring it back here."); }
         if (kind == 11) { return @tr("The file is protected. Type the password it was saved with; it is used only to read the file."); }
@@ -282,6 +290,8 @@ export global Words {
         if (code == 20) { return @tr("{} logins saved from other apps while the vault was locked were added.", arg); }
         if (code == 21) { return @tr("{} of your passwords turned up in a data breach since the last check. They are marked in the list: change them where you use them.", arg); }
         if (code == 22) { return @tr("Version {} of the app is on your vault server. Install it in Settings, About and updates.", arg); }
+        if (code == 40) { return @tr("Only the first {} pages are shown: the rest would take too much of the phone's memory. Save the file to see all of it.", arg); }
+        if (code == 41) { return @tr("This PDF's pages are too large to show here. Save the file to see it."); }
         return "";
     }
 }
@@ -1076,6 +1086,9 @@ component ConfirmSheet inherits Rectangle {
     in property <length> inset-top;
     in property <length> inset-bottom;
     in property <[SheetField]> fields;
+    // What it says is read first: no field takes the focus (and brings the keyboard up over
+    // it) until it is tapped.
+    in property <bool> read-first;
     in property <string> error;
     in property <bool> busy;
     in property <string> busy-text;
@@ -1125,7 +1138,7 @@ component ConfirmSheet inherits Rectangle {
                     icon: f.icon;
                     error: f.error;
                     init => {
-                        if (i == 0) { self.focus(); }
+                        if (i == 0 && !root.read-first) { self.focus(); }
                     }
                     accepted => {
                         if (i == root.fields.length - 1 && !root.busy) { root.confirmed(); }
@@ -1804,6 +1817,9 @@ export component PhoneWindow inherits Window {
     in property <int> d-glyph-color;
     in property <int> d-glyph-bg;
     in property <bool> d-http;
+    // The website is a `*.` rule that covers no site (over a public suffix such as `*.co.uk`, or
+    // not a plain name): autofill skips it.
+    in property <bool> d-wide;
     in property <string> d-folder;
     in property <string> d-created;
     in property <string> d-edited;
@@ -1945,9 +1961,12 @@ export component PhoneWindow inherits Window {
     callback gen-use();
     callback gen-back();
     callback gen-new-login();
-    // The passwords copied or used from here (masked until shown).
+    // The passwords copied or used from here (masked until shown). While some item's secrets
+    // are behind the item lock, any of them may be that item's password: they stay masked and
+    // can't be copied (`gen-history-locked`).
     in property <[GenRow]> gen-history;
     in-out property <bool> gen-history-shown;
+    in property <bool> gen-history-locked;
     callback gen-history-toggled();
     callback gen-history-copy(int);
     callback gen-history-delete(int);
@@ -2019,7 +2038,13 @@ export component PhoneWindow inherits Window {
     in-out property <bool> vault-icons-open;
     in-out property <bool> ed-icons-open;
     // Export: 0 protected (.vaultx), 1 plain JSON, 2 plain CSV; the shell asks where to save it.
+    // -1: its sheet opened, so it is only counted (what the file leaves out and what anyone
+    // who gets it reads), for the sheet to say.
     callback export-vault(int);
+    in property <ExportCounts> export-counts;
+    // The counts changed when it was confirmed (a sync since): shown, and confirmed again.
+    in property <bool> export-recounted;
+    out property <string> export-notes: root.confirming >= 6 && root.confirming <= 8 ? Messages.export-notes(root.export-counts) : "";
     // A sensitive action waits for its confirmation (0 none; see `ask`).
     in-out property <int> confirming;
     // What the confirmation names: the device being removed, the vault, the item, the folder.
@@ -2069,6 +2094,9 @@ export component PhoneWindow inherits Window {
     // Import: what the last import added and skipped (-1 = none yet).
     in property <int> import-added: -1;
     in property <int> import-skipped;
+    // What it couldn't bring in as it was: the first lines, and how many more there are.
+    in property <string> import-warnings;
+    in property <int> import-more;
     // Appearance: 0 the phone's language, 1 English, 2 Brazilian Portuguese.
     in-out property <int> language-choice;
     callback language-changed(int);
@@ -2168,6 +2196,7 @@ export component PhoneWindow inherits Window {
         Secrets.focused = -1;
         root.confirming = kind;
         root.sheet-opened(kind);
+        if (kind >= 6 && kind <= 8) { root.export-vault(-1); }
     }
     public function confirmed(kind: int) {
         if (!root.asks-password(kind)) {
@@ -2749,7 +2778,9 @@ export component PhoneWindow inherits Window {
                         }
                     }
                     Text {
-                        text: root.recovered-key != "" ? @tr("Your new Secret Key")
+                        // 42: two parts brought it back, but the phone couldn't keep it.
+                        text: root.recovered-key != "" && root.error-code == 42 ? @tr("Your Secret Key")
+                            : root.recovered-key != "" ? @tr("Your new Secret Key")
                             : root.recover-mode == 0 ? @tr("Forgot your master password?")
                             : @tr("No Secret Key on this phone?");
                         font-size: Theme.headline;
@@ -2762,7 +2793,8 @@ export component PhoneWindow inherits Window {
                         selected <=> root.recover-mode;
                     }
                     Text {
-                        text: root.recovered-key != ""
+                        text: root.recovered-key != "" && root.error-code == 42 ? Words.error(root.error-code, root.error-detail)
+                            : root.recovered-key != ""
                             ? @tr("The vault now opens with your new master password and this Secret Key. Write it down, or keep it with your emergency kit: your other devices ask for both at their next unlock. The recovery parts you used no longer work, so make a new emergency kit on your computer soon.")
                             : root.recover-mode == 0
                             ? @tr("Your emergency kit has three recovery parts, A, B and C, each on a page of its own. All three together let you choose a new master password. The vault then gets a new Secret Key too, and the parts you used stop working.")
@@ -3562,9 +3594,11 @@ export component PhoneWindow inherits Window {
                                     if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
                                     if root.gen-history.length > 0 && !root.gen-for-editor: Section {
                                         title: @tr("Copied or used here");
-                                        note: @tr("The passwords you copied or used from here, newest first, sealed on this phone with the vault's key. One that a login now uses leaves the list.");
+                                        note: root.gen-history-locked
+                                            ? @tr("Hidden while the item lock is closed: any of these may be a locked item's password now. Open a locked item to see them again.")
+                                            : @tr("The passwords you copied or used from here, newest first, sealed on this phone with the vault's key. One that a login now uses leaves the list.");
                                         // Show or hide: an eye that opens and closes with them.
-                                        Rectangle {
+                                        if !root.gen-history-locked: Rectangle {
                                             min-height: 52px;
                                             background: eye-touch.pressed ? Theme.hover : transparent;
                                             accessible-role: button;
@@ -3608,7 +3642,7 @@ export component PhoneWindow inherits Window {
                                                     }
                                                     Text { text: entry.when; font-size: Theme.small; color: Theme.graphite; overflow: elide; }
                                                 }
-                                                VerticalLayout {
+                                                if !root.gen-history-locked: VerticalLayout {
                                                     alignment: center;
                                                     horizontal-stretch: 0;
                                                     QuietButton { icon: "copy"; text: @tr("Copy"); clicked => { root.gen-history-copy(index); } }
@@ -4088,7 +4122,7 @@ export component PhoneWindow inherits Window {
                                             SetRow {
                                                 icon: "list";
                                                 text: @tr("Plain CSV");
-                                                detail: @tr("Logins only, for a browser or a spreadsheet");
+                                                detail: @tr("For a browser or another password manager");
                                                 chevron: true;
                                                 clicked => { root.ask(8); }
                                             }
@@ -4111,6 +4145,18 @@ export component PhoneWindow inherits Window {
                                             font-size: Theme.body;
                                             color: Theme.ink;
                                             wrap: word-wrap;
+                                        }
+                                        // Several wrapped lines: a Fold, not an `if`, so the page
+                                        // measures all of them and scrolls to the last one.
+                                        Fold {
+                                            open: root.import-added >= 0 && root.import-warnings != "";
+                                            Text {
+                                                text: @tr("Read this before you delete the file:") + "\n" + root.import-warnings
+                                                    + (root.import-more > 0 ? "\n" + @tr("… and {n} more" | "… and {n} more" % root.import-more) : "");
+                                                font-size: Theme.body;
+                                                color: Theme.ink;
+                                                wrap: word-wrap;
+                                            }
                                         }
                                         if root.confirming == 0 && root.error-code == 25: ErrorLine {
                                             text: Words.error(root.error-code, root.error-detail);
@@ -5396,7 +5442,7 @@ export component PhoneWindow inherits Window {
                             Rule { y: parent.height - 1px; }
                         }
                         if root.d-website != "": Fact {
-                            label: root.d-http ? @tr("Website, not encrypted (http)") : @tr("Website");
+                            label: root.d-http ? @tr("Website, not encrypted (http)") : root.d-wide ? @tr("Website, autofill skips it") : @tr("Website");
                             icon: root.d-http ? "unlocked" : "globe";
                             value: root.d-website;
                             action: @tr("Copy");
@@ -6094,10 +6140,13 @@ export component PhoneWindow inherits Window {
             ? (root.d-check == 1 ? @tr("Type your master password to see its secrets.")
                 : root.d-check == 2 ? @tr("Type the item PIN to see its secrets.")
                 : @tr("Type the item password to see its secrets."))
-            : Words.confirm-text(root.confirming, root.confirm-arg);
+            : Words.confirm-text(root.confirming, root.confirm-arg)
+                + (root.export-notes == "" ? "" : "\n\n" + root.export-notes)
+                + (root.export-notes != "" && root.export-recounted ? "\n\n" + @tr("This was counted again because the vault changed. Tap Export again to make the file.") : "");
         action: Words.confirm-action(root.confirming);
         danger: root.confirming <= 5 || root.confirming == 9 || root.confirming == 14 || root.confirming == 15;
         fields: root.sheet-fields;
+        read-first: root.confirming >= 6 && root.confirming <= 8;
         error: root.asks-password(root.confirming) && root.error-code != 0 ? Words.error(root.error-code, root.error-detail) : "";
         busy: root.busy;
         busy-text: root.confirming == 11 ? @tr("Importing…")

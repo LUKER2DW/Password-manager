@@ -1,8 +1,10 @@
 //! Autofill's native methods (`java/org/passwordvault/phone/Autofill.java`): what the autofill
-//! service and its activity ask of the app (`vault_mobile::autofill` decides). With the app
-//! running, a question goes to the controller on the UI thread and its answer comes back
-//! within two seconds; without it (Android started the process for autofill alone) the vault
-//! counts as locked, and only fingerprint unlock or the drop box are used.
+//! service and its activity ask of the app (`vault_mobile::autofill` decides). Every question
+//! brings who asks (`Place.java`), and who that stands for is worked out here each time
+//! ([`recipient`]): nothing is answered to nobody. With the app running, a question goes to the
+//! controller on the UI thread and its answer comes back within two seconds; without it
+//! (Android started the process for autofill alone) the vault counts as locked, and only
+//! fingerprint unlock or the drop box are used.
 
 use std::{
     path::PathBuf,
@@ -14,9 +16,12 @@ use std::{
 use jni::{
     JNIEnv,
     objects::{JByteArray, JClass, JObject, JString},
-    sys::{jboolean, jbyteArray, jobjectArray, jstring},
+    sys::{jboolean, jbyteArray, jint, jobjectArray, jstring},
 };
-use vault_mobile::{Controller, autofill};
+use vault_mobile::{
+    Controller,
+    autofill::{self, Asker, Kept, Recipient},
+};
 use zeroize::Zeroizing;
 
 use crate::shell::{CONTROLLER, bytes, string};
@@ -66,18 +71,66 @@ fn text(env: &mut JNIEnv, value: &str) -> jstring {
         .map_or(ptr::null_mut(), JString::into_raw)
 }
 
+/// Who a place's parts (`Place.java`) stand for; `None` when nothing is offered or saved there.
+fn recipient(
+    env: &mut JNIEnv,
+    app: &JString,
+    signers: &JByteArray,
+    browser: jboolean,
+    domain: &JString,
+    scheme: &JString,
+) -> Option<Recipient> {
+    let signers = bytes(env, signers).unwrap_or_default();
+    let (digests, rest) = signers.as_chunks::<32>();
+    Recipient::of(&Asker {
+        app: string(env, app).unwrap_or_default(),
+        // Cut short, they are nobody's.
+        signers: if rest.is_empty() {
+            digests.to_vec()
+        } else {
+            Vec::new()
+        },
+        browser: browser != 0,
+        domain: string(env, domain),
+        scheme: string(env, scheme),
+    })
+}
+
+/// `Autofill.recipient`: the website or app the place stands for, for the prompt; null when
+/// nothing is offered or saved there.
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_passwordvault_phone_Autofill_recipient<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    app: JString<'local>,
+    signers: JByteArray<'local>,
+    browser: jboolean,
+    domain: JString<'local>,
+    scheme: JString<'local>,
+) -> jstring {
+    match recipient(&mut env, &app, &signers, browser, &domain, &scheme) {
+        Some(to) => text(&mut env, to.name()),
+        None => ptr::null_mut(),
+    }
+}
+
 /// `Autofill.openLogins`: id, title, username of each login for the place, from the open vault.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_passwordvault_phone_Autofill_openLogins<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
-    domain: JString<'local>,
     app: JString<'local>,
+    signers: JByteArray<'local>,
+    browser: jboolean,
+    domain: JString<'local>,
+    scheme: JString<'local>,
 ) -> jobjectArray {
-    let domain = string(&mut env, &domain);
-    let app = string(&mut env, &app).unwrap_or_default();
-    let Some(logins) = ask_app(move |c| c.autofill_logins(domain.as_deref(), &app)) else {
+    let Some(to) = recipient(&mut env, &app, &signers, browser, &domain, &scheme) else {
+        return ptr::null_mut();
+    };
+    let Some(logins) = ask_app(move |c| c.autofill_logins(&to)) else {
         return ptr::null_mut();
     };
     let flat: Vec<&str> = logins
@@ -95,13 +148,17 @@ pub extern "system" fn Java_org_passwordvault_phone_Autofill_openLogin<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     item: JString<'local>,
-    domain: JString<'local>,
     app: JString<'local>,
+    signers: JByteArray<'local>,
+    browser: jboolean,
+    domain: JString<'local>,
+    scheme: JString<'local>,
 ) -> jobjectArray {
     let item = string(&mut env, &item).unwrap_or_default();
-    let domain = string(&mut env, &domain);
-    let app = string(&mut env, &app).unwrap_or_default();
-    let Some(login) = ask_app(move |c| c.autofill_login(&item, domain.as_deref(), &app)) else {
+    let Some(to) = recipient(&mut env, &app, &signers, browser, &domain, &scheme) else {
+        return ptr::null_mut();
+    };
+    let Some(login) = ask_app(move |c| c.autofill_login(&item, &to)) else {
         return ptr::null_mut();
     };
     strings(
@@ -151,17 +208,20 @@ pub extern "system" fn Java_org_passwordvault_phone_Autofill_openWithSecret<'loc
     _class: JClass<'local>,
     home: JString<'local>,
     secret: JByteArray<'local>,
-    domain: JString<'local>,
     app: JString<'local>,
+    signers: JByteArray<'local>,
+    browser: jboolean,
+    domain: JString<'local>,
+    scheme: JString<'local>,
 ) -> jobjectArray {
     let home = PathBuf::from(string(&mut env, &home).unwrap_or_default());
     let Some(secret) = bytes(&mut env, &secret).map(Zeroizing::new) else {
         return ptr::null_mut();
     };
-    let domain = string(&mut env, &domain);
-    let app = string(&mut env, &app).unwrap_or_default();
-    let Some(logins) = autofill::open_with_secret(&home, &secret, domain.as_deref(), &app, now())
-    else {
+    let Some(to) = recipient(&mut env, &app, &signers, browser, &domain, &scheme) else {
+        return ptr::null_mut();
+    };
+    let Some(logins) = autofill::open_with_secret(&home, &secret, &to, now()) else {
         return ptr::null_mut();
     };
     let flat: Vec<&str> = logins
@@ -184,6 +244,11 @@ pub extern "system" fn Java_org_passwordvault_phone_Autofill_suggest<'local>(
     }
 }
 
+/// `Autofill.NOT_SAVED`, `SAVED` and `SAVED_BESIDE`: what `Autofill.save` answers.
+const NOT_SAVED: jint = 0;
+const SAVED: jint = 1;
+const SAVED_BESIDE: jint = 2;
+
 /// `Autofill.save`: "Save to Vault?" from another app: into the open vault, or, while it is
 /// locked, into its drop box for the next unlock.
 #[allow(unsafe_code)]
@@ -192,30 +257,28 @@ pub extern "system" fn Java_org_passwordvault_phone_Autofill_save<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     home: JString<'local>,
-    domain: JString<'local>,
     app: JString<'local>,
+    signers: JByteArray<'local>,
+    browser: jboolean,
+    domain: JString<'local>,
+    scheme: JString<'local>,
     username: JString<'local>,
     password: JString<'local>,
-) -> jboolean {
+) -> jint {
     let home = PathBuf::from(string(&mut env, &home).unwrap_or_default());
-    let domain = string(&mut env, &domain);
-    let app = string(&mut env, &app).unwrap_or_default();
+    let Some(from) = recipient(&mut env, &app, &signers, browser, &domain, &scheme) else {
+        return NOT_SAVED;
+    };
     let username = string(&mut env, &username).unwrap_or_default();
     let password = Zeroizing::new(string(&mut env, &password).unwrap_or_default());
     let saved_open = {
-        let (domain, app, username, password) = (
-            domain.clone(),
-            app.clone(),
-            username.clone(),
-            password.clone(),
-        );
-        ask_app(move |c| {
-            c.autofill_save(domain.as_deref(), &app, &username, &password)
-                .then_some(())
-        })
-        .is_some()
+        let (from, username, password) = (from.clone(), username.clone(), password.clone());
+        ask_app(move |c| c.autofill_save(&from, &username, &password))
     };
-    let saved =
-        saved_open || autofill::keep_locked(&home, domain.as_deref(), &app, &username, &password);
-    jboolean::from(saved)
+    match saved_open {
+        Some(Kept::AddedBeside) => SAVED_BESIDE,
+        Some(Kept::Same | Kept::Replaced | Kept::Added) => SAVED,
+        None if autofill::keep_locked(&home, &from, &username, &password) => SAVED,
+        None => NOT_SAVED,
+    }
 }

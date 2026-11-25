@@ -7850,6 +7850,7 @@ dependencies = [
  "slint-build",
  "tempfile",
  "tokio",
+ "vault-browser",
  "vault-core",
  "vault-import",
  "vault-platform",

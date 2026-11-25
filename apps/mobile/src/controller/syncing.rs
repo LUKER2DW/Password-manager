@@ -450,7 +450,7 @@ mod native {
             let Some(vault_id) = self.vault_id() else {
                 return;
             };
-            let address = match sync::check_address(&app.get_sync_address()) {
+            let address = match sync::check_webdav_address(&app.get_sync_address()) {
                 Ok(address) => address,
                 Err(err) => return self.sync_setup_failed(&format!("{err:#}")),
             };
@@ -655,16 +655,20 @@ mod native {
                         .copied()
                         .collect(),
                 );
-                state.sync.tags = if round.waiting_for_lock() == 0 {
-                    reading.tags(&state.sync.tags)
-                } else {
+                state.sync.tags = if waits_for_the_item_lock(&round) {
                     KnownTags::default()
+                } else {
+                    reading.tags(&state.sync.tags)
                 };
             }
             let changed = round.changed() || joined;
             if changed {
                 if !self.save_quietly() {
                     return self.sync_failed("the phone's copy couldn't be saved");
+                }
+                // Another device's item lock was taken: what the old one opened closes first.
+                if round.reports.iter().any(|report| report.guard_changed) {
+                    self.after_guard_changed();
                 }
                 self.after_sync_changes();
             }
@@ -1344,6 +1348,18 @@ mod native {
         slint::Image::from_rgb8(buffer)
     }
 
+    /// Whether something of this round waits for the item lock: items a merge left as they
+    /// were here, or a whole copy refused until this phone's own lock is open (it brings a
+    /// newer item lock). Then no copy's tag is kept, so the next round reads them again
+    /// instead of skipping them as already merged.
+    fn waits_for_the_item_lock(round: &sync::Round) -> bool {
+        round.waiting_for_lock() > 0
+            || round
+                .refused
+                .iter()
+                .any(|(_, err)| matches!(err, vault_core::Error::SecretsLocked))
+    }
+
     /// How often the servers are asked for an update between rounds (seconds).
     const UPDATE_EVERY: i64 = 10 * 60;
 
@@ -1351,5 +1367,39 @@ mod native {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use vault_core::sync::{DeviceId, MergeReport};
+        use vault_platform::sync::Round;
+
+        use super::waits_for_the_item_lock;
+
+        #[test]
+        fn a_copy_refused_until_the_item_lock_opens_is_read_again() {
+            let other = DeviceId::from_bytes([7; 16]);
+            assert!(!waits_for_the_item_lock(&Round::default()));
+            // Refused for another reason (an older copy put back): not read again for nothing.
+            let rollback = Round {
+                refused: vec![(other, vault_core::Error::SyncRollback)],
+                ..Round::default()
+            };
+            assert!(!waits_for_the_item_lock(&rollback));
+            // Refused whole until this phone's lock is open: waits like a merged copy's items.
+            let locked = Round {
+                refused: vec![(other, vault_core::Error::SecretsLocked)],
+                ..Round::default()
+            };
+            assert!(waits_for_the_item_lock(&locked));
+            let merged = Round {
+                reports: vec![MergeReport {
+                    waiting_for_lock: 1,
+                    ..MergeReport::default()
+                }],
+                ..Round::default()
+            };
+            assert!(waits_for_the_item_lock(&merged));
+        }
     }
 }

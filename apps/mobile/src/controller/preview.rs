@@ -1,11 +1,21 @@
 //! A file attached to an item, shown in the app: a picture (PNG, JPEG, GIF, WebP, BMP), text,
 //! or a PDF's pages (drawn by the system: Android's own PDF renderer, inside this app). The
 //! decrypted file never goes to another app; what is on screen is cleared when the preview
-//! closes, and when the item does.
+//! closes, and when the item does. A PDF is shown up to what its pages may take of the phone's
+//! memory (`system::PageBudget`); a longer one ends there, and says so.
 
 use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 
 use super::{Controller, error};
+use crate::system::{PdfPage, PdfPages};
+
+/// This page's own notices (texts in app.slint → Words.notice, next to the controller's).
+mod notice {
+    /// Only the first pages of the PDF are shown (the argument says how many).
+    pub const PDF_CUT: i32 = 40;
+    /// Not even the first page of the PDF fits.
+    pub const PDF_TOO_LARGE: i32 = 41;
+}
 
 /// What View shows for a file (FileRow.preview): 0 nothing, 1 a picture, 2 text, 3 a PDF.
 pub(super) mod kind {
@@ -81,6 +91,24 @@ fn picture(_data: &[u8]) -> Option<Image> {
     None
 }
 
+/// A drawn page for the screen; its pixels are freed here, so only one page is in memory twice.
+fn page_image(page: PdfPage) -> Image {
+    Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+        &page.pixels,
+        page.width,
+        page.height,
+    ))
+}
+
+/// The title over a PDF's pages: its name, and how many of its pages are there when not all are.
+fn pdf_title(name: &str, shown: usize, total: u32) -> String {
+    if u32::try_from(shown) == Ok(total) {
+        name.to_owned()
+    } else {
+        format!("{name} · {shown}/{total}")
+    }
+}
+
 impl Controller {
     /// View on one of the open item's files.
     pub(super) fn preview_file(&self, index: i32) {
@@ -95,6 +123,7 @@ impl Controller {
         };
         let app = self.app();
         let pdf = self.system().renders_pdf();
+        let mut title = file.name.clone();
         match kind_of(&file.name, &file.data, pdf) {
             kind::PICTURE => {
                 let Some(image) = picture(&file.data) else {
@@ -106,27 +135,32 @@ impl Controller {
                 let text = String::from_utf8_lossy(&file.data);
                 app.set_preview_text(text.as_ref().into());
             }
-            kind::PDF => match self.system().render_pdf(&file.data) {
-                Ok(pages) if !pages.is_empty() => {
-                    let images: Vec<Image> = pages
-                        .into_iter()
-                        .filter(|(width, height, pixels)| {
-                            pixels.len() == (*width as usize) * (*height as usize) * 4
-                        })
-                        .map(|(width, height, pixels)| {
-                            Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
-                                &pixels, width, height,
-                            ))
-                        })
-                        .collect();
-                    app.set_preview_pages(ModelRc::new(VecModel::from(images)));
+            kind::PDF => {
+                let drawn = self
+                    .system()
+                    .render_pdf(&file.data)
+                    .map(PdfPages::within_budget);
+                let drawn = match drawn {
+                    Ok(drawn) if drawn.total == 0 => {
+                        return self.set_error(error::UNREADABLE, "the PDF has no pages");
+                    }
+                    Ok(drawn) if drawn.pages.is_empty() => {
+                        return self.notify(notice::PDF_TOO_LARGE, "");
+                    }
+                    Ok(drawn) => drawn,
+                    Err(detail) => return self.set_error(error::UNREADABLE, &detail),
+                };
+                let shown = drawn.pages.len();
+                title = pdf_title(&file.name, shown, drawn.total);
+                if title != file.name {
+                    self.notify(notice::PDF_CUT, &shown.to_string());
                 }
-                Ok(_) => return self.set_error(error::UNREADABLE, "the PDF has no pages"),
-                Err(detail) => return self.set_error(error::UNREADABLE, &detail),
-            },
+                let images: Vec<Image> = drawn.pages.into_iter().map(page_image).collect();
+                app.set_preview_pages(ModelRc::new(VecModel::from(images)));
+            }
             _ => return,
         }
-        app.set_preview_name(file.name.as_str().into());
+        app.set_preview_name(title.as_str().into());
         app.set_preview_kind(kind_of(&file.name, &file.data, pdf));
     }
 
@@ -138,5 +172,30 @@ impl Controller {
         app.set_preview_text(SharedString::new());
         app.set_preview_image(Image::default());
         app.set_preview_pages(ModelRc::default());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_pdf_shown_in_part_says_how_much_of_it() {
+        assert_eq!(pdf_title("contract.pdf", 3, 3), "contract.pdf");
+        assert_eq!(pdf_title("contract.pdf", 14, 40), "contract.pdf · 14/40");
+        assert_eq!(
+            pdf_title("contract.pdf", 40, 4000),
+            "contract.pdf · 40/4000"
+        );
+    }
+
+    #[test]
+    fn a_drawn_page_reaches_the_screen_at_its_size() {
+        let image = page_image(PdfPage {
+            width: 3,
+            height: 2,
+            pixels: vec![0xFF; 24],
+        });
+        assert_eq!((image.size().width, image.size().height), (3, 2));
     }
 }

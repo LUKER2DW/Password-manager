@@ -186,7 +186,8 @@ impl Controller {
         }
         let comment = self.app().get_ed_username().trim().to_owned();
         self.set_error(error::NONE, "");
-        self.run(
+        // Into this session's editor only: once locked, the key opened goes with it.
+        self.run_in_session(
             move || ssh::import(&text, Some(&passphrase), &comment),
             |c, opened| {
                 c.clear_fields(&[field::SSH_PASSPHRASE]);

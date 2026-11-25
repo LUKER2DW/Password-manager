@@ -11,5 +11,6 @@
     <string name="autofill_suggest">Use a strong password</string>
     <string name="autofill_suggest_detail">Made by Vault; saved when you sign up</string>
     <string name="autofill_not_saved">Vault couldn\'t save this login. Open Vault and try again.</string>
+    <string name="autofill_saved_beside">Saved as a new login: the one you have is behind the item lock and stays as it is.</string>
     <string name="autofill_no_lock">Set a screen lock on the phone to fill from Vault: every fill asks for it.</string>
 </resources>

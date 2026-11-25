@@ -1,10 +1,15 @@
 //! Android autofill's questions, answered from the vault. The Java side
 //! (`apps/mobile-android/java/…/VaultAutofillService.java`, `AutofillActivity.java`) finds a
-//! form's fields and where it is: a website's domain in a browser, else the app's package.
+//! form's fields and says what Android knows of who asks ([`Asker`]): the app's package and
+//! signing certificate, and, for fields inside a web page, that page's own domain and scheme.
 //!
+//! - Who would receive a login ([`Recipient`]): a website only when a browser this app knows
+//!   by its certificate names it, over https; else the app itself, by its package; else
+//!   nobody. A domain in any other app's view tree is only that app's word (Digital Asset
+//!   Links, which tie an app to a site, can't be checked offline), so it counts for nothing.
 //! - Which logins belong there: the website's exact domain (or everything under a saved
 //!   `*.example.com`), or an app by the `androidapp://<package>` address saved in the login.
-//!   A login behind the item lock is never offered.
+//! - A login behind the item lock is neither offered nor changed ([`behind_lock`]).
 //! - Before anything is filled, the person confirms with a fingerprint or the phone's own lock
 //!   (the Java side asks). With the vault locked, fingerprint unlock opens the vault file here
 //!   just long enough to read the logins for that place.
@@ -41,6 +46,187 @@ impl std::fmt::Debug for Login {
     }
 }
 
+// ---- who asks ----
+
+/// What Android says of a form that asks for a login, or saves one. All of it is about one
+/// request: the fields are of the page (or the app) it names, and of no other.
+#[derive(Debug, Clone, Default)]
+pub struct Asker {
+    /// The app the form is in, which gets what is filled (the system's word, not the app's).
+    pub app: String,
+    /// SHA-256 of the certificate it is signed with, and of those it was rotated from, as the
+    /// package manager proved them. Empty when it has several signers or isn't known.
+    pub signers: Vec<[u8; 32]>,
+    /// It opens any https link: a browser, whether this app knows it or not.
+    pub browser: bool,
+    /// For fields inside a web page: the page's domain, as the web view around exactly these
+    /// fields gives it ("" when it gives none that can be read). `None` for the app's own.
+    pub domain: Option<String>,
+    /// The page's scheme, when the web view gives it.
+    pub scheme: Option<String>,
+}
+
+/// Who would receive a login. Made only by [`Recipient::of`], so a website here was always
+/// vouched for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Recipient(To);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum To {
+    /// A website, named by a browser this app knows.
+    Site(String),
+    /// An app, by its package.
+    App(String),
+}
+
+impl To {
+    /// The place an address made by [`place_of`] stands for.
+    fn of_saved(url: &str) -> Option<Self> {
+        if let Some(app) = url.strip_prefix("androidapp://") {
+            return Some(Self::App(app.to_owned()));
+        }
+        url.strip_prefix("https://")
+            .map(|domain| Self::Site(domain.to_owned()))
+    }
+
+    /// Whether `item` is saved for this place.
+    fn fits(&self, item: &ItemData) -> bool {
+        item.urls.iter().any(|url| match self {
+            Self::Site(domain) => site_matches(url, domain),
+            Self::App(app) => app_matches(url, app),
+        })
+    }
+
+    /// The logins of `vault` saved for this place and `username`, those behind the item lock
+    /// too.
+    fn logins(&self, vault: &Vault, username: &str) -> Vec<(ItemId, ItemData)> {
+        vault
+            .item_ids()
+            .filter_map(|id| Some((id, vault.get_item(&id).ok()?)))
+            .filter(|(_, item)| {
+                item.kind == ItemKind::Login && item.username == username && self.fits(item)
+            })
+            .collect()
+    }
+}
+
+impl Recipient {
+    /// Who `asker` stands for; `None` when nothing is offered, filled or saved there.
+    ///
+    /// - A page that isn't https gets nothing, in any app: anyone on the network could read
+    ///   what is filled in it.
+    /// - A website counts only from a browser known by package and certificate.
+    /// - Any other browser gets nothing: its package says nothing about the page, so a login
+    ///   saved "for the browser" would be offered on every site in it. The same goes for an
+    ///   app that has a known browser's name and somebody else's certificate.
+    /// - Any other app is only itself, whatever domain its view tree gives.
+    pub fn of(asker: &Asker) -> Option<Self> {
+        let app = asker.app.trim();
+        if app.is_empty() {
+            return None;
+        }
+        if let Some(scheme) = &asker.scheme
+            && !scheme.eq_ignore_ascii_case("https")
+        {
+            return None;
+        }
+        // A web page whose address can't be read belongs to nobody.
+        let site = match &asker.domain {
+            Some(domain) => Some(plain_host(domain)?),
+            None => None,
+        };
+        match (known_browser(app), site) {
+            (Some(certificates), Some(site)) if signed_with(asker, certificates) => {
+                Some(Self(To::Site(site)))
+            }
+            (Some(_), _) => None,
+            (None, _) if asker.browser => None,
+            (None, _) => Some(Self(To::App(app.to_owned()))),
+        }
+    }
+
+    /// The website's domain or the app's package, for the prompt that asks the person.
+    pub fn name(&self) -> &str {
+        match &self.0 {
+            To::Site(domain) => domain,
+            To::App(app) => app,
+        }
+    }
+}
+
+/// `domain` as a plain host name (or an IPv4 address), lower case; `None` for anything else.
+/// It goes into a saved address, so nothing that could end a host or start another one.
+fn plain_host(domain: &str) -> Option<String> {
+    let host = domain.trim().trim_end_matches('.').to_lowercase();
+    let plain = |c: char| c.is_alphanumeric() || matches!(c, '.' | '-' | '_');
+    (!host.is_empty() && host.chars().all(plain)).then_some(host)
+}
+
+/// Whether `asker` is signed with one of `certificates` (SHA-256, in hex).
+fn signed_with(asker: &Asker, certificates: &[&str]) -> bool {
+    asker.signers.iter().any(|signer| {
+        let hex: String = signer.iter().map(|byte| format!("{byte:02X}")).collect();
+        certificates.contains(&hex.as_str())
+    })
+}
+
+/// The certificates a browser's releases are signed with, when `package` is one known here.
+fn known_browser(package: &str) -> Option<&'static [&'static str]> {
+    BROWSERS
+        .iter()
+        .find(|(known, _)| *known == package)
+        .map(|(_, certificates)| *certificates)
+}
+
+const CHROME: &str = "F0FD6C5B410F25CB25C3B53346C8972FAE30F8EE7411DF910480AD6B2D60DB83";
+const CHROME_BETA: &str = "DA633D34B69E63AE2103B49D53CE052FC5F7F3C53AAB94FDC2A208BDFD14249C";
+const CHROME_DEV: &str = "9044EE5FEE4BBC5E21DD44665431C4EB1F1F71A32716A0BC927BCBB39233CABF";
+/// Chrome beta and dev: their other certificate.
+const CHROME_CHANNELS: &str = "3D7A1223019AA39D9EA0E3436AB7C0896BFB4FB679F4DE5FE7C23F326C8F994A";
+const CHROME_CANARY: &str = "2019DFA1FB23EFBF70C5BCD1443C5BEAB04F3F2FF4366E9AC1E3457639A24CFC";
+const FIREFOX: &str = "A78B62A5165B4494B2FEAD9E76A280D22D937FEE6251AECE599446B2EA319B04";
+const FIREFOX_NIGHTLY: &str = "5004779088E7F988D5BC5CC5F8798FEBF4F8CD084A1B2A46EFD4C8EE4AEAF211";
+const FIREFOX_FOCUS: &str = "6203A473BE36D64EE37F87FA500EDBC79EAB930610AB9B9FA4CA7D5C1F1B4FFC";
+const EDGE: &str = "01E1999710A82C2749B4D50C445DC85D670B6136089D0A766A73827C82A1EAC9";
+const BRAVE: &str = "9C2DB70513515FDBFBBC585B3EDF3D7123D4DC67C94FFD306361C1D79BBF18AC";
+const SAMSUNG: &str = "34DF0E7A9F1CF1892E45C056B4973CD81CCF148A4050D11AEA4AC5A65F900A42";
+const OPERA: &str = "5D6AFBF87F652AF04647ADA0DF634CF22370900B164B09D50BD23AA2CB5285B8";
+const VIVALDI: &str = "E8A78544655BA8C09817F732768F5689B1662EC4B2BC5A0BC0EC138D33CA3D1E";
+const DUCKDUCKGO: &str = "BB7BB31C573C46A1DA7FC5C528A6ACF432108456FEEC50810C7F33694EB3D2D4";
+const VANADIUM: &str = "C6ADB8B83C6D4C17D292AFDE56FD488A51D316FF8F2C11C5410223BFF8A7DBB3";
+
+/// The browsers whose word about the page counts: package, and SHA-256 of the certificates
+/// its releases are signed with. They are the ones Google publishes for passkeys
+/// (<https://www.gstatic.com/gpm-passkeys-privileged-apps/apps.json>), release keys only.
+/// Adding one means comparing its certificate with a second source.
+const BROWSERS: [(&str, &[&str]); 23] = [
+    ("com.android.chrome", &[CHROME]),
+    ("com.chrome.beta", &[CHROME_BETA, CHROME_CHANNELS]),
+    ("com.chrome.dev", &[CHROME_DEV, CHROME_CHANNELS]),
+    ("com.chrome.canary", &[CHROME_CANARY]),
+    ("org.mozilla.firefox", &[FIREFOX]),
+    ("org.mozilla.firefox_beta", &[FIREFOX]),
+    ("org.mozilla.fenix", &[FIREFOX_NIGHTLY]),
+    ("org.mozilla.focus", &[FIREFOX_FOCUS]),
+    ("com.microsoft.emmx", &[EDGE]),
+    ("com.microsoft.emmx.beta", &[EDGE]),
+    ("com.microsoft.emmx.dev", &[EDGE]),
+    ("com.microsoft.emmx.canary", &[EDGE]),
+    ("com.brave.browser", &[BRAVE]),
+    ("com.brave.browser_beta", &[BRAVE]),
+    ("com.brave.browser_nightly", &[BRAVE]),
+    ("com.sec.android.app.sbrowser", &[SAMSUNG]),
+    ("com.sec.android.app.sbrowser.beta", &[SAMSUNG]),
+    ("com.opera.browser", &[OPERA]),
+    ("com.opera.browser.beta", &[OPERA]),
+    ("com.vivaldi.browser", &[VIVALDI]),
+    ("com.vivaldi.browser.snapshot", &[VIVALDI]),
+    ("com.duckduckgo.mobile.android", &[DUCKDUCKGO]),
+    ("app.vanadium.browser", &[VANADIUM]),
+];
+
+// ---- which logins belong there ----
+
 /// A saved address's host, lower case, without scheme, user, port or path; `None` for an app's
 /// address or nothing usable.
 fn host_of(url: &str) -> Option<String> {
@@ -50,7 +236,8 @@ fn host_of(url: &str) -> Option<String> {
         Some((_, rest)) => rest,
         None => url,
     };
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    // A backslash ends the host too, as a browser reads a web address (`https://a\@b` is `a`).
+    let authority = rest.split(['/', '\\', '?', '#']).next().unwrap_or_default();
     let host = authority
         .rsplit_once('@')
         .map_or(authority, |(_, host)| host);
@@ -64,18 +251,55 @@ fn host_of(url: &str) -> Option<String> {
 
 /// Whether a login's saved address `url` is the website `domain`: the same host, or `domain`
 /// is under a saved `*.example.com`.
+///
+/// A `*.` entry follows the browser extension's rule (`vault_browser::origin`), decided again
+/// each time a form asks: one over a public suffix (`*.co.uk`, `*.github.io`, `*.com`), where
+/// anyone can have a site, covers nothing, whether it was typed or came in with an import.
 pub fn site_matches(url: &str, domain: &str) -> bool {
-    let Some(host) = host_of(url) else {
-        return false;
-    };
     let domain = domain.trim().trim_end_matches('.').to_ascii_lowercase();
     if domain.is_empty() {
         return false;
     }
-    match host.strip_prefix("*.") {
-        Some(rest) => domain == rest || domain.ends_with(&format!(".{rest}")),
-        None => host == domain,
+    let Some(host) = host_of(url) else {
+        return false;
+    };
+    // A `*` in the host makes it a wildcard entry, decided by that rule alone: never a plain
+    // name. One only in the path (`https://example.com/*`) is the host's, as in the extension.
+    if host.contains('*') {
+        return wildcard_covers(url, &domain);
     }
+    host == domain
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn wildcard_covers(saved: &str, domain: &str) -> bool {
+    vault_browser::origin::wildcard_covers_host(saved, domain)
+}
+
+/// The browser preview fills nothing, and has no list of public suffixes: no `*.` entry
+/// covers anything there.
+#[cfg(target_arch = "wasm32")]
+fn wildcard_covers(_saved: &str, _domain: &str) -> bool {
+    false
+}
+
+/// Whether the saved website `url` is a `*` rule that covers no site at all, so autofill
+/// skips it (the item page says so): one over a public suffix (`*.co.uk`, `*.github.io`,
+/// where anyone can have a site), or one that isn't a plain name (`*.example.com/login`,
+/// `http://*.example.com`). Judged by the same rule as [`site_matches`], each time, so a rule
+/// typed or imported before is caught as well.
+pub fn wildcard_unused(url: &str) -> bool {
+    host_of(url).is_some_and(|host| host.contains('*')) && !wildcard_is_rule(url)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn wildcard_is_rule(saved: &str) -> bool {
+    vault_browser::origin::wildcard_base(saved).is_some()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn wildcard_is_rule(_saved: &str) -> bool {
+    false
 }
 
 /// Whether a login's saved address `url` is the app `package` (`androidapp://<package>`).
@@ -86,25 +310,26 @@ pub fn app_matches(url: &str, package: &str) -> bool {
         && url["androidapp://".len()..].trim_end_matches('/') == package
 }
 
-/// Whether `item` belongs to the place asking: `domain` in a browser, else the app `app`.
-fn fits(item: &ItemData, domain: Option<&str>, app: &str) -> bool {
-    match domain.filter(|d| !d.is_empty()) {
-        Some(domain) => item.urls.iter().any(|url| site_matches(url, domain)),
-        None => !app.is_empty() && item.urls.iter().any(|url| app_matches(url, app)),
-    }
+/// Whether `item` is behind the item lock: its secrets are sealed, or they wait for the lock's
+/// check (a PIN, a password, the master password), sealed already or not yet
+/// ([`Vault::pending_seal`]), and whether or not that check was just passed on the item's page.
+///
+/// The one rule of autofill, both ways: such a login is not offered to another app, and its
+/// password isn't changed from one. Only the app itself does that, after the item's check.
+fn behind_lock(vault: &Vault, item: &ItemData) -> bool {
+    item.is_locked() || vault.guards(item)
 }
 
-/// The logins of `vault` for the place asking, by title. None behind the item lock.
-pub fn logins_for(vault: &Vault, domain: Option<&str>, app: &str) -> Vec<Login> {
+/// The logins of `vault` saved for `to`, by title. None behind the item lock.
+pub fn logins_for(vault: &Vault, to: &Recipient) -> Vec<Login> {
     let mut found: Vec<Login> = vault
         .item_ids()
         .filter_map(|id| {
             let item = vault.get_item(&id).ok()?;
             let usable = item.kind == ItemKind::Login
-                && !item.is_locked()
-                && !vault.guards(&item)
+                && !behind_lock(vault, &item)
                 && !(item.password.is_empty() && item.username.is_empty())
-                && fits(&item, domain, app);
+                && to.0.fits(&item);
             usable.then(|| Login {
                 id: id.to_hex(),
                 title: item.title.clone(),
@@ -117,10 +342,10 @@ pub fn logins_for(vault: &Vault, domain: Option<&str>, app: &str) -> Vec<Login> 
     found
 }
 
-/// One login of `vault` by its id, only if it still belongs to the place asking.
-pub fn login_by_id(vault: &Vault, id: &str, domain: Option<&str>, app: &str) -> Option<Login> {
+/// One login of `vault` by its id, only if it still belongs to `to`.
+pub fn login_by_id(vault: &Vault, id: &str, to: &Recipient) -> Option<Login> {
     let id = ItemId::from_hex(id)?;
-    logins_for(vault, domain, app)
+    logins_for(vault, to)
         .into_iter()
         .find(|login| ItemId::from_hex(&login.id) == Some(id))
 }
@@ -154,19 +379,18 @@ pub fn locked_unlock(home: &Path, now: i64) -> Option<(String, Vec<u8>)> {
 }
 
 /// Opens that vault with the device secret the fingerprint released and reads the logins for
-/// the place asking. The vault leaves memory when this returns.
+/// `to`. The vault leaves memory when this returns.
 pub fn open_with_secret(
     home: &Path,
     secret: &[u8],
-    domain: Option<&str>,
-    app: &str,
+    to: &Recipient,
     now: i64,
 ) -> Option<Vec<Login>> {
     let bytes = files::read(&current_vault(home)).ok()?;
     let id = Vault::inspect(&bytes).ok()?.id_hex;
     let unlock = bio::read(home, &id).filter(|b| b.fresh(now))?;
     let vault = Vault::open_with_device(&bytes, secret, &unlock.sealed_key).ok()?;
-    Some(logins_for(&vault, domain, app))
+    Some(logins_for(&vault, to))
 }
 
 // ---- the drop box: logins saved while the vault is locked ----
@@ -207,28 +431,21 @@ fn write_drop(folder: &Path, vault_id: &str, file: &DropFile) -> bool {
         .is_some_and(|bytes| files::write_atomic(&drop_path(folder, vault_id), &bytes).is_ok())
 }
 
-/// The title and address a login saved from `domain` (a browser) or the app `app` gets.
-pub fn place_of(domain: Option<&str>, app: &str) -> (String, String) {
-    match domain.filter(|d| !d.trim().is_empty()) {
-        Some(domain) => {
-            let domain = domain.trim().to_ascii_lowercase();
-            let title = domain.strip_prefix("www.").unwrap_or(&domain).to_owned();
+/// The title and address a login saved from `from` gets.
+fn place_of(from: &Recipient) -> (String, String) {
+    match &from.0 {
+        To::Site(domain) => {
+            let title = domain.strip_prefix("www.").unwrap_or(domain).to_owned();
             (title, format!("https://{domain}"))
         }
-        None => (app.to_owned(), format!("androidapp://{app}")),
+        To::App(app) => (app.clone(), format!("androidapp://{app}")),
     }
 }
 
 /// Seals a login saved from another app while the vault the app opened last is locked, for
-/// the next unlock. `false` when that vault has no drop box yet (it is made at an unlock) or
-/// it is full.
-pub fn keep_locked(
-    home: &Path,
-    domain: Option<&str>,
-    app: &str,
-    username: &str,
-    password: &str,
-) -> bool {
+/// the next unlock, when it becomes a login of its own (none is changed). `false` when that
+/// vault has no drop box yet (it is made at an unlock) or it is full.
+pub fn keep_locked(home: &Path, from: &Recipient, username: &str, password: &str) -> bool {
     let Ok(bytes) = files::read(&current_vault(home)) else {
         return false;
     };
@@ -241,7 +458,7 @@ pub fn keep_locked(
     if file.entries.len() >= MAX_ENTRIES {
         return false;
     }
-    let (title, url) = place_of(domain, app);
+    let (title, url) = place_of(from);
     let dropped = Dropped {
         url,
         title,
@@ -259,7 +476,8 @@ pub fn keep_locked(
 }
 
 /// At unlock: the logins saved while the vault was locked, as items to add (the drop box is
-/// made when there is none). Call [`empty_drop_box`] once they are safely saved.
+/// made when there is none). One whose account has a login behind the item lock goes behind it
+/// too. Call [`empty_drop_box`] once they are safely saved.
 pub(crate) fn dropped_logins(folder: &Path, vault: &Vault) -> Vec<ItemData> {
     let id = vault.id_hex();
     let Some(file) = read_drop(folder, &id) else {
@@ -280,6 +498,10 @@ pub(crate) fn dropped_logins(folder: &Path, vault: &Vault) -> Vec<ItemData> {
             item.username.clone_from(&dropped.username);
             item.password.clone_from(&dropped.password);
             item.urls = vec![dropped.url.clone()];
+            item.reprompt = To::of_saved(&dropped.url).is_some_and(|place| {
+                let saved = place.logins(vault, &dropped.username);
+                saved.iter().any(|(_, item)| item.reprompt)
+            });
             Some(item)
         })
         .collect()
@@ -319,43 +541,63 @@ fn make_drop_box(folder: &Path, vault: &Vault) {
     );
 }
 
+/// What a login saved from another app did to the open vault.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kept {
+    /// It was there already.
+    Same,
+    /// The login saved there for the same place and username has the new password (the old
+    /// one went into its history).
+    Replaced,
+    /// A new login.
+    Added,
+    /// A new login, beside one for the same place and username that is behind the item lock:
+    /// that one stays as it is, and the new one is behind the lock as well.
+    AddedBeside,
+}
+
 /// Adds a login saved from another app to the open `vault`: the password of a login already
-/// saved there for the same place and username changes (the old one goes into its history),
-/// else a new login is made. Returns whether anything changed.
+/// saved there for the same place and username changes, else a new login is made.
+///
+/// A login behind the item lock is never changed here ([`behind_lock`]), nor is its password
+/// compared with the new one: the person's "Save" in another app isn't the item's check. The
+/// new password is kept as a login of its own, so it isn't lost, and the person sorts the two
+/// out in the app.
 pub(crate) fn save_into(
     vault: &mut Vault,
-    domain: Option<&str>,
-    app: &str,
+    from: &Recipient,
     username: &str,
     password: &str,
-) -> vault_core::Result<bool> {
+) -> vault_core::Result<Kept> {
     if password.is_empty() {
-        return Ok(false);
+        return Ok(Kept::Same);
     }
-    let same = vault
-        .item_ids()
-        .filter_map(|id| Some((id, vault.get_item(&id).ok()?)))
-        .find(|(_, item)| {
-            item.kind == ItemKind::Login
-                && !item.is_locked()
-                && item.username == username
-                && fits(item, domain, app)
-        });
-    match same {
-        Some((_, item)) if item.password == password => Ok(false),
+    let (locked, open): (Vec<_>, Vec<_>) = from
+        .0
+        .logins(vault, username)
+        .into_iter()
+        .partition(|(_, item)| behind_lock(vault, item));
+    match open.into_iter().next() {
+        Some((_, item)) if item.password == password => Ok(Kept::Same),
         Some((id, mut item)) => {
             item.password = password.to_owned();
             vault.update_item(&id, &item)?;
-            Ok(true)
+            Ok(Kept::Replaced)
         }
         None => {
-            let (title, url) = place_of(domain, app);
+            let (title, url) = place_of(from);
             let mut item = ItemData::new(ItemKind::Login, &title);
             item.username = username.to_owned();
             item.password = password.to_owned();
             item.urls = vec![url];
+            // The account is one the person keeps behind the item lock: so is its new password.
+            item.reprompt = locked.iter().any(|(_, item)| item.reprompt);
             vault.add_item(&item)?;
-            Ok(true)
+            Ok(if locked.is_empty() {
+                Kept::Added
+            } else {
+                Kept::AddedBeside
+            })
         }
     }
 }
@@ -363,6 +605,47 @@ pub(crate) fn save_into(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vault_core::{GuardCheck, KdfParams, SecretKey};
+
+    fn certificate(hex: &str) -> [u8; 32] {
+        assert_eq!(hex.len(), 64, "{hex}");
+        std::array::from_fn(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap())
+    }
+
+    /// A page at https://`domain` in Chrome.
+    fn in_chrome(domain: &str) -> Asker {
+        Asker {
+            app: "com.android.chrome".into(),
+            signers: vec![certificate(CHROME)],
+            browser: true,
+            domain: Some(domain.into()),
+            scheme: Some("https".into()),
+        }
+    }
+
+    fn site(domain: &str) -> Recipient {
+        Recipient::of(&in_chrome(domain)).unwrap()
+    }
+
+    /// An app's own fields.
+    fn app(package: &str) -> Recipient {
+        Recipient::of(&Asker {
+            app: package.into(),
+            signers: vec![[7; 32]],
+            ..Asker::default()
+        })
+        .unwrap()
+    }
+
+    fn test_vault() -> Vault {
+        Vault::create(
+            "pw",
+            &SecretKey::generate().unwrap(),
+            None,
+            KdfParams::minimum().unwrap(),
+        )
+        .unwrap()
+    }
 
     #[test]
     fn sites_match_exactly_or_under_a_wildcard() {
@@ -396,14 +679,14 @@ mod tests {
         ));
         assert!(!app_matches("https://com.example.app", "com.example.app"));
         assert_eq!(
-            place_of(Some("www.Example.com"), "com.android.chrome"),
+            place_of(&site("www.Example.com")),
             (
                 "example.com".to_owned(),
                 "https://www.example.com".to_owned()
             )
         );
         assert_eq!(
-            place_of(None, "com.example.app"),
+            place_of(&app("com.example.app")),
             (
                 "com.example.app".to_owned(),
                 "androidapp://com.example.app".to_owned()
@@ -412,46 +695,165 @@ mod tests {
     }
 
     #[test]
+    fn a_wildcard_over_a_public_suffix_covers_nothing() {
+        // Sites of different owners: a registry's suffix, or a hosting company's (private
+        // multi-tenant suffixes are in the list too).
+        for (saved, domain) in [
+            ("*.co.uk", "shop.co.uk"),
+            ("*.co.uk", "bank.co.uk"),
+            ("*.com", "example.com"),
+            ("*.com.br", "loja.com.br"),
+            ("*.github.io", "someone.github.io"),
+            ("https://*.github.io/", "someone.github.io"),
+            ("*.blogspot.com", "someone.blogspot.com"),
+            ("*.herokuapp.com", "someone.herokuapp.com"),
+        ] {
+            assert!(!site_matches(saved, domain), "{saved} {domain}");
+        }
+        // Not a plain name, or not https: refused as the extension refuses them.
+        for saved in [
+            "*.example.com/login",
+            "*.example.com:8443",
+            "user@*.example.com",
+            "http://*.example.com",
+            "*.*.example.com",
+            "a.*.example.com",
+            "*.",
+            "*",
+        ] {
+            assert!(!site_matches(saved, "x.example.com"), "{saved}");
+        }
+        // A site of one's own under a public suffix still covers what is under it.
+        assert!(site_matches("*.shop.co.uk", "www.shop.co.uk"));
+        assert!(site_matches("*.shop.co.uk", "shop.co.uk"));
+        assert!(!site_matches("*.shop.co.uk", "bank.co.uk"));
+        assert!(site_matches("*.someone.github.io", "www.someone.github.io"));
+        assert!(!site_matches("*.someone.github.io", "other.github.io"));
+        // A backslash ends the host, as in a browser's address bar.
+        assert!(!site_matches(
+            "https://evil.example\\@github.com",
+            "github.com"
+        ));
+        assert!(site_matches(
+            "https://evil.example\\@github.com",
+            "evil.example"
+        ));
+    }
+
+    #[test]
+    fn a_rule_that_covers_nothing_is_told_apart() {
+        // Skipped by autofill, so the item page says so.
+        for saved in [
+            "*.co.uk",
+            "*.github.io",
+            "https://*.github.io/",
+            "*.com",
+            "*.example.com/login",
+            "*.example.com:8443",
+            "http://*.example.com",
+            "a.*.example.com",
+            "*",
+        ] {
+            assert!(wildcard_unused(saved), "{saved}");
+            assert!(!site_matches(saved, "www.example.com"), "{saved}");
+        }
+        // A rule over one owner's site, and plain addresses, are not.
+        for saved in [
+            "*.example.com",
+            "https://*.example.com/",
+            "*.shop.co.uk",
+            "example.com",
+            "https://github.com/login",
+            "",
+        ] {
+            assert!(!wildcard_unused(saved), "{saved}");
+        }
+        assert!(site_matches("*.example.com", "www.example.com"));
+    }
+
+    #[test]
+    fn a_star_in_the_path_is_no_rule() {
+        // The address's host is the site, as the extension reads it.
+        let page = vault_browser::origin::Origin::of_saved("https://example.com/").unwrap();
+        for saved in [
+            "https://example.com/*",
+            "https://example.com/login?next=*",
+            "example.com/*",
+        ] {
+            assert!(site_matches(saved, "example.com"), "{saved}");
+            assert!(!site_matches(saved, "www.example.com"), "{saved}");
+            assert!(!wildcard_unused(saved), "{saved}");
+            assert!(
+                vault_browser::origin::item_matches(&[saved], &page),
+                "the extension agrees: {saved}"
+            );
+        }
+    }
+
+    #[test]
+    fn stored_wide_rules_are_judged_again_before_logins_are_offered() {
+        let mut vault = test_vault();
+        // As an import or an older version could have saved them.
+        for (title, url) in [
+            ("Too wide", "*.co.uk"),
+            ("Hosting", "*.github.io"),
+            ("Own site", "*.shop.co.uk"),
+        ] {
+            vault
+                .add_item(&ItemData::login(title, "me", "test-pw", url))
+                .unwrap();
+        }
+        let titles = |domain: &str| -> Vec<String> {
+            logins_for(&vault, &site(domain))
+                .into_iter()
+                .map(|login| login.title)
+                .collect()
+        };
+        assert!(titles("bank.co.uk").is_empty(), "another owner's site");
+        assert!(titles("someone.github.io").is_empty());
+        assert_eq!(titles("www.shop.co.uk"), ["Own site"]);
+        let wide = vault
+            .item_ids()
+            .find(|id| vault.get_item(id).unwrap().title == "Too wide")
+            .unwrap()
+            .to_hex();
+        let bank = site("bank.co.uk");
+        assert!(login_by_id(&vault, &wide, &bank).is_none());
+        // Saving from that site makes a login of its own, not a change to the wide one.
+        assert_eq!(
+            save_into(&mut vault, &bank, "me", "new-pw").unwrap(),
+            Kept::Added
+        );
+        let found = logins_for(&vault, &bank);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].title, "bank.co.uk");
+        assert_eq!(
+            vault
+                .get_item(&ItemId::from_hex(&wide).unwrap())
+                .unwrap()
+                .password,
+            "test-pw",
+            "the wide login keeps its password"
+        );
+    }
+
+    #[test]
     fn logins_saved_while_locked_come_in_at_the_next_unlock() {
-        use vault_core::{KdfParams, SecretKey};
         let dir = tempfile::tempdir().unwrap();
-        let mut vault = Vault::create(
-            "pw",
-            &SecretKey::generate().unwrap(),
-            None,
-            KdfParams::minimum().unwrap(),
-        )
-        .unwrap();
+        let mut vault = test_vault();
         std::fs::write(
             dir.path().join(prefs::FIRST_VAULT),
             vault.to_bytes().unwrap(),
         )
         .unwrap();
+        let (example, other) = (site("example.com"), app("com.example.app"));
         assert!(
-            !keep_locked(
-                dir.path(),
-                Some("example.com"),
-                "com.android.chrome",
-                "me",
-                "pw1"
-            ),
+            !keep_locked(dir.path(), &example, "me", "pw1"),
             "no drop box before an unlock"
         );
         assert!(dropped_logins(dir.path(), &vault).is_empty());
-        assert!(keep_locked(
-            dir.path(),
-            Some("example.com"),
-            "com.android.chrome",
-            "me",
-            "pw1"
-        ));
-        assert!(keep_locked(
-            dir.path(),
-            None,
-            "com.example.app",
-            "you",
-            "pw2"
-        ));
+        assert!(keep_locked(dir.path(), &example, "me", "pw1"));
+        assert!(keep_locked(dir.path(), &other, "you", "pw2"));
         let items = dropped_logins(dir.path(), &vault);
         assert_eq!(items.len(), 2);
         for item in &items {
@@ -459,27 +861,353 @@ mod tests {
         }
         empty_drop_box(dir.path(), &vault.id_hex());
         assert!(dropped_logins(dir.path(), &vault).is_empty());
-        let found = logins_for(&vault, Some("example.com"), "com.android.chrome");
+        let found = logins_for(&vault, &example);
         assert_eq!(found.len(), 1);
         assert_eq!(
             (found[0].username.as_str(), found[0].password.as_str()),
             ("me", "pw1")
         );
-        assert_eq!(logins_for(&vault, None, "com.example.app").len(), 1);
-        assert!(logins_for(&vault, None, "com.android.chrome").is_empty());
+        assert_eq!(logins_for(&vault, &other).len(), 1);
+        assert!(logins_for(&vault, &app("com.example.app2")).is_empty());
         // Saving again: the same login gets the new password, another username a new login.
-        assert!(save_into(&mut vault, Some("example.com"), "x", "me", "pw3").unwrap());
-        assert!(!save_into(&mut vault, Some("example.com"), "x", "me", "pw3").unwrap());
-        assert!(save_into(&mut vault, Some("example.com"), "x", "other", "pw4").unwrap());
-        let found = logins_for(&vault, Some("example.com"), "x");
+        let mut save =
+            |username, password| save_into(&mut vault, &example, username, password).unwrap();
+        assert_eq!(save("me", "pw3"), Kept::Replaced);
+        assert_eq!(save("me", "pw3"), Kept::Same);
+        assert_eq!(save("other", "pw4"), Kept::Added);
+        let found = logins_for(&vault, &example);
         assert_eq!(found.len(), 2);
         let me = found.iter().find(|l| l.username == "me").unwrap();
         assert_eq!(me.password.as_str(), "pw3");
-        assert!(login_by_id(&vault, &me.id, Some("example.com"), "x").is_some());
+        assert!(login_by_id(&vault, &me.id, &example).is_some());
         assert!(
-            login_by_id(&vault, &me.id, Some("evil.com"), "x").is_none(),
+            login_by_id(&vault, &me.id, &site("evil.com")).is_none(),
             "only for its place"
         );
         assert!(suggest().is_some_and(|p| p.chars().count() >= 20));
+    }
+
+    #[test]
+    fn a_website_counts_only_from_a_known_browser() {
+        assert_eq!(site("Example.com.").name(), "example.com");
+        // The scheme may be left out by the web view; given, it is https.
+        let quiet = Asker {
+            scheme: None,
+            ..in_chrome("example.com")
+        };
+        assert_eq!(Recipient::of(&quiet), Some(site("example.com")));
+        // Its name with somebody else's certificate, none, or several signers (no list).
+        for signers in [vec![], vec![[0; 32]], vec![certificate(FIREFOX)]] {
+            let impostor = Asker {
+                signers,
+                ..in_chrome("example.com")
+            };
+            assert_eq!(Recipient::of(&impostor), None, "{impostor:?}");
+        }
+        // A certificate it was rotated from counts, whatever else is there.
+        let rotated = Asker {
+            signers: vec![certificate(CHROME), [9; 32]],
+            ..in_chrome("example.com")
+        };
+        assert_eq!(Recipient::of(&rotated), Some(site("example.com")));
+        // Chrome's certificate doesn't make another package Chrome.
+        let other = Asker {
+            app: "com.example.app".into(),
+            browser: false,
+            ..in_chrome("example.com")
+        };
+        assert_eq!(Recipient::of(&other), Some(app("com.example.app")));
+        // A browser this app doesn't know: neither the site nor "the browser".
+        for domain in [Some("example.com".to_owned()), None] {
+            let unknown = Asker {
+                app: "com.example.browser".into(),
+                signers: vec![[1; 32]],
+                browser: true,
+                domain,
+                scheme: None,
+            };
+            assert_eq!(Recipient::of(&unknown), None, "{unknown:?}");
+        }
+        // A known one's own fields, outside any page: no login belongs to the browser.
+        let own = Asker {
+            domain: None,
+            scheme: None,
+            ..in_chrome("example.com")
+        };
+        assert_eq!(Recipient::of(&own), None);
+        assert_eq!(Recipient::of(&Asker::default()), None, "nobody asks");
+    }
+
+    #[test]
+    fn a_page_without_https_gets_nothing() {
+        for scheme in ["http", "HTTP", "ftp", "file", ""] {
+            let page = Asker {
+                scheme: Some(scheme.into()),
+                ..in_chrome("example.com")
+            };
+            assert_eq!(Recipient::of(&page), None, "{scheme}");
+            // Nor does the app that shows it.
+            let web_view = Asker {
+                app: "com.example.app".into(),
+                browser: false,
+                ..page
+            };
+            assert_eq!(Recipient::of(&web_view), None, "{scheme}");
+        }
+        // A page whose address can't be read, or isn't a plain host.
+        for domain in [
+            "",
+            ".",
+            " ",
+            "evil.com/@bank.com",
+            "bank.com@evil.com",
+            "evil.com:8443",
+            "evil.com#bank.com",
+            "evil.com\\bank.com",
+            "*.example.com",
+            "[::1]",
+            "two words",
+        ] {
+            assert_eq!(Recipient::of(&in_chrome(domain)), None, "{domain:?}");
+        }
+        assert_eq!(site("192.0.2.1").name(), "192.0.2.1");
+    }
+
+    #[test]
+    fn a_domain_nobody_vouches_for_matches_no_website() {
+        let mut vault = test_vault();
+        for (title, url) in [
+            ("Bank", "https://bank.example"),
+            ("Bank's app", "androidapp://com.example.bank"),
+            ("The app", "androidapp://com.example.app"),
+            ("In Chrome", "androidapp://com.android.chrome"),
+        ] {
+            vault
+                .add_item(&ItemData::login(title, "me", "test-pw", url))
+                .unwrap();
+        }
+        let titles = |asker: &Asker| -> Vec<String> {
+            Recipient::of(asker)
+                .map(|to| logins_for(&vault, &to))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|login| login.title)
+                .collect()
+        };
+        assert_eq!(titles(&in_chrome("bank.example")), ["Bank"]);
+        // An app whose view tree says "bank.example" gets its own logins only.
+        let claims = Asker {
+            app: "com.example.app".into(),
+            signers: vec![[1; 32]],
+            browser: false,
+            ..in_chrome("bank.example")
+        };
+        assert_eq!(titles(&claims), ["The app"]);
+        // One that calls itself Chrome gets nothing, its "own" logins included.
+        let impostor = Asker {
+            signers: vec![[1; 32]],
+            ..in_chrome("bank.example")
+        };
+        assert!(titles(&impostor).is_empty());
+        // Saving follows the same rule: what the app claims isn't the saved address.
+        let to = Recipient::of(&claims).unwrap();
+        assert_eq!(
+            place_of(&to).1,
+            "androidapp://com.example.app",
+            "not https://bank.example"
+        );
+    }
+
+    #[test]
+    fn every_known_browser_has_a_whole_certificate() {
+        for (package, certificates) in BROWSERS {
+            assert!(!certificates.is_empty(), "{package}");
+            for hex in certificates {
+                assert_eq!(hex.len(), 64, "{package}");
+                assert_eq!(hex.to_uppercase(), *hex, "{package}");
+                let page = Asker {
+                    app: package.into(),
+                    signers: vec![certificate(hex)],
+                    ..in_chrome("example.com")
+                };
+                assert_eq!(Recipient::of(&page), Some(site("example.com")), "{package}");
+            }
+        }
+        // The package manager tells this app about browsers only if the manifest asks to see
+        // what opens https links (Android 11 on).
+        let manifest = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../mobile-android/AndroidManifest.xml"),
+        )
+        .unwrap();
+        let queries = manifest
+            .split("<queries>")
+            .nth(1)
+            .and_then(|rest| rest.split("</queries>").next())
+            .expect("the manifest's <queries>");
+        assert!(queries.contains("android.intent.action.VIEW"));
+        assert!(queries.contains("android:scheme=\"https\""));
+    }
+
+    /// A login for example.com, behind the lock `check` (its own, or all items').
+    fn guarded(check: GuardCheck, all_items: bool, secret: Option<&str>) -> (Vault, ItemId) {
+        let mut vault = test_vault();
+        vault
+            .set_item_guard(all_items, check, secret, None)
+            .unwrap();
+        let mut item = ItemData::login("Guarded", "me", "guarded-pw", "https://example.com");
+        item.reprompt = !all_items;
+        let id = vault.add_item(&item).unwrap();
+        (vault, id)
+    }
+
+    fn passwords(vault: &Vault) -> Vec<String> {
+        let mut found: Vec<String> = vault
+            .item_ids()
+            .map(|id| vault.get_item(&id).unwrap().password.clone())
+            .collect();
+        found.sort();
+        found
+    }
+
+    #[test]
+    fn a_login_waiting_for_the_master_password_is_not_changed_from_another_app() {
+        let example = site("example.com");
+        for all_items in [false, true] {
+            let (mut vault, id) = guarded(GuardCheck::Master, all_items, None);
+            // Its secrets are readable here (this check encrypts nothing): the rule holds.
+            assert!(!vault.get_item(&id).unwrap().is_locked());
+            assert!(logins_for(&vault, &example).is_empty(), "not offered");
+            assert_eq!(
+                save_into(&mut vault, &example, "me", "new-pw").unwrap(),
+                Kept::AddedBeside
+            );
+            let item = vault.get_item(&id).unwrap();
+            assert_eq!(item.password, "guarded-pw", "all items: {all_items}");
+            assert!(item.password_history.is_empty());
+            assert_eq!(passwords(&vault), ["guarded-pw", "new-pw"]);
+            // The new one is behind the lock as well, not a way around it.
+            assert!(logins_for(&vault, &example).is_empty());
+            // Nor is the same password told apart from another one.
+            assert_eq!(
+                save_into(&mut vault, &example, "me", "guarded-pw").unwrap(),
+                Kept::AddedBeside
+            );
+        }
+    }
+
+    #[test]
+    fn a_login_behind_a_pin_is_not_changed_from_another_app() {
+        let example = site("example.com");
+        for all_items in [false, true] {
+            let (mut vault, id) = guarded(GuardCheck::Pin, all_items, Some("4821"));
+            vault.lock_secrets();
+            assert!(vault.get_item(&id).unwrap().is_locked(), "sealed");
+            assert_eq!(
+                save_into(&mut vault, &example, "me", "new-pw").unwrap(),
+                Kept::AddedBeside
+            );
+            // Opened for another item just now: still the app's to change.
+            assert!(vault.unlock_secrets("4821").unwrap());
+            assert_eq!(
+                save_into(&mut vault, &example, "me", "newer-pw").unwrap(),
+                Kept::AddedBeside
+            );
+            assert!(logins_for(&vault, &example).is_empty(), "not offered");
+            vault.seal_pending().unwrap();
+            assert_eq!(passwords(&vault), ["guarded-pw", "new-pw", "newer-pw"]);
+            assert_eq!(vault.get_item(&id).unwrap().password, "guarded-pw");
+        }
+    }
+
+    #[test]
+    fn a_new_login_waiting_for_its_seal_is_not_changed_from_another_app() {
+        let example = site("example.com");
+        let mut vault = test_vault();
+        vault
+            .set_item_guard(true, GuardCheck::Pin, Some("4821"), None)
+            .unwrap();
+        vault.lock_secrets();
+        // Added while the lock was closed: under the vault key alone until its next opening.
+        let id = vault
+            .add_item(&ItemData::login(
+                "Waiting",
+                "me",
+                "waiting-pw",
+                "https://example.com",
+            ))
+            .unwrap();
+        assert_eq!(vault.pending_seal().unwrap(), 1);
+        assert!(!vault.get_item(&id).unwrap().is_locked(), "readable here");
+        assert_eq!(
+            save_into(&mut vault, &example, "me", "new-pw").unwrap(),
+            Kept::AddedBeside
+        );
+        assert_eq!(vault.get_item(&id).unwrap().password, "waiting-pw");
+        assert_eq!(vault.pending_seal().unwrap(), 2, "the new one waits too");
+    }
+
+    #[test]
+    fn a_login_without_the_lock_gets_its_new_password() {
+        let example = site("example.com");
+        // Another login is behind the lock: this one isn't.
+        let (mut vault, _) = guarded(GuardCheck::Pin, false, Some("4821"));
+        vault.lock_secrets();
+        let id = vault
+            .add_item(&ItemData::login(
+                "Open",
+                "you",
+                "old-pw",
+                "https://example.com",
+            ))
+            .unwrap();
+        assert_eq!(
+            save_into(&mut vault, &example, "you", "new-pw").unwrap(),
+            Kept::Replaced
+        );
+        let item = vault.get_item(&id).unwrap();
+        assert_eq!(item.password, "new-pw");
+        assert_eq!(item.password_history[0].password, "old-pw");
+        // Next to a locked one of the same username, the open one is the one that changes.
+        let id = vault
+            .add_item(&ItemData::login(
+                "Mine too",
+                "me",
+                "old-pw",
+                "https://example.com",
+            ))
+            .unwrap();
+        assert_eq!(
+            save_into(&mut vault, &example, "me", "new-pw").unwrap(),
+            Kept::Replaced
+        );
+        assert_eq!(vault.get_item(&id).unwrap().password, "new-pw");
+    }
+
+    #[test]
+    fn a_login_saved_while_locked_joins_its_account_behind_the_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut vault, id) = guarded(GuardCheck::Master, false, None);
+        std::fs::write(
+            dir.path().join(prefs::FIRST_VAULT),
+            vault.to_bytes().unwrap(),
+        )
+        .unwrap();
+        assert!(dropped_logins(dir.path(), &vault).is_empty(), "made now");
+        let example = site("example.com");
+        assert!(keep_locked(dir.path(), &example, "me", "new-pw"));
+        assert!(keep_locked(dir.path(), &example, "you", "other-pw"));
+        let items = dropped_logins(dir.path(), &vault);
+        let locked: Vec<(&str, bool)> = items
+            .iter()
+            .map(|item| (item.username.as_str(), item.reprompt))
+            .collect();
+        assert_eq!(locked, [("me", true), ("you", false)]);
+        for item in &items {
+            vault.add_item(item).unwrap();
+        }
+        assert_eq!(vault.get_item(&id).unwrap().password, "guarded-pw");
+        let offered = logins_for(&vault, &example);
+        assert_eq!(offered.len(), 1);
+        assert_eq!(offered[0].username, "you");
     }
 }

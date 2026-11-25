@@ -6,10 +6,13 @@
 
 use jni::{
     JNIEnv,
-    objects::{JByteArray, JClass, JString, JValue},
+    objects::{JByteArray, JClass, JObject, JString, JValue},
     sys::{jboolean, jint},
 };
-use vault_mobile::{PromptWords, System};
+use vault_mobile::{
+    PromptWords, System,
+    system::{PageBudget, PdfPage, PdfPages},
+};
 use zeroize::Zeroizing;
 
 use crate::shell::{bytes, on_ui, string, with_activity};
@@ -180,45 +183,75 @@ impl System for AndroidSystem {
         true
     }
 
-    /// At most this many pages, each drawn this many pixels wide.
-    fn render_pdf(&self, pdf: &[u8]) -> Result<Vec<(u32, u32, Vec<u8>)>, String> {
-        const MAX_PAGES: i32 = 40;
-        const WIDTH: i32 = 1080;
-        let pages = with_activity(|env, activity| {
-            let data = env.byte_array_from_slice(pdf)?;
-            let count = env
-                .call_method(activity, "pdfOpen", "([B)I", &[JValue::Object(&data)])?
-                .i()?;
-            let mut pages = Vec::new();
-            for index in 0..count.min(MAX_PAGES) {
-                let page = env
-                    .call_method(
-                        activity,
-                        "pdfPage",
-                        "(II)[B",
-                        &[JValue::Int(index), JValue::Int(WIDTH)],
-                    )?
-                    .l()?;
-                if page.is_null() {
-                    break;
-                }
-                let pixels = env.convert_byte_array(JByteArray::from(page))?;
-                let width = u32::try_from(WIDTH).unwrap_or(1);
-                let height = u32::try_from(pixels.len() / (WIDTH as usize * 4)).unwrap_or(0);
-                pages.push((width, height, pixels));
-            }
-            env.call_method(activity, "pdfClose", "()V", &[])?;
-            Ok((count, pages))
-        })?;
-        match pages {
-            (count, _) if count < 0 => Err("the PDF can't be read".into()),
-            (_, pages) => Ok(pages),
-        }
+    fn render_pdf(&self, pdf: &[u8]) -> Result<PdfPages, String> {
+        let drawn = with_activity(|env, activity| draw_pdf(env, activity, pdf));
+        // Whatever happened on the way, the renderer is closed and the decrypted copy wiped.
+        let closed = with_activity(|env, activity| {
+            env.call_method(activity, "pdfClose", "()V", &[])
+                .map(|_| ())
+        });
+        let drawn = drawn?.ok_or_else(|| "the PDF can't be read".to_owned())?;
+        closed.map(|()| drawn)
     }
 
     fn scan_code(&self, purpose: i32) -> Result<(), String> {
         crate::scan::scan(purpose)
     }
+}
+
+/// The first pages of a PDF, each measured, held to the budget and only then drawn; `None` when
+/// it can't be read.
+fn draw_pdf(
+    env: &mut JNIEnv,
+    activity: &JObject,
+    pdf: &[u8],
+) -> jni::errors::Result<Option<PdfPages>> {
+    let data = env.byte_array_from_slice(pdf)?;
+    let total = env
+        .call_method(activity, "pdfOpen", "([B)I", &[JValue::Object(&data)])?
+        .i()?;
+    env.delete_local_ref(data)?;
+    let Ok(total) = u32::try_from(total) else {
+        return Ok(None);
+    };
+    let mut budget = PageBudget::new(total);
+    let mut pages = Vec::new();
+    for index in 0..jint::try_from(budget.pages()).unwrap_or(0) {
+        let index = JValue::Int(index);
+        let size = env
+            .call_method(activity, "pdfSize", "(I)J", &[index])?
+            .j()?;
+        // The width in the upper half, the height in the lower; -1 is a page with no size.
+        let (wide, tall) = ((size >> 32) as i32, size as i32);
+        let Some((width, height)) = budget.next_page(wide, tall) else {
+            break;
+        };
+        let (wide, tall) = (
+            jint::try_from(width).unwrap_or(0),
+            jint::try_from(height).unwrap_or(0),
+        );
+        let page = env
+            .call_method(
+                activity,
+                "pdfPage",
+                "(III)[B",
+                &[index, JValue::Int(wide), JValue::Int(tall)],
+            )?
+            .l()?;
+        if page.is_null() {
+            break;
+        }
+        let page = JByteArray::from(page);
+        let pixels = env.convert_byte_array(&page)?;
+        // Java's copy can go at once: held to the end, all the pages would be there twice.
+        env.delete_local_ref(page)?;
+        pages.push(PdfPage {
+            width,
+            height,
+            pixels,
+        });
+    }
+    Ok(Some(PdfPages { total, pages }))
 }
 
 /// `VaultActivity.bioDone`: what a fingerprint prompt sealed (1) or opened (2), or why not.

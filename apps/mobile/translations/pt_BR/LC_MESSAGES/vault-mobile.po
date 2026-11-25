@@ -107,6 +107,22 @@ msgid "The update couldn't be fetched ({})."
 msgstr "Não foi possível baixar a atualização ({})."
 
 msgctxt "Words"
+msgid "The update wasn't installed: it isn't signed like the app you have, so it may not be from the same maker."
+msgstr "A atualização não foi instalada: ela não tem a mesma assinatura do app que você tem, então pode não ser de quem o fez."
+
+msgctxt "Words"
+msgid "The update wasn't installed: the file isn't this app."
+msgstr "A atualização não foi instalada: o arquivo não é este app."
+
+msgctxt "Words"
+msgid "The update wasn't installed: the file isn't newer than the app you have."
+msgstr "A atualização não foi instalada: o arquivo não é mais novo que o app que você tem."
+
+msgctxt "Words"
+msgid "The update wasn't installed: Android's installer didn't answer as it should. Try again."
+msgstr "A atualização não foi instalada: o instalador do Android não respondeu como deveria. Tente de novo."
+
+msgctxt "Words"
 msgid "Password copied. The clipboard is cleared in {} seconds."
 msgstr "Senha copiada. A área de transferência será limpa em {} segundos."
 
@@ -681,6 +697,154 @@ msgid "{n} item imported."
 msgid_plural "{n} items imported."
 msgstr[0] "{n} item importado."
 msgstr[1] "{n} itens importados."
+
+msgctxt "PhoneWindow"
+msgid "Read this before you delete the file:"
+msgstr "Leia isto antes de apagar o arquivo:"
+
+msgctxt "PhoneWindow"
+msgid "… and {n} more"
+msgid_plural "… and {n} more"
+msgstr[0] "… e mais {n}"
+msgstr[1] "… e mais {n}"
+
+msgctxt "PhoneWindow"
+msgid "This was counted again because the vault changed. Tap Export again to make the file."
+msgstr "Isto foi contado de novo porque o cofre mudou. Toque em Exportar de novo para criar o arquivo."
+
+msgctxt "Messages"
+msgid "{n} attached file"
+msgid_plural "{n} attached files"
+msgstr[0] "{n} arquivo anexado"
+msgstr[1] "{n} arquivos anexados"
+
+msgctxt "Messages"
+msgid "{n} passkey"
+msgid_plural "{n} passkeys"
+msgstr[0] "{n} chave de acesso"
+msgstr[1] "{n} chaves de acesso"
+
+msgctxt "Messages"
+msgid "{n} earlier password"
+msgid_plural "{n} earlier passwords"
+msgstr[0] "{n} senha anterior"
+msgstr[1] "{n} senhas anteriores"
+
+msgctxt "Messages"
+msgid "{n} website after an item's first"
+msgid_plural "{n} websites after an item's first"
+msgstr[0] "{n} site além do primeiro de um item"
+msgstr[1] "{n} sites além do primeiro de um item"
+
+msgctxt "Messages"
+msgid "the dates of the items"
+msgstr "as datas dos itens"
+
+msgctxt "Messages"
+msgid "{n} hidden field not marked hidden"
+msgid_plural "{n} hidden fields not marked hidden"
+msgstr[0] "{n} campo oculto sem a marca de oculto"
+msgstr[1] "{n} campos ocultos sem a marca de oculto"
+
+msgctxt "Messages"
+msgid "{n} list of recovery codes as text"
+msgid_plural "{n} lists of recovery codes as text"
+msgstr[0] "{n} lista de códigos de recuperação como texto"
+msgstr[1] "{n} listas de códigos de recuperação como texto"
+
+msgctxt "Messages"
+msgid "{n} item as another kind"
+msgid_plural "{n} items as another kind"
+msgstr[0] "{n} item como outro tipo"
+msgstr[1] "{n} itens como outro tipo"
+
+msgctxt "Messages"
+msgid "{n} password"
+msgid_plural "{n} passwords"
+msgstr[0] "{n} senha"
+msgstr[1] "{n} senhas"
+
+msgctxt "Messages"
+msgid "{n} one-time code secret"
+msgid_plural "{n} one-time code secrets"
+msgstr[0] "{n} segredo de código de uso único"
+msgstr[1] "{n} segredos de código de uso único"
+
+msgctxt "Messages"
+msgid "{n} hidden field"
+msgid_plural "{n} hidden fields"
+msgstr[0] "{n} campo oculto"
+msgstr[1] "{n} campos ocultos"
+
+msgctxt "Messages"
+msgid "{n} recovery code"
+msgid_plural "{n} recovery codes"
+msgstr[0] "{n} código de recuperação"
+msgstr[1] "{n} códigos de recuperação"
+
+msgctxt "Messages"
+msgid "the notes of {n} item"
+msgid_plural "the notes of {n} items"
+msgstr[0] "as notas de {n} item"
+msgstr[1] "as notas de {n} itens"
+
+msgctxt "Messages"
+msgid "Not in this file: {}."
+msgstr "Fora deste arquivo: {}."
+
+msgctxt "Messages"
+msgid "In another form: {}."
+msgstr "Em outra forma: {}."
+
+msgctxt "Messages"
+msgid "Readable by anyone with this file: {}."
+msgstr "Qualquer pessoa com este arquivo lê: {}."
+
+msgctxt "Messages"
+msgid "Don't open this file in a spreadsheet: {n} password or code secret starts like a formula, and a spreadsheet may run it."
+msgid_plural "Don't open this file in a spreadsheet: {n} passwords or code secrets start like a formula, and a spreadsheet may run them."
+msgstr[0] "Não abra este arquivo em uma planilha: {n} senha ou segredo de código começa como uma fórmula, e a planilha pode executá-la."
+msgstr[1] "Não abra este arquivo em uma planilha: {n} senhas ou segredos de código começam como uma fórmula, e a planilha pode executá-los."
+
+msgctxt "Messages"
+msgid "That opened the new item lock, set on another device. Now type the PIN or password this computer asked for until now: then the locked items move to the new lock."
+msgstr "Isso abriu a nova trava de itens, definida em outro aparelho. Agora digite o PIN ou a senha que este computador pedia até agora: então os itens trancados passam para a nova trava."
+
+msgctxt "Messages"
+msgid "The item lock was changed on another device. A locked item, or Settings → Item lock, says what to type here: until then, this computer keeps its own lock, and some changes from that device wait."
+msgstr "A trava de itens foi trocada em outro aparelho. Um item trancado, ou Configurações → Trava de itens, diz o que digitar aqui: até lá, este computador mantém a própria trava, e algumas mudanças daquele aparelho esperam."
+
+msgctxt "Messages"
+msgid "The item lock changed on another device is in use here now. Locked items closed again: they open with its PIN or password."
+msgstr "A trava de itens trocada em outro aparelho agora vale aqui. Os itens trancados foram fechados de novo: eles abrem com o PIN ou a senha dela."
+
+msgctxt "Messages"
+msgid "The vault locked before the item lock was saved, so it was not changed. Windows Hello for locked items, if it was being set up, is off until the item lock is saved again."
+msgstr "O cofre trancou antes de a trava de itens ser salva, então ela não mudou. O Windows Hello para itens trancados, se estava sendo configurado, fica desligado até a trava de itens ser salva de novo."
+
+msgctxt "Messages"
+msgid "Filling while the vault is locked needs setting up again after this update: open a locked item with Windows Hello once, or turn the option off and on in Settings → Browser extension."
+msgstr "Preencher com o cofre trancado precisa ser configurado de novo após esta atualização: abra um item trancado com o Windows Hello uma vez, ou desligue e ligue a opção em Configurações → Extensão do navegador."
+
+msgctxt "Messages"
+msgid "A login saved from the browser while the vault was locked waits for the item lock: a locked login for that site has the same username. Open the item lock to add its new password."
+msgstr "Um login salvo pelo navegador enquanto o cofre estava trancado espera pela trava de itens: um login trancado desse site tem o mesmo nome de usuário. Abra a trava de itens para adicionar a nova senha dele."
+
+msgctxt "Messages"
+msgid "{} logins saved from the browser while the vault was locked wait for the item lock: locked logins for those sites have the same usernames. Open the item lock to add their new passwords."
+msgstr "{} logins salvos pelo navegador enquanto o cofre estava trancado esperam pela trava de itens: logins trancados desses sites têm os mesmos nomes de usuário. Abra a trava de itens para adicionar as novas senhas deles."
+
+msgctxt "Messages"
+msgid "The item lock was changed on another device. To move the locked items to it, type its new PIN here, and the PIN or password this computer asked for until now (either one first)."
+msgstr "A trava de itens foi trocada em outro aparelho. Para passar os itens trancados para ela, digite aqui o novo PIN dela e o PIN ou a senha que este computador pedia até agora (qualquer um primeiro)."
+
+msgctxt "Messages"
+msgid "The item lock was changed on another device. To move the locked items to it, type its new password here, and the PIN or password this computer asked for until now (either one first)."
+msgstr "A trava de itens foi trocada em outro aparelho. Para passar os itens trancados para ela, digite aqui a nova senha dela e o PIN ou a senha que este computador pedia até agora (qualquer um primeiro)."
+
+msgctxt "Messages"
+msgid "The item lock was turned off, or changed to the master password, on another device. Open the item lock here once and the locked items follow it."
+msgstr "A trava de itens foi desligada, ou trocada pela senha mestra, em outro aparelho. Abra a trava de itens aqui uma vez e os itens trancados a seguem."
 
 msgctxt "PhoneWindow"
 msgid "WebDAV address"
@@ -1937,10 +2101,6 @@ msgid "Save a protected export?"
 msgstr "Salvar uma exportação protegida?"
 
 msgctxt "Words"
-msgid "Export the logins unencrypted?"
-msgstr "Exportar os logins sem criptografia?"
-
-msgctxt "Words"
 msgid "Delete the folder “{}”?"
 msgstr "Excluir a pasta “{}”?"
 
@@ -1973,8 +2133,8 @@ msgid "The JSON file holds every password, note and card in plain text. Anyone o
 msgstr "O arquivo JSON guarda todas as senhas, notas e cartões em texto puro. Qualquer pessoa ou app que pegar o arquivo consegue lê-los. Apague-o depois de importar."
 
 msgctxt "Words"
-msgid "The CSV file holds the logins' passwords in plain text. Anyone or any app that gets the file reads them. Delete it once it has been imported."
-msgstr "O arquivo CSV guarda as senhas dos logins em texto puro. Qualquer pessoa ou app que pegar o arquivo consegue lê-las. Apague-o depois de importar."
+msgid "The CSV file holds every password, note and card in plain text. Anyone or any app that gets the file reads them. Delete it once it has been imported."
+msgstr "O arquivo CSV guarda todas as senhas, notas e cartões em texto puro. Qualquer pessoa ou app que pegar o arquivo consegue lê-los. Apague-o depois de importar."
 
 msgctxt "Words"
 msgid "Its items stay in the vault, in no folder."
@@ -2317,8 +2477,8 @@ msgid "Plain CSV"
 msgstr "CSV simples"
 
 msgctxt "PhoneWindow"
-msgid "Logins only, for a browser or a spreadsheet"
-msgstr "Só os logins, para um navegador ou uma planilha"
+msgid "For a browser or another password manager"
+msgstr "Para um navegador ou outro gerenciador de senhas"
 
 msgctxt "PhoneWindow"
 msgid "Join your vault server"
@@ -2840,6 +3000,14 @@ msgctxt "Words"
 msgid "Version {} of the app is on your vault server. Install it in Settings, About and updates."
 msgstr "A versão {} do app está no seu servidor do cofre. Instale em Configurações, Sobre e atualizações."
 
+msgctxt "Words"
+msgid "Only the first {} pages are shown: the rest would take too much of the phone's memory. Save the file to see all of it."
+msgstr "Só as primeiras {} páginas são mostradas: o resto usaria memória demais do celular. Salve o arquivo para ver tudo."
+
+msgctxt "Words"
+msgid "This PDF's pages are too large to show here. Save the file to see it."
+msgstr "As páginas deste PDF são grandes demais para mostrar aqui. Salve o arquivo para vê-lo."
+
 msgctxt "HealthSummary"
 msgid "Change the leaked ones first: they are known to attackers."
 msgstr "Troque primeiro as vazadas: quem ataca já conhece."
@@ -3073,3 +3241,23 @@ msgstr "O novo endereço responde com este cofre: ele é o usado daqui em diante
 msgctxt "PhoneWindow"
 msgid "Passwords shown evenly spaced, in a font of the app's own. The Secret Key shown two groups to a line, in bigger boxes. A recovery part read from the picture it was hidden in. A new version offered as soon as your server has it. The languages with their flags."
 msgstr "Senhas mostradas com espaçamento uniforme, numa fonte do próprio app. A chave secreta mostrada em dois grupos por linha, em quadros maiores. Uma parte de recuperação lida da imagem onde foi escondida. Uma versão nova oferecida assim que seu servidor a tiver. Os idiomas com suas bandeiras."
+
+msgctxt "Words"
+msgid "The recovery didn't finish ({}). Nothing changed: the recovery parts still work, and this phone didn't keep the Secret Key. Try again."
+msgstr "A recuperação não terminou ({}). Nada mudou: as partes de recuperação continuam valendo, e este celular não guardou a chave secreta. Tente de novo."
+
+msgctxt "Words"
+msgid "This phone couldn't keep the Secret Key ({}), and the recovery parts you used no longer work. Write the Secret Key below on your emergency kit now, then make a new kit on your computer."
+msgstr "Este celular não conseguiu guardar a chave secreta ({}), e as partes de recuperação que você usou não funcionam mais. Anote agora a chave secreta abaixo no seu kit de emergência e depois faça um kit novo no computador."
+
+msgctxt "PhoneWindow"
+msgid "Your Secret Key"
+msgstr "Sua chave secreta"
+
+msgctxt "PhoneWindow"
+msgid "Hidden while the item lock is closed: any of these may be a locked item's password now. Open a locked item to see them again."
+msgstr "Ocultas enquanto a trava de itens está fechada: qualquer uma delas pode ser agora a senha de um item trancado. Abra um item trancado para vê-las de novo."
+
+msgctxt "PhoneWindow"
+msgid "Website, autofill skips it"
+msgstr "Site, o preenchimento o ignora"

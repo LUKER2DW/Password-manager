@@ -18,7 +18,7 @@ use crate::{
     platform::{files, secret_store},
     prefs,
     system::{PromptWords, System},
-    ui::{Page, Screen, VaultRow},
+    ui::{ExportCounts, Page, Screen, VaultRow},
     view,
 };
 
@@ -113,11 +113,18 @@ impl Controller {
     }
 
     /// The app left the screen (another app, Home, the screen turned off; not the system's
-    /// own pickers and prompts, which the shell leaves out).
+    /// own pickers and prompts, which the shell leaves out). With "Lock as soon as I leave the
+    /// app", the vault locks, also while a job holds it (an export, a new master password, a
+    /// confirmation: its result is dropped when it comes back), and an unlock still on its
+    /// way opens nothing.
     pub fn left_app(&self) {
-        let lock = self.state.borrow().prefs.lock_on_leave && self.is_unlocked();
-        if lock {
+        if !self.state.borrow().prefs.lock_on_leave {
+            return;
+        }
+        if self.is_unlocked() {
             self.lock();
+        } else {
+            self.new_session();
         }
     }
 
@@ -261,8 +268,10 @@ impl Controller {
             })
             .collect();
         let app = self.app();
-        // A locked vault is still called by the name it had when it was last open.
+        // A locked vault is still called by the name it had when it was last open (and shows
+        // no titles from its last import).
         if !open {
+            self.forget_import_warnings();
             app.set_vault_name(
                 index
                     .and_then(|i| kept.get(i))
@@ -334,7 +343,13 @@ impl Controller {
     /// checked again against the vault file first, and nothing goes out while items are
     /// behind the item lock (their secrets would be missing). The bytes wait in memory while
     /// the shell asks where to save them (`save-file` with -1), and are wiped once saved.
+    ///
+    /// -1 only counts (the sheet just opened): what the file would leave out and what anyone
+    /// who gets it reads, for the sheet to say before it is confirmed.
     pub(super) fn export_vault(&self, format: i32) {
+        if format < 0 {
+            return self.count_export();
+        }
         if self.app().get_busy() {
             return;
         }
@@ -355,14 +370,21 @@ impl Controller {
             return self.set_error(error::EXPORT_LOCKED, "");
         }
         self.set_error(error::NONE, "");
-        let (vault, secret_key, path) = {
-            let mut state = self.state.borrow_mut();
-            let (Some(vault), Some(secret_key)) = (state.vault.take(), state.secret_key.take())
-            else {
-                return;
-            };
-            (vault, secret_key, state.path.clone())
+        // The file must hold what the sheet says: changed since (a sync), that is shown first
+        // and confirmed again.
+        let counts = match self.export_counts(format) {
+            Ok(counts) => counts,
+            Err(err) => return self.set_error(error::EXPORT, &err.to_string()),
         };
+        if counts != self.app().get_export_counts() {
+            self.app().set_export_counts(counts);
+            self.app().set_export_recounted(true);
+            return;
+        }
+        let Some((vault, secret_key, session)) = self.lend_vault() else {
+            return;
+        };
+        let path = self.state.borrow().path.clone();
         struct Exported {
             vault: Vault,
             secret_key: SecretKey,
@@ -393,11 +415,11 @@ impl Controller {
                     outcome,
                 }
             },
-            |c, exported| {
-                {
-                    let mut state = c.state.borrow_mut();
-                    state.vault = Some(exported.vault);
-                    state.secret_key = Some(exported.secret_key);
+            move |c, exported| {
+                // Locked meanwhile (the app was left): it stays locked, and the export is
+                // wiped unsaved.
+                if !c.take_back(exported.vault, exported.secret_key, session) {
+                    return;
                 }
                 // The master password is typed again after every try.
                 c.clear_fields(&[field::EXPORT_MASTER]);
@@ -417,6 +439,70 @@ impl Controller {
         );
     }
 
+    /// An export's sheet opened: counts what its file would leave out and what anyone who
+    /// gets it would read. Items behind the item lock can't be counted (nor exported): that
+    /// is told at once.
+    fn count_export(&self) {
+        let app = self.app();
+        app.set_export_recounted(false);
+        let format = match app.get_confirming() {
+            sheet::EXPORT_JSON => 1,
+            sheet::EXPORT_CSV => 2,
+            _ => 0,
+        };
+        match self.export_counts(format) {
+            Ok(counts) => app.set_export_counts(counts),
+            Err(err) => {
+                app.set_export_counts(ExportCounts::default());
+                match err {
+                    CoreError::SecretsLocked => self.set_error(error::EXPORT_LOCKED, ""),
+                    other => self.set_error(error::EXPORT, &other.to_string()),
+                }
+            }
+        }
+    }
+
+    /// The counts of an export of the open vault (`format` as in `export_vault`): numbers only.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn export_counts(&self, format: i32) -> Result<ExportCounts, CoreError> {
+        use vault_import::ExportFormat;
+        let report = match self.state.borrow().vault.as_ref() {
+            Some(vault) => vault_import::export_report(
+                vault,
+                match format {
+                    0 => ExportFormat::Sealed,
+                    1 => ExportFormat::Json,
+                    _ => ExportFormat::Csv,
+                },
+            )?,
+            None => return Ok(ExportCounts::default()),
+        };
+        let count = |n: usize| i32::try_from(n).unwrap_or(i32::MAX);
+        let (out, clear) = (&report.left_out, &report.in_clear);
+        Ok(ExportCounts {
+            attachments: count(out.attachments),
+            passkeys: count(out.passkeys),
+            earlier_passwords: count(out.earlier_passwords),
+            extra_websites: count(out.extra_websites),
+            dates: out.dates,
+            hidden_marks: count(out.hidden_marks),
+            recovery_code_lists: count(out.recovery_code_lists),
+            kinds_changed: count(out.kinds_changed),
+            passwords: count(clear.passwords),
+            otp_secrets: count(clear.otp_secrets),
+            hidden_fields: count(clear.hidden_fields),
+            recovery_codes: count(clear.recovery_codes),
+            notes: count(clear.notes),
+            formula_like: count(clear.formula_like),
+        })
+    }
+
+    /// The browser preview makes no exports.
+    #[cfg(target_arch = "wasm32")]
+    fn export_counts(&self, _format: i32) -> Result<ExportCounts, CoreError> {
+        Ok(ExportCounts::default())
+    }
+
     /// A sensitive change confirmed in the sheet with the master password (app.slint `ask`):
     /// removing the vault from the phone, stopping sync, removing a device or the backup
     /// server, adding a device. As for an export, the password is checked against the vault
@@ -430,14 +516,10 @@ impl Controller {
             return self.set_error(error::WRONG_CURRENT, "");
         }
         self.set_error(error::NONE, "");
-        let (vault, secret_key, path) = {
-            let mut state = self.state.borrow_mut();
-            let (Some(vault), Some(secret_key)) = (state.vault.take(), state.secret_key.take())
-            else {
-                return;
-            };
-            (vault, secret_key, state.path.clone())
+        let Some((vault, secret_key, session)) = self.lend_vault() else {
+            return;
         };
+        let path = self.state.borrow().path.clone();
         struct Checked {
             vault: Vault,
             secret_key: SecretKey,
@@ -469,11 +551,11 @@ impl Controller {
                     outcome,
                 }
             },
-            |c, checked| {
-                {
-                    let mut state = c.state.borrow_mut();
-                    state.vault = Some(checked.vault);
-                    state.secret_key = Some(checked.secret_key);
+            move |c, checked| {
+                // Locked meanwhile (the app was left): it stays locked, and the change waits
+                // for a new confirmation.
+                if !c.take_back(checked.vault, checked.secret_key, session) {
+                    return;
                 }
                 c.clear_fields(&[field::EXPORT_MASTER]);
                 if let Err((code, detail)) = checked.outcome {
@@ -547,8 +629,10 @@ impl Controller {
         self.offer_biometrics(true);
     }
 
-    /// Points the window at the vault file `path` (nothing open, nothing waiting).
+    /// Points the window at the vault file `path` (nothing open, nothing waiting; an unlock
+    /// still on its way for the one before opens nothing).
     fn open_slot(&self, path: PathBuf) {
+        self.new_session();
         {
             let mut state = self.state.borrow_mut();
             state.path = path;
@@ -609,6 +693,7 @@ impl Controller {
         let file = self.current_file();
         self.change_prefs(|prefs| {
             prefs.vaults.retain(|v| v.file != file);
+            prefs.password_typed_at.remove(&id);
             prefs.current.clear();
         });
         let folder = self.folder();
@@ -656,12 +741,37 @@ impl Controller {
         self.system().forget_biometrics(vault_id);
     }
 
-    /// The master password was typed: fingerprint unlock may go on for another 14 days.
+    /// The master password was typed and opened the vault: fingerprint unlock may go on for
+    /// another 14 days. The only place that time moves forward.
     pub(super) fn password_typed(&self, vault_id: &str) {
+        let now = unix_now();
+        self.change_prefs(|prefs| {
+            prefs.password_typed_at.insert(vault_id.to_owned(), now);
+        });
         if let Some(mut bio) = self.read_bio(vault_id) {
-            bio.password_at = unix_now();
+            bio.password_at = now;
             let _ = self.write_bio(vault_id, &bio);
         }
+    }
+
+    /// The tests: as if the master password was last typed for `vault_id` at `at`.
+    #[cfg(test)]
+    pub(crate) fn set_password_typed_at(&self, vault_id: &str, at: i64) {
+        self.change_prefs(|prefs| {
+            prefs.password_typed_at.insert(vault_id.to_owned(), at);
+        });
+    }
+
+    /// When the master password was last typed here for the vault `vault_id` (0: not that
+    /// this phone knows, which counts as long ago).
+    fn password_typed_at(&self, vault_id: &str) -> i64 {
+        self.state
+            .borrow()
+            .prefs
+            .password_typed_at
+            .get(vault_id)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// The master password changed: its fingerprint unlock opens nothing any more (it was
@@ -760,19 +870,23 @@ impl Controller {
 
     /// The shell's answer to [`System::seal_with_biometrics`]: the sealed secret, or why not
     /// ("" when the person cancelled).
+    ///
+    /// The 14 days run from when the master password was last typed, as before it was turned
+    /// on: turning it off and on again with the phone's own lock renews nothing.
     pub fn biometric_sealed(&self, sealed: Result<Vec<u8>, String>) {
         let pending = std::mem::take(&mut self.state.borrow_mut().bio);
         let BioPending::Sealing(id, sealed_key) = pending else {
             return;
         };
         let app = self.app();
+        let password_at = self.password_typed_at(&id);
         let written = sealed.and_then(|hardware| {
             self.write_bio(
                 &id,
                 &BioUnlock {
                     sealed_key,
                     hardware,
-                    password_at: unix_now(),
+                    password_at,
                 },
             )
         });
@@ -844,14 +958,18 @@ impl Controller {
             }
         };
         let path = self.state.borrow().path.clone();
+        let bio = self.read_bio(&id);
+        if bio.as_ref().is_some_and(|bio| !bio.fresh(unix_now())) {
+            // The 14 days ran out while the prompt was open (or the clock moved): the master
+            // password first.
+            return self.offer_biometrics(false);
+        }
         let opened = (|| {
             let bytes = files::read(&path).map_err(|e| e.to_string())?;
             if Vault::inspect(&bytes).map_err(|e| e.to_string())?.id_hex != id {
                 return Err("another vault is showing now".to_owned());
             }
-            let bio = self
-                .read_bio(&id)
-                .ok_or("fingerprint unlock was turned off")?;
+            let bio = bio.ok_or("fingerprint unlock was turned off")?;
             let secret_key = secret_store::load(&id)
                 .ok()
                 .flatten()
@@ -869,6 +987,7 @@ impl Controller {
                 typed_key: false,
                 hash: fingerprint(&bytes),
                 by_password: false,
+                used_parts: None,
             }),
             Err(_) => {
                 // The master password changed (here or on another device): the key is bound
@@ -895,6 +1014,7 @@ impl Controller {
             self.state.borrow_mut().import_pending = Some(bytes);
             let app = self.app();
             app.set_import_added(-1);
+            self.forget_import_warnings();
             app.set_import_name(name.into());
             app.invoke_ask(sheet::IMPORT);
             return;
@@ -931,7 +1051,9 @@ impl Controller {
         let format = vault_import::detect_format(&bytes);
         self.set_error(error::NONE, "");
         self.app().set_import_added(-1);
-        self.run(
+        self.forget_import_warnings();
+        // Added to the vault open now, not to one opened after a lock.
+        self.run_in_session(
             move || vault_import::import(&bytes, format, &password, None),
             |c, report| c.imported(report),
         );
@@ -947,28 +1069,49 @@ impl Controller {
             Err(ImportError::SealedExport) => return self.set_error(error::IMPORT_PASSWORD, ""),
             Err(err) => return self.set_error(error::IMPORT, &err.to_string()),
         };
-        let outcome = {
+        let (first, more) = import_warnings(&report.warnings);
+        let (outcome, before) = {
             let mut state = self.state.borrow_mut();
             let Some(vault) = state.vault.as_mut() else {
                 return;
             };
-            report.add_to_vault(vault)
+            let before = vault.snapshot();
+            (report.add_to_vault(vault), before)
         };
+        // Not all of it came in, or it couldn't be saved: the open vault is as it was, or the
+        // next try would find every item "already in the vault" and the person delete the file.
         let outcome = match outcome {
-            Ok(outcome) => outcome,
-            Err(err) => return self.set_error(error::IMPORT, &err.to_string()),
+            Ok(outcome) if outcome.added == 0 || self.save() => outcome,
+            failed => {
+                if let Some(vault) = self.state.borrow_mut().vault.as_mut() {
+                    vault.roll_back(before);
+                }
+                if let Err(err) = failed {
+                    self.set_error(error::IMPORT, &err.to_string());
+                }
+                return;
+            }
         };
-        if outcome.added > 0 && !self.save() {
-            return;
-        }
         self.state.borrow_mut().import_pending = None;
-        self.close_sheet(sheet::IMPORT);
+        // What was left behind is there before the sheet closes: the person may delete the
+        // file next.
         let app = self.app();
-        app.set_import_name(SharedString::new());
+        app.set_import_warnings(first.into());
+        app.set_import_more(more);
         app.set_import_added(i32::try_from(outcome.added).unwrap_or(i32::MAX));
         app.set_import_skipped(i32::try_from(outcome.duplicates).unwrap_or(i32::MAX));
+        self.close_sheet(sheet::IMPORT);
+        app.set_import_name(SharedString::new());
         self.refresh_list();
         self.publish_vault_facts();
+    }
+
+    /// Another import starts, or the vault locked: the last one's warnings (they name items)
+    /// leave the screen.
+    fn forget_import_warnings(&self) {
+        let app = self.app();
+        app.set_import_warnings(SharedString::new());
+        app.set_import_more(0);
     }
 
     // ---- "Check this password" ----
@@ -1035,6 +1178,33 @@ impl Controller {
             },
         );
     }
+}
+
+/// How many of an import's warnings are shown, as on the computer, and how long each may be:
+/// the titles in them come from the file.
+#[cfg(not(target_arch = "wasm32"))]
+const WARNINGS_SHOWN: usize = 4;
+#[cfg(not(target_arch = "wasm32"))]
+const WARNING_CHARS: usize = 400;
+
+/// An import's warnings for the screen: the first ones, a line each, and how many more.
+#[cfg(not(target_arch = "wasm32"))]
+fn import_warnings(warnings: &[String]) -> (String, i32) {
+    let line = |warning: &String| {
+        let mut chars = warning.chars();
+        let mut line: String = chars
+            .by_ref()
+            .take(WARNING_CHARS)
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect();
+        if chars.next().is_some() {
+            line.push('…');
+        }
+        line
+    };
+    let first: Vec<String> = warnings.iter().take(WARNINGS_SHOWN).map(line).collect();
+    let more = warnings.len().saturating_sub(WARNINGS_SHOWN);
+    (first.join("\n"), i32::try_from(more).unwrap_or(i32::MAX))
 }
 
 /// An export's file name and bytes.

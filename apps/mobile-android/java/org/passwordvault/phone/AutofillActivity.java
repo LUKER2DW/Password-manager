@@ -16,6 +16,10 @@ import java.util.Arrays;
  * What runs when an autofill offer is chosen: a screen of its own, with nothing on it but the
  * system's prompts. Every fill is confirmed first, with a fingerprint or the phone's own lock.
  *
+ * What it answers goes to the app that started it, so that has to be the app the offer was made
+ * for; who it is ({@link Place}) is worked out again here, its certificate included, and the
+ * login is only one that belongs there.
+ *
  * - One login of the open vault ({@link #ITEM}): confirmed, then its username and password.
  * - The vault locked: with fingerprint unlock on, a fingerprint opens the vault file here just
  *   long enough to read the logins for this place (several: the person picks one); otherwise
@@ -26,8 +30,6 @@ public class AutofillActivity extends Activity {
         System.loadLibrary("vault_mobile_android");
     }
 
-    static final String DOMAIN = "org.passwordvault.phone.DOMAIN";
-    static final String APP = "org.passwordvault.phone.APP";
     static final String ITEM = "org.passwordvault.phone.ITEM";
     static final String USERNAME = "org.passwordvault.phone.USERNAME";
     static final String PASSWORD = "org.passwordvault.phone.PASSWORD";
@@ -39,23 +41,28 @@ public class AutofillActivity extends Activity {
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
         Intent intent = getIntent();
-        String domain = intent.getStringExtra(DOMAIN);
-        String app = intent.getStringExtra(APP);
+        Place place = Place.read(this, intent.getExtras());
+        String recipient = place == null || !place.app.equals(getCallingPackage())
+                ? null : Autofill.recipient(place);
+        if (recipient == null) {
+            done(null);
+            return;
+        }
         String item = intent.getStringExtra(ITEM);
         usernameField = intent.getParcelableExtra(USERNAME);
         passwordField = intent.getParcelableExtra(PASSWORD);
-        String place = domain != null ? domain : app;
+        String shown = place.shown(recipient);
         String title = Autofill.word(this, "autofill_title");
         String cancel = Autofill.word(this, "autofill_cancel");
 
         if (item != null) {
-            Biometrics.confirm(this, title, place, cancel, (ok, error) -> {
+            Biometrics.confirm(this, title, shown, cancel, (ok, error) -> {
                 if (ok == null) {
                     refuse(error);
                     return;
                 }
                 // username, password; null when the vault was locked meanwhile.
-                String[] login = Autofill.openLogin(item, domain, app);
+                String[] login = Autofill.openLogin(item, place);
                 if (login == null) {
                     openApp();
                 } else {
@@ -71,13 +78,13 @@ public class AutofillActivity extends Activity {
             openApp();
             return;
         }
-        Biometrics.open(this, vault, sealed, title, place, cancel, (secret, error) -> {
+        Biometrics.open(this, vault, sealed, title, shown, cancel, (secret, error) -> {
             if (secret == null) {
                 refuse(error);
                 return;
             }
             // title, username, password for each login.
-            String[] found = Autofill.openWithSecret(home, secret, domain, app);
+            String[] found = Autofill.openWithSecret(home, secret, place);
             Arrays.fill(secret, (byte) 0);
             if (found == null) {
                 openApp();

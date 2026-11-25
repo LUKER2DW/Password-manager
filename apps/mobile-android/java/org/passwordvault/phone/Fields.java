@@ -11,37 +11,136 @@ import android.view.autofill.AutofillId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 /**
- * A sign-in form as autofill sees it: its username and password fields, and the website it
- * belongs to (in a browser). Fields are recognised by what the app or page says they are
- * (autofill hints, input types, HTML attributes), then by their names; a password field with
- * no named username takes the text field just before it.
+ * A sign-in form as autofill sees it: its username and password fields, and the page they are
+ * in (in a browser). Fields are recognised by what the app or page says they are (autofill
+ * hints, input types, HTML attributes), then by their names; a password field with no named
+ * username takes the text field just before it.
+ *
+ * A form's fields are all of one origin: the app's own, or one web view's fields of one domain
+ * and scheme. A screen may show several (a page with another site's frame in it, an app's own
+ * fields next to a web page); a domain counts only for the fields under the node that gives it,
+ * and fields of two origins are never one form.
  */
 final class Fields {
     AutofillId username;
     AutofillId password;
-    /** The page's domain in a browser ("accounts.example.com"), else null. */
+    /**
+     * The domain of the page the fields are in ("accounts.example.com"), as the web view around
+     * them gives it ("" for a page with none); null for the app's own fields.
+     */
     String webDomain;
+    /** The page's scheme, when the web view gives it ("https"). */
+    String webScheme;
     /** What the fields hold (for "Save to Vault?"). */
     String usernameValue;
     String passwordValue;
 
+    /** The outermost node of the web view the fields are in; null for the app's own. */
+    private ViewNode web;
     private AutofillId lastText;
     private String lastTextValue;
     private AutofillId beforePassword;
     private String beforePasswordValue;
 
+    /**
+     * The form to fill: the one with the focus; else (the focus is on no sign-in form) the first
+     * with a password, else with a username. Without any, one without fields.
+     */
     static Fields find(AssistStructure structure) {
-        Fields fields = new Fields();
-        for (int i = 0; i < structure.getWindowNodeCount(); i++) {
-            fields.walk(structure.getWindowNodeAt(i).getRootViewNode());
+        Finder finder = new Finder(structure);
+        if (finder.focused != null && finder.focused.signsIn()) {
+            return finder.focused;
         }
-        if (fields.password != null && fields.username == null) {
-            fields.username = fields.beforePassword;
-            fields.usernameValue = fields.beforePasswordValue;
+        Fields found = null;
+        for (Fields form : finder.forms) {
+            if (form.password != null) {
+                return form;
+            }
+            if (found == null && form.signsIn()) {
+                found = form;
+            }
         }
-        return fields;
+        return found == null ? new Fields() : found;
+    }
+
+    /** The form whose password field is {@code password}, or null when it isn't there any more. */
+    static Fields holding(AssistStructure structure, AutofillId password) {
+        for (Fields form : new Finder(structure).forms) {
+            if (password.equals(form.password)) {
+                return form;
+            }
+        }
+        return null;
+    }
+
+    /** Every form on a screen, one for each origin, and which has the focus. */
+    private static final class Finder {
+        final List<Fields> forms = new ArrayList<>();
+        Fields focused;
+
+        Finder(AssistStructure structure) {
+            Fields own = new Fields();
+            forms.add(own);
+            for (int i = 0; i < structure.getWindowNodeCount(); i++) {
+                walk(structure.getWindowNodeAt(i).getRootViewNode(), own);
+            }
+            for (Fields form : forms) {
+                form.finish();
+            }
+        }
+
+        /** {@code around}: the form the fields around this node belong to. */
+        private void walk(ViewNode node, Fields around) {
+            Fields here = around;
+            String domain = node.getWebDomain();
+            String scheme = node.getWebScheme();
+            if (domain != null || scheme != null) {
+                // This node, and what is under it, is a web page (or another page inside one).
+                // One with a scheme and no host (a "data:" page) is nobody's site: neither the
+                // app's own fields nor the page's around it.
+                here = page(around.web == null ? node : around.web,
+                        domain == null ? "" : domain, scheme);
+            }
+            if (node.isFocused()) {
+                // The innermost one: a web view has the focus along with the field in it.
+                focused = here;
+            }
+            here.take(node);
+            for (int i = 0; i < node.getChildCount(); i++) {
+                walk(node.getChildAt(i), here);
+            }
+        }
+
+        private Fields page(ViewNode web, String domain, String scheme) {
+            domain = domain.toLowerCase(Locale.ROOT);
+            scheme = scheme == null ? null : scheme.toLowerCase(Locale.ROOT);
+            for (Fields form : forms) {
+                if (form.web == web && domain.equals(form.webDomain)
+                        && Objects.equals(scheme, form.webScheme)) {
+                    return form;
+                }
+            }
+            Fields form = new Fields();
+            form.web = web;
+            form.webDomain = domain;
+            form.webScheme = scheme;
+            forms.add(form);
+            return form;
+        }
+    }
+
+    private boolean signsIn() {
+        return password != null || username != null;
+    }
+
+    private void finish() {
+        if (password != null && username == null) {
+            username = beforePassword;
+            usernameValue = beforePasswordValue;
+        }
     }
 
     /** The fields found, for an offer that covers them all. */
@@ -56,11 +155,8 @@ final class Fields {
         return ids.toArray(new AutofillId[0]);
     }
 
-    private void walk(ViewNode node) {
-        String domain = node.getWebDomain();
-        if (webDomain == null && domain != null && !domain.isEmpty()) {
-            webDomain = domain.toLowerCase(Locale.ROOT);
-        }
+    /** Takes the node's field into this form, if it is one that counts. */
+    private void take(ViewNode node) {
         AutofillId id = node.getAutofillId();
         if (id != null && node.getAutofillType() == View.AUTOFILL_TYPE_TEXT
                 && node.getVisibility() == View.VISIBLE && isTextInput(node)) {
@@ -81,9 +177,6 @@ final class Fields {
                 lastText = id;
                 lastTextValue = value;
             }
-        }
-        for (int i = 0; i < node.getChildCount(); i++) {
-            walk(node.getChildAt(i));
         }
     }
 

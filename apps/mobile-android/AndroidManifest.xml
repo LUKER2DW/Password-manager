@@ -11,6 +11,20 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- What this app may see of the others (Android 11 on): those that open https links, so
+         autofill can tell a browser from another app and check its certificate (Place.java);
+         and the system's installer, which shows the question before an update goes in. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.content.pm.action.CONFIRM_INSTALL" />
+        </intent>
+    </queries>
+
     <!-- Plain http is let through by Android only so a Tailscale address (100.x.y.z, encrypted
          by WireGuard) works; the app itself refuses http:// to anywhere else (sync/http.rs). -->
     <application
@@ -50,6 +64,12 @@
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- The installer's answers: not exported, so only the PendingIntent the installer was
+             given leads here. -->
+        <receiver
+            android:name="org.passwordvault.phone.InstallReceiver"
+            android:exported="false" />
 
         <service
             android:name="org.passwordvault.phone.VaultAutofillService"

@@ -1,55 +1,52 @@
 //! Autofill from the open vault: the Android shell asks on autofill's behalf, `crate::autofill`
-//! decides which logins belong to the place asking. Nothing here fills anything by itself: the
-//! shell confirms with a fingerprint or the phone's lock before a password leaves.
+//! decides who would receive a login and which ones belong there. Nothing here fills anything
+//! by itself: the shell confirms with a fingerprint or the phone's lock before a password
+//! leaves.
 
-use crate::autofill::{self, Login};
+use vault_core::VaultSnapshot;
+
+use crate::autofill::{self, Kept, Login, Recipient};
 
 use super::{Controller, notice};
 
 impl Controller {
-    /// The logins of the open vault for the place asking (a website's domain, else the app's
-    /// package); `None` while the vault is locked.
-    pub fn autofill_logins(&self, domain: Option<&str>, app: &str) -> Option<Vec<Login>> {
+    /// The logins of the open vault saved for `to`; `None` while the vault is locked.
+    pub fn autofill_logins(&self, to: &Recipient) -> Option<Vec<Login>> {
         let state = self.state.borrow();
         let vault = state.vault.as_ref()?;
-        Some(autofill::logins_for(vault, domain, app))
+        Some(autofill::logins_for(vault, to))
     }
 
-    /// One login of the open vault by its id, only while it still belongs to the place asking.
-    pub fn autofill_login(&self, id: &str, domain: Option<&str>, app: &str) -> Option<Login> {
+    /// One login of the open vault by its id, only while it still belongs to `to`.
+    pub fn autofill_login(&self, id: &str, to: &Recipient) -> Option<Login> {
         let state = self.state.borrow();
         let vault = state.vault.as_ref()?;
-        autofill::login_by_id(vault, id, domain, app)
+        autofill::login_by_id(vault, id, to)
     }
 
     /// "Save to Vault?" from another app, with the vault open: the login is added (or its
-    /// password changed) and saved. `false` while the vault is locked or it couldn't be saved.
-    pub fn autofill_save(
-        &self,
-        domain: Option<&str>,
-        app: &str,
-        username: &str,
-        password: &str,
-    ) -> bool {
-        let changed = {
+    /// password changed, when it isn't behind the item lock) and saved. `None` while the vault
+    /// is locked or it couldn't be saved: the open vault is then as it was (the drop box keeps
+    /// the login instead, and a later save doesn't bring it in a second time).
+    pub fn autofill_save(&self, from: &Recipient, username: &str, password: &str) -> Option<Kept> {
+        let (kept, before) = {
             let mut state = self.state.borrow_mut();
-            let Some(vault) = state.vault.as_mut() else {
-                return false;
-            };
-            autofill::save_into(vault, domain, app, username, password)
+            let vault = state.vault.as_mut()?;
+            let before = vault.snapshot();
+            (
+                autofill::save_into(vault, from, username, password).ok()?,
+                before,
+            )
         };
-        match changed {
-            Ok(false) => true,
-            Ok(true) => {
-                if !self.save() {
-                    return false;
-                }
-                self.refresh_list();
-                self.notify(notice::SAVED, "");
-                true
+        if kept != Kept::Same {
+            if !self.save() {
+                self.take_out_again(before);
+                return None;
             }
-            Err(_) => false,
+            self.refresh_list();
+            self.notify(notice::SAVED, "");
         }
+        Some(kept)
     }
 
     /// At unlock: the logins saved from other apps while the vault was locked come in (and
@@ -66,21 +63,32 @@ impl Controller {
         if items.is_empty() {
             return;
         }
-        let added = {
+        let (added, before) = {
             let mut state = self.state.borrow_mut();
             let Some(vault) = state.vault.as_mut() else {
                 return;
             };
-            items
+            let before = vault.snapshot();
+            let added = items
                 .iter()
                 .filter(|item| vault.add_item(item).is_ok())
-                .count()
+                .count();
+            (added, before)
         };
-        // Emptied only once they are safe in the saved vault.
+        // Emptied only once they are safe in the saved vault; until then they are only there.
         if self.save() {
             autofill::empty_drop_box(&folder, &id);
             self.refresh_list();
             self.notify(notice::DROPPED, &added.to_string());
+        } else {
+            self.take_out_again(before);
+        }
+    }
+
+    /// What another app saved couldn't be written: the open vault goes back to what it was.
+    fn take_out_again(&self, before: VaultSnapshot) {
+        if let Some(vault) = self.state.borrow_mut().vault.as_mut() {
+            vault.roll_back(before);
         }
     }
 }

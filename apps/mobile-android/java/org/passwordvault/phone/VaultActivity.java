@@ -2,15 +2,9 @@
 package org.passwordvault.phone;
 
 import android.app.NativeActivity;
-import android.app.PendingIntent;
-import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageInstaller;
 import android.database.Cursor;
-import android.graphics.Bitmap;
-import android.graphics.Color;
-import android.graphics.pdf.PdfRenderer;
-import android.os.ParcelFileDescriptor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -23,11 +17,9 @@ import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.nio.ByteBuffer;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.Locale;
 
@@ -42,7 +34,7 @@ import java.util.Locale;
  * read (or read back after saving) goes to the app as bytes. Nothing here sees a password or the
  * vault key: a vault file is encrypted, and fingerprint unlock only seals a device secret. The one
  * decrypted thing that passes through is a PDF attached to an item, while its preview is drawn
- * (pdfOpen).
+ * (PdfPreview).
  */
 public class VaultActivity extends NativeActivity {
     static {
@@ -55,8 +47,6 @@ public class VaultActivity extends NativeActivity {
     private static final int SAVE = 2;
     /** Largest file read (a vault, or a picture holding a recovery part). */
     private static final int MAX = 64 * 1024 * 1024;
-    /** The installer's answer comes back to this activity with this action. */
-    private static final String INSTALLED = "org.passwordvault.phone.INSTALLED";
     private static final int SEALED = 1;
     private static final int OPENED = 2;
 
@@ -66,8 +56,8 @@ public class VaultActivity extends NativeActivity {
     private Runnable waitingPrompt;
     /** One of the app's own system screens is up (a picker, a settings page, the installer). */
     private boolean away;
-    /** The install session this app committed and waits to hear about, or -1. */
-    private volatile int installing = -1;
+    /** The activity there is, for the installer's answer (InstallReceiver). */
+    private static WeakReference<VaultActivity> current = new WeakReference<>(null);
 
     // ---- files ----
 
@@ -151,9 +141,7 @@ public class VaultActivity extends NativeActivity {
         });
     }
 
-    private PdfRenderer pdf;
-    private ParcelFileDescriptor pdfFile;
-    private File pdfPath;
+    private PdfPreview pdf;
 
     /** Whether the person kept the app out of screenshots (Settings), see {@link #setSecure}. */
     private boolean secure;
@@ -161,86 +149,48 @@ public class VaultActivity extends NativeActivity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        current = new WeakReference<>(this);
         // The recent apps view never shows what was on screen, screenshots allowed or not.
         if (Build.VERSION.SDK_INT >= 33) {
             setRecentsScreenshotEnabled(false);
         }
-        // A preview's file left behind when the app was stopped while drawing it.
-        File[] left = getCacheDir().listFiles((dir, name) -> name.startsWith("preview") && name.endsWith(".pdf"));
-        if (left != null) {
-            for (File file : left) {
-                wipe(file);
-            }
-        }
-    }
-
-    /** Overwrites a file with zeros, then deletes it. */
-    private static void wipe(File file) {
-        try (FileOutputStream out = new FileOutputStream(file)) {
-            out.write(new byte[(int) Math.min(file.length(), 64L * 1024 * 1024)]);
-        } catch (Exception e) {
-            // Deleted below anyway.
-        }
-        file.delete();
+        // A preview's file left behind by an earlier run (an older version of the app kept it
+        // there while drawing).
+        PdfPreview.cleanUp(getCacheDir());
     }
 
     /**
-     * Opens a PDF attached to an item for its preview, drawn here by Android's own renderer:
-     * the decrypted file is written to this app's private cache (the renderer reads a file),
-     * read, and deleted by {@link #pdfClose}. Answers how many pages it has, or -1.
+     * Opens a PDF attached to an item for its preview, drawn here by Android's own renderer
+     * ({@link PdfPreview}, which wipes {@code data}). Answers how many pages it has, or -1.
+     * {@link #pdfClose} ends it, whatever happened in between.
      */
     public int pdfOpen(byte[] data) {
         pdfClose();
         try {
-            pdfPath = File.createTempFile("preview", ".pdf", getCacheDir());
-            try (FileOutputStream out = new FileOutputStream(pdfPath)) {
-                out.write(data);
-            }
-            pdfFile = ParcelFileDescriptor.open(pdfPath, ParcelFileDescriptor.MODE_READ_ONLY);
-            pdf = new PdfRenderer(pdfFile);
-            return pdf.getPageCount();
-        } catch (Exception e) {
+            pdf = new PdfPreview(getCacheDir(), data);
+            return pdf.pages();
+        } catch (Exception | OutOfMemoryError e) {
             pdfClose();
             return -1;
         }
     }
 
-    /** Page {@code index} drawn {@code width} pixels wide on white, as RGBA bytes. */
-    public byte[] pdfPage(int index, int width) {
-        if (pdf == null || index < 0 || index >= pdf.getPageCount()) {
-            return null;
-        }
-        try (PdfRenderer.Page page = pdf.openPage(index)) {
-            int height = Math.max(1, (int) ((long) width * page.getHeight() / Math.max(1, page.getWidth())));
-            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-            bitmap.eraseColor(Color.WHITE);
-            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
-            ByteBuffer pixels = ByteBuffer.allocate(bitmap.getByteCount());
-            bitmap.copyPixelsToBuffer(pixels);
-            bitmap.recycle();
-            return pixels.array();
-        } catch (Exception e) {
-            return null;
-        }
+    /** A page's size in points, the width in the upper 32 bits, or -1. */
+    public long pdfSize(int index) {
+        return pdf == null ? -1 : pdf.size(index);
     }
 
-    /** Closes the PDF and deletes its file (overwritten first). */
+    /** A page drawn on white at this many pixels, as RGBA bytes; null when it can't be. */
+    public byte[] pdfPage(int index, int width, int height) {
+        return pdf == null ? null : pdf.page(index, width, height);
+    }
+
+    /** Closes the PDF and wipes the decrypted bytes the renderer read. */
     public void pdfClose() {
-        try {
-            if (pdf != null) {
-                pdf.close();
-            }
-            if (pdfFile != null) {
-                pdfFile.close();
-            }
-        } catch (Exception e) {
-            // Closed already.
-        }
+        PdfPreview open = pdf;
         pdf = null;
-        pdfFile = null;
-        if (pdfPath != null) {
-            wipe(pdfPath);
-            pdfPath = null;
+        if (open != null) {
+            open.close();
         }
     }
 
@@ -364,69 +314,54 @@ public class VaultActivity extends NativeActivity {
     }
 
     /**
-     * Hands an update (an APK) to the system's installer. Android asks the person and installs
-     * it only if it is signed with the same key as this app. The answer comes to
+     * Hands an update (an APK) to the system's installer ({@link Updates}): only this app, newer
+     * and signed with the same certificate. Android asks the person. The answer comes to
      * {@link #installStatus}: "" once Android asks, else why not.
      */
     public void installUpdate(byte[] apk) {
         new Thread(() -> {
+            String problem;
             try {
-                PackageInstaller installer = getPackageManager().getPackageInstaller();
-                PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(
-                        PackageInstaller.SessionParams.MODE_FULL_INSTALL);
-                params.setAppPackageName(getPackageName());
-                int id = installer.createSession(params);
-                try (PackageInstaller.Session session = installer.openSession(id)) {
-                    try (OutputStream out = session.openWrite("vault.apk", 0, apk.length)) {
-                        out.write(apk);
-                        session.fsync(out);
-                    }
-                    Intent back = new Intent(this, VaultActivity.class).setAction(INSTALLED);
-                    int flags = PendingIntent.FLAG_UPDATE_CURRENT
-                            | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
-                    PendingIntent pending = PendingIntent.getActivity(this, id, back, flags);
-                    installing = id;
-                    session.commit(pending.getIntentSender());
-                }
+                problem = Updates.install(this, apk);
             } catch (Exception e) {
-                installing = -1;
-                installStatus(String.valueOf(e.getMessage()));
+                problem = String.valueOf(e.getMessage());
+            }
+            if (problem != null) {
+                installStatus(problem);
             }
         }).start();
     }
 
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        // The activity is exported (it is the launcher), so any app can send it this action:
-        // only the session this app committed counts, and the screen it hands over is started
-        // only when it belongs to another app (the system's installer), without URI grants.
-        // Otherwise another app could have this one start its own, not exported, activities.
-        if (!INSTALLED.equals(intent.getAction())
-                || installing == -1
-                || intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -2) != installing) {
-            return;
+    /** The installer's answer to the session this app started, from {@link InstallReceiver}. */
+    static void installAnswered(Intent answer) {
+        VaultActivity activity = current.get();
+        if (activity != null) {
+            activity.answered(answer);
         }
-        int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS,
+    }
+
+    private void answered(Intent answer) {
+        int status = answer.getIntExtra(PackageInstaller.EXTRA_STATUS,
                 PackageInstaller.STATUS_FAILURE);
         if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
-            Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
-            ComponentName target = confirm == null ? null
-                    : confirm.resolveActivity(getPackageManager());
-            if (target != null && !getPackageName().equals(target.getPackageName())) {
-                confirm.removeFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-                        | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
-                away = true;
-                startActivity(confirm);
+            Intent confirm = Updates.confirmation(this, answer);
+            try {
+                if (confirm != null) {
+                    away = true;
+                    startActivity(confirm);
+                    installStatus("");
+                    return;
+                }
+            } catch (Exception e) {
+                away = false;
             }
-            installStatus("");
+            Updates.drop(this);
+            installStatus(Updates.NO_INSTALLER);
             return;
         }
-        installing = -1;
+        Updates.forget();
         if (status != PackageInstaller.STATUS_SUCCESS) {
-            installStatus(String.valueOf(intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)));
+            installStatus(String.valueOf(answer.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)));
         }
     }
 
