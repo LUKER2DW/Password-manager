@@ -1,6 +1,7 @@
 # gitleaks (https://github.com/gitleaks/gitleaks): the default rules, minus what this
 # repository keeps on purpose. Everything allowed here is made up for tests or is public by
-# nature; a real secret never belongs in the repository (AGENTS.md §4.2).
+# nature; a real secret never belongs in the repository (AGENTS.md §4.2). Single findings
+# checked by hand are listed in .gitleaksignore.
 title = "Password vault"
 
 [extend]

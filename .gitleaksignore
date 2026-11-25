@@ -1,0 +1,13 @@
+# gitleaks: findings checked by hand and found not to be secrets (commit:file:rule:line).
+# The ssh.rs ones are code that names the PEM headers it reads; the others are made-up
+# test values (demo Secret Keys, a test server pin), a crate name and a comment.
+05edf2212c2d06ec593fa878ca2a7fe464ac4756:crates/platform/src/kit_pdf.rs:generic-api-key:688
+2823d6c07a2840e1c49f8fcda0261d909d878423:crates/core/src/ssh.rs:private-key:139
+2823d6c07a2840e1c49f8fcda0261d909d878423:crates/core/src/ssh.rs:private-key:145
+2823d6c07a2840e1c49f8fcda0261d909d878423:crates/core/src/ssh.rs:private-key:170
+2823d6c07a2840e1c49f8fcda0261d909d878423:crates/core/src/ssh.rs:private-key:279
+49286794be7264a3dc734e43e734b293ad6fa07f:Cargo.lock:generic-api-key:1386
+49286794be7264a3dc734e43e734b293ad6fa07f:crates/core/src/drop_box.rs:generic-api-key:5
+9e856dda965a433b99ca4bc41f51bfde6b6dc012:crates/platform/src/sync/http.rs:generic-api-key:244
+e174b0a72da3deebd4a20a3ecf36f41726c5f89d:crates/platform/src/kit_pdf.rs:generic-api-key:431
+f58685a9ca85d4bf2f3c26b66bc3c971b7e27958:crates/core/src/ssh.rs:private-key:18

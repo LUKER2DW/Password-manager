@@ -1,11 +1,14 @@
 # Dependabot: security updates as soon as an advisory appears, and a weekly round of version
-# updates grouped into one pull request per ecosystem (to keep the noise low).
+# updates grouped into one pull request per ecosystem. Version updates wait seven days after
+# publication. Security updates are exempt from that wait.
 version: 2
 updates:
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       cargo:
@@ -16,6 +19,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
@@ -24,6 +29,8 @@ updates:
     directory: /apps/mobile-android
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       gradle:
         patterns: ["*"]
@@ -32,3 +39,5 @@ updates:
     directory: /apps/server
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7

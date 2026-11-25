@@ -55,9 +55,11 @@ jobs:
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$archive"
           echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
-      # Every commit, with .gitleaks.toml's allowlist for test keys and values made for tests.
+      # Test fixtures use .gitleaks.toml; reviewed historical findings use .gitleaksignore.
       - name: Scan
-        run: '"$RUNNER_TEMP/gitleaks" git --redact --verbose --no-banner .'
+        run: |
+          "$RUNNER_TEMP/gitleaks" git --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore \
+            --redact --verbose --no-banner .
 
   workflows:
     name: Workflow safety (zizmor)
@@ -65,6 +67,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      # Uploading results to code scanning reads the run it belongs to.
+      actions: read
       security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

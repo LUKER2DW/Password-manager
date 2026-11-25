@@ -23,6 +23,8 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+      # Uploading results to code scanning reads the run it belongs to.
+      actions: read
       security-events: write
     strategy:
       fail-fast: false
