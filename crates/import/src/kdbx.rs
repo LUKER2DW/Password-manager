@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use keepass::{Database, DatabaseKey, db::fields};
 use vault_core::{CustomField, ItemData, ItemKind};
 
-use crate::{ImportError, ImportReport, host_of, non_empty};
+use crate::{ImportError, ImportReport, counted, host_of, left_out_list, non_empty};
 
 /// Opens a KDBX database with its password (and optional key file) and converts every entry
 /// outside the recycle bin.
@@ -40,6 +40,8 @@ pub(crate) fn import_kdbx(
     collect_group_paths(db.root(), "", &mut group_paths);
 
     let mut report = ImportReport::default();
+    // Entries with a password in their history that isn't the one in use.
+    let mut with_earlier = 0usize;
     for entry in db.iter_all_entries() {
         if deleted.contains(&entry.id()) {
             continue;
@@ -96,12 +98,29 @@ pub(crate) fn import_kdbx(
         }
 
         let attachments = entry.attachments().count();
-        if attachments > 0 {
+        if let Some((what, verb)) =
+            left_out_list(&[(attachments, "attached file", "attached files")])
+        {
+            let them = if verb == "was" { "it" } else { "them" };
             report.warnings.push(format!(
-                "\"{title}\": {attachments} attachment(s) not imported yet (attachments come in a later version)"
+                "\"{title}\": {what} {verb} not imported (files are not read from a KeePass database); attach {them} again by hand"
             ));
         }
+        with_earlier += usize::from(entry.history.as_ref().is_some_and(|history| {
+            history.get_entries().iter().any(|old| {
+                old.get_password()
+                    .is_some_and(|old| !old.is_empty() && old != item.password)
+            })
+        }));
         report.push(item, folder);
+    }
+    if with_earlier > 0 {
+        // First, as it is about the whole file: the app shows only the first few.
+        let warning = format!(
+            "earlier passwords of {} were not imported (the history in a KeePass database is not read); they are only in that database",
+            counted(with_earlier, "entry", "entries")
+        );
+        report.warnings.insert(0, warning);
     }
     Ok(report)
 }
@@ -344,6 +363,65 @@ mod tests {
         // Cut short or empty: left to the parser.
         assert!(kdf_within_limits(&[]));
         assert!(kdf_within_limits(&v4(b"M", 1)[..20]));
+    }
+
+    #[test]
+    fn attached_files_left_behind_are_counted() {
+        let mut db = Database::new();
+        let mut root = db.root_mut();
+        root.add_entry().edit(|e| {
+            e.set_unprotected(fields::TITLE, "Scans");
+            e.set_protected(fields::PASSWORD, "kp-secret");
+            e.add_attachment("one.txt", keepass::db::Value::unprotected(b"1".to_vec()));
+            e.add_attachment("two.txt", keepass::db::Value::unprotected(b"2".to_vec()));
+        });
+        root.add_entry().edit(|e| {
+            e.set_unprotected(fields::TITLE, "Receipt");
+            e.set_protected(fields::PASSWORD, "kp-secret");
+            e.add_attachment(
+                "receipt.txt",
+                keepass::db::Value::unprotected(b"3".to_vec()),
+            );
+        });
+        let mut bytes = Vec::new();
+        db.save(&mut bytes, DatabaseKey::new().with_password("pw"))
+            .unwrap();
+        let mut warnings = import_kdbx(&bytes, "pw", None).unwrap().warnings;
+        warnings.sort();
+        assert_eq!(
+            warnings,
+            [
+                "\"Receipt\": 1 attached file was not imported (files are not read from a KeePass database); attach it again by hand",
+                "\"Scans\": 2 attached files were not imported (files are not read from a KeePass database); attach them again by hand",
+            ]
+        );
+    }
+
+    #[test]
+    fn earlier_passwords_left_behind_are_told_once_for_the_file() {
+        let mut db = Database::new();
+        let mut root = db.root_mut();
+        let mut changed = root.add_entry();
+        changed.edit(|e| {
+            e.set_unprotected(fields::TITLE, "Changed");
+            e.set_protected(fields::PASSWORD, "kp-first");
+        });
+        changed.edit_tracking(|e| e.set_protected(fields::PASSWORD, "kp-second"));
+        let mut renamed = root.add_entry();
+        renamed.edit(|e| {
+            e.set_unprotected(fields::TITLE, "Renamed");
+            e.set_protected(fields::PASSWORD, "kp-same");
+        });
+        renamed.edit_tracking(|e| e.set_unprotected(fields::TITLE, "Renamed later"));
+        let mut bytes = Vec::new();
+        db.save(&mut bytes, DatabaseKey::new().with_password("pw"))
+            .unwrap();
+        assert_eq!(
+            import_kdbx(&bytes, "pw", None).unwrap().warnings,
+            [
+                "earlier passwords of 1 entry were not imported (the history in a KeePass database is not read); they are only in that database"
+            ]
+        );
     }
 
     #[test]

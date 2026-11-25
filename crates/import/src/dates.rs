@@ -8,7 +8,12 @@ pub(crate) fn iso8601_to_unix(text: &str) -> Option<i64> {
     let year: i64 = date_parts.next()?.parse().ok()?;
     let month: u32 = date_parts.next()?.parse().ok()?;
     let day: u32 = date_parts.next()?.parse().ok()?;
-    if date_parts.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    // The file says what it likes: years that fit the calculation below only.
+    if date_parts.next().is_some()
+        || !(0..=9999).contains(&year)
+        || !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+    {
         return None;
     }
 
@@ -18,11 +23,12 @@ pub(crate) fn iso8601_to_unix(text: &str) -> Option<i64> {
     } else if let Some(position) = time.rfind(['+', '-']).filter(|&p| p >= 8) {
         let (clock, zone) = time.split_at(position);
         let sign = if zone.starts_with('-') { -1 } else { 1 };
-        let (hours, minutes) = zone[1..]
-            .split_once(':')
-            .unwrap_or((&zone[1..3.min(zone.len())], "0"));
-        let offset = hours.parse::<i64>().ok()? * 3600 + minutes.parse::<i64>().ok()? * 60;
-        (clock, sign * offset)
+        let (hours, minutes) = zone[1..].split_once(':').unwrap_or((zone.get(1..3)?, "0"));
+        let (hours, minutes) = (hours.parse::<i64>().ok()?, minutes.parse::<i64>().ok()?);
+        if !(0..=23).contains(&hours) || !(0..=59).contains(&minutes) {
+            return None;
+        }
+        (clock, sign * (hours * 3600 + minutes * 60))
     } else {
         (time, 0)
     };
@@ -31,7 +37,7 @@ pub(crate) fn iso8601_to_unix(text: &str) -> Option<i64> {
     let hour: i64 = clock_parts.next()?.parse().ok()?;
     let minute: i64 = clock_parts.next()?.parse().ok()?;
     let second: i64 = clock_parts.next().unwrap_or("0").parse().ok()?;
-    if hour > 23 || minute > 59 || second > 60 {
+    if !(0..=23).contains(&hour) || !(0..=59).contains(&minute) || !(0..=60).contains(&second) {
         return None;
     }
 
@@ -71,6 +77,26 @@ mod tests {
             Some(1_700_000_000)
         );
         assert_eq!(iso8601_to_unix("2000-02-29 12:00:00"), Some(951_825_600));
+    }
+
+    #[test]
+    fn a_date_made_to_break_the_reader_is_only_unreadable() {
+        for text in [
+            "9223372036854775807-01-01T00:00:00Z",
+            "-9223372036854775808-01-01T00:00:00Z",
+            "2023-11-14T22:13:20+9223372036854775807:00",
+            "2023-11-14T22:13:20+00:9223372036854775807",
+            "2023-11-14T-9223372036854775808:00:00Z",
+            "2023-11-14T22:13:20+€",
+            "2023-11-14T22:13:20+",
+            "2023-11-14T22:13:20+1",
+        ] {
+            assert_eq!(iso8601_to_unix(text), None, "{text}");
+        }
+        assert_eq!(
+            iso8601_to_unix("2023-11-15T00:13:20+02"),
+            Some(1_700_000_000)
+        );
     }
 
     #[test]
