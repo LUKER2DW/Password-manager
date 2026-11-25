@@ -83,6 +83,30 @@ export struct ImportRow {
     duplicate: bool,
 }
 
+// What an export leaves out, keeps in another form and writes as plain text
+// (vault_import::export_report), counted before it is made. Counts only, nothing secret.
+export struct ExportCounts {
+    // Not in the file. `dates`: when items were made and changed (CSV has none).
+    attachments: int,
+    passkeys: int,
+    earlier-passwords: int,
+    extra-websites: int,
+    dates: bool,
+    // In the file, in another form: hidden fields without their mark, lists of recovery codes
+    // as text, items as another kind.
+    hidden-marks: int,
+    recovery-code-lists: int,
+    kinds-changed: int,
+    // As plain text: 0 for an export protected by a password.
+    passwords: int,
+    otp-secrets: int,
+    hidden-fields: int,
+    recovery-codes: int,
+    notes: int,
+    // Passwords and code secrets a spreadsheet would read as a formula (CSV).
+    formula-like: int,
+}
+
 // A place to import from (browser or password manager).
 export struct SourceRow {
     name: string,
@@ -151,6 +175,14 @@ export struct DetailField {
     hideable: bool,   // hidden or masked: offers Show
 }
 
+// The item lock as every lock box shows it (set from Rust, controller.rs sync_guard_state).
+export global ItemLock {
+    // A newer item lock set on another device waits here until the locked items can move to
+    // it: 0 none, 1 it opens with a PIN, 2 with a password, 3 with nothing more (turned off,
+    // or the master password as the check: only this computer's own lock is to be opened).
+    in-out property <int> waiting;
+}
+
 export global Messages {
     // The notification area icon and its menu.
     out property <string> tray-tooltip: @tr("Vault");
@@ -186,6 +218,7 @@ export global Messages {
         if (code == 53) { return @tr("That is the public key. The private one is the file of the same name without .pub (often id_ed25519 or id_rsa)."); }
         if (code == 54) { return @tr("This form of key isn't read here (PuTTY's .ppk, or an older encrypted form). ssh-keygen -p -f with the key's file writes it in OpenSSH's form; then bring that."); }
         if (code == 55) { return @tr("That passphrase doesn't open the key. Try again."); }
+        if (code == 60) { return @tr("That opened the new item lock, set on another device. Now type the PIN or password this computer asked for until now: then the locked items move to the new lock."); }
         if (code == 9) { return @tr("Give the item a title."); }
         if (code == 10) { return @tr("The one-time code secret isn't valid. Paste the otpauth:// link or the key shown by the website."); }
         if (code == 11) { return @tr("The current master password is wrong."); }
@@ -342,6 +375,57 @@ export global Messages {
         if (code == 57) { return @tr("This computer was removed from the vault on another device, so it no longer syncs."); }
         if (code == 51) { return @tr("Updated the password of “{}” from the browser. The old one is in its history.", arg); }
         if (code == 48) { return @tr("This computer couldn't record the vault's newest version ({}), so an older copy put in its place may not be noticed.", arg); }
+        if (code == 80) { return @tr("The item lock was changed on another device. A locked item, or Settings → Item lock, says what to type here: until then, this computer keeps its own lock, and some changes from that device wait."); }
+        if (code == 81) { return @tr("The item lock changed on another device is in use here now. Locked items closed again: they open with its PIN or password."); }
+        if (code == 82) { return @tr("The vault locked before the item lock was saved, so it was not changed. Windows Hello for locked items, if it was being set up, is off until the item lock is saved again."); }
+        if (code == 83) { return @tr("Filling while the vault is locked needs setting up again after this update: open a locked item with Windows Hello once, or turn the option off and on in Settings → Browser extension."); }
+        if (code == 84) { return arg == "1" ? @tr("A login saved from the browser while the vault was locked waits for the item lock: a locked login for that site has the same username. Open the item lock to add its new password.") : @tr("{} logins saved from the browser while the vault was locked wait for the item lock: locked logins for those sites have the same usernames. Open the item lock to add their new passwords.", arg); }
+        return "";
+    }
+
+    // One more entry of a list: "a, b".
+    pure function listed(list: string, entry: string) -> string {
+        return entry == "" ? list : list == "" ? entry : list + ", " + entry;
+    }
+    // What an export leaves out, as a list ("" = nothing).
+    public pure function export-left-out(c: ExportCounts) -> string {
+        let files = c.attachments > 0 ? @tr("{n} attached file" | "{n} attached files" % c.attachments) : "";
+        let passkeys = root.listed(files, c.passkeys > 0 ? @tr("{n} passkey" | "{n} passkeys" % c.passkeys) : "");
+        let earlier = root.listed(passkeys, c.earlier-passwords > 0 ? @tr("{n} earlier password" | "{n} earlier passwords" % c.earlier-passwords) : "");
+        let websites = root.listed(earlier, c.extra-websites > 0 ? @tr("{n} website after an item's first" | "{n} websites after an item's first" % c.extra-websites) : "");
+        return root.listed(websites, c.dates ? @tr("the dates of the items") : "");
+    }
+    // What it keeps in another form.
+    public pure function export-changed(c: ExportCounts) -> string {
+        let marks = c.hidden-marks > 0 ? @tr("{n} hidden field not marked hidden" | "{n} hidden fields not marked hidden" % c.hidden-marks) : "";
+        let codes = root.listed(marks, c.recovery-code-lists > 0 ? @tr("{n} list of recovery codes as text" | "{n} lists of recovery codes as text" % c.recovery-code-lists) : "");
+        return root.listed(codes, c.kinds-changed > 0 ? @tr("{n} item as another kind" | "{n} items as another kind" % c.kinds-changed) : "");
+    }
+    // What it writes as plain text.
+    public pure function export-readable(c: ExportCounts) -> string {
+        let passwords = c.passwords > 0 ? @tr("{n} password" | "{n} passwords" % c.passwords) : "";
+        let secrets = root.listed(passwords, c.otp-secrets > 0 ? @tr("{n} one-time code secret" | "{n} one-time code secrets" % c.otp-secrets) : "");
+        let fields = root.listed(secrets, c.hidden-fields > 0 ? @tr("{n} hidden field" | "{n} hidden fields" % c.hidden-fields) : "");
+        let codes = root.listed(fields, c.recovery-codes > 0 ? @tr("{n} recovery code" | "{n} recovery codes" % c.recovery-codes) : "");
+        return root.listed(codes, c.notes > 0 ? @tr("the notes of {n} item" | "the notes of {n} items" % c.notes) : "");
+    }
+    // All of it, a paragraph each, as the export dialog shows it before anything is written.
+    public pure function export-notes(c: ExportCounts) -> string {
+        let left-out = root.export-left-out(c);
+        let changed = root.export-changed(c);
+        let readable = root.export-readable(c);
+        let missing = left-out == "" ? "" : @tr("Not in this file: {}.", left-out);
+        let kept = changed == "" ? missing : missing + (missing == "" ? "" : "\n") + @tr("In another form: {}.", changed);
+        let plain = readable == "" ? kept : kept + (kept == "" ? "" : "\n") + @tr("Readable by anyone with this file: {}.", readable);
+        return c.formula-like == 0 ? plain : plain + (plain == "" ? "" : "\n")
+            + @tr("Don't open this file in a spreadsheet: {n} password or code secret starts like a formula, and a spreadsheet may run it." | "Don't open this file in a spreadsheet: {n} passwords or code secrets start like a formula, and a spreadsheet may run them." % c.formula-like);
+    }
+
+    // What to type while a newer item lock waits from another device (ItemLock.waiting).
+    public pure function guard-waiting(waiting: int) -> string {
+        if (waiting == 1) { return @tr("The item lock was changed on another device. To move the locked items to it, type its new PIN here, and the PIN or password this computer asked for until now (either one first)."); }
+        if (waiting == 2) { return @tr("The item lock was changed on another device. To move the locked items to it, type its new password here, and the PIN or password this computer asked for until now (either one first)."); }
+        if (waiting == 3) { return @tr("The item lock was turned off, or changed to the master password, on another device. Open the item lock here once and the locked items follow it."); }
         return "";
     }
 

@@ -5,7 +5,8 @@ use std::path::PathBuf;
 
 use slint::SharedString;
 use vault_core::{
-    Error as CoreError, GuardCheck, ItemData, ItemGuard, Keyfile, Unlock, Vault, storage,
+    Error as CoreError, GuardCheck, GuardOpened, ItemData, ItemGuard, Keyfile, Unlock, Vault,
+    storage,
 };
 use vault_platform::{keyfile, quick_unlock};
 use zeroize::Zeroizing;
@@ -163,8 +164,13 @@ impl Controller {
     // -----------------------------------------------------------------------------------------
 
     /// Whether the item's secrets still wait for the check. One passed check opens every
-    /// locked item until they are locked again.
+    /// locked item until they are locked again. An item read with its secrets still sealed
+    /// is locked whatever the app thinks is open: its password, codes and files are empty
+    /// here, and must never be shown, edited or saved back as if they were.
     pub(super) fn item_locked(&self, item: &ItemData) -> bool {
+        if item.is_locked() {
+            return true;
+        }
         let state = self.state.borrow();
         !state.secrets_open && state.session.as_ref().is_some_and(|s| s.vault.guards(item))
     }
@@ -172,6 +178,10 @@ impl Controller {
     /// Checks what was typed and opens the locked items: a PIN or the other password unwraps
     /// the key their secrets are encrypted under; the master password is checked against the
     /// file.
+    ///
+    /// While a newer item lock set on another device waits here (`Vault::guard_waiting`), its
+    /// PIN or password is no wrong try: it is kept for moving the locked items to that lock,
+    /// and the person is asked for this copy's own one next.
     pub(super) fn unlock_secrets(&self, then: AfterUnlock) {
         let typed = Zeroizing::new(
             self.state.borrow().secrets[field::REPROMPT]
@@ -188,10 +198,10 @@ impl Controller {
         self.run_job(move || {
             let mut session = session;
             let encrypted_before = session.vault.item_guard().encrypts();
-            let passed = match session.vault.item_guard().check {
+            let opened = match session.vault.item_guard().check {
                 GuardCheck::Master => match super::verify_current(&path, &typed, &session) {
-                    Ok(()) => true,
-                    Err((code, _)) if code == error::WRONG_CURRENT => false,
+                    Ok(()) => GuardOpened::Own,
+                    Err((code, _)) if code == error::WRONG_CURRENT => GuardOpened::Neither,
                     Err((code, detail)) => {
                         return JobResult::Failed {
                             code,
@@ -201,8 +211,8 @@ impl Controller {
                     }
                 },
                 GuardCheck::Pin | GuardCheck::Password => {
-                    match session.vault.unlock_secrets(&typed) {
-                        Ok(passed) => passed,
+                    match session.vault.unlock_guard(&typed) {
+                        Ok(opened) => opened,
                         Err(err) => {
                             return JobResult::Failed {
                                 code: error::OTHER,
@@ -213,16 +223,41 @@ impl Controller {
                     }
                 }
             };
-            if passed {
-                JobResult::ItemUnlocked {
+            match opened {
+                GuardOpened::Own => JobResult::ItemUnlocked {
                     upgraded: !encrypted_before && session.vault.item_guard().encrypts(),
                     session,
                     then,
-                }
-            } else {
-                JobResult::ItemRefused { session }
+                },
+                GuardOpened::NewerOnly => JobResult::ItemNewerOpened { session },
+                GuardOpened::Neither => JobResult::ItemRefused { session },
             }
         });
+    }
+
+    /// What was typed opened only the newer item lock waiting from another device. Its key
+    /// is kept for the move as long as an opened lock stays open (the relock timer closes
+    /// it with the rest); once this copy's own lock is open too, a sync round moves the
+    /// locked items to it. Until then the person is told to type the earlier PIN or password.
+    pub(super) fn newer_lock_opened(&self) {
+        self.state.borrow_mut().summaries_stale = true;
+        self.clear_secret(field::REPROMPT);
+        if !self.timers.relock.running() {
+            self.start_relock();
+        }
+        let ready = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .is_some_and(|s| s.vault.guard_move_ready());
+        if ready {
+            self.set_error(error::NONE, "");
+            self.sync_for_the_newer_lock();
+        } else {
+            self.set_error(error::GUARD_NEWER_OPENED, "");
+        }
+        self.sync_guard_state();
     }
 
     /// Opens the locked items with Windows Hello, where the item lock was set up for it:
@@ -231,6 +266,15 @@ impl Controller {
         let Some(verifier) = self.state.borrow().verifier.clone() else {
             return;
         };
+        // Filling while locked that was wanted but has no file (removed with the file of an
+        // earlier version, say) is made again with this same answer of Windows Hello.
+        let rebuild = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .map(|s| s.vault.id_hex())
+            .is_some_and(|id| self.locked_fill_missing(&id));
         let Some(session) = self.state.borrow_mut().session.take() else {
             return;
         };
@@ -251,11 +295,16 @@ impl Controller {
                 return quiet(session);
             };
             match session.vault.unlock_secrets_with_device(&secret, &sealed) {
-                Ok(true) => JobResult::ItemUnlocked {
-                    session,
-                    upgraded: false,
-                    then: AfterUnlock::Show,
-                },
+                Ok(true) => {
+                    if rebuild {
+                        let _ = super::locked_fill::create(&session.vault, &secret);
+                    }
+                    JobResult::ItemUnlocked {
+                        session,
+                        upgraded: false,
+                        then: AfterUnlock::Show,
+                    }
+                }
                 _ => {
                     // The PIN was changed elsewhere, or the device key is another one.
                     quick_unlock::item_lock_forget(&id);
@@ -272,6 +321,11 @@ impl Controller {
     /// A wrong try: say how many are left, and lock the whole vault when none is. That limit
     /// is what makes a short PIN acceptable.
     pub(super) fn item_refused(&self) {
+        // Typed while the lock was open (Settings asks for a newer lock's PIN then): a wrong
+        // try closes it, as it closed the key in the vault.
+        if self.state.borrow().secrets_open {
+            self.lock_secrets();
+        }
         let attempts = {
             let mut state = self.state.borrow_mut();
             state.guard_attempts += 1;
@@ -318,10 +372,6 @@ impl Controller {
         let secret = (!secret.is_empty() && check != GuardCheck::Master).then_some(secret);
         let all = app.get_guard_all();
         let want_hello = app.get_guard_hello();
-        let locked_fill = {
-            let settings = &self.state.borrow().settings;
-            settings.browser_extension && settings.browser_locked_fill
-        };
         let verifier = self.state.borrow().verifier.clone();
         let Some(session) = self.state.borrow_mut().session.take() else {
             return;
@@ -338,61 +388,112 @@ impl Controller {
             if let Err((code, detail)) = super::verify_current(&path, &current, &session) {
                 return failed(code, detail, session);
             }
+            let before = Box::new(session.vault.snapshot());
             let changed = session.vault.set_item_guard(
                 all,
                 check,
                 secret.as_ref().map(|s| s.as_str()),
                 Some(&current),
             );
-            if changed.is_ok() {
-                // Windows Hello as another way in: the guard key (open right now) is wrapped
-                // by a key in the security chip. A new PIN makes older copies useless, so it
-                // is made again on every save, or removed.
-                let id = session.vault.id_hex();
-                let key_id = quick_unlock::item_lock_key_id(&id);
-                let was_on = quick_unlock::item_lock_enrolled(&id);
-                let mut on = false;
-                if want_hello
-                    && session.vault.item_guard().encrypts()
-                    && let Some(secret) = verifier
-                        .as_ref()
-                        .and_then(|verifier| verifier.enroll(&key_id).ok())
-                {
-                    on = quick_unlock::item_lock_enroll(&session.vault, &secret).is_ok();
-                    // The browser extension's fill while locked follows the item lock: made
-                    // again with the new key, from every password (the lock is open now).
-                    if on && locked_fill {
-                        let _ = super::locked_fill::create(&session.vault, &secret);
-                    }
-                }
-                if !on {
-                    super::locked_fill::remove_index(&id);
-                }
-                if !on && was_on {
-                    quick_unlock::item_lock_forget(&id);
-                    if let Some(verifier) = &verifier {
-                        verifier.remove(&key_id);
-                    }
-                }
-            }
-            session.vault.lock_secrets();
             match changed {
-                Ok(()) => JobResult::GuardVerified { session },
-                Err(CoreError::InvalidGuardSecret) => {
-                    failed(error::GUARD_SECRET, String::new(), session)
+                Ok(()) => {
+                    // Windows Hello as another way in: a key in the security chip will wrap
+                    // the guard key (open now). It is made here, off the UI thread (it asks
+                    // the person); what it wraps is written only once the vault is saved
+                    // (`apply_guard`), so nothing on this computer ever follows a lock that
+                    // was not saved.
+                    let key_id = quick_unlock::item_lock_key_id(&session.vault.id_hex());
+                    let hello = (want_hello && session.vault.item_guard().encrypts())
+                        .then(|| verifier.as_ref()?.enroll(&key_id).ok())
+                        .flatten();
+                    JobResult::GuardVerified {
+                        session,
+                        hello,
+                        before,
+                    }
                 }
-                Err(CoreError::SecretsLocked) => {
-                    failed(error::SECRETS_LOCKED, String::new(), session)
+                Err(err) => {
+                    session.vault.lock_secrets();
+                    match err {
+                        CoreError::InvalidGuardSecret => {
+                            failed(error::GUARD_SECRET, String::new(), session)
+                        }
+                        CoreError::SecretsLocked => {
+                            failed(error::SECRETS_LOCKED, String::new(), session)
+                        }
+                        err => failed(error::OTHER, err.to_string(), session),
+                    }
                 }
-                Err(err) => failed(error::OTHER, err.to_string(), session),
             }
         });
     }
 
-    /// The item lock was changed in memory: write it, and close the locked items.
-    pub(super) fn apply_guard(&self) {
-        if !self.save_vault() {
+    /// The headless test's stand-in for an item lock change whose Windows Hello prompt is
+    /// answered only after the vault locked: the job changed the lock (every item behind PIN
+    /// `pin`) in the vault it holds and made Windows Hello's new key, then comes back.
+    #[cfg(test)]
+    pub(crate) fn guard_change_finishes_after_lock(&self, pin: &str, current: &str) {
+        let ticket = self.job_ticket();
+        let mut session = self
+            .state
+            .borrow_mut()
+            .session
+            .take()
+            .expect("an open vault");
+        let before = Box::new(session.vault.snapshot());
+        session
+            .vault
+            .set_item_guard(true, GuardCheck::Pin, Some(pin), Some(current))
+            .expect("the lock changed");
+        let key_id = quick_unlock::item_lock_key_id(&session.vault.id_hex());
+        let verifier = self.state.borrow().verifier.clone();
+        let hello = verifier.and_then(|verifier| verifier.enroll(&key_id).ok());
+        self.lock();
+        self.finish_job(
+            JobResult::GuardVerified {
+                session,
+                hello,
+                before,
+            },
+            &ticket,
+        );
+    }
+
+    /// The item lock was changed in memory: write it, set Windows Hello for it up again (or
+    /// remove it), and close the locked items. Not written, the vault goes back to the lock
+    /// it had: memory never holds a lock the file doesn't.
+    pub(super) fn apply_guard(
+        &self,
+        hello: Option<Zeroizing<Vec<u8>>>,
+        before: vault_core::VaultSnapshot,
+    ) {
+        let Some(id) = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .map(|s| s.vault.id_hex())
+        else {
             return;
+        };
+        if !self.save_vault() {
+            if let Some(session) = self.state.borrow_mut().session.as_mut() {
+                session.vault.roll_back(before);
+                session.vault.lock_secrets();
+            }
+            if hello.is_some() {
+                // Windows Hello's key was made anew: what it wrapped before opens no more.
+                quick_unlock::item_lock_forget(&id);
+                super::locked_fill::remove_index(&id);
+            }
+            self.state.borrow_mut().summaries_stale = true;
+            self.sync_guard_state();
+            self.refresh_list();
+            return;
+        }
+        self.enroll_item_lock_hello(&id, hello.as_deref().map(Vec::as_slice));
+        if let Some(session) = self.state.borrow_mut().session.as_mut() {
+            session.vault.lock_secrets();
         }
         self.clear_secret(field::GUARD_NEW);
         self.clear_secret(field::GUARD_CURRENT);
@@ -403,11 +504,66 @@ impl Controller {
             state.guard_attempts = 0;
             state.summaries_stale = true;
         }
+        // Closed like the Lock button closes it: what a locked login may just have been given
+        // doesn't stay on the generator page.
+        self.forget_generated_result();
         self.show_vault_settings();
         self.sync_guard_state();
         self.refresh_list();
         self.app().set_settings_dialog(0);
         self.notify(notice::GUARD_SAVED, "");
+    }
+
+    /// After a saved item lock: Windows Hello wraps its key (open still) with `secret`, what
+    /// its new key in the security chip gave; without one it is turned off for the item lock.
+    /// A new PIN makes earlier copies useless, so this runs on every save. Filling while
+    /// locked follows: made again with the new key from every password, or removed.
+    fn enroll_item_lock_hello(&self, id: &str, secret: Option<&[u8]>) {
+        let (locked_fill, verifier, runner) = {
+            let state = self.state.borrow();
+            (
+                state.settings.browser_extension && state.settings.browser_locked_fill,
+                state.verifier.clone(),
+                state.runner,
+            )
+        };
+        let was_on = quick_unlock::item_lock_enrolled(id);
+        let mut on = false;
+        if let Some(secret) = secret
+            && let Some(session) = self.state.borrow().session.as_ref()
+        {
+            on = quick_unlock::item_lock_enroll(&session.vault, secret).is_ok();
+            if on && locked_fill {
+                let _ = super::locked_fill::create(&session.vault, secret);
+            }
+        }
+        if !on {
+            super::locked_fill::remove_index(id);
+        }
+        if !on && was_on {
+            quick_unlock::item_lock_forget(id);
+            if let Some(verifier) = verifier {
+                let key_id = quick_unlock::item_lock_key_id(id);
+                match runner {
+                    Runner::Inline => verifier.remove(&key_id),
+                    Runner::Thread => {
+                        std::thread::spawn(move || verifier.remove(&key_id));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `ItemLock.waiting` values (model.slint): what opens the newer item lock waiting from
+/// another device (0: none waits).
+pub(super) fn waiting_code(check: GuardCheck) -> i32 {
+    match check {
+        GuardCheck::Pin => 1,
+        GuardCheck::Password => 2,
+        // Turned off, or the master password as the check: only this copy's own lock is to
+        // be opened.
+        GuardCheck::Master => 3,
     }
 }
 

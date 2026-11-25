@@ -25,6 +25,7 @@ use vault_core::{
     storage,
     totp::Totp,
 };
+use vault_import::ExportFormat;
 use vault_platform::{
     DeviceState, RollbackStatus, SecretBuffer, StateFile, clipboard, device, files,
     kit_pdf::{self, KitContents},
@@ -36,8 +37,8 @@ use zeroize::Zeroizing;
 
 use crate::{
     ui::{
-        AppWindow, AuthRow, CodeRow, DetailField, EditField, FolderRow, ItemRow, Panel,
-        RecentVault, Screen, Secrets, Theme,
+        AppWindow, AuthRow, CodeRow, DetailField, EditField, ExportCounts, FolderRow, ItemLock,
+        ItemRow, Panel, RecentVault, Screen, Secrets, Theme,
     },
     view,
 };
@@ -163,6 +164,9 @@ mod error {
     pub const KEY_PUBLIC_ONLY: i32 = 53;
     pub const KEY_UNSUPPORTED: i32 = 54;
     pub const KEY_PASSPHRASE: i32 = 55;
+    /// What was typed opened only the newer item lock set on another device: this copy's
+    /// own PIN or password is asked next (not a wrong try).
+    pub const GUARD_NEWER_OPENED: i32 = 60;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -236,6 +240,19 @@ mod notice {
     pub const SYNC_ADDRESS_CHANGED: i32 = 70;
     pub const PICTURE_SAVED: i32 = 60;
     pub const PART_READ: i32 = 61;
+    /// The item lock was changed on another device; this copy waits for its own lock (and the
+    /// new one) to be opened here before its locked items move to it.
+    pub const SYNC_LOCK_WAITING: i32 = 80;
+    /// This copy took the item lock set on another device: what was open is closed again.
+    pub const GUARD_MOVED: i32 = 81;
+    /// The vault locked (or another one was chosen) before a changed item lock was saved.
+    pub const GUARD_NOT_CHANGED: i32 = 82;
+    /// Filling while locked has to be set up once more (the file of an earlier version was
+    /// removed).
+    pub const LOCKED_FILL_AGAIN: i32 = 83;
+    /// Logins saved from the browser while locked wait for the item lock (a login for the
+    /// same site and username is locked here).
+    pub const BROWSER_DROPPED_WAITING: i32 = 84;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -350,8 +367,17 @@ enum JobResult {
     ItemRefused {
         session: Session,
     },
-    /// The master password was right and the item lock was changed: save it.
+    /// The master password was right and the item lock was changed in memory (its key still
+    /// open): save it, then set Windows Hello for it up with `hello` (what Windows Hello's new
+    /// key gave), or turn it off. `before` puts the vault back when the save fails.
     GuardVerified {
+        session: Session,
+        hello: Option<Zeroizing<Vec<u8>>>,
+        before: Box<vault_core::VaultSnapshot>,
+    },
+    /// Only the newer item lock set on another device opened (`Vault::guard_waiting`): not a
+    /// wrong try; this copy's own lock is still to be opened.
+    ItemNewerOpened {
         session: Session,
     },
     KitVerified {
@@ -363,9 +389,11 @@ enum JobResult {
         session: Session,
         kind: i32,
     },
-    /// The master password was right: the browser extension may be connected.
+    /// The master password was right: the browser extension whose code was typed (`approved`)
+    /// may be connected.
     PairingVerified {
         session: Session,
+        approved: vault_browser::pairing::PairingKey,
     },
     /// A job that borrowed the open vault is done; `notice` (0: none) says how it went.
     Returned {
@@ -384,11 +412,29 @@ enum JobResult {
     },
 }
 
+/// What a background job was started for: the session (`session_epoch`) and the vault file.
+/// Its result counts only while both are still the ones open in the window (see
+/// `finish_job`).
+#[derive(Clone)]
+struct JobTicket {
+    epoch: u64,
+    path: PathBuf,
+}
+
 struct State {
     path: PathBuf,
     runner: Runner,
     secrets: Vec<SecretBuffer>,
     session: Option<Session>,
+    /// +1 each time the vault is locked or another vault file is chosen. A background job's
+    /// result counts only when this is still what it was when the job started (see
+    /// `finish_job`).
+    session_epoch: u64,
+    /// The vault is open: in `session`, or lent to a background job that hands it back.
+    /// (`session` alone is `None` while a job holds it, and the vault is not locked then.)
+    vault_open: bool,
+    /// The vault in memory holds a change its file doesn't: the last save failed.
+    unsaved: bool,
     /// Onboarding step 2 shows the kit; the vault opens when the user confirms.
     pending: Option<Session>,
     summaries: Vec<vault_core::ItemSummary>,
@@ -578,6 +624,9 @@ impl Controller {
                 secrets: (0..field::COUNT).map(|_| SecretBuffer::new()).collect(),
                 session: None,
                 pending: None,
+                session_epoch: 0,
+                vault_open: false,
+                unsaved: false,
                 summaries: Vec::new(),
                 summaries_stale: true,
                 visible: Vec::new(),
@@ -830,6 +879,8 @@ impl Controller {
         on!(on_import_cancel, |c| c.import_cancel());
         on!(on_import_wipe, |c| c.import_wipe());
         on!(on_export_backup, |c| c.export_backup());
+        on!(on_export_ask, |c| c.ask_export());
+        on!(on_export_cancel, |c| c.cancel_export());
         on!(on_export_plain, |c| c.verify_then(KitAction::Export));
         on!(on_lock, |c| c.lock());
 
@@ -1170,6 +1221,7 @@ impl Controller {
             CoreError::InvalidKeyFormat => (error::SECRET_KEY_FORMAT, String::new()),
             CoreError::InvalidTotp => (error::BAD_TOTP, String::new()),
             CoreError::SecretsLocked => (error::SECRETS_LOCKED, String::new()),
+            CoreError::FileChanged => (error::CHANGED_OUTSIDE, String::new()),
             CoreError::Io(io) => (error::FILE, io.to_string()),
             other => (error::OTHER, other.to_string()),
         }
@@ -1183,14 +1235,15 @@ impl Controller {
         self.app().set_busy(true);
         self.set_error(error::NONE, "");
         let runner = self.state.borrow().runner;
+        let ticket = self.job_ticket();
         match runner {
-            Runner::Inline => self.finish_job(job()),
+            Runner::Inline => self.finish_job(job(), &ticket),
             Runner::Thread => {
                 std::thread::spawn(move || {
                     let result = job();
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
-                            controller.finish_job(result);
+                            controller.finish_job(result, &ticket);
                         }
                     });
                 });
@@ -1198,10 +1251,34 @@ impl Controller {
         }
     }
 
-    fn finish_job(&self, result: JobResult) {
+    /// The session and vault file a job starting now belongs to.
+    fn job_ticket(&self) -> JobTicket {
+        let state = self.state.borrow();
+        JobTicket {
+            epoch: state.session_epoch,
+            path: state.path.clone(),
+        }
+    }
+
+    /// Runs a background job's result on the UI thread, if it still belongs here: the vault
+    /// it was started for (`ticket`) must still be the one in the window, in the same
+    /// session. A result that comes back after the vault was locked (by hand, the timer, the
+    /// system) or another vault file was chosen is dropped with the vault it holds, its keys
+    /// wiped. Put back, it would open the vault again behind a lock screen (where the browser
+    /// extension would find it open), or open one vault under another one's file, whose next
+    /// save would write the first vault's contents over the second.
+    fn finish_job(&self, result: JobResult, ticket: &JobTicket) {
         let app = self.app();
         app.set_busy(false);
         app.set_quick_waiting(false);
+        let current = {
+            let state = self.state.borrow();
+            ticket.epoch == state.session_epoch && same_path(&ticket.path, &state.path)
+        };
+        if !current {
+            self.drop_job_result(result);
+            return;
+        }
         match result {
             JobResult::Created { session, parts } => {
                 self.clear_secret(field::MASTER);
@@ -1336,16 +1413,8 @@ impl Controller {
                     state.guard_attempts = 0;
                     state.summaries_stale = true;
                 }
-                self.sync_after_unlocking_items();
                 self.set_error(error::NONE, "");
-                let weak = self.weak();
-                self.timers
-                    .relock
-                    .start(TimerMode::SingleShot, SECRETS_OPEN_FOR, move || {
-                        if let Some(controller) = weak.upgrade() {
-                            controller.relock_secrets();
-                        }
-                    });
+                self.start_relock();
                 // New items added while the item lock was closed are sealed now.
                 let sealed = self
                     .state
@@ -1357,6 +1426,8 @@ impl Controller {
                 if (upgraded || sealed > 0) && !self.save_vault() {
                     return;
                 }
+                // Logins the browser saved while locked for a login behind this lock.
+                self.open_drop_box();
                 match then {
                     AfterUnlock::Show => self.secrets_changed(),
                     AfterUnlock::SaveItem => {
@@ -1364,14 +1435,24 @@ impl Controller {
                         self.save_item();
                     }
                 }
+                // Last: the round may take a newer item lock, which closes this one again.
+                self.sync_after_unlocking_items();
             }
             JobResult::ItemRefused { session } => {
                 self.state.borrow_mut().session = Some(session);
                 self.item_refused();
             }
-            JobResult::GuardVerified { session } => {
+            JobResult::GuardVerified {
+                session,
+                hello,
+                before,
+            } => {
                 self.state.borrow_mut().session = Some(session);
-                self.apply_guard();
+                self.apply_guard(hello, *before);
+            }
+            JobResult::ItemNewerOpened { session } => {
+                self.state.borrow_mut().session = Some(session);
+                self.newer_lock_opened();
             }
             JobResult::PasswordChanged {
                 session,
@@ -1425,9 +1506,9 @@ impl Controller {
                     self.notify(notice::HELLO_NOT_ON, &reason);
                 }
             }
-            JobResult::PairingVerified { session } => {
+            JobResult::PairingVerified { session, approved } => {
                 self.state.borrow_mut().session = Some(session);
-                self.finish_pairing();
+                self.finish_pairing(&approved);
             }
             JobResult::SettingsConfirmed { session, kind } => {
                 self.state.borrow_mut().session = Some(session);
@@ -1472,6 +1553,23 @@ impl Controller {
                 }
                 self.set_error(code, &detail);
             }
+        }
+    }
+
+    /// A job's result that no longer belongs here (see `finish_job`): dropped, keys and all.
+    /// What the job already did outside the vault is undone where it would mislead.
+    fn drop_job_result(&self, result: JobResult) {
+        if let JobResult::GuardVerified { session, hello, .. } = result {
+            // The item lock was changed only in the memory that goes now: it stays as it is
+            // on disk. Windows Hello's key for it was made anew by then, so the copy of the
+            // lock's key it wrapped before (and filling while locked, made with it) no longer
+            // opens: forgotten, rather than failing at its next use.
+            let id = session.vault.id_hex();
+            if hello.is_some() {
+                quick_unlock::item_lock_forget(&id);
+                locked_fill::remove_index(&id);
+            }
+            self.notify_long(notice::GUARD_NOT_CHANGED, "");
         }
     }
 
@@ -2157,6 +2255,8 @@ impl Controller {
         {
             let mut state = self.state.borrow_mut();
             state.session = Some(session);
+            state.vault_open = true;
+            state.unsaved = false;
             state.summaries_stale = true;
             state.file_hash = None;
             state.selected = None;
@@ -2190,6 +2290,87 @@ impl Controller {
         self.start_leak_watch();
     }
 
+    /// The headless test's stand-in for a slow item check: the open vault is taken by a
+    /// "job", the vault is locked meanwhile, and the job then comes back with it.
+    #[cfg(test)]
+    pub(crate) fn lock_while_a_job_holds_the_vault(&self) {
+        let ticket = self.job_ticket();
+        let session = self
+            .state
+            .borrow_mut()
+            .session
+            .take()
+            .expect("an open vault");
+        self.lock();
+        self.finish_job(
+            JobResult::ItemUnlocked {
+                session,
+                upgraded: false,
+                then: AfterUnlock::Show,
+            },
+            &ticket,
+        );
+    }
+
+    /// The same with the notification area's "Lock now", asked while the job holds the
+    /// vault; `while_held` sees the tray's status meanwhile (locked?).
+    #[cfg(test)]
+    pub(crate) fn tray_lock_while_a_job_holds_the_vault(&self, while_held: impl FnOnce(bool)) {
+        let ticket = self.job_ticket();
+        let session = self
+            .state
+            .borrow_mut()
+            .session
+            .take()
+            .expect("an open vault");
+        while_held(Self::tray_status().expect("installed").0);
+        Self::tray_action(TrayAction::Lock);
+        self.finish_job(
+            JobResult::ItemUnlocked {
+                session,
+                upgraded: false,
+                then: AfterUnlock::Show,
+            },
+            &ticket,
+        );
+    }
+
+    /// An unlock of the open vault's file (its session, as the job would hand it back) that
+    /// finishes only after the person chose `other` meanwhile, from the lock screen.
+    #[cfg(test)]
+    pub(crate) fn unlock_finishes_after_switching_to(&self, other: PathBuf) {
+        let session = self
+            .state
+            .borrow_mut()
+            .session
+            .take()
+            .expect("an open vault");
+        self.lock();
+        // The unlock starts on this vault's lock screen...
+        let ticket = self.job_ticket();
+        // ...and while it runs, another vault is chosen.
+        self.switch_vault(other);
+        self.finish_job(
+            JobResult::Unlocked {
+                session,
+                typed_secret_key: false,
+                used_parts: false,
+                seconds: Some(0.1),
+            },
+            &ticket,
+        );
+    }
+
+    /// The generator's current result as Rust holds it (for the headless test).
+    #[cfg(test)]
+    pub(crate) fn generated_result(&self) -> Option<String> {
+        self.state
+            .borrow()
+            .generated
+            .as_ref()
+            .map(|value| value.as_str().to_owned())
+    }
+
     /// How many items wait to be sealed under the item lock (for the headless test).
     #[cfg(test)]
     pub(crate) fn pending_seal(&self) -> Option<usize> {
@@ -2202,16 +2383,18 @@ impl Controller {
 
     /// What the notification area icon's menu shows: whether the vault is locked, its name,
     /// the minutes left before the auto-lock, and whether the app is dark.
+    ///
+    /// Open while a background job holds the vault (a Windows Hello prompt for a locked item,
+    /// say): it comes back open, so "Lock now" must stay there to stop that.
     pub fn tray_status() -> Option<(bool, String, i32, bool)> {
         let controller = CURRENT.with(|c| c.borrow().upgrade())?;
         let state = controller.state.borrow();
-        let name = state
-            .session
-            .as_ref()
-            .map(|s| s.vault.settings().name.clone())
-            .unwrap_or_default();
+        let name = state.session.as_ref().map_or_else(
+            || controller.app().get_vault_name().to_string(),
+            |s| s.vault.settings().name.clone(),
+        );
         Some((
-            state.session.is_none(),
+            !state.vault_open,
             name,
             controller.minutes_left().max(1),
             controller.app().global::<Theme>().get_dark(),
@@ -2226,7 +2409,8 @@ impl Controller {
         match action {
             TrayAction::Open => controller.show_from_tray(),
             TrayAction::Lock => {
-                if controller.state.borrow().session.is_some() {
+                // Also while a job holds the vault: its result is then dropped (`finish_job`).
+                if controller.state.borrow().vault_open {
                     controller.lock();
                 }
             }
@@ -2267,6 +2451,7 @@ impl Controller {
     fn lock(&self) {
         self.stop_sync();
         self.app().set_settings_dialog(dialog::NONE);
+        self.app().set_export_asking(false);
         self.stop_lock_warning();
         self.lock_deadline.set(None);
         for timer in [
@@ -2308,6 +2493,10 @@ impl Controller {
         }
         {
             let mut state = self.state.borrow_mut();
+            // A job still holding the open vault won't hand it back (`finish_job`).
+            state.session_epoch = state.session_epoch.wrapping_add(1);
+            state.vault_open = false;
+            state.unsaved = false;
             state.session = None;
             state.pending = None;
             state.summaries.clear();
@@ -2338,6 +2527,7 @@ impl Controller {
             state.guard_attempts = 0;
         }
         self.clear_all_secrets();
+        self.sync_guard_state();
         {
             let app = self.app();
             app.set_detail_history(ModelRc::default());
@@ -2960,6 +3150,7 @@ impl Controller {
 
     fn save_vault(&self) -> bool {
         if self.changed_outside() {
+            self.state.borrow_mut().unsaved = true;
             self.set_error(error::CHANGED_OUTSIDE, "");
             self.notify_long(notice::NOT_SAVED, "");
             return false;
@@ -2968,9 +3159,15 @@ impl Controller {
             let mut state = self.state.borrow_mut();
             state.summaries_stale = true;
             let path = state.path.clone();
+            // Compared again right before the rename: a save by someone else while this one
+            // was being written is noticed too (a file that is gone is written again).
+            let expected = state.file_hash.filter(|_| path.exists());
             match state.session.as_mut() {
                 Some(session) => session.vault.to_bytes().and_then(|bytes| {
-                    storage::write_atomic(&path, &bytes)?;
+                    match expected {
+                        Some(read) => storage::write_atomic_if_unchanged(&path, &read, &bytes)?,
+                        None => storage::write_atomic(&path, &bytes)?,
+                    }
                     Ok((
                         session.vault.id_hex(),
                         session.vault.revision(),
@@ -2982,7 +3179,11 @@ impl Controller {
         };
         match result {
             Ok((id, revision, hash)) => {
-                self.state.borrow_mut().file_hash = Some(hash);
+                {
+                    let mut state = self.state.borrow_mut();
+                    state.file_hash = Some(hash);
+                    state.unsaved = false;
+                }
                 let _ = device::record_revision(&id, revision);
                 // Keep the index's count of problems current (cheap: no network).
                 self.state.borrow_mut().health_stale = true;
@@ -2994,6 +3195,7 @@ impl Controller {
                 true
             }
             Err(err) => {
+                self.state.borrow_mut().unsaved = true;
                 let (code, detail) = self.core_error(&err);
                 self.set_error(code, &detail);
                 self.notify_long(notice::NOT_SAVED, &detail);
@@ -3124,13 +3326,21 @@ impl Controller {
 
     /// Locks whatever is open and shows `path`: its lock screen, or onboarding when there is no
     /// vault there yet. (The chooser's buttons call this; tests call it directly.)
+    ///
+    /// Whatever a background job still does for the vault shown before (an unlock, a
+    /// Windows Hello prompt) is dropped when it comes back: it belongs to the other file.
     pub fn switch_vault(&self, path: PathBuf) {
-        if self.state.borrow().session.is_some() {
+        let open = {
+            let state = self.state.borrow();
+            state.vault_open || state.session.is_some()
+        };
+        if open {
             self.lock();
         }
         self.clear_all_secrets();
         {
             let mut state = self.state.borrow_mut();
+            state.session_epoch = state.session_epoch.wrapping_add(1);
             state.path = path;
             state.pending = None;
             state.suggestion = None;
@@ -3144,7 +3354,16 @@ impl Controller {
         self.show_start_screen();
     }
 
+    /// Whether another vault may be chosen now: not while a job works for the one shown (its
+    /// result would be dropped anyway, see `switch_vault`, but the person would not know why).
+    fn may_switch_vault(&self) -> bool {
+        !self.app().get_busy()
+    }
+
     fn pick_vault(&self, index: i32) {
+        if !self.may_switch_vault() {
+            return;
+        }
         let path = usize::try_from(index)
             .ok()
             .and_then(|i| self.state.borrow().recent_paths.get(i).cloned());
@@ -3169,7 +3388,7 @@ impl Controller {
     }
 
     fn open_vault_file(&self) {
-        if self.state.borrow().runner == Runner::Inline {
+        if self.state.borrow().runner == Runner::Inline || !self.may_switch_vault() {
             return;
         }
         if let Some(path) = rfd::FileDialog::new()
@@ -3183,7 +3402,7 @@ impl Controller {
     }
 
     fn new_vault_file(&self) {
-        if self.state.borrow().runner == Runner::Inline {
+        if self.state.borrow().runner == Runner::Inline || !self.may_switch_vault() {
             return;
         }
         let Some(mut path) = rfd::FileDialog::new()
@@ -3311,6 +3530,13 @@ impl Controller {
         );
         app.set_guard_current_all(guard.is_some_and(|g| g.all_items));
         app.set_detail_check(guard.map_or(0, |g| protection::check_code(g.check)));
+        // A newer item lock from another device that waits here, and what opens it.
+        let waiting = state
+            .session
+            .as_ref()
+            .and_then(|s| s.vault.guard_waiting_check());
+        app.global::<ItemLock>()
+            .set_waiting(waiting.map_or(0, protection::waiting_code));
     }
 
     /// The item lock opened or closed: redraw what shows secrets.
@@ -3330,6 +3556,9 @@ impl Controller {
     }
 
     /// Closes every locked item again (the Lock button, or the time is up).
+    ///
+    /// The generator's result goes too: it may be the password a locked login was just given,
+    /// and it would stay readable (and copyable) on the generator page after its item closed.
     fn lock_secrets(&self) {
         self.timers.relock.stop();
         {
@@ -3340,8 +3569,21 @@ impl Controller {
                 session.vault.lock_secrets();
             }
         }
+        self.forget_generated_result();
         self.clear_secret(field::REPROMPT);
         self.secrets_changed();
+    }
+
+    /// One pass of the item lock keeps it open this long (the relock timer, from now).
+    fn start_relock(&self) {
+        let weak = self.weak();
+        self.timers
+            .relock
+            .start(TimerMode::SingleShot, SECRETS_OPEN_FOR, move || {
+                if let Some(controller) = weak.upgrade() {
+                    controller.relock_secrets();
+                }
+            });
     }
 
     /// The open time is up. An item being edited keeps its secrets until it is saved or
@@ -3878,6 +4120,16 @@ impl Controller {
                 None => session.vault.add_item(&item),
             }
         };
+        // The generator's result typed or pasted in by hand is now this item's password.
+        let generated = self
+            .state
+            .borrow()
+            .generated
+            .as_ref()
+            .is_some_and(|value| !item.password.is_empty() && value.as_str() == item.password);
+        if result.is_ok() && generated {
+            self.forget_generated_result();
+        }
         match result {
             Ok(id) => {
                 if self.save_vault() {
@@ -3931,6 +4183,14 @@ impl Controller {
         }
     }
 
+    /// The generator's current result is forgotten, on the page and in Rust (a new one is made
+    /// the next time the generator opens): once it went into an item, it is that item's
+    /// password, shown and copied only as the item allows.
+    pub(crate) fn forget_generated_result(&self) {
+        self.state.borrow_mut().generated = None;
+        self.app().set_gen_result(SharedString::new());
+    }
+
     fn open_generator(&self) {
         let app = self.app();
         app.set_panel(Panel::Generator);
@@ -3958,6 +4218,8 @@ impl Controller {
             self.edit_secret(field::ITEM_PASSWORD as i32, |buffer| {
                 buffer.set(&value);
             });
+            // Handed to the editor: no longer the generator's to show.
+            self.forget_generated_result();
             let app = self.app();
             app.set_editor_password_shown(SharedString::from(value.as_str()));
             app.set_panel(Panel::Editor);
@@ -4237,16 +4499,17 @@ impl Controller {
         self.set_error(error::NONE, "");
     }
 
-    /// Overwrites and deletes the unencrypted export that was just imported.
+    /// Overwrites and deletes the unencrypted export that was just imported: the very file that
+    /// was read (another one put at that path meanwhile is left alone).
     fn import_wipe(&self) {
-        let path = self
+        let read = self
             .state
             .borrow()
             .pending_import
             .as_ref()
-            .map(|p| p.path.clone());
-        if let Some(path) = path {
-            match files::wipe(&path) {
+            .map(|p| (p.path.clone(), p.bytes.clone()));
+        if let Some((path, bytes)) = read {
+            match files::wipe_if_same(&path, &bytes) {
                 Ok(()) => self.notify(notice::SOURCE_WIPED, ""),
                 Err(err) => {
                     self.set_error(error::FILE, &err.to_string());
@@ -4277,7 +4540,12 @@ impl Controller {
     /// Writes the copy, reads it back, and calls it done only when it is the vault file byte
     /// for byte and opens with this vault's key (every byte authenticated, no password asked
     /// again). A copy that fails is deleted.
-    fn save_confirmed_backup(&self, target: &std::path::Path) {
+    ///
+    /// The file copied must be the one this window last read or wrote, at the revision open
+    /// here: a vault file replaced meanwhile (by an older copy of this same vault, still
+    /// authentic) is not saved as "the backup of the vault as it is now".
+    pub(crate) fn save_confirmed_backup(&self, target: &std::path::Path) {
+        self.set_error(error::NONE, "");
         let source = self.state.borrow().path.clone();
         let bytes = match storage::read(&source) {
             Ok(bytes) => bytes,
@@ -4287,6 +4555,33 @@ impl Controller {
                 return;
             }
         };
+        if self.state.borrow().file_hash != Some(file_hash(&bytes)) {
+            self.set_error(error::CHANGED_OUTSIDE, "");
+            return;
+        }
+        // Everything knowable from the bytes is checked before the target is touched: a copy
+        // refused after writing would be deleted, and with it a good backup it replaced, or
+        // the vault file itself.
+        if same_path(target, &source) {
+            self.set_error(error::FILE, "that is the vault file itself");
+            return;
+        }
+        let fit = (|| -> Result<(), String> {
+            let state = self.state.borrow();
+            let session = state.session.as_ref().ok_or("the vault is locked")?;
+            let revision = session
+                .vault
+                .check_copy(&bytes)
+                .map_err(|e| e.to_string())?;
+            if revision != session.vault.revision() {
+                return Err("the vault file is not the revision open here".into());
+            }
+            Ok(())
+        })();
+        if let Err(detail) = fit {
+            self.set_error(error::OTHER, &detail);
+            return;
+        }
         if let Err(err) = storage::write_atomic(target, &bytes) {
             let (code, detail) = self.core_error(&err);
             self.set_error(code, &detail);
@@ -4297,13 +4592,7 @@ impl Controller {
             if storage::fingerprint(&back) != storage::fingerprint(&bytes) {
                 return Err("the copy read back differs from the vault file".into());
             }
-            let state = self.state.borrow();
-            let session = state.session.as_ref().ok_or("the vault is locked")?;
-            session
-                .vault
-                .check_copy(&back)
-                .map(|_| ())
-                .map_err(|e| e.to_string())
+            Ok(())
         })();
         match checked {
             Ok(()) => self.notify_long(
@@ -4317,14 +4606,95 @@ impl Controller {
         }
     }
 
-    /// After the master password check: writes the unencrypted export to a file the user picks.
-    fn export_verified(&self, mut session: Session) {
-        self.clear_secret(field::CURRENT);
+    /// The format chosen on the page (app.slint `export-format`; 0 is the encrypted backup).
+    fn export_format(&self) -> ExportFormat {
+        match self.app().get_export_format() {
+            3 => ExportFormat::Sealed,
+            2 => ExportFormat::Csv,
+            _ => ExportFormat::Json,
+        }
+    }
+
+    /// "Export…": the dialog, with what this vault's file leaves out and what anyone who gets
+    /// it reads. Locked items can't be counted (nor exported): that is said there, and counted
+    /// when the master password opens them (`export_verified`).
+    fn ask_export(&self) {
+        let counted = match self.state.borrow().session.as_ref() {
+            Some(session) => vault_import::export_report(&session.vault, self.export_format()),
+            None => return,
+        };
+        self.forget_export_secrets();
         let app = self.app();
-        let format = app.get_export_format();
-        let csv = format == 2;
-        // 3: the export protected by a password chosen for the file.
-        let protected = format == 3;
+        app.set_export_recounted(false);
+        match counted {
+            Ok(report) => {
+                app.set_export_counts(export_counts(&report));
+                self.set_error(error::NONE, "");
+            }
+            Err(err) => {
+                app.set_export_counts(ExportCounts::default());
+                let (code, detail) = self.core_error(&err);
+                self.set_error(code, &detail);
+            }
+        }
+        app.set_export_asking(true);
+    }
+
+    fn cancel_export(&self) {
+        self.app().set_export_asking(false);
+        self.forget_export_secrets();
+        self.set_error(error::NONE, "");
+    }
+
+    /// What the export dialog asks for: nothing typed for an earlier try stays.
+    fn forget_export_secrets(&self) {
+        for secret in [field::CURRENT, field::NEW, field::NEW_AGAIN] {
+            self.clear_secret(secret);
+        }
+    }
+
+    /// The session back from an export's check. The master password opened the item lock for
+    /// the export only: it closes again, unless it was open before.
+    fn put_back(&self, mut session: Session) {
+        if !self.state.borrow().secrets_open {
+            session.vault.lock_secrets();
+        }
+        self.state.borrow_mut().session = Some(session);
+    }
+
+    /// After the master password check: writes the export to a file the user picks. What the
+    /// file holds must be what the dialog showed: anything else (the master password opened
+    /// locked items, a sync changed the vault) is shown first and confirmed again, and with
+    /// no dialog there is no export.
+    fn export_verified(&self, session: Session) {
+        let app = self.app();
+        if !app.get_export_asking() {
+            self.put_back(session);
+            self.forget_export_secrets();
+            return;
+        }
+        let format = self.export_format();
+        let csv = format == ExportFormat::Csv;
+        // The export protected by a password chosen for the file.
+        let protected = format == ExportFormat::Sealed;
+        let counted = vault_import::export_report(&session.vault, format)
+            .map(|report| export_counts(&report));
+        if counted.as_ref().ok() != Some(&app.get_export_counts()) {
+            self.put_back(session);
+            match counted {
+                Ok(counts) => {
+                    app.set_export_counts(counts);
+                    app.set_export_recounted(true);
+                }
+                Err(err) => {
+                    self.clear_secret(field::CURRENT);
+                    let (code, detail) = self.core_error(&err);
+                    self.set_error(code, &detail);
+                }
+            }
+            return;
+        }
+        self.clear_secret(field::CURRENT);
         let file_password =
             Zeroizing::new(self.state.borrow().secrets[field::NEW].as_str().to_owned());
         if protected {
@@ -4341,7 +4711,7 @@ impl Controller {
                 None
             };
             if let Some(code) = problem {
-                self.state.borrow_mut().session = Some(session);
+                self.put_back(session);
                 self.set_error(code, "");
                 return;
             }
@@ -4363,14 +4733,11 @@ impl Controller {
         };
         self.clear_secret(field::NEW);
         self.clear_secret(field::NEW_AGAIN);
-        if !self.state.borrow().secrets_open {
-            session.vault.lock_secrets();
-        }
         let (runner, vault_path) = {
             let state = self.state.borrow();
             (state.runner, state.path.clone())
         };
-        self.state.borrow_mut().session = Some(session);
+        self.put_back(session);
         let text = match text {
             Ok(text) => text,
             Err(err) => {
@@ -5151,6 +5518,28 @@ struct PendingImport {
 fn same_path(a: &std::path::Path, b: &std::path::Path) -> bool {
     a.to_string_lossy()
         .eq_ignore_ascii_case(&b.to_string_lossy())
+}
+
+/// An export's counts for the dialog (numbers only: no title goes to the window).
+fn export_counts(report: &vault_import::ExportReport) -> ExportCounts {
+    let count = |n: usize| i32::try_from(n).unwrap_or(i32::MAX);
+    let (out, clear) = (&report.left_out, &report.in_clear);
+    ExportCounts {
+        attachments: count(out.attachments),
+        passkeys: count(out.passkeys),
+        earlier_passwords: count(out.earlier_passwords),
+        extra_websites: count(out.extra_websites),
+        dates: out.dates,
+        hidden_marks: count(out.hidden_marks),
+        recovery_code_lists: count(out.recovery_code_lists),
+        kinds_changed: count(out.kinds_changed),
+        passwords: count(clear.passwords),
+        otp_secrets: count(clear.otp_secrets),
+        hidden_fields: count(clear.hidden_fields),
+        recovery_codes: count(clear.recovery_codes),
+        notes: count(clear.notes),
+        formula_like: count(clear.formula_like),
+    }
 }
 
 fn file_hash(bytes: &[u8]) -> [u8; 32] {

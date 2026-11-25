@@ -32,7 +32,7 @@ use slint::{
 use vault_desktop::{
     apply_sketches,
     controller::{Controller, Runner},
-    ui::{AppWindow, PasskeyRow, Secrets, Theme},
+    ui::{AppWindow, ItemLock, PasskeyRow, Secrets, Theme},
 };
 
 const WIDTH: u32 = 1180;
@@ -591,6 +591,15 @@ fn main() {
     );
     app.invoke_close_settings_dialog();
     app.set_guard_check(app.get_guard_current_check());
+    // A newer item lock set on another device waits here: what to type, and where.
+    app.global::<ItemLock>().set_waiting(1);
+    app.set_error_code(60);
+    camera.shot(
+        "settings-lock-waiting",
+        "Settings → Security: an item lock changed on another device waits for both PINs",
+    );
+    app.set_error_code(0);
+    app.global::<ItemLock>().set_waiting(0);
     app.set_settings_section(1);
     camera.shot("settings-vault", "Settings → This vault");
     app.set_settings_section(3);

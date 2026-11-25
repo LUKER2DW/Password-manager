@@ -2,7 +2,7 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, Messages } from "model.slint";
+import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, Messages, ItemLock } from "model.slint";
 import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker, IconLook, FolderLook } from "icons.slint";
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip } from "kit.slint";
@@ -168,6 +168,16 @@ component LockBox inherits Rectangle {
             text: root.text;
             font-size: Theme.small;
             color: Theme.graphite;
+            wrap: word-wrap;
+        }
+        // A newer item lock from another device waits: what to type for the move. Written
+        // out (not under an `if`), so the box measures its wrapped lines.
+        Text {
+            text: Messages.guard-waiting(ItemLock.waiting);
+            visible: ItemLock.waiting != 0;
+            height: ItemLock.waiting != 0 ? self.preferred-height : 0px;
+            font-size: Theme.small;
+            color: Theme.ink;
             wrap: word-wrap;
         }
         HorizontalLayout {
@@ -2169,6 +2179,9 @@ export component SettingsPage inherits Rectangle {
     // The category shown, and the dialog a button opens.
     in-out property <int> section;
     callback open-dialog(int);
+    // The PIN or password typed for a newer item lock waiting from another device (or for
+    // this computer's own one): the same check as a locked item's.
+    callback guard-open-waiting();
     // Unlock protection (Argon2id cost): the level chosen on screen, the vault's current one
     // (-1 = custom values).
     in-out property <int> kdf-level: 1;
@@ -2336,6 +2349,42 @@ export component SettingsPage inherits Rectangle {
                                 : @tr("Locked secrets are encrypted, and only this password opens them. If you forget both it and your master password, they can't be recovered, not even with your emergency kit.");
                             font-size: Theme.small;
                             color: Theme.graphite;
+                            wrap: word-wrap;
+                        }
+                        // A newer item lock from another device waits for the move here.
+                        Text {
+                            text: Messages.guard-waiting(ItemLock.waiting);
+                            visible: ItemLock.waiting != 0;
+                            height: ItemLock.waiting != 0 ? self.preferred-height : 0px;
+                            font-size: Theme.small;
+                            color: Theme.ink;
+                            wrap: word-wrap;
+                        }
+                        // Where both PINs (or passwords) are typed, also once this computer's
+                        // own lock is open (with Windows Hello, say).
+                        if ItemLock.waiting == 1 || ItemLock.waiting == 2: HorizontalLayout {
+                            spacing: 10px;
+                            alignment: start;
+                            SecretField {
+                                width: ItemLock.waiting == 1 ? 180px : 320px;
+                                field: 11;
+                                eye: true;
+                                placeholder: ItemLock.waiting == 1 ? @tr("PIN") : @tr("Item password");
+                                error: root.error-code == 35;
+                                accepted => { root.guard-open-waiting(); }
+                            }
+                            Button {
+                                text: @tr("Open");
+                                busy-text: @tr("Checking…");
+                                busy: root.busy;
+                                clicked => { root.guard-open-waiting(); }
+                            }
+                        }
+                        Text {
+                            text: (ItemLock.waiting == 1 || ItemLock.waiting == 2) && (root.error-code == 35 || root.error-code == 60) ? Messages.error(root.error-code, root.error-detail) : "";
+                            height: self.text == "" ? 0px : self.preferred-height;
+                            font-size: Theme.small;
+                            color: root.error-code == 60 ? Theme.ink : Theme.seal;
                             wrap: word-wrap;
                         }
                         Check {
@@ -3159,8 +3208,6 @@ export component TransferPage inherits Rectangle {
     // The chosen file is an unencrypted export: offer to wipe it after importing.
     in property <bool> import-plaintext;
     in-out property <int> export-format;
-    // "Export…" asks in a dialog (app.slint).
-    in-out property <bool> export-asking;
     callback pick-source(int);
     callback open-browser();
     // Reading a browser's own store: possible for this source, how (0 directly, 1 from a CSV),
@@ -3179,7 +3226,8 @@ export component TransferPage inherits Rectangle {
     callback import-cancel();
     callback import-wipe();
     callback export-backup();
-    callback export-plain();
+    // "Export…": counted, then asked in a dialog (app.slint).
+    callback export-ask();
 
     // Errors 11 (master password) belong to the export section; the rest to the import one.
     property <bool> export-error: root.error-code == 11;
@@ -3652,9 +3700,10 @@ export component TransferPage inherits Rectangle {
                     text: root.export-format == 0 ? @tr("Save a backup copy…") : @tr("Export…");
                     danger: root.export-format == 1 || root.export-format == 2;
                     clicked => {
-                        // The other formats ask for the master password (and a password for
-                        // the file) in a dialog first (app.slint, ExportDialog).
-                        if (root.export-format == 0) { root.export-backup(); } else { root.export-asking = true; }
+                        // The other formats say what the file leaves out and ask for the
+                        // master password (and a password for the file) in a dialog first
+                        // (app.slint, ExportDialog).
+                        if (root.export-format == 0) { root.export-backup(); } else { root.export-ask(); }
                     }
                 }
             }

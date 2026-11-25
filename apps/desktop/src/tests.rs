@@ -2,12 +2,19 @@
 //! callbacks the UI uses, with Slint's testing backend (nothing is drawn on screen).
 //! Argon2id runs at the format's minimum cost here to keep the test fast.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    path::Path,
+    sync::{
+        Arc, Mutex, MutexGuard, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use slint::{ComponentHandle, Model};
+use vault_core::{
+    Attachment, CustomField, GuardCheck, ItemData, ItemKind, KdfParams, Passkey, RecoveryCode,
+    SecretKey, Vault, card,
+};
 use vault_platform::{
     quick_unlock::{DeviceVerifier, QuickUnlockError},
     secret_store,
@@ -17,11 +24,14 @@ use zeroize::Zeroizing;
 use crate::{
     apply_sketches,
     controller::{Controller, Runner},
-    ui::{AppWindow, Panel, Screen, Secrets},
+    ui::{AppWindow, ExportCounts, Messages, Panel, Screen, Secrets},
 };
 
 const PASSWORD: &str = "desktop test passphrase one";
 const NEW_PASSWORD: &str = "desktop test passphrase two";
+
+/// What the review of the audit fixes found, each on a vault of its own.
+mod review;
 
 fn type_into(app: &AppWindow, field: i32, text: &str) {
     let secrets = app.global::<Secrets>();
@@ -71,6 +81,22 @@ impl DeviceVerifier for FakeHello {
     fn remove(&self, _vault_id: &str) {}
 }
 
+/// The tests that open the app point `VAULT_HOME` (its folder: device state, caches) at a
+/// folder of their own: one at a time.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+/// Takes this test's turn and points `VAULT_HOME` at `home` while it is held.
+fn app_home(home: &Path) -> MutexGuard<'static, ()> {
+    let turn = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+    // SAFETY: every test that sets the environment holds this turn while it does, and the
+    // other tests of this binary never read VAULT_HOME.
+    #[allow(unsafe_code)]
+    unsafe {
+        std::env::set_var("VAULT_HOME", home);
+    }
+    turn
+}
+
 /// Removes the test vault's Secret Key from the OS credential store, even if the test fails.
 struct ForgetOnDrop(String);
 
@@ -84,12 +110,7 @@ impl Drop for ForgetOnDrop {
 fn whole_app_flow_headless() {
     i_slint_backend_testing::init_no_event_loop();
     let dir = tempfile::tempdir().unwrap();
-    // SAFETY: set before any thread of this test reads the environment; other tests in this
-    // binary never read VAULT_HOME.
-    #[allow(unsafe_code)]
-    unsafe {
-        std::env::set_var("VAULT_HOME", dir.path().join("home"));
-    }
+    let _turn = app_home(&dir.path().join("home"));
     let path = dir.path().join("test.vault");
 
     let app = AppWindow::new().unwrap();
@@ -616,6 +637,22 @@ fn whole_app_flow_headless() {
         signed(&key, logins_request).contains("not_paired"),
         "refused"
     );
+    // Another request to connect while the first one's master password is being checked:
+    // neither key is stored (the approved one was replaced), and the newer request's own
+    // code is asked for.
+    let key_of = |reply: &str| -> Vec<u8> {
+        (0..32)
+            .map(|i| u8::from_str_radix(&field(reply, "key")[2 * i..2 * i + 2], 16).unwrap())
+            .collect()
+    };
+    let first = raw(r#"{"type":"pair"}"#);
+    let second = controller.pair_again_while_checking();
+    assert!(signed(&key_of(&first), logins_request).contains("not_paired"));
+    assert!(signed(&key_of(&second), logins_request).contains("not_paired"));
+    assert_eq!(app.get_pairing_code(), field(&second, "code").as_str());
+    assert_eq!(app.get_error_code(), 43);
+    assert!(!app.get_browser_paired());
+    app.invoke_pairing_decided(false);
     let pairing = raw(r#"{"type":"pair"}"#);
     let key: Vec<u8> = (0..32)
         .map(|i| u8::from_str_radix(&field(&pairing, "key")[2 * i..2 * i + 2], 16).unwrap())
@@ -768,6 +805,72 @@ fn whole_app_flow_headless() {
     app.invoke_toggle_favorite();
     assert_eq!(app.get_error_code(), 0, "saves again once the file matches");
     app.invoke_toggle_favorite();
+    // A backup is the vault as it is open here: never a file replaced meanwhile, even an
+    // older, authentic copy of this same vault.
+    let backup = dir.path().join("backup.vault");
+    let current = std::fs::read(&path).unwrap();
+    app.invoke_toggle_favorite();
+    assert_eq!(app.get_error_code(), 0);
+    let newer = std::fs::read(&path).unwrap();
+    std::fs::write(&path, &current).unwrap();
+    controller.save_confirmed_backup(&backup);
+    assert_eq!(app.get_error_code(), 24, "an older copy put back: refused");
+    assert!(!backup.exists());
+    std::fs::write(&path, &newer).unwrap();
+    controller.save_confirmed_backup(&backup);
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert_eq!(std::fs::read(&backup).unwrap(), newer);
+    app.invoke_toggle_favorite();
+    // The extension hears "saved" only once the login is on disk. With the file changed
+    // elsewhere it is told `not_saved`, the other change stays, and nothing is kept in memory
+    // to be written later; asked again once the file matches, it is saved.
+    let current = std::fs::read(&path).unwrap();
+    let mut elsewhere = current.clone();
+    elsewhere.push(0);
+    std::fs::write(&path, &elsewhere).unwrap();
+    let save_request = r#"{"type":"save","url":"https://shop.example/login","username":"from-browser","password":"pw-from-browser"}"#;
+    let shop_logins = r#"{"type":"logins","url":"https://shop.example/login"}"#;
+    let refused = ask(save_request);
+    assert!(refused.contains(r#""code":"not_saved""#), "{refused}");
+    assert_eq!(std::fs::read(&path).unwrap(), elsewhere, "left untouched");
+    std::fs::write(&path, &current).unwrap();
+    assert!(
+        !ask(shop_logins).contains("from-browser"),
+        "nothing kept in memory"
+    );
+    // A write the disk refuses: the vault in memory goes back as it was.
+    #[cfg(windows)]
+    {
+        let writable = std::fs::metadata(&path).unwrap().permissions();
+        let mut readonly = writable.clone();
+        readonly.set_readonly(true);
+        std::fs::set_permissions(&path, readonly).unwrap();
+        let refused = ask(save_request);
+        std::fs::set_permissions(&path, writable).unwrap();
+        assert!(refused.contains(r#""code":"not_saved""#), "{refused}");
+        assert_eq!(std::fs::read(&path).unwrap(), current, "left untouched");
+        assert!(!ask(shop_logins).contains("from-browser"), "rolled back");
+    }
+    let saved = ask(save_request);
+    assert!(
+        saved.contains(r#""type":"saved""#) && saved.contains(r#""existing":false"#),
+        "{saved}"
+    );
+    assert_ne!(std::fs::read(&path).unwrap(), current, "on disk now");
+    let shop = (0..app.get_items().row_count())
+        .find(|&i| app.get_items().row_data(i).unwrap().title == "shop.example")
+        .expect("listed");
+    app.invoke_select(shop as i32);
+    app.invoke_delete_item();
+    let github = (0..app.get_items().row_count())
+        .find(|&i| app.get_items().row_data(i).unwrap().title == "GitHub")
+        .unwrap();
+    app.invoke_select(github as i32);
 
     // ---- an icon taken from another website ----
     app.invoke_edit_item();
@@ -1325,6 +1428,90 @@ fn whole_app_flow_headless() {
     assert!(!app.get_detail_locked());
     assert!(app.get_detail_has_password());
     assert_eq!(app.get_totp_code().len(), 7);
+    // The generator's result, once it is a locked login's password, is not left on the
+    // generator page (nor in Rust, to copy) when the item lock closes.
+    app.invoke_open_generator();
+    let made = app.get_gen_result().to_string();
+    assert!(!made.is_empty());
+    app.invoke_select_category(0);
+    app.invoke_select(0);
+    app.invoke_edit_item();
+    app.invoke_use_generated();
+    assert_eq!(app.get_panel(), Panel::Editor);
+    assert_eq!(
+        app.get_gen_result(),
+        "",
+        "handed to the editor: gone from the generator"
+    );
+    assert_eq!(controller.generated_result(), None);
+    app.invoke_save_item();
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    app.invoke_lock_secrets();
+    app.invoke_open_generator();
+    assert_ne!(
+        app.get_gen_result(),
+        made.as_str(),
+        "a new one, not the item's"
+    );
+    assert_ne!(
+        controller.generated_result().as_deref(),
+        Some(made.as_str())
+    );
+    // Typed into an item by hand and saved: the same.
+    let typed = app.get_gen_result().to_string();
+    app.invoke_select_category(0);
+    app.invoke_select(0);
+    type_into(&app, 11, "4821");
+    app.invoke_unlock_item();
+    app.invoke_edit_item();
+    type_into(&app, 4, &typed);
+    app.invoke_save_item();
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_gen_result(), "");
+    assert_eq!(controller.generated_result(), None);
+    // And closing the item lock clears whatever the generator showed.
+    app.invoke_open_generator();
+    assert!(!app.get_gen_result().is_empty());
+    app.invoke_lock_secrets();
+    assert_eq!(app.get_gen_result(), "");
+    assert_eq!(controller.generated_result(), None);
+    app.invoke_select_category(0);
+    app.invoke_select(0);
+    type_into(&app, 11, "4821");
+    app.invoke_unlock_item();
+    assert!(!app.get_detail_locked());
+    // The password the rest of this test expects back.
+    app.invoke_edit_item();
+    type_into(&app, 4, "password123");
+    app.invoke_save_item();
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    // The vault locked while an item check runs in the background: when the check comes
+    // back, the vault stays locked, on screen and for the extension.
+    controller.lock_while_a_job_holds_the_vault();
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    assert!(!app.get_secrets_open());
+    assert!(raw(r#"{"type":"status"}"#).contains(r#""locked":true"#));
+    type_into(&app, 0, NEW_PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_screen(), Screen::Vault);
+    app.invoke_select_category(0);
+    app.invoke_select(0);
+    assert!(app.get_detail_locked(), "the item lock is closed again too");
     // A forgotten PIN is replaced with the master password alone.
     relock(&app);
     app.invoke_open_settings();
@@ -1770,7 +1957,14 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_error_code(), 19);
     app.invoke_import_cancel();
 
-    // Unencrypted export needs the master password.
+    // Unencrypted export needs the master password, and its dialog (what the file leaves out
+    // and who reads it is said there): without it nothing is made.
+    app.set_export_format(1);
+    type_into(&app, 5, PASSWORD);
+    app.invoke_export_plain();
+    assert!(!path.with_extension("export.json").exists());
+    assert_eq!((app.get_error_code(), length(&app, 5)), (0, 0));
+    app.invoke_export_ask();
     app.invoke_export_plain();
     assert_eq!(app.get_error_code(), 11);
     type_into(&app, 5, PASSWORD);
@@ -1784,6 +1978,7 @@ fn whole_app_flow_headless() {
     // An export protected by a password of its own: unreadable as a file, and Import reads
     // it back with that password.
     app.set_export_format(3);
+    app.invoke_export_ask();
     type_into(&app, 5, PASSWORD);
     type_into(&app, 6, "short");
     type_into(&app, 7, "short");
@@ -1893,5 +2088,269 @@ fn whole_app_flow_headless() {
             !bytes.windows(needle.len()).any(|w| w == needle.as_bytes()),
             "{needle} leaked"
         );
+    }
+}
+
+/// A login with two websites, a hidden field, a one-time code, recovery codes, an attached
+/// file, a passkey and an earlier password (the one in use starts like a formula); a card with
+/// a PIN; a note.
+fn add_what_exports_lose(vault: &mut Vault) {
+    let mut mail = ItemData::login("Mail", "me", "first password", "https://mail.example");
+    mail.urls.push("https://webmail.example".into());
+    mail.totp = "JBSWY3DPEHPK3PXP".into();
+    mail.custom_fields.push(CustomField {
+        name: "Answer".into(),
+        value: "blue".into(),
+        sensitive: true,
+    });
+    mail.recovery_codes = RecoveryCode::parse_list("test-code-1\ntest-code-2");
+    mail.attachments
+        .push(Attachment::new("scan.txt", b"test attachment".to_vec()).unwrap());
+    mail.passkeys
+        .push(Passkey::new("mail.example", b"user-1", "me", "Me").unwrap());
+    let id = vault.add_item(&mail).unwrap();
+    let mut changed = vault.get_item(&id).unwrap();
+    changed.password = "=second password".into();
+    vault.update_item(&id, &changed).unwrap();
+    let mut visa = ItemData::new(ItemKind::Card, "Visa");
+    visa.password = "4821".into();
+    visa.custom_fields.push(CustomField {
+        name: card::NUMBER.into(),
+        value: "4111111111111111".into(),
+        sensitive: true,
+    });
+    vault.add_item(&visa).unwrap();
+    let mut note = ItemData::new(ItemKind::SecureNote, "Wifi");
+    note.notes = "router".into();
+    vault.add_item(&note).unwrap();
+}
+
+#[test]
+fn an_export_says_first_what_it_leaves_out_and_what_anyone_could_read() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let _turn = app_home(&dir.path().join("home"));
+    let path = dir.path().join("exports.vault");
+    let key = SecretKey::generate().unwrap();
+    let mut vault = Vault::create(PASSWORD, &key, None, KdfParams::minimum().unwrap()).unwrap();
+    add_what_exports_lose(&mut vault);
+    std::fs::write(&path, vault.to_bytes().unwrap()).unwrap();
+    let _cleanup = ForgetOnDrop(vault.id_hex());
+    secret_store::store(&vault.id_hex(), &key).unwrap();
+
+    let app = AppWindow::new().unwrap();
+    apply_sketches(&app);
+    let _controller = Controller::install(&app, path.clone(), Runner::Inline, None).unwrap();
+    crate::i18n::apply("en");
+    type_into(&app, 0, PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "{}",
+        app.get_error_detail()
+    );
+    app.invoke_open_transfer();
+    let notes = || {
+        app.global::<Messages>()
+            .invoke_export_notes(app.get_export_counts())
+            .to_string()
+    };
+
+    // Protected by a password: what no export carries. Nothing is readable.
+    app.set_export_format(3);
+    app.invoke_export_ask();
+    assert!(app.get_export_asking() && app.get_error_code() == 0);
+    let sealed = ExportCounts {
+        attachments: 1,
+        passkeys: 1,
+        ..ExportCounts::default()
+    };
+    assert_eq!(app.get_export_counts(), sealed);
+    assert_eq!(notes(), "Not in this file: 1 attached file, 1 passkey.");
+    // Cancelled: what was typed goes.
+    type_into(&app, 5, PASSWORD);
+    type_into(&app, 6, "a long password for the file");
+    app.invoke_export_cancel();
+    assert!(!app.get_export_asking());
+    assert_eq!((length(&app, 5), length(&app, 6)), (0, 0));
+
+    // JSON: the earlier password stays behind too, and everything else is in the clear.
+    app.set_export_format(1);
+    app.invoke_export_ask();
+    let json = ExportCounts {
+        earlier_passwords: 1,
+        passwords: 2,
+        otp_secrets: 1,
+        hidden_fields: 2,
+        recovery_codes: 2,
+        notes: 1,
+        ..sealed.clone()
+    };
+    assert_eq!(app.get_export_counts(), json);
+    assert_eq!(
+        notes(),
+        "Not in this file: 1 attached file, 1 passkey, 1 earlier password.\n\
+         Readable by anyone with this file: 2 passwords, 1 one-time code secret, \
+         2 hidden fields, 2 recovery codes, the notes of 1 item."
+    );
+    app.invoke_export_cancel();
+
+    // CSV: what it has no place for, and no file for a spreadsheet.
+    app.set_export_format(2);
+    app.invoke_export_ask();
+    let csv = ExportCounts {
+        extra_websites: 1,
+        dates: true,
+        hidden_marks: 2,
+        recovery_code_lists: 1,
+        kinds_changed: 1,
+        formula_like: 1,
+        ..json.clone()
+    };
+    assert_eq!(app.get_export_counts(), csv);
+    assert_eq!(
+        notes(),
+        "Not in this file: 1 attached file, 1 passkey, 1 earlier password, \
+         1 website after an item's first, the dates of the items.\n\
+         In another form: 2 hidden fields not marked hidden, \
+         1 list of recovery codes as text, 1 item as another kind.\n\
+         Readable by anyone with this file: 2 passwords, 1 one-time code secret, \
+         2 hidden fields, 2 recovery codes, the notes of 1 item.\n\
+         Don't open this file in a spreadsheet: 1 password or code secret starts like a \
+         formula, and a spreadsheet may run it."
+    );
+    // Confirmed: the file holds what was said, and not what was said to stay behind.
+    type_into(&app, 5, PASSWORD);
+    app.invoke_export_plain();
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    assert!(!app.get_export_asking() && !app.get_export_recounted());
+    let exported = path.with_extension("export.csv");
+    let text = std::fs::read_to_string(&exported).unwrap();
+    for (held, text_of) in [
+        (true, "=second password"),
+        (true, "JBSWY3DPEHPK3PXP"),
+        (true, "test-code-2"),
+        (true, "4111111111111111"),
+        (false, "first password"),
+        (false, "webmail.example"),
+        (false, "test attachment"),
+    ] {
+        assert_eq!(text.contains(text_of), held, "{text_of}");
+    }
+    std::fs::remove_file(exported).unwrap();
+
+    // The vault changes while the dialog is open (a sync, the browser): what the file would
+    // hold now is shown, and confirmed again before it is made.
+    app.set_export_format(1);
+    app.invoke_export_ask();
+    app.invoke_new_item();
+    app.set_ed_title("New".into());
+    type_into(&app, 4, "another password");
+    app.invoke_save_item();
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    type_into(&app, 5, PASSWORD);
+    app.invoke_export_plain();
+    let exported = path.with_extension("export.json");
+    assert!(!exported.exists(), "not made with other counts shown");
+    assert!(app.get_export_asking() && app.get_export_recounted());
+    assert_eq!(app.get_export_counts().passwords, 3);
+    app.invoke_export_plain();
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    assert!(!app.get_export_asking());
+    assert!(exported.exists());
+    assert_eq!(length(&app, 5), 0, "wiped after use");
+    std::fs::remove_file(exported).unwrap();
+
+    // Locked with the dialog open: it is not there at the next unlock.
+    app.invoke_export_ask();
+    assert!(app.get_export_asking());
+    app.invoke_lock();
+    assert!(!app.get_export_asking());
+}
+
+#[test]
+fn an_export_of_locked_items_is_counted_before_it_is_made() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let _turn = app_home(&dir.path().join("home"));
+    let key = SecretKey::generate().unwrap();
+    for master_opens in [true, false] {
+        let path = dir.path().join(format!("locked-{master_opens}.vault"));
+        let mut vault = Vault::create(PASSWORD, &key, None, KdfParams::minimum().unwrap()).unwrap();
+        add_what_exports_lose(&mut vault);
+        vault
+            .set_item_guard(
+                true,
+                GuardCheck::Pin,
+                Some("2468"),
+                master_opens.then_some(PASSWORD),
+            )
+            .unwrap();
+        std::fs::write(&path, vault.to_bytes().unwrap()).unwrap();
+        let _cleanup = ForgetOnDrop(vault.id_hex());
+        secret_store::store(&vault.id_hex(), &key).unwrap();
+        let app = AppWindow::new().unwrap();
+        apply_sketches(&app);
+        let _controller = Controller::install(&app, path.clone(), Runner::Inline, None).unwrap();
+        crate::i18n::apply("en");
+        type_into(&app, 0, PASSWORD);
+        app.invoke_unlock();
+        assert_eq!(
+            app.get_screen(),
+            Screen::Vault,
+            "{}",
+            app.get_error_detail()
+        );
+        app.invoke_open_transfer();
+
+        // Nothing to count yet, and it says why.
+        app.set_export_format(3);
+        app.invoke_export_ask();
+        assert!(app.get_export_asking());
+        assert_eq!(app.get_error_code(), 37, "the item lock is in the way");
+        assert_eq!(app.get_export_counts(), ExportCounts::default());
+        type_into(&app, 5, PASSWORD);
+        type_into(&app, 6, "a long password for the file");
+        type_into(&app, 7, "a long password for the file");
+        app.invoke_export_plain();
+        let exported = path.with_extension("export.vaultx");
+        assert!(!exported.exists());
+        assert!(app.get_export_asking());
+        if !master_opens {
+            // No copy of the lock's key under the master password: it stays in the way.
+            assert_eq!(app.get_error_code(), 37);
+            assert!(!app.get_export_recounted());
+            app.invoke_export_cancel();
+            continue;
+        }
+        // The master password opened the items to count them: shown, then confirmed again.
+        assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+        assert!(app.get_export_recounted());
+        let counts = app.get_export_counts();
+        assert_eq!((counts.attachments, counts.passkeys), (1, 1));
+        assert!(!app.get_secrets_open());
+        app.invoke_select_category(0);
+        app.invoke_select(0);
+        assert!(app.get_detail_locked(), "for the export only");
+        app.invoke_open_transfer();
+        type_into(&app, 5, PASSWORD);
+        app.invoke_export_plain();
+        assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+        assert!(exported.exists() && !app.get_export_asking());
+
+        // A protected export refused for its password closes the item lock again too.
+        app.invoke_export_ask();
+        type_into(&app, 5, PASSWORD);
+        app.invoke_export_plain();
+        assert!(app.get_export_recounted());
+        app.invoke_export_plain();
+        assert_eq!(app.get_error_code(), 5, "no password for the file");
+        app.invoke_export_cancel();
+        app.invoke_select_category(0);
+        app.invoke_select(0);
+        assert!(app.get_detail_locked());
+        app.invoke_reveal();
+        assert_eq!(app.get_revealed_password(), "");
     }
 }

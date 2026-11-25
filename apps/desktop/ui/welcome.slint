@@ -297,6 +297,9 @@ component Spacer inherits Rectangle {
 component VaultChooser inherits VerticalLayout {
     in property <[RecentVault]> vaults;
     in property <bool> can-go-back: true;
+    // While the vault shown is being unlocked or created, no other one is chosen: what that
+    // work brings back belongs to this one.
+    in property <bool> busy;
     callback pick(int);
     callback forget(int);
     callback open-file();
@@ -319,7 +322,7 @@ component VaultChooser inherits VerticalLayout {
             row-touch := TouchArea {
                 mouse-cursor: vault.missing ? MouseCursor.default : MouseCursor.pointer;
                 clicked => {
-                    if (!vault.missing) { root.pick(index); }
+                    if (!vault.missing && !root.busy) { root.pick(index); }
                 }
             }
             HorizontalLayout {
@@ -380,11 +383,13 @@ component VaultChooser inherits VerticalLayout {
         QuietButton {
             text: @tr("Open a vault file…");
             outlined: true;
+            enabled: !root.busy;
             clicked => { root.open-file(); }
         }
         QuietButton {
             text: @tr("Create a new vault…");
             outlined: true;
+            enabled: !root.busy;
             clicked => { root.new-file(); }
         }
     }
@@ -489,6 +494,7 @@ export component OnboardingScreen inherits Rectangle {
             form-width: 460px;
             if root.choosing: VaultChooser {
                 vaults: root.vaults;
+                busy: root.busy;
                 pick(i) => { root.pick-vault(i); }
                 forget(i) => { root.forget-vault(i); }
                 open-file => { root.open-vault-file(); }
@@ -898,6 +904,7 @@ export component UnlockScreen inherits Rectangle {
             scene: Theme.lock-backdrop == 1 || Theme.lock-backdrop == 3;
             if root.choosing: VaultChooser {
                 vaults: root.vaults;
+                busy: root.busy;
                 pick(i) => { root.pick-vault(i); }
                 forget(i) => { root.forget-vault(i); }
                 open-file => { root.open-vault-file(); }

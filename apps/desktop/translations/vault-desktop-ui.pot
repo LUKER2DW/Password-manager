@@ -793,11 +793,6 @@ msgctxt "ExportDialog"
 msgid "Export every password unencrypted?"
 msgstr ""
 
-#: ui/dialogs.slint:724
-msgctxt "ExportDialog"
-msgid "Export the logins unencrypted?"
-msgstr ""
-
 #: ui/dialogs.slint:731
 msgctxt "ExportDialog"
 msgid ""
@@ -812,6 +807,13 @@ msgid ""
 "The file holds the passwords in plain text: anyone or any program that gets "
 "it reads them, and malware looks for exactly these files. Use it only to "
 "move to another password manager, then delete it."
+msgstr ""
+
+#: ui/dialogs.slint:751
+msgctxt "ExportDialog"
+msgid ""
+"This was counted again: locked items could be opened, or the vault changed. "
+"Choose Export… again to make the file."
 msgstr ""
 
 #: ui/dialogs.slint:740
@@ -1157,6 +1159,11 @@ msgstr ""
 #: ui/model.slint:188
 msgctxt "Messages"
 msgid "That passphrase doesn't open the key. Try again."
+msgstr ""
+
+#: ui/model.slint:221
+msgctxt "Messages"
+msgid "That opened the new item lock, set on another device. Now type the PIN or password this computer asked for until now: then the locked items move to the new lock."
 msgstr ""
 
 #: ui/model.slint:189
@@ -2028,6 +2035,166 @@ msgid ""
 "This computer couldn't record the vault's newest version ({}), so an older "
 "copy put in its place may not be noticed."
 msgstr ""
+
+#: ui/model.slint:378
+msgctxt "Messages"
+msgid "The item lock was changed on another device. A locked item, or Settings → Item lock, says what to type here: until then, this computer keeps its own lock, and some changes from that device wait."
+msgstr ""
+
+#: ui/model.slint:379
+msgctxt "Messages"
+msgid "The item lock changed on another device is in use here now. Locked items closed again: they open with its PIN or password."
+msgstr ""
+
+#: ui/model.slint:380
+msgctxt "Messages"
+msgid "The vault locked before the item lock was saved, so it was not changed. Windows Hello for locked items, if it was being set up, is off until the item lock is saved again."
+msgstr ""
+
+#: ui/model.slint:381
+msgctxt "Messages"
+msgid "Filling while the vault is locked needs setting up again after this update: open a locked item with Windows Hello once, or turn the option off and on in Settings → Browser extension."
+msgstr ""
+
+#: ui/model.slint:382
+msgctxt "Messages"
+msgid "A login saved from the browser while the vault was locked waits for the item lock: a locked login for that site has the same username. Open the item lock to add its new password."
+msgstr ""
+
+#: ui/model.slint:382
+msgctxt "Messages"
+msgid "{} logins saved from the browser while the vault was locked wait for the item lock: locked logins for those sites have the same usernames. Open the item lock to add their new passwords."
+msgstr ""
+
+#: ui/model.slint:426
+msgctxt "Messages"
+msgid "The item lock was changed on another device. To move the locked items to it, type its new PIN here, and the PIN or password this computer asked for until now (either one first)."
+msgstr ""
+
+#: ui/model.slint:427
+msgctxt "Messages"
+msgid "The item lock was changed on another device. To move the locked items to it, type its new password here, and the PIN or password this computer asked for until now (either one first)."
+msgstr ""
+
+#: ui/model.slint:428
+msgctxt "Messages"
+msgid "The item lock was turned off, or changed to the master password, on another device. Open the item lock here once and the locked items follow it."
+msgstr ""
+
+#: ui/model.slint:378
+msgctxt "Messages"
+msgid "{n} attached file"
+msgid_plural "{n} attached files"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ui/model.slint:379
+msgctxt "Messages"
+msgid "{n} passkey"
+msgid_plural "{n} passkeys"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ui/model.slint:380
+msgctxt "Messages"
+msgid "{n} earlier password"
+msgid_plural "{n} earlier passwords"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ui/model.slint:381
+msgctxt "Messages"
+msgid "{n} website after an item's first"
+msgid_plural "{n} websites after an item's first"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ui/model.slint:382
+msgctxt "Messages"
+msgid "the dates of the items"
+msgstr ""
+
+#: ui/model.slint:386
+msgctxt "Messages"
+msgid "{n} hidden field not marked hidden"
+msgid_plural "{n} hidden fields not marked hidden"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ui/model.slint:387
+msgctxt "Messages"
+msgid "{n} list of recovery codes as text"
+msgid_plural "{n} lists of recovery codes as text"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ui/model.slint:388
+msgctxt "Messages"
+msgid "{n} item as another kind"
+msgid_plural "{n} items as another kind"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ui/model.slint:392
+msgctxt "Messages"
+msgid "{n} password"
+msgid_plural "{n} passwords"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ui/model.slint:393
+msgctxt "Messages"
+msgid "{n} one-time code secret"
+msgid_plural "{n} one-time code secrets"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ui/model.slint:394
+msgctxt "Messages"
+msgid "{n} hidden field"
+msgid_plural "{n} hidden fields"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ui/model.slint:395
+msgctxt "Messages"
+msgid "{n} recovery code"
+msgid_plural "{n} recovery codes"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ui/model.slint:396
+msgctxt "Messages"
+msgid "the notes of {n} item"
+msgid_plural "the notes of {n} items"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ui/model.slint:403
+msgctxt "Messages"
+msgid "Not in this file: {}."
+msgstr ""
+
+#: ui/model.slint:404
+msgctxt "Messages"
+msgid "In another form: {}."
+msgstr ""
+
+#: ui/model.slint:405
+msgctxt "Messages"
+msgid "Readable by anyone with this file: {}."
+msgstr ""
+
+#: ui/model.slint:407
+msgctxt "Messages"
+msgid ""
+"Don't open this file in a spreadsheet: {n} password or code secret starts "
+"like a formula, and a spreadsheet may run it."
+msgid_plural ""
+"Don't open this file in a spreadsheet: {n} passwords or code secrets start "
+"like a formula, and a spreadsheet may run them."
+msgstr[0] ""
+msgstr[1] ""
 
 #: ui/model.slint:350
 msgctxt "Messages"
@@ -3350,6 +3517,21 @@ msgstr ""
 #: ui/pages.slint:2330
 msgctxt "SettingsPage"
 msgid "PIN"
+msgstr ""
+
+#: ui/pages.slint:2372
+msgctxt "SettingsPage"
+msgid "Item password"
+msgstr ""
+
+#: ui/pages.slint:2377
+msgctxt "SettingsPage"
+msgid "Open"
+msgstr ""
+
+#: ui/pages.slint:2378
+msgctxt "SettingsPage"
+msgid "Checking…"
 msgstr ""
 
 #: ui/pages.slint:2330

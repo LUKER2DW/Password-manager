@@ -87,6 +87,20 @@ pub(super) struct SyncStatus {
     here: Option<Vec<DeviceId>>,
     /// Joining a server or checking WebDAV is under way.
     busy: bool,
+    /// The person was told that a newer item lock from another device waits here.
+    lock_told: bool,
+}
+
+/// Items, or whole copies, that wait for the item lock: the items a merge left as they were
+/// here, and each copy refused until this copy's own lock is open (it brings a newer item
+/// lock). Either is read again once the lock opens.
+fn waiting_for_lock(round: &sync::Round) -> usize {
+    let refused = round
+        .refused
+        .iter()
+        .filter(|(_, err)| matches!(err, vault_core::Error::SecretsLocked))
+        .count();
+    round.waiting_for_lock() + refused
 }
 
 /// Runs `job` off the UI thread (inline in the headless tests) and hands its result back.
@@ -154,6 +168,7 @@ impl Controller {
         self.stop_watch();
         self.state.borrow_mut().sync.tags = KnownTags::default();
         self.state.borrow_mut().sync.here = None;
+        self.state.borrow_mut().sync.lock_told = false;
         let Some(place) = self.sync_place() else {
             self.show_sync_settings();
             return;
@@ -270,12 +285,55 @@ impl Controller {
             });
     }
 
-    /// The item lock was opened: edits that waited for it can be folded now.
+    /// The item lock was opened: edits that waited for it can be folded now, and a newer
+    /// item lock from another device can take over once both locks are open.
     pub(super) fn sync_after_unlocking_items(&self) {
-        if self.state.borrow().sync.waiting > 0 {
+        let lock_waits = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .is_some_and(|s| s.vault.guard_waiting());
+        if self.state.borrow().sync.waiting > 0 || lock_waits {
             self.state.borrow_mut().sync.tags = KnownTags::default();
             self.sync_round();
         }
+    }
+
+    /// Both item locks are open (this copy's own and the newer one from another device): the
+    /// copy that brought the newer one is read again, and the locked items move to it.
+    pub(super) fn sync_for_the_newer_lock(&self) {
+        self.state.borrow_mut().sync.tags = KnownTags::default();
+        self.sync_round();
+    }
+
+    /// A merge took the item lock of another device. Whatever this copy's lock had opened
+    /// belongs to the lock it replaced: the open period, the relock timer, a secret copied
+    /// from a locked item, an item open in the editor (whose secrets were read under the old
+    /// key, and must never be saved back over the new ones). All of it closes; the new lock
+    /// is asked for next.
+    fn after_guard_changed(&self) {
+        let guarded_in_editor = {
+            let state = self.state.borrow();
+            match (state.editing, state.session.as_ref()) {
+                (Some(Some(id)), Some(session)) => session
+                    .vault
+                    .get_item(&id)
+                    .ok()
+                    .is_none_or(|item| item.is_locked() || session.vault.guards(&item)),
+                _ => false,
+            }
+        };
+        if guarded_in_editor {
+            self.close_editor();
+        }
+        self.timers.clipboard.stop();
+        let copied = self.state.borrow_mut().copied.take();
+        if let Some(value) = copied {
+            vault_platform::clipboard::clear_if(&value);
+        }
+        self.lock_secrets();
+        self.sync_guard_state();
     }
 
     /// "Choose a folder…": the folder dialog, then syncing starts.
@@ -408,7 +466,7 @@ impl Controller {
         let Some(vault_id) = self.open_vault_id() else {
             return;
         };
-        let address = match sync::check_address(&app.get_sync_address()) {
+        let address = match sync::check_webdav_address(&app.get_sync_address()) {
             Ok(address) => address,
             Err(err) => return self.sync_setup_failed(&format!("{err:#}")),
         };
@@ -648,7 +706,10 @@ impl Controller {
             self.show_sync_settings();
             return self.sync_finished();
         }
-        // Copies whose edits wait for the item lock are read again once it opens.
+        // Copies whose edits wait for the item lock are read again once it opens: those
+        // merged in part, and those refused whole until it is open (a newer item lock that
+        // takes this copy's own lock open first).
+        let waiting = waiting_for_lock(&round);
         {
             let mut state = self.state.borrow_mut();
             let listed = reading.tags(&KnownTags::default());
@@ -660,7 +721,7 @@ impl Controller {
                     .copied()
                     .collect(),
             );
-            if round.waiting_for_lock() == 0 {
+            if waiting == 0 {
                 state.sync.tags = reading.tags(&state.sync.tags);
             } else {
                 state.sync.tags = KnownTags::default();
@@ -675,6 +736,17 @@ impl Controller {
             self.refresh_list();
             self.show_detail();
         }
+        let guard_changed = round.reports.iter().any(|report| report.guard_changed);
+        if guard_changed {
+            self.after_guard_changed();
+        }
+        let lock_waits = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .is_some_and(|s| s.vault.guard_waiting());
+        self.sync_guard_state();
         let revision = self
             .state
             .borrow()
@@ -696,14 +768,31 @@ impl Controller {
             .iter()
             .map(|r| r.added + r.updated + r.removed)
             .sum();
-        self.state.borrow_mut().sync.waiting = round.waiting_for_lock();
+        // A newer item lock waiting is said once (the item lock's prompt and Settings show it
+        // for as long as it waits), not at every round.
+        let tell_lock = {
+            let mut state = self.state.borrow_mut();
+            state.sync.waiting = waiting;
+            let told = std::mem::replace(&mut state.sync.lock_told, lock_waits);
+            lock_waits && !told
+        };
+        let refused = round
+            .refused
+            .iter()
+            .find(|(_, err)| !matches!(err, vault_core::Error::SecretsLocked));
         if round.unlock_changed() {
             self.notify_long(notice::SYNC_UNLOCK_CHANGED, "");
+        } else if guard_changed {
+            self.notify_long(notice::GUARD_MOVED, "");
+        } else if tell_lock {
+            self.notify_long(notice::SYNC_LOCK_WAITING, "");
         } else if round.conflicts() > 0 {
             self.notify_long(notice::SYNC_CONFLICTS, &round.conflicts().to_string());
+        } else if lock_waits {
+            // Said already; what waits behind it is the same thing.
         } else if round.waiting_for_lock() > 0 {
             self.notify_long(notice::SYNC_WAITING, &round.waiting_for_lock().to_string());
-        } else if let Some((_, err)) = round.refused.first() {
+        } else if let Some((_, err)) = refused {
             self.notify_long(notice::SYNC_REFUSED, &err.to_string());
         } else if came > 0 {
             self.notify(notice::SYNC_CHANGED, &came.to_string());

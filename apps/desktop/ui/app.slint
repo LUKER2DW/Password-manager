@@ -2,7 +2,7 @@ import { Theme, Sketch, Secrets } from "theme.slint";
 // The monospace font, built in (see Theme.mono-font).
 import "fonts/JetBrainsMono-Regular.ttf";
 import "fonts/JetBrainsMono-SemiBold.ttf";
-import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, Messages } from "model.slint";
+import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, Messages, ItemLock } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage } from "pages.slint";
@@ -12,7 +12,7 @@ import { Glyph } from "icons.slint";
 // A second window: the notification area icon's menu (src/tray.rs).
 export { TrayMenu } from "tray.slint";
 
-export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, SourceRow, DeviceLine, Messages }
+export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, Messages, ItemLock }
 
 // Confirmation messages ("Copied", "Saved"): bottom-right, out of the way of page content.
 component Notice inherits Rectangle {
@@ -680,6 +680,10 @@ export component AppWindow inherits Window {
     in-out property <string> import-new-folder;
     in property <bool> import-plaintext;
     in-out property <int> export-format;
+    // What the export being asked for leaves out and writes as plain text, and whether that
+    // was counted again after it was confirmed (ExportDialog).
+    in property <ExportCounts> export-counts;
+    in property <bool> export-recounted;
     callback open-transfer();
     callback pick-source(int);
     callback open-browser();
@@ -696,6 +700,8 @@ export component AppWindow inherits Window {
     callback import-cancel();
     callback import-wipe();
     callback export-backup();
+    callback export-ask();
+    callback export-cancel();
     callback export-plain();
     callback save-kit();
 
@@ -1116,6 +1122,7 @@ export component AppWindow inherits Window {
                 guard-all <=> root.guard-all;
                 guard-check <=> root.guard-check;
                 guard-current-check: root.guard-current-check;
+                guard-open-waiting => { root.unlock-item(); }
             }
             if root.panel == Panel.authenticator: AuthenticatorPage {
                 rows: root.auth-rows;
@@ -1156,7 +1163,6 @@ export component AppWindow inherits Window {
                 import-new-folder <=> root.import-new-folder;
                 import-plaintext: root.import-plaintext;
                 export-format <=> root.export-format;
-                export-asking <=> root.export-asking;
                 pick-source(i) => { root.pick-source(i); }
                 open-browser => { root.open-browser(); }
                 direct-supported: root.import-direct-supported;
@@ -1172,7 +1178,7 @@ export component AppWindow inherits Window {
                 import-cancel => { root.import-cancel(); }
                 import-wipe => { root.import-wipe(); }
                 export-backup => { root.export-backup(); }
-                export-plain => { root.export-plain(); }
+                export-ask => { root.export-ask(); }
             }
             if root.panel == Panel.health: HealthPage {
                 rows: root.health-rows;
@@ -1293,11 +1299,13 @@ export component AppWindow inherits Window {
         width: root.width;
         height: root.height;
         format: root.export-format;
+        counts: root.export-counts;
+        recounted: root.export-recounted;
         busy: root.busy;
         error-code: root.error-code;
         error-detail: root.error-detail;
         confirmed => { root.export-plain(); }
-        cancelled => { root.export-asking = false; }
+        cancelled => { root.export-cancel(); }
     }
     if root.screen == Screen.vault && root.panel == Panel.kit && root.kit-confirming-new-parts: ConfirmDialog {
         width: root.width;

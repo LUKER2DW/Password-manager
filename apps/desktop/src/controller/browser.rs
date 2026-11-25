@@ -22,10 +22,10 @@ use slint::{ComponentHandle, SharedString};
 use vault_browser::{
     host::NOT_RUNNING,
     pairing::{Envelope, PairingKey},
-    protocol::{Check, CopyWhat},
+    protocol::{Check, CopyWhat, Secret},
     service::{self, Gate, Held, Kept, Opened},
 };
-use vault_core::{GuardCheck, ItemData, ItemGuard, Vault, storage};
+use vault_core::{GuardCheck, GuardOpened, ItemData, ItemGuard, Vault, storage};
 use vault_platform::{
     browser_link, dpapi, paths,
     quick_unlock::{self, DeviceVerifier},
@@ -40,6 +40,15 @@ const NOT_PAIRED: &[u8] = br#"{"type":"error","code":"not_paired"}"#;
 const BAD_REQUEST: &[u8] = br#"{"type":"error","code":"bad_request"}"#;
 /// Saving logins, or passkeys, turned off in Settings → Browser extension.
 const TURNED_OFF: &[u8] = br#"{"type":"error","code":"turned_off"}"#;
+/// A login, a new password or a passkey that could not be written to the vault file: the
+/// extension is told so (and may ask again), never "saved".
+const NOT_SAVED: &[u8] = br#"{"type":"error","code":"not_saved"}"#;
+
+/// The requests that change the vault: their answer may say "saved" only once the file on
+/// disk holds the change.
+fn changes_vault(kind: &str) -> bool {
+    matches!(kind, "save" | "update" | "passkey_create")
+}
 
 /// The `type` of a request from the extension ("" when it has none): what Settings →
 /// Browser extension may have turned off is known before the request is answered.
@@ -50,6 +59,18 @@ fn request_type(request: &[u8]) -> String {
         kind: String,
     }
     serde_json::from_slice::<Kind>(request).map_or_else(|_| String::new(), |k| k.kind)
+}
+
+/// The password a `save` or `update` request carries, if any (wiped on drop).
+fn request_password(request: &[u8]) -> Option<Secret> {
+    #[derive(serde::Deserialize)]
+    struct WithPassword {
+        password: Option<Secret>,
+    }
+    serde_json::from_slice::<WithPassword>(request)
+        .ok()?
+        .password
+        .filter(|password| !password.as_str().is_empty())
 }
 
 /// A running link: the flag that stops its thread, and the pipe to wake it on.
@@ -320,12 +341,36 @@ impl Controller {
     /// A PIN typed in the extension's window is tried on the same count of wrong tries as in
     /// the app: too many lock the whole vault. Whatever opened the item lock, it opens the
     /// one login asked for and is closed again before this returns.
+    ///
+    /// A change (a login saved, a password updated, a passkey made) is answered as done only
+    /// once it is on disk. A vault file changed elsewhere refuses it before anything is
+    /// touched (the other change is kept); a write that fails puts the vault back as it was.
+    /// Either way the extension hears `not_saved` and may ask again.
     fn browser_inner(
         &self,
         request: &[u8],
         device: Option<Zeroizing<Vec<u8>>>,
     ) -> Zeroizing<Vec<u8>> {
-        let (answer, locked_out, save) = {
+        let changes = changes_vault(&request_type(request));
+        if changes && self.changed_outside() {
+            self.set_error(error::CHANGED_OUTSIDE, "");
+            self.notify_long(notice::NOT_SAVED, "");
+            return Zeroizing::new(NOT_SAVED.to_vec());
+        }
+        // An earlier change this window couldn't write is still only in memory: the answer
+        // would be read from it ("already saved", "unchanged") with nothing written. It is
+        // written first, or the extension hears that nothing is saved.
+        if changes && self.state.borrow().unsaved && !self.save_vault() {
+            return Zeroizing::new(NOT_SAVED.to_vec());
+        }
+        let rebuild_fill = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .map(|s| s.vault.id_hex())
+            .is_some_and(|id| self.locked_fill_missing(&id));
+        let (mut answer, locked_out, save, before) = {
             let mut state = self.state.borrow_mut();
             let state = &mut *state;
             let id = state.session.as_ref().map(|s| s.vault.id_hex());
@@ -338,46 +383,70 @@ impl Controller {
                 device: device.zip(id.as_deref().and_then(quick_unlock::item_lock_load)),
                 locked_out: false,
                 save: false,
+                rebuild_fill,
                 clipboard_seconds: state.settings.clipboard_clear_seconds.max(5),
                 generated: &mut state.browser_generated,
             };
             let vault = state.session.as_mut().map(|session| &mut session.vault);
+            let before = changes
+                .then(|| vault.as_deref().map(Vault::snapshot))
+                .flatten();
             let answer = service::answer(request, vault, &mut gate);
-            (answer, gate.locked_out, gate.save)
+            (answer, gate.locked_out, gate.save, before)
         };
+        let changed =
+            answer.saved.is_some() || answer.updated.is_some() || answer.passkey_saved.is_some();
         if locked_out {
             self.lock();
             self.notify_long(notice::GUARD_LOCKED_OUT, "");
-        } else if save {
+        } else if save && !changed {
+            // A change below writes this too: one write, so a second one that fails can't
+            // roll memory back behind what the first already put on disk.
             self.save_vault();
         }
         if let Some(kept) = answer.kept {
             self.record_generated(&kept.password, &kept.site);
         }
+        if changed {
+            self.state.borrow_mut().summaries_stale = true;
+            if locked_out || !self.save_vault() {
+                // Not on disk: the copy in memory goes back to what the file holds, so the
+                // change is neither shown here nor written later behind the person's back.
+                if let Some(before) = before {
+                    let mut state = self.state.borrow_mut();
+                    if let Some(session) = state.session.as_mut() {
+                        session.vault.roll_back(before);
+                        // As written last (anything unsaved was written before this request).
+                        state.unsaved = false;
+                    }
+                }
+                if !locked_out {
+                    self.refresh_list();
+                }
+                answer.bytes = Zeroizing::new(NOT_SAVED.to_vec());
+                return answer.bytes;
+            }
+            self.refresh_list();
+            // The generator's result that just became a login's password is that login's
+            // now, shown and copied only as the login allows (as through the app's editor).
+            if (answer.saved.is_some() || answer.updated.is_some())
+                && let Some(password) = request_password(request)
+                && self
+                    .state
+                    .borrow()
+                    .generated
+                    .as_ref()
+                    .is_some_and(|generated| generated.as_str() == password.as_str())
+            {
+                self.forget_generated_result();
+            }
+        }
         if let Some(title) = &answer.saved {
-            if !locked_out {
-                self.state.borrow_mut().summaries_stale = true;
-                if self.save_vault() {
-                    self.refresh_list();
-                    self.notify(notice::BROWSER_SAVED, title);
-                }
-            }
+            self.notify(notice::BROWSER_SAVED, title);
         } else if let Some(title) = &answer.updated {
-            if !locked_out {
-                self.state.borrow_mut().summaries_stale = true;
-                if self.save_vault() {
-                    self.refresh_list();
-                    self.notify(notice::BROWSER_UPDATED, title);
-                }
-            }
+            self.notify(notice::BROWSER_UPDATED, title);
         } else if let Some(title) = &answer.passkey_saved {
-            if !locked_out {
-                self.state.borrow_mut().summaries_stale = true;
-                if self.save_vault() {
-                    self.refresh_list();
-                    self.notify(notice::BROWSER_PASSKEY_SAVED, title);
-                }
-            }
+            self.notify(notice::BROWSER_PASSKEY_SAVED, title);
         } else if let Some(title) = &answer.passkey_used {
             self.notify(notice::BROWSER_PASSKEY_USED, title);
         } else if let Some(copy) = answer.copy {
@@ -584,8 +653,12 @@ impl Controller {
             self.set_error(error::PAIRING_CODE, "");
             return;
         }
+        // The request whose code was typed: only its key is stored, whatever asks meanwhile.
+        let Some(approved) = self.state.borrow().browser_pending.clone() else {
+            return;
+        };
         if !app.get_pairing_needs_password() {
-            return self.finish_pairing();
+            return self.finish_pairing(&approved);
         }
         let typed = Zeroizing::new(
             self.state.borrow().secrets[field::PAIRING]
@@ -602,7 +675,7 @@ impl Controller {
         let path = self.state.borrow().path.clone();
         self.run_job(
             move || match super::verify_current(&path, &typed, &session) {
-                Ok(()) => JobResult::PairingVerified { session },
+                Ok(()) => JobResult::PairingVerified { session, approved },
                 Err((code, detail)) => JobResult::Failed {
                     code,
                     detail,
@@ -610,6 +683,21 @@ impl Controller {
                 },
             },
         );
+    }
+
+    /// The headless test's stand-in for a request to connect that arrives while the master
+    /// password for the one approved is being checked. Returns the second request's reply.
+    #[cfg(test)]
+    pub(crate) fn pair_again_while_checking(&self) -> String {
+        let approved = self
+            .state
+            .borrow()
+            .browser_pending
+            .clone()
+            .expect("a request waiting");
+        let second = self.start_pairing();
+        self.finish_pairing(&approved);
+        String::from_utf8(second.to_vec()).expect("JSON")
     }
 
     /// Whether the code typed in the dialog is the waiting connection's (spaces aside).
@@ -624,12 +712,30 @@ impl Controller {
     }
 
     /// Stores the connection: from now on requests signed with its key are answered.
-    pub(super) fn finish_pairing(&self) {
+    ///
+    /// `approved` is the request whose code the person typed. Another extension (or another
+    /// program) may have asked to connect while the master password was being checked: its
+    /// key is never the one stored. Its own question is shown instead, to be answered with
+    /// its own code.
+    pub(super) fn finish_pairing(&self, approved: &PairingKey) {
         self.clear_secret(field::PAIRING);
         self.app().set_pairing_code(SharedString::new());
         self.app().set_pairing_typed(SharedString::new());
-        let Some(key) = self.state.borrow_mut().browser_pending.take() else {
-            return;
+        let key = {
+            let mut state = self.state.borrow_mut();
+            match state.browser_pending.take() {
+                Some(pending) if pending.as_bytes() == approved.as_bytes() => pending,
+                other => {
+                    let replaced = other.is_some();
+                    state.browser_pending = other;
+                    drop(state);
+                    if replaced {
+                        self.set_error(error::PAIRING_CODE, "");
+                        self.offer_pending_pairing(true);
+                    }
+                    return;
+                }
+            }
         };
         let stored = {
             let state = self.state.borrow();
@@ -742,6 +848,8 @@ struct AppGate<'a> {
     locked_out: bool,
     /// A format v5 PIN was just turned into encryption: the vault must be saved.
     save: bool,
+    /// Filling while locked is wanted but has no file: Windows Hello's answer makes it.
+    rebuild_fill: bool,
     clipboard_seconds: u32,
     /// Generated passwords handed to the extension and not used yet.
     generated: &'a mut Vec<(String, Kept)>,
@@ -779,16 +887,30 @@ impl Gate for AppGate<'_> {
             *self.attempts = 0;
             // New items added while it was closed are sealed while it is open.
             self.save |= vault.seal_pending().unwrap_or(0) > 0;
+            // Filling while locked, wanted but without its file: made with this same answer.
+            if self.rebuild_fill {
+                let _ = super::locked_fill::create(vault, &secret);
+            }
         }
         opened
     }
 
     fn open(&mut self, vault: &mut Vault, secret: &str) -> Opened {
         let legacy = vault.item_guard().is_legacy();
-        if vault.unlock_secrets(secret).unwrap_or(false) {
-            *self.attempts = 0;
-            self.save = legacy || vault.seal_pending().unwrap_or(0) > 0;
-            return Opened::Yes;
+        match vault.unlock_guard(secret).unwrap_or(GuardOpened::Neither) {
+            GuardOpened::Own => {
+                *self.attempts = 0;
+                self.save = legacy || vault.seal_pending().unwrap_or(0) > 0;
+                return Opened::Yes;
+            }
+            // The PIN of a newer item lock set on another device: not a wrong try, though it
+            // opens nothing here yet (the app asks for both; `close` forgets it again).
+            GuardOpened::NewerOnly => {
+                return Opened::No {
+                    left: ItemGuard::MAX_ATTEMPTS.saturating_sub(*self.attempts),
+                };
+            }
+            GuardOpened::Neither => {}
         }
         *self.attempts += 1;
         if *self.attempts >= ItemGuard::MAX_ATTEMPTS {

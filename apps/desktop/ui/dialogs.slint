@@ -1,7 +1,7 @@
 // Dialogs that open over the whole window.
 
 import { Theme } from "theme.slint";
-import { Messages } from "model.slint";
+import { ExportCounts, Messages } from "model.slint";
 import { Button, QuietButton, LineField, Hint, SecretField } from "widgets.slint";
 import { Glyph, FolderLook, FieldColors } from "icons.slint";
 
@@ -706,10 +706,15 @@ export component ServerAddressDialog inherits Modal {
 
 // Import & export → Export…: what an export needs before it is written: the master password,
 // and for one protected by a password, that password twice. Plain JSON and CSV say plainly
-// that they aren't encrypted.
+// that they aren't encrypted. Every one says what it leaves out, and a plain one what anyone
+// who gets the file reads, counted on this vault.
 export component ExportDialog inherits Modal {
     // 1 JSON, 2 CSV, 3 protected by a password (.vaultx).
     in property <int> format;
+    in property <ExportCounts> counts;
+    // The counts changed when it was confirmed (the master password opened locked items, or
+    // the vault changed since): shown, and confirmed again.
+    in property <bool> recounted;
     in property <bool> busy;
     in property <int> error-code;
     in property <string> error-detail;
@@ -719,9 +724,9 @@ export component ExportDialog inherits Modal {
     focus-on-open: false;
     dismissed => { if (!root.busy) { root.cancelled(); } }
     Text {
+        // JSON and CSV alike hold every item's password (a note's, a card's PIN, an SSH key).
         text: root.format == 3 ? @tr("Save a protected export?")
-            : root.format == 1 ? @tr("Export every password unencrypted?")
-            : @tr("Export the logins unencrypted?");
+            : @tr("Export every password unencrypted?");
         font-size: Theme.title;
         color: Theme.ink;
         wrap: word-wrap;
@@ -730,6 +735,21 @@ export component ExportDialog inherits Modal {
         text: root.format == 3
             ? @tr("Every item in one file, encrypted with a password you choose here. Import reads it back, here or on another computer; without that password nobody can, you included.")
             : @tr("The file holds the passwords in plain text: anyone or any program that gets it reads them, and malware looks for exactly these files. Use it only to move to another password manager, then delete it.");
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    // Always there (empty = no height): wrapped text shown by an `if` is measured as one line.
+    Text {
+        text: Messages.export-notes(root.counts);
+        height: self.text == "" ? 0px : self.preferred-height;
+        font-size: Theme.body;
+        color: Theme.ink;
+        wrap: word-wrap;
+    }
+    Text {
+        text: root.recounted ? @tr("This was counted again: locked items could be opened, or the vault changed. Choose Export… again to make the file.") : "";
+        height: self.text == "" ? 0px : self.preferred-height;
         font-size: Theme.body;
         color: Theme.graphite;
         wrap: word-wrap;
