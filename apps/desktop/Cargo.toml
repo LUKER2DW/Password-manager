@@ -39,7 +39,7 @@ vault-desktop-ui = { path = "ui" }
 anyhow = "1"
 # The tray icon and the screenshots' pictures.
 image = { version = "0.25", default-features = false, features = ["png", "ico", "jpeg", "gif", "bmp", "webp"] }
-postcard = { version = "1.1", features = ["use-std"] }
+postcard = { version = "1.1", default-features = false, features = ["use-std"] }
 raw-window-handle = "0.6"
 # Native open/save dialogs (kit PDF, import, export).
 rfd = "0.18"

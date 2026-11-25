@@ -1,0 +1,36 @@
+[package]
+name = "vault-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+vault-core = { path = "../crates/core" }
+vault-import = { path = "../crates/import" }
+vault-sync-wire = { path = "../crates/sync-wire" }
+
+[[bin]]
+name = "vault_file"
+path = "fuzz_targets/vault_file.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import"
+path = "fuzz_targets/import.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "invite_link"
+path = "fuzz_targets/invite_link.rs"
+test = false
+doc = false
+bench = false

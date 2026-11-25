@@ -3,6 +3,8 @@
 # ------------------------------------------------------------
 research/
 .research/
+# Another coding agent's local settings (paths on this computer)
+.codex/
 
 # ------------------------------------------------------------
 # Secrets and real data (never commit)
