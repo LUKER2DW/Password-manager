@@ -420,6 +420,21 @@ fn drop_path(folder: &Path, vault_id: &str) -> PathBuf {
     folder.join(format!("autofill-drop-{vault_id}.json"))
 }
 
+/// After a renewal of the vault key: the drop box's key sealed again under the new one (the
+/// key itself stays, so the logins sealed to it while locked still open).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn reseal_drop_box(folder: &Path, vault: &Vault, former: &vault_core::FormerKey) {
+    let id = vault.id_hex();
+    let Some(mut file) = read_drop(folder, &id) else {
+        return;
+    };
+    let Ok(sealed_key) = DropBoxKey::reseal_with(vault, former, &file.sealed_key) else {
+        return;
+    };
+    file.sealed_key = sealed_key;
+    let _ = write_drop(folder, &id, &file);
+}
+
 fn read_drop(folder: &Path, vault_id: &str) -> Option<DropFile> {
     let bytes = files::read_any(&drop_path(folder, vault_id)).ok()?;
     serde_json::from_slice(&bytes).ok()

@@ -138,6 +138,15 @@ mod error {
     /// Recovery with two parts: the parts no longer work, but the phone couldn't keep the
     /// Secret Key (the detail says why). It is on screen to be written down.
     pub const KEY_NOT_KEPT: i32 = 42;
+    /// The vault key renewed on another device: the Secret Key and master password typed open
+    /// none of its copies; the phone couldn't keep the new Secret Key (nothing changed); it
+    /// couldn't, and its copy opens only with the new kit now.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const KEY_NOT_TAKEN: i32 = 43;
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const TAKE_NOT_KEPT: i32 = 44;
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const TAKE_ONLY_NEW: i32 = 45;
 }
 
 /// The sheets that ask for a password (app.slint `ask`, `confirming`).
@@ -156,6 +165,8 @@ mod sheet {
     pub const SSH_PASSPHRASE: i32 = 17;
     /// A newer version of the app on the vault's server: Install, or Later.
     pub const UPDATE: i32 = 18;
+    /// The vault key was renewed on another device: its new Secret Key and the master password.
+    pub const TAKE_KEY: i32 = 19;
 }
 
 /// Where the line of a scanned QR code goes (the screens' `scan-invite` purpose).
@@ -223,6 +234,12 @@ mod notice {
     pub const LEAKS_NEW: i32 = 21;
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub const UPDATE_READY: i32 = 22;
+    /// The phone took a vault key renewed on another device ("1": fingerprint unlock was
+    /// turned off with it); one was renewed on another device (Settings, Sync asks for it).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const KEY_TAKEN: i32 = 23;
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const SYNC_KEY_RENEWED: i32 = 24;
 }
 
 /// How long a copied secret may stay on the clipboard (Settings), in seconds.
@@ -716,6 +733,7 @@ impl Controller {
         on!(on_scan_invite, |c, purpose| c.scan_invite(purpose));
         on!(on_sync_use_webdav, |c| c.sync_use_webdav());
         on!(on_sync_now, |c| c.sync_now());
+        on!(on_sync_take_key, |c| c.sync_take_key());
         on!(on_sync_stop, |c| c.sync_stop());
         on!(on_search_changed, |c, _text| c.refresh_list());
         on!(on_filter_changed, |c, _index| c.refresh_list());
@@ -2102,6 +2120,7 @@ impl Controller {
             sheet::REMOVE_VAULT..=sheet::REMOVE_BACKUP | sheet::ADD_DEVICE => {
                 &[field::EXPORT_MASTER]
             }
+            sheet::TAKE_KEY => &[field::SECRET_KEY, field::EXPORT_MASTER],
             sheet::IMPORT => &[field::IMPORT_PASSWORD],
             sheet::MASTER_PASSWORD => &[field::CURRENT, field::NEW, field::NEW_AGAIN],
             sheet::ITEM_CHECK => &[field::ITEM_CHECK],

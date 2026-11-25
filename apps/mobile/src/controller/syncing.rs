@@ -57,6 +57,7 @@ impl Controller {
     pub(super) fn sync_join_backup(&self) {}
     pub(super) fn sync_remove_backup(&self) {}
     pub(super) fn check_update(&self) {}
+    pub(super) fn sync_take_key(&self) {}
     pub(super) fn install_update(&self) {}
     pub(super) fn sync_now(&self) {}
     pub(super) fn update_put_off(&self) {}
@@ -79,7 +80,9 @@ mod native {
     };
 
     use slint::{ModelRc, SharedPixelBuffer, SharedString, TimerMode, VecModel};
-    use vault_core::sync::DeviceId;
+    use vault_core::{
+        Error as CoreError, FormerKey, SecretKey, Vault, VaultSnapshot, sync::DeviceId,
+    };
     use vault_platform::{
         DeviceState, SyncPlace, SyncTo, secret_store,
         sync::{self, KnownTags, Role, ServerTarget, Tags},
@@ -89,10 +92,10 @@ mod native {
     use zeroize::Zeroizing;
 
     use super::{
-        super::{CURRENT, error, field, size_text},
+        super::{CURRENT, error, field, fingerprint, notice, sheet, size_text},
         Controller, state, update,
     };
-    use crate::{ui::DeviceRow, view};
+    use crate::{platform::files, ui::DeviceRow, view};
 
     /// The ids a join of the vault may use: the one this phone syncs it as, and the new one
     /// it enrolls as when it isn't enrolled there already (see `sync::join_server`).
@@ -204,6 +207,60 @@ mod native {
         update_asked_at: Option<i64>,
         /// The version put off with Later since unlock: not offered again until the next one.
         update_put_off: Option<String>,
+        /// Copies sealed under a vault key renewed on another device (SYNC.md §4.7), kept
+        /// until this phone takes the new key (Settings, Sync asks for its Secret Key).
+        renewed: Vec<(DeviceId, Vec<u8>)>,
+        /// The person was told about them.
+        renewed_told: bool,
+        /// Devices whose copies are still sealed under a key this phone took.
+        behind: Vec<DeviceId>,
+    }
+
+    impl SyncStatus {
+        /// The vault key changed here: what was refused for it is read again.
+        fn key_changed(&mut self) {
+            self.renewed.clear();
+            self.renewed_told = false;
+            self.behind.clear();
+            self.tags = KnownTags::default();
+        }
+
+        /// Folds in what a round found about other vault keys: a renewed copy replaces the
+        /// one of the same device kept before, and a device whose copy merged is no longer
+        /// behind.
+        fn note_key_mismatch(&mut self, mismatch: sync::KeyMismatch, merged: &[DeviceId]) {
+            self.behind.retain(|device| !merged.contains(device));
+            for device in mismatch.behind {
+                if !self.behind.contains(&device) {
+                    self.behind.push(device);
+                }
+            }
+            self.renewed.retain(|(device, _)| !merged.contains(device));
+            for (device, bytes) in mismatch.renewed {
+                self.renewed.retain(|(kept, _)| *kept != device);
+                self.renewed.push((device, bytes));
+            }
+        }
+    }
+
+    /// What [`Controller::write_taken_key`] couldn't do.
+    enum NotKept {
+        /// The file wasn't written: nothing changed.
+        NotWritten(String),
+        /// The new Secret Key couldn't be kept; the file was put back as it was.
+        PutBack(String),
+        /// Neither: the phone's copy opens with the new kit only, and the phone doesn't hold it.
+        OnlyNew(String),
+    }
+
+    /// What the job that takes a renewed key hands back.
+    struct Taken {
+        vault: Vault,
+        secret_key: SecretKey,
+        new_key: SecretKey,
+        snapshot: VaultSnapshot,
+        state: Option<DeviceState>,
+        outcome: Result<FormerKey, (i32, String)>,
     }
 
     /// What the servers the vault syncs through have of the phone app.
@@ -287,6 +344,7 @@ mod native {
             self.state.borrow_mut().sync.here = None;
             self.state.borrow_mut().sync.update_asked_at = None;
             self.state.borrow_mut().sync.update_put_off = None;
+            self.state.borrow_mut().sync.key_changed();
             let Some(place) = self.sync_place() else {
                 self.show_sync();
                 return;
@@ -681,13 +739,27 @@ mod native {
             let mut device_state = DeviceState::load().unwrap_or_default();
             device_state.record_sync(&place.vault_id, &place.place.seen, unix_now(), 0);
             let _ = device_state.save();
+            // Copies under another vault key: renewed on their device (its new Secret Key is
+            // asked once), or still under a key this phone took.
+            let mismatch = sync::key_mismatch(&place.vault_id, &reading, &round, &device_state);
+            let merged: Vec<DeviceId> = round.reports.iter().map(|report| report.writer).collect();
+            let tell_renewed = {
+                let mut state = self.state.borrow_mut();
+                state.sync.note_key_mismatch(mismatch, &merged);
+                let renewed = !state.sync.renewed.is_empty();
+                let told = std::mem::replace(&mut state.sync.renewed_told, renewed);
+                renewed && !told
+            };
             let came: usize = round
                 .reports
                 .iter()
                 .map(|r| r.added + r.updated + r.removed)
                 .sum();
-            if came > 0 {
-                self.notify(super::super::notice::SYNCED, &came.to_string());
+            if tell_renewed {
+                self.notify(notice::SYNC_KEY_RENEWED, "");
+                self.show_sync();
+            } else if came > 0 {
+                self.notify(notice::SYNCED, &came.to_string());
             }
             let roles = sync::to_publish(&place.place, &reading, revision, changed);
             if roles.is_empty() {
@@ -1314,6 +1386,209 @@ mod native {
             if !self.state.borrow().sync.running && app.get_sync_state() != state::FAILED {
                 app.set_sync_state(state::SYNCED);
             }
+            let state = self.state.borrow();
+            app.set_sync_key_renewed(!state.sync.renewed.is_empty());
+            app.set_sync_key_behind(i32::try_from(state.sync.behind.len()).unwrap_or(i32::MAX));
+        }
+
+        /// Settings, Sync, "Type the new Secret Key" (sheet `TAKE_KEY`): the Secret Key of the
+        /// kit made where the vault key was renewed, and the master password, open one of the
+        /// copies sealed under the new key; this phone takes it (`sync::take_renewed_key`).
+        /// The file is written only over what was read, and kept only together with the new
+        /// Secret Key, as after a recovery with two parts.
+        pub(in crate::controller) fn sync_take_key(&self) {
+            if self.app().get_busy() {
+                return;
+            }
+            let Ok(new_key) = SecretKey::parse(&self.secret(field::SECRET_KEY)) else {
+                return self.set_error(error::SECRET_KEY, "");
+            };
+            let master = self.secret(field::EXPORT_MASTER);
+            if master.is_empty() {
+                return self.set_error(error::WRONG_CURRENT, "");
+            }
+            let copies = self.state.borrow().sync.renewed.clone();
+            if copies.is_empty() {
+                return self.close_sheet(sheet::TAKE_KEY);
+            }
+            self.set_error(error::NONE, "");
+            let Some((vault, secret_key, session)) = self.lend_vault() else {
+                return;
+            };
+            self.run(
+                move || {
+                    let mut vault = vault;
+                    let snapshot = vault.snapshot();
+                    let mut state = DeviceState::load();
+                    let outcome = match state.as_mut() {
+                        Err(err) => Err((error::UNREADABLE, format!("{err:#}"))),
+                        Ok(state) => match sync::take_renewed_key(
+                            &mut vault, &copies, &master, &new_key, None, state,
+                        ) {
+                            Ok(Some(former)) => Ok(former),
+                            Ok(None) | Err(CoreError::DecryptionFailed) => {
+                                Err((error::KEY_NOT_TAKEN, String::new()))
+                            }
+                            Err(err) => Err((error::UNREADABLE, err.to_string())),
+                        },
+                    };
+                    Taken {
+                        vault,
+                        secret_key,
+                        new_key,
+                        snapshot,
+                        state: state.ok(),
+                        outcome,
+                    }
+                },
+                move |c, taken| c.key_taken(taken, session),
+            );
+        }
+
+        fn key_taken(&self, taken: Taken, session: u64) {
+            let Taken {
+                vault,
+                secret_key,
+                new_key,
+                snapshot,
+                state,
+                outcome,
+            } = taken;
+            // Locked meanwhile: nothing was written, and the copy that took the key goes.
+            if !self.take_back(vault, secret_key, session) {
+                return;
+            }
+            let former = match outcome {
+                Ok(former) => former,
+                Err((code, detail)) => {
+                    self.clear_fields(&[field::EXPORT_MASTER]);
+                    return self.set_error(code, &detail);
+                }
+            };
+            let put_back = |c: &Controller, snapshot, former| {
+                if let Some(vault) = c.state.borrow_mut().vault.as_mut() {
+                    let _ = vault.put_back_key(snapshot, former);
+                }
+            };
+            let not_kept = match self.write_taken_key(&new_key) {
+                Ok(()) => None,
+                Err(NotKept::OnlyNew(why)) => Some(why),
+                Err(NotKept::NotWritten(why)) => {
+                    put_back(self, snapshot, former);
+                    return self.set_error(error::NOT_SAVED, &why);
+                }
+                Err(NotKept::PutBack(why)) => {
+                    put_back(self, snapshot, former);
+                    return self.set_error(error::TAKE_NOT_KEPT, &why);
+                }
+            };
+            let (id, revision) = {
+                let mut state = self.state.borrow_mut();
+                state.secret_key = Some(new_key);
+                let vault = state.vault.as_ref().expect("taken back above");
+                (vault.id_hex(), vault.revision())
+            };
+            if let Some(mut state) = state {
+                state.record_revision(&id, revision);
+                let _ = state.save();
+            }
+            let bio = self.reseal_after_new_key(&former);
+            drop(former);
+            self.clear_fields(&[field::SECRET_KEY, field::EXPORT_MASTER]);
+            self.close_sheet(sheet::TAKE_KEY);
+            // The copies refused until now are read again, under the new key; what that
+            // round brings is said first, so the word about the key stays on screen.
+            self.state.borrow_mut().sync.key_changed();
+            self.show_sync();
+            self.refresh_security();
+            self.sync_round();
+            match not_kept {
+                Some(why) => self.set_error(error::TAKE_ONLY_NEW, &why),
+                None => self.notify(notice::KEY_TAKEN, if bio { "1" } else { "" }),
+            }
+        }
+
+        /// Writes the vault (a renewed key just taken) over the phone's copy while it still
+        /// holds what this app read or wrote, then keeps `new_key` for it; when that fails,
+        /// the copy is put back as it was.
+        fn write_taken_key(&self, new_key: &SecretKey) -> Result<(), NotKept> {
+            let (path, expected, bytes, id) = {
+                let mut state = self.state.borrow_mut();
+                let state = &mut *state;
+                let vault = state
+                    .vault
+                    .as_mut()
+                    .ok_or_else(|| NotKept::NotWritten("the vault is locked".to_owned()))?;
+                let bytes = vault
+                    .to_bytes()
+                    .map_err(|err| NotKept::NotWritten(err.to_string()))?;
+                (state.path.clone(), state.file_hash, bytes, vault.id_hex())
+            };
+            let before = files::read(&path).map_err(|err| NotKept::NotWritten(err.to_string()))?;
+            if expected.is_some_and(|hash| fingerprint(&before) != hash) {
+                return Err(NotKept::NotWritten(
+                    "the file was changed by something else".to_owned(),
+                ));
+            }
+            files::write_atomic(&path, &bytes)
+                .map_err(|err| NotKept::NotWritten(err.to_string()))?;
+            let written = fingerprint(&bytes);
+            if let Err(detail) = self.keep_secret_key(&id, new_key) {
+                // Back as it was, unless something else wrote it in this moment.
+                let back = match files::read(&path) {
+                    Ok(now) if fingerprint(&now) == written => {
+                        files::write_atomic(&path, &before).map_err(|err| err.to_string())
+                    }
+                    Ok(_) => Err("the vault file was changed by something else".to_owned()),
+                    Err(err) => Err(err.to_string()),
+                };
+                return Err(match back {
+                    Ok(()) => NotKept::PutBack(detail),
+                    Err(back) => {
+                        self.state.borrow_mut().file_hash = Some(written);
+                        NotKept::OnlyNew(format!("{detail}; {back}"))
+                    }
+                });
+            }
+            self.state.borrow_mut().file_hash = Some(written);
+            Ok(())
+        }
+
+        /// What this phone sealed with the former vault key (the generator's history, website
+        /// icons, the leak watch, the drop box for autofill) sealed again under the new one.
+        /// Fingerprint unlock, whose copy of the key opens nothing any more, is turned off:
+        /// `true` when it was on.
+        fn reseal_after_new_key(&self, former: &FormerKey) -> bool {
+            let folder = self.folder();
+            let id = {
+                let state = self.state.borrow();
+                let Some(vault) = state.vault.as_ref() else {
+                    return false;
+                };
+                let id = vault.id_hex();
+                let beside = |name: String| state.path.with_file_name(name);
+                let reseal = vault_platform::files::reseal;
+                reseal(
+                    &beside(format!("generated-{id}.history")),
+                    vault,
+                    former,
+                    super::super::generated::PURPOSE,
+                );
+                reseal(&beside(format!("icons-{id}.cache")), vault, former, "icons");
+                reseal(
+                    &folder.join(format!("leak-watch-{id}.bin")),
+                    vault,
+                    former,
+                    vault_platform::leak_check::WATCH_PURPOSE,
+                );
+                crate::autofill::reseal_drop_box(&folder, vault, former);
+                id
+            };
+            let bio = crate::bio::read(&folder, &id).is_some();
+            if bio {
+                self.forget_biometrics(&id);
+            }
+            bio
         }
     }
 

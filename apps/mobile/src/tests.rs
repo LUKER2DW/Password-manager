@@ -3100,3 +3100,97 @@ fn an_import_that_was_not_saved_is_never_called_imported() {
     assert_eq!((app.get_import_added(), app.get_import_skipped()), (1, 0));
     assert_eq!(phone.file().len(), 1);
 }
+
+/// The vault key renewed on the computer (CRYPTO.md §3.8): the phone can't read its copies
+/// until it takes the new key in Settings, Sync, with the new Secret Key and the master
+/// password; then the computer's changes come in and the phone's copy opens with the new kit.
+#[test]
+fn a_key_renewed_on_the_computer_is_taken_on_the_phone() {
+    let phone = Phone::open(|_, _| {});
+    let app = &phone.app;
+    let server = TestServer::start();
+    let pc_id = vault_core::sync::DeviceId::generate().unwrap();
+    let pc_server = ServerTarget::join(
+        &server.url,
+        &phone.vault_id,
+        pc_id,
+        "PC",
+        &vault_server::admin_invite(server.data.path(), 1, None)
+            .unwrap()
+            .0,
+    )
+    .unwrap();
+    let mut pc = phone.file();
+    sync::join(&mut pc, pc_id, "PC").unwrap();
+    pc_server.put(pc_id, &pc.to_bytes().unwrap()).unwrap();
+    let link = pc_server
+        .invite_link(&pc_server.invite().unwrap())
+        .to_text()
+        .to_string();
+    app.set_sync_invite_typed(link.as_str().into());
+    app.invoke_sync_join();
+    assert_eq!(app.get_sync_state(), 1, "{}", app.get_sync_detail());
+
+    // The computer adds a login and renews the key.
+    pc.add_item(&ItemData::login(
+        "Made on the PC",
+        "me",
+        "pc-test-pw",
+        "pc.example",
+    ))
+    .unwrap();
+    let old_key = SecretKey::parse(&phone.secret_key).unwrap();
+    let renewed = pc.renew_key(PASSWORD, &old_key, None).unwrap();
+    pc_server.put(pc_id, &pc.to_bytes().unwrap()).unwrap();
+    phone.controller.sync_round();
+    assert_eq!(app.get_notice_code(), 24);
+    assert!(app.get_sync_key_renewed());
+    assert_eq!(app.get_total(), 0, "nothing of it came in");
+
+    // The old Secret Key takes nothing.
+    app.invoke_ask(19);
+    type_secret(app, 1, &phone.secret_key);
+    type_secret(app, 10, PASSWORD);
+    app.invoke_sync_take_key();
+    assert_eq!(app.get_error_code(), 43);
+    assert!(
+        Vault::open(
+            &std::fs::read(&phone.path).unwrap(),
+            Unlock::Password {
+                password: PASSWORD,
+                secret_key: &old_key,
+            },
+        )
+        .is_ok()
+    );
+
+    type_secret(app, 1, &renewed.secret_key.to_display_string());
+    type_secret(app, 10, PASSWORD);
+    app.invoke_sync_take_key();
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    assert_eq!(app.get_notice_code(), 23);
+    assert_eq!(app.get_confirming(), 0, "the sheet closed");
+    assert!(!app.get_sync_key_renewed());
+    assert_eq!(app.get_total(), 1, "the computer's login came in");
+    let bytes = std::fs::read(&phone.path).unwrap();
+    let unlock = |secret_key| Unlock::Password {
+        password: PASSWORD,
+        secret_key,
+    };
+    assert!(Vault::open(&bytes, unlock(&renewed.secret_key)).is_ok());
+    assert!(Vault::open(&bytes, unlock(&old_key)).is_err());
+    assert!(
+        vault_platform::secret_store::load(&phone.vault_id)
+            .unwrap()
+            .is_some_and(|kept| kept == renewed.secret_key)
+    );
+    // The computer reads the phone's copy again.
+    let fetched = sync::fetch(&pc_server, pc_id, &sync::Tags::default()).unwrap();
+    let (_, phone_copy) = fetched
+        .copies
+        .into_iter()
+        .find(|(device, _)| *device != pc_id)
+        .unwrap();
+    pc.merge(&phone_copy, &mut vault_core::sync::SeenRevisions::new())
+        .unwrap();
+}

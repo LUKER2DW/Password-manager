@@ -176,6 +176,9 @@ export global Words {
         if (code == 40) { return @tr("That picture holds no recovery part: {}", detail); }
         if (code == 41) { return @tr("The recovery didn't finish ({}). Nothing changed: the recovery parts still work, and this phone didn't keep the Secret Key. Try again.", detail); }
         if (code == 42) { return @tr("This phone couldn't keep the Secret Key ({}), and the recovery parts you used no longer work. Write the Secret Key below on your emergency kit now, then make a new kit on your computer.", detail); }
+        if (code == 43) { return @tr("That Secret Key and master password open none of the renewed copies. Use the Secret Key of the kit made when the vault key was renewed."); }
+        if (code == 44) { return @tr("This phone couldn't keep the new Secret Key ({}), so nothing was changed.", detail); }
+        if (code == 45) { return @tr("This phone couldn't keep the new Secret Key ({}), and its copy of the vault opens only with it now: keep the new emergency kit at hand, it is asked at the next unlock.", detail); }
         if (code == 23) { return @tr("That file is too large: an item keeps files of up to 5 MB, and up to 10 of them."); }
         if (code == 24) { return @tr("Unlock with the phone didn't work ({}).", detail); }
         if (code == 25) { return @tr("That file can't be imported ({}).", detail); }
@@ -215,6 +218,7 @@ export global Words {
         if (kind == 16) { return @tr("Add a device to this vault?"); }
         if (kind == 17) { return @tr("The key has a passphrase"); }
         if (kind == 18) { return @tr("Version {} is ready", arg); }
+        if (kind == 19) { return @tr("Use the renewed vault key"); }
         return "";
     }
     pure public function confirm-text(kind: int, arg: string) -> string {
@@ -235,6 +239,7 @@ export global Words {
         if (kind == 16) { return @tr("Your vault server makes a one-time invite and this phone shows it as a QR code, for an hour. The other device still needs your master password and Secret Key."); }
         if (kind == 17) { return @tr("Type it once to open the key. The vault keeps the key without it: the vault itself protects it, and the copy you take out works without a passphrase."); }
         if (kind == 18) { return @tr("Your vault server has a newer version of this app. Android asks you before it installs it, and installs it only if it is signed like the app you have. Later, it waits in Settings, Updates."); }
+        if (kind == 19) { return @tr("Another device renewed the vault key and printed a new kit. Type the Secret Key from that kit, and your master password: this phone then keeps the new key and syncs again. Unlock with the phone turns off until you turn it on again."); }
         return "";
     }
     pure public function confirm-action(kind: int) -> string {
@@ -256,6 +261,7 @@ export global Words {
         if (kind == 16) { return @tr("Show the invite"); }
         if (kind == 17) { return @tr("Open the key"); }
         if (kind == 18) { return @tr("Install"); }
+        if (kind == 19) { return @tr("Use the new key"); }
         return "";
     }
     // What the health page says under a login: the worst first.
@@ -290,6 +296,8 @@ export global Words {
         if (code == 20) { return @tr("{} logins saved from other apps while the vault was locked were added.", arg); }
         if (code == 21) { return @tr("{} of your passwords turned up in a data breach since the last check. They are marked in the list: change them where you use them.", arg); }
         if (code == 22) { return @tr("Version {} of the app is on your vault server. Install it in Settings, About and updates.", arg); }
+        if (code == 23) { return arg == "1" ? @tr("This phone uses the renewed vault key now and syncs again. Unlock with the phone is off until you turn it on again.") : @tr("This phone uses the renewed vault key now and syncs again."); }
+        if (code == 24) { return @tr("The vault key was renewed on another device. Settings, Sync asks once for the new Secret Key, from the new emergency kit."); }
         if (code == 40) { return @tr("Only the first {} pages are shown: the rest would take too much of the phone's memory. Save the file to see all of it.", arg); }
         if (code == 41) { return @tr("This PDF's pages are too large to show here. Save the file to see it."); }
         return "";
@@ -2172,6 +2180,11 @@ export component PhoneWindow inherits Window {
     in property <string> sync-backup;
     in property <string> sync-main-down;
     in property <string> sync-backup-down;
+    // The vault key was renewed on another device (its copies wait for the new Secret Key,
+    // `ask(19)`), and how many devices still use the key this phone took.
+    in property <bool> sync-key-renewed;
+    in property <int> sync-key-behind;
+    callback sync-take-key();
     // Settings → Master password (asked in the sheet, `ask(12)`).
     callback change-password();
     // Import: the chosen file's name while its password is asked (`ask(11)`), and trying it
@@ -2212,6 +2225,7 @@ export component PhoneWindow inherits Window {
         }
         if (kind == 17) { root.ssh-passphrase(); }
         if (kind == 18) { root.install-update(); }
+        if (kind == 19) { root.sync-take-key(); }
         if (kind == 6) { root.export-vault(1); }
         if (kind == 7) { root.export-vault(0); }
         if (kind == 8) { root.export-vault(2); }
@@ -2230,7 +2244,7 @@ export component PhoneWindow inherits Window {
         if (kind != 0) { root.sheet-closed(kind); }
     }
     pure function asks-password(kind: int) -> bool {
-        return (kind >= 1 && kind <= 4) || (kind >= 6 && kind <= 8) || (kind >= 11 && kind <= 13) || kind == 16 || kind == 17;
+        return (kind >= 1 && kind <= 4) || (kind >= 6 && kind <= 8) || (kind >= 11 && kind <= 13) || kind == 16 || kind == 17 || kind == 19;
     }
     // The secure fields of each sheet that asks for a password.
     property <SheetField> master-field: { field: 10, label: @tr("Your master password"), icon: "lock", error: root.error-code == 13 };
@@ -2244,6 +2258,10 @@ export component PhoneWindow inherits Window {
         ]
         : root.confirming == 13 ? [{ field: 2, label: root.d-check == 1 ? @tr("Master password") : root.d-check == 2 ? @tr("Item PIN") : @tr("Item password"), icon: "lock", error: root.error-code == 7 }]
         : root.confirming == 17 ? [{ field: 11, label: @tr("The key's passphrase"), icon: "key", error: root.error-code == 35 }]
+        : root.confirming == 19 ? [
+            { field: 1, label: @tr("New Secret Key"), icon: "key", error: root.error-code == 3 || root.error-code == 43 },
+            { field: 10, label: @tr("Your master password"), icon: "lock", error: root.error-code == 13 || root.error-code == 43 },
+        ]
         : [];
 
     // The place next to this one (1) or before it (-1), as the tabs are ordered.
@@ -4375,6 +4393,37 @@ export component PhoneWindow inherits Window {
                                                             font-size: Theme.small;
                                                             color: Theme.seal;
                                                             wrap: word-wrap;
+                                                        }
+                                                    }
+                                                    Fold {
+                                                        open: root.sync-key-behind > 0;
+                                                        Text {
+                                                            text: @tr("{n} device still uses the vault's former key: its changes come in once it takes the new one." | "{n} devices still use the vault's former key: their changes come in once they take the new one." % root.sync-key-behind);
+                                                            font-size: Theme.small;
+                                                            color: Theme.graphite;
+                                                            wrap: word-wrap;
+                                                        }
+                                                    }
+                                                    Fold {
+                                                        open: root.sync-key-renewed;
+                                                        VerticalLayout {
+                                                            padding-top: 6px;
+                                                            spacing: 8px;
+                                                            Text {
+                                                                text: @tr("The vault key was renewed on another device: its copies open only with the new Secret Key, from the new emergency kit made there. Type it once here to keep syncing.");
+                                                                font-size: Theme.small;
+                                                                color: Theme.seal;
+                                                                wrap: word-wrap;
+                                                            }
+                                                            HorizontalLayout {
+                                                                alignment: start;
+                                                                QuietButton {
+                                                                    text: @tr("Type the new Secret Key");
+                                                                    icon: "key";
+                                                                    outlined: true;
+                                                                    clicked => { root.ask(19); }
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                     HorizontalLayout {

@@ -551,6 +551,21 @@ fn main() {
     camera.shot("settings-device-remove", "Removing a device, asked first");
     app.set_confirming(0);
     app.set_sync_removing(-1);
+    // The vault key renewed on the computer: its new Secret Key is asked once.
+    app.set_sync_key_renewed(true);
+    app.set_sync_key_behind(1);
+    camera.shot(
+        "settings-sync-renewed",
+        "Sync: the vault key was renewed on another device",
+    );
+    app.invoke_ask(19);
+    camera.shot(
+        "settings-sync-take-key",
+        "Sync: the new Secret Key and the master password",
+    );
+    app.set_confirming(0);
+    app.set_sync_key_renewed(false);
+    app.set_sync_key_behind(0);
     app.set_sync_state(3);
     app.set_sync_detail("the sync server can't be reached".into());
     tall(&mut camera, 1.0);

@@ -1150,12 +1150,10 @@ msgctxt "PhoneWindow"
 msgid "Save"
 msgstr "Salvar"
 
-#: ui/app.slint:2736
 msgctxt "PhoneWindow"
 msgid "Passkey for {}"
 msgstr "Chave de acesso de {}"
 
-#: ui/app.slint:2738
 msgctxt "PhoneWindow"
 msgid "No account name"
 msgstr "Sem nome de usuário"
@@ -1752,12 +1750,10 @@ msgctxt "Messages"
 msgid "This computer joined the backup server. The vault syncs through both from now on."
 msgstr "Este computador entrou no servidor de backup. A partir de agora, o cofre sincroniza pelos dois."
 
-#: ../desktop/ui/model.slint:272
 msgctxt "Messages"
 msgid "A passkey for “{}” was saved from the browser."
 msgstr "Uma chave de acesso para “{}” foi salva pelo navegador."
 
-#: ../desktop/ui/model.slint:273
 msgctxt "Messages"
 msgid "Signed in with the passkey of “{}” in the browser."
 msgstr "Entrou com a chave de acesso de “{}” no navegador."
@@ -3261,3 +3257,93 @@ msgstr "Ocultas enquanto a trava de itens está fechada: qualquer uma delas pode
 msgctxt "PhoneWindow"
 msgid "Website, autofill skips it"
 msgstr "Site, o preenchimento o ignora"
+
+msgctxt "Words"
+msgid "That Secret Key and master password open none of the renewed copies. Use the Secret Key of the kit made when the vault key was renewed."
+msgstr "Essa chave secreta e a senha mestra não abrem nenhuma cópia renovada. Use a chave secreta do kit feito quando a chave do cofre foi renovada."
+
+msgctxt "Words"
+msgid "This phone couldn't keep the new Secret Key ({}), so nothing was changed."
+msgstr "Este celular não conseguiu guardar a nova chave secreta ({}), então nada foi alterado."
+
+msgctxt "Words"
+msgid "This phone couldn't keep the new Secret Key ({}), and its copy of the vault opens only with it now: keep the new emergency kit at hand, it is asked at the next unlock."
+msgstr "Este celular não conseguiu guardar a nova chave secreta ({}), e a cópia do cofre aqui agora abre só com ela: mantenha o novo kit de emergência à mão, ele é pedido no próximo desbloqueio."
+
+msgctxt "Words"
+msgid "Use the renewed vault key"
+msgstr "Usar a chave do cofre renovada"
+
+msgctxt "Words"
+msgid "Another device renewed the vault key and printed a new kit. Type the Secret Key from that kit, and your master password: this phone then keeps the new key and syncs again. Unlock with the phone turns off until you turn it on again."
+msgstr "Outro aparelho renovou a chave do cofre e imprimiu um novo kit. Digite a chave secreta desse kit e a sua senha mestra: este celular então guarda a nova chave e sincroniza de novo. O Desbloqueio pelo celular fica desligado até você ligar de novo."
+
+msgctxt "Words"
+msgid "Use the new key"
+msgstr "Usar a nova chave"
+
+msgctxt "Words"
+msgid "This phone uses the renewed vault key now and syncs again. Unlock with the phone is off until you turn it on again."
+msgstr "Este celular usa agora a chave do cofre renovada e sincroniza de novo. O Desbloqueio pelo celular fica desligado até você ligar de novo."
+
+msgctxt "Words"
+msgid "This phone uses the renewed vault key now and syncs again."
+msgstr "Este celular usa agora a chave do cofre renovada e sincroniza de novo."
+
+msgctxt "Words"
+msgid "The vault key was renewed on another device. Settings, Sync asks once for the new Secret Key, from the new emergency kit."
+msgstr "A chave do cofre foi renovada em outro aparelho. Configurações, Sincronização pede uma vez a nova chave secreta, do novo kit de emergência."
+
+msgctxt "PhoneWindow"
+msgid "New Secret Key"
+msgstr "Nova chave secreta"
+
+msgctxt "PhoneWindow"
+msgid "{n} device still uses the vault's former key: its changes come in once it takes the new one."
+msgid_plural "{n} devices still use the vault's former key: their changes come in once they take the new one."
+msgstr[0] "{n} aparelho ainda usa a chave antiga do cofre: as alterações dele chegam quando ele passar a usar a nova."
+msgstr[1] "{n} aparelhos ainda usam a chave antiga do cofre: as alterações deles chegam quando passarem a usar a nova."
+
+msgctxt "PhoneWindow"
+msgid "The vault key was renewed on another device: its copies open only with the new Secret Key, from the new emergency kit made there. Type it once here to keep syncing."
+msgstr "A chave do cofre foi renovada em outro aparelho: as cópias dele só abrem com a nova chave secreta, do novo kit de emergência feito lá. Digite-a uma vez aqui para continuar sincronizando."
+
+msgctxt "PhoneWindow"
+msgid "Type the new Secret Key"
+msgstr "Digite a nova chave secreta"
+
+msgctxt "Messages"
+msgid "That Secret Key and master password open none of the renewed copies. Use the Secret Key of the kit made when the vault key was renewed."
+msgstr "Essa chave secreta e a senha mestra não abrem nenhuma cópia renovada. Use a chave secreta do kit feito quando a chave do cofre foi renovada."
+
+msgctxt "Messages"
+msgid "This computer couldn't keep the new Secret Key ({}), so nothing was changed."
+msgstr "Este computador não conseguiu guardar a nova chave secreta ({}), então nada foi alterado."
+
+msgctxt "Messages"
+msgid "This computer couldn't keep the new Secret Key ({}), and the vault file now opens only with it: keep the new emergency kit at hand, it is asked at the next unlock."
+msgstr "Este computador não conseguiu guardar a nova chave secreta ({}), e o arquivo do cofre agora abre só com ela: mantenha o novo kit de emergência à mão, ele é pedido no próximo desbloqueio."
+
+msgctxt "Messages"
+msgid "The vault key was renewed: the old kit, the old Secret Key and older copies of the file no longer open it. Print the new kit now. Windows Hello is off until you turn it on again."
+msgstr "A chave do cofre foi renovada: o kit antigo, a chave secreta antiga e as cópias mais antigas do arquivo não abrem mais o cofre. Imprima o novo kit agora. O Windows Hello fica desligado até você ligar de novo."
+
+msgctxt "Messages"
+msgid "The vault key was renewed: the old kit, the old Secret Key and older copies of the file no longer open it. Print the new kit now."
+msgstr "A chave do cofre foi renovada: o kit antigo, a chave secreta antiga e as cópias mais antigas do arquivo não abrem mais o cofre. Imprima o novo kit agora."
+
+msgctxt "Messages"
+msgid "This computer uses the renewed vault key now and syncs again. Windows Hello is off until you turn it on again."
+msgstr "Este computador usa agora a chave do cofre renovada e sincroniza de novo. O Windows Hello fica desligado até você ligar de novo."
+
+msgctxt "Messages"
+msgid "This computer uses the renewed vault key now and syncs again."
+msgstr "Este computador usa agora a chave do cofre renovada e sincroniza de novo."
+
+msgctxt "Messages"
+msgid "The vault key was renewed on another device. Settings → Sync asks once for the new Secret Key, from the new emergency kit."
+msgstr "A chave do cofre foi renovada em outro aparelho. Configurações → Sincronização pede uma vez a nova chave secreta, do novo kit de emergência."
+
+msgctxt "Messages"
+msgid "The vault key was renewed, but the vault locked before the new kit showed. Open Emergency kit and issue new recovery parts: the ones made then can't be shown again."
+msgstr "A chave do cofre foi renovada, mas o cofre bloqueou antes de o novo kit aparecer. Abra o kit de emergência e gere novas partes de recuperação: as geradas então não podem ser mostradas de novo."

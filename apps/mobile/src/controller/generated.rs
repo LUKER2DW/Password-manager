@@ -15,7 +15,8 @@ use zeroize::Zeroizing;
 use super::{Controller, notice};
 use crate::{ui::GenRow, view};
 
-const PURPOSE: &str = "generated-history";
+/// What the history is sealed for (`Vault::seal_local`).
+pub(super) const PURPOSE: &str = "generated-history";
 const KEEP: usize = 50;
 
 /// One password and when it was copied or used (Unix seconds).
