@@ -158,9 +158,9 @@ it is this app, newer, and signed with the same certificate, and hands it
 to Android, which asks you and installs it only if it is signed with the same key as the app
 already there. Someone who took the server over can offer an old or a broken package; Android
 refuses one signed with another key, and the phone never installs anything without you.
-The APKs are signed with the Android debug key of the computer that built them, so whoever has
-that key file can make updates; a key for distribution is still to be chosen, and changing it
-means installing the app anew.
+The APKs are signed with the app's release key (`make-release-key.ps1`, kept on the computer
+that builds them and backed up offline): whoever has that key can make updates, so it never goes
+near the server.
 
 ## Look after it
 

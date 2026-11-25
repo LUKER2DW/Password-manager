@@ -332,7 +332,16 @@ rustup target add aarch64-linux-android x86_64-linux-android
 adb install -r target/release/apk/vault-mobile-android.apk
 ```
 
-The APK is signed with the Android debug key: for trying it, never for publishing it.
+The APK is signed with the release key when there is one, else with the Android debug key
+(for trying it, never for publishing it). The release key is made once with
+`./apps/mobile-android/make-release-key.ps1`: a 4096-bit RSA key in
+`%APPDATA%\PasswordVault\signingelease.p12`, outside the repository, its password sealed
+for this Windows user (DPAPI) so `build.ps1` signs without asking. Android installs an update
+only when it carries the same key as the app on the phone, so back the key and its password up
+offline: lost, no update installs over the app again; copied, whoever has it can sign an
+"update". The first APK signed with it doesn't install over one signed with the debug key: sync
+or export the vault, uninstall once, install again. Gradle needs a Java it supports (JDK 17 or
+21 in `JAVA_HOME`; a newer Android Studio's own Java may be too new for it).
 
 What is in this first build (M7.1):
 - **Secret fields take the system keyboard, asked for a password** (no learning, no
@@ -407,9 +416,8 @@ Not yet: scanning a one-time code's QR code, the bundled fonts (Roboto stands in
 
 **Updates** take only this app, newer and signed with the same certificate, checked before
 Android's installer gets it; the installer's answer comes to a receiver no other app can reach
-(`Updates.java`, `InstallReceiver.java`). The APKs are signed with the Android debug key of the
-computer that builds them: a key for distribution is still to be chosen, and changing it
-means installing the app anew.
+(`Updates.java`, `InstallReceiver.java`). The APKs are signed with the release key that
+`make-release-key.ps1` makes (see below), the only key updates are taken from.
 
 ### 7.3 Languages
 
