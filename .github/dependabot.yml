@@ -10,6 +10,12 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
+    ignore:
+      # jni 0.22 rewrote its API (Env and EnvUnowned, closures to attach a thread, typed
+      # signatures, Global<T>). No check in CI builds for Android, so a version bump would pass
+      # and break the phone app: it is moved by hand, with the Android code.
+      - dependency-name: jni
+        versions: [">= 0.22"]
     groups:
       cargo:
         patterns: ["*"]

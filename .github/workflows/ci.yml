@@ -70,7 +70,8 @@ jobs:
       # The extension has no packages and no build step: Node's own test runner only.
       - name: Tests
         run: >-
-          node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs
+          node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs
+          apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs
           apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs
 
   linux-libraries:
