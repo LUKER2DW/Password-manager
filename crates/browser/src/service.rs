@@ -424,6 +424,14 @@ fn with_login<R>(
     done.ok_or_else(|| item_locked(kind))
 }
 
+/// Which version of item `id` is stored now ([`Vault::item_stamp`], base64url): what an
+/// update offered for one version is checked against. Not secret.
+fn stamp_of(vault: &Vault, id: &ItemId) -> Option<String> {
+    vault
+        .item_stamp(id)
+        .map(|stamp| URL_SAFE_NO_PAD.encode(stamp))
+}
+
 /// Whether a login to save is of a size a sign-in form could hold: what the extension sends
 /// is typed by a person or read from a page, never trusted for its length.
 pub(crate) fn save_fits(title: Option<&str>, username: &str, password: &Secret) -> bool {
@@ -566,6 +574,7 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                     Response::Changed {
                         id: id.to_hex(),
                         changed,
+                        stamp: stamp_of(vault, &id).unwrap_or_default(),
                     }
                     .into()
                 }
@@ -576,6 +585,8 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
             Request::Update {
                 id,
                 password,
+                username,
+                stamp,
                 check,
                 hello,
                 ..
@@ -584,6 +595,26 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
         ) => {
             if password.as_str().is_empty() || !save_fits(None, "", &password) {
                 return error(ErrorCode::BadRequest).into();
+            }
+            // The login the person was offered to update, as it was then: edited since (in
+            // the app, by a sync) or with another username now, it is not overwritten. Checked
+            // before the item lock is opened, so no PIN is asked for a refusal.
+            if username.is_some() || stamp.is_some() {
+                let Some(item_id) = ItemId::from_hex(&id) else {
+                    return error(ErrorCode::NoMatch).into();
+                };
+                let Some(item) = vault.get_item(&item_id).ok().filter(|item| {
+                    item.kind == ItemKind::Login && item_matches(&item.urls, &origin)
+                }) else {
+                    return error(ErrorCode::NoMatch).into();
+                };
+                let same_user = username.as_ref().is_none_or(|name| *name == item.username);
+                let same_version = stamp
+                    .as_ref()
+                    .is_none_or(|stamp| stamp_of(vault, &item_id).as_ref() == Some(stamp));
+                if !(same_user && same_version) {
+                    return error(ErrorCode::ChangedSince).into();
+                }
             }
             let done = with_login(
                 vault,
@@ -936,6 +967,7 @@ fn attestation_for(passkey: &Passkey, client_data: &[u8], origin: &Origin) -> Op
         authenticator_data: URL_SAFE_NO_PAD.encode(&data),
         public_key: URL_SAFE_NO_PAD.encode(passkey.spki().ok()?),
         algorithm: ES256,
+        replaced: false,
     })
 }
 
@@ -1008,9 +1040,12 @@ fn create_passkey(
     let Ok(passkey) = Passkey::new(&rp_id, &user_handle, user_name, display_name) else {
         return error(ErrorCode::BadRequest).into();
     };
-    let Some(attestation) = attestation_for(&passkey, &client_data, origin) else {
+    let Some(mut attestation) = attestation_for(&passkey, &client_data, origin) else {
         return error(ErrorCode::BadRequest).into();
     };
+    // A passkey of the same site and account is replaced, as a security key does: the answer
+    // says so, so that when it never reaches the page the window can tell the person that
+    // the earlier one is gone too.
     let kept = match target {
         Some(id) => with_login(
             vault,
@@ -1020,9 +1055,11 @@ fn create_passkey(
             hello,
             |_| true,
             |vault, id, mut item| {
+                let before = item.passkeys.len();
                 item.passkeys.retain(|p| {
                     !(p.rp_id == passkey.rp_id && p.user_handle == passkey.user_handle)
                 });
+                let replaced = item.passkeys.len() != before;
                 if item.passkeys.len() >= Passkey::MAX_PER_ITEM {
                     return None;
                 }
@@ -1031,7 +1068,7 @@ fn create_passkey(
                 vault
                     .update_item(id, &item)
                     .ok()
-                    .map(|()| item.title.clone())
+                    .map(|()| (item.title.clone(), replaced))
             },
         ),
         None => {
@@ -1040,14 +1077,20 @@ fn create_passkey(
             let mut item = ItemData::login(title, user_name, "", origin.as_str());
             item.passkeys.push(passkey.clone());
             // Like a login saved from a page: the item lock seals it the next time it opens.
-            Ok(vault.add_item(&item).ok().map(|_| item.title.clone()))
+            Ok(vault
+                .add_item(&item)
+                .ok()
+                .map(|_| (item.title.clone(), false)))
         }
     };
     match kept {
-        Ok(Some(title)) => Outcome {
-            passkey_saved: Some(title),
-            ..Response::Attestation(Box::new(attestation)).into()
-        },
+        Ok(Some((title, replaced))) => {
+            attestation.replaced = replaced;
+            Outcome {
+                passkey_saved: Some(title),
+                ..Response::Attestation(Box::new(attestation)).into()
+            }
+        }
         Ok(None) => error(ErrorCode::BadRequest).into(),
         Err(response) => response.into(),
     }
@@ -1229,6 +1272,7 @@ mod tests {
         let (made, answer) = passkey_answer(&mut vault, &mut gate, create.clone());
         assert_eq!(made["type"], "attestation", "{made}");
         assert_eq!(answer.passkey_saved.as_deref(), Some("login.example.com"));
+        assert_eq!(made.get("replaced"), None, "nothing was there before");
         assert_eq!(
             (made["algorithm"].as_i64(), made["origin"].as_str()),
             (Some(-7), Some("https://login.example.com"))
@@ -1351,9 +1395,11 @@ mod tests {
         rsa_only["algorithms"] = json!([-257]);
         let (reply, _) = passkey_answer(&mut vault, &mut gate, rsa_only);
         assert_eq!(reply["code"], "unsupported");
-        // Made again for the same account: it takes the old one's place in the same login.
+        // Made again for the same account: it takes the old one's place in the same login,
+        // and the answer says so (the window tells it when the page never gets this one).
         let (remade, _) = passkey_answer(&mut vault, &mut gate, create);
         assert_eq!(remade["type"], "attestation");
+        assert_eq!(remade["replaced"], true);
         let logins: Vec<ItemData> = vault
             .item_ids()
             .map(|id| vault.get_item(&id).unwrap())
@@ -2051,21 +2097,22 @@ mod tests {
                    "username": username, "password": password})
         };
 
+        let stamp = |vault: &Vault, id: &str| stamp_of(vault, &ItemId::from_hex(id).unwrap());
         let (same, _) = send(&mut vault, &mut gate, changed("octocat", "gh-secret"));
         assert_eq!(
             same,
-            json!({"type": "changed", "id": github, "changed": false})
+            json!({"type": "changed", "id": github, "changed": false, "stamp": stamp(&vault, &github)})
         );
         let (other, _) = send(&mut vault, &mut gate, changed("octocat", "gh-new"));
         assert_eq!(
             other,
-            json!({"type": "changed", "id": github, "changed": true})
+            json!({"type": "changed", "id": github, "changed": true, "stamp": stamp(&vault, &github)})
         );
         // Behind the item lock the app can't tell, and doesn't open it to find out.
         let (unknown, _) = send(&mut vault, &mut gate, changed("hubot", "guess"));
         assert_eq!(
             unknown,
-            json!({"type": "changed", "id": work, "changed": null})
+            json!({"type": "changed", "id": work, "changed": null, "stamp": stamp(&vault, &work)})
         );
         assert_eq!(gate.closed, 0);
         let (nobody, _) = send(&mut vault, &mut gate, changed("someone", "x"));
@@ -2115,6 +2162,86 @@ mod tests {
         assert_eq!(gate.closed, 1);
         let item = vault.get_item(&ItemId::from_hex(&work).unwrap()).unwrap();
         assert_eq!(item.password, "work-new");
+    }
+
+    #[test]
+    fn an_update_offered_for_one_version_of_a_login_does_not_overwrite_a_later_one() {
+        let (mut vault, github, work) = vault();
+        let mut gate = TestGate::new(Check::Pin);
+        let send = |vault: &mut Vault, gate: &mut TestGate, request: Value| {
+            let answer = answer(request.to_string().as_bytes(), Some(vault), gate);
+            let reply: Value = serde_json::from_slice(&answer.bytes).unwrap();
+            (reply, answer.updated)
+        };
+        let (offered, _) = send(
+            &mut vault,
+            &mut gate,
+            json!({"type": "changed", "url": "https://github.com/login",
+                   "username": "octocat", "password": "typed-for-octocat"}),
+        );
+        assert_eq!(offered["changed"], true);
+        let bound = |stamp: &Value, username: &str| {
+            json!({"type": "update", "url": "https://github.com/", "id": github,
+                   "password": "typed-for-octocat", "username": username, "stamp": stamp})
+        };
+
+        // Edited in the app meanwhile (a newer password, a sync merge): not overwritten.
+        let id = ItemId::from_hex(&github).unwrap();
+        let mut item = vault.get_item(&id).unwrap();
+        item.password = "newer-from-sync".into();
+        vault.update_item(&id, &item).unwrap();
+        let (refused, updated) = send(&mut vault, &mut gate, bound(&offered["stamp"], "octocat"));
+        assert_eq!(refused, json!({"type": "error", "code": "changed_since"}));
+        assert!(updated.is_none());
+        assert_eq!(vault.get_item(&id).unwrap().password, "newer-from-sync");
+
+        // Another username now (renamed to someone else's account): not overwritten either.
+        let mut item = vault.get_item(&id).unwrap();
+        item.username = "someone-else".into();
+        vault.update_item(&id, &item).unwrap();
+        let (now, _) = send(
+            &mut vault,
+            &mut gate,
+            json!({"type": "changed", "url": "https://github.com/login",
+                   "username": "someone-else", "password": "typed-for-octocat"}),
+        );
+        let (refused, _) = send(&mut vault, &mut gate, bound(&now["stamp"], "octocat"));
+        assert_eq!(refused, json!({"type": "error", "code": "changed_since"}));
+        assert_eq!(vault.get_item(&id).unwrap().password, "newer-from-sync");
+
+        // The version offered, for the username offered: replaced.
+        let (done, updated) = send(&mut vault, &mut gate, bound(&now["stamp"], "someone-else"));
+        assert_eq!(done, json!({"type": "updated", "changed": true}));
+        assert_eq!(updated.as_deref(), Some("GitHub"));
+        assert_eq!(vault.get_item(&id).unwrap().password, "typed-for-octocat");
+
+        // A locked login is refused before its PIN is asked for, and a bound update of an id
+        // of another site looks like one that does not exist.
+        let (locked, _) = send(
+            &mut vault,
+            &mut gate,
+            json!({"type": "changed", "url": "https://github.com/login",
+                   "username": "hubot", "password": "work-typed"}),
+        );
+        let work_id = ItemId::from_hex(&work).unwrap();
+        let mut item = vault.get_item(&work_id).unwrap();
+        item.title = "GitHub (work, renamed)".into();
+        vault.update_item(&work_id, &item).unwrap();
+        let (refused, _) = send(
+            &mut vault,
+            &mut gate,
+            json!({"type": "update", "url": "https://github.com/", "id": work,
+                   "password": "work-typed", "username": "hubot", "stamp": locked["stamp"]}),
+        );
+        assert_eq!(refused["code"], "changed_since");
+        assert_eq!(gate.closed, 0, "the item lock was not opened");
+        let (elsewhere, _) = send(
+            &mut vault,
+            &mut gate,
+            json!({"type": "update", "url": "https://bank.example/", "id": github,
+                   "password": "x", "username": "someone-else", "stamp": now["stamp"]}),
+        );
+        assert_eq!(elsewhere["code"], "no_match");
     }
 
     #[test]

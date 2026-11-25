@@ -88,7 +88,8 @@ impl Origin {
 /// The site a `*.example.com` entry is about (`example.com`, as the browser writes it), or
 /// `None` when the text is not such an entry. The part after `*.` must be a name with at
 /// least one dot (not `*.com`, not an IP address) that is not a public suffix (not
-/// `*.co.uk`), on HTTPS and its default port.
+/// `*.co.uk`) nor right above one made by a `*` rule of the list (not `*.nom.br`, where every
+/// `name.nom.br` is a suffix of its own), on HTTPS and its default port.
 pub fn wildcard_base(saved: &str) -> Option<String> {
     let text = saved.trim();
     let rest = text.strip_prefix("https://").unwrap_or(text);
@@ -137,22 +138,49 @@ pub fn passkey_site(rp_id: &str, page: &Origin) -> Option<String> {
     (rp_id == host || (under && rp_id.contains('.') && !is_public_suffix(&rp_id))).then_some(rp_id)
 }
 
-/// Whether anyone can register a name right under `domain` (`co.uk`, `github.io`): a `*.`
-/// entry over it would hand a login to sites of other people.
+/// Whether anyone can register a name right under `domain` (`co.uk`, `github.io`), or a name
+/// right under every name under it (`nom.br`, `kawasaki.jp`, `replit.dev`: the list's `*`
+/// rules): a `*.` entry over it would hand a login to sites of other people. (By the list's
+/// own algorithm `nom.br` is no suffix, since `*.nom.br` needs one more label; a name under
+/// it, any one, is.)
 fn is_public_suffix(domain: &str) -> bool {
-    psl::suffix(domain.as_bytes()).is_some_and(|suffix| suffix.as_bytes() == domain.as_bytes())
+    let own = |name: &str| {
+        psl::suffix(name.as_bytes()).is_some_and(|suffix| suffix.as_bytes() == name.as_bytes())
+    };
+    // The probe is a label no rule names, so only a `*` rule makes it a suffix.
+    own(domain) || own(&format!("vault-probe.{domain}"))
+}
+
+/// Whether `host` is `base` or a name under it with the same owner: no public suffix between
+/// them. `*.amazonaws.com` covers `www.amazonaws.com` but not `x.s3.amazonaws.com`, which its
+/// own owner registered under the suffix `s3.amazonaws.com`, nor that suffix itself.
+fn covers(base: &str, host: &str) -> bool {
+    if host == base {
+        return true;
+    }
+    if !host
+        .strip_suffix(base)
+        .is_some_and(|sub| sub.ends_with('.'))
+    {
+        return false;
+    }
+    // The host's registrable domain must be the base or above it.
+    let Some(domain) = psl::domain(host.as_bytes()) else {
+        return false;
+    };
+    let domain = domain.as_bytes();
+    let base = base.as_bytes();
+    base == domain
+        || base
+            .strip_suffix(domain)
+            .is_some_and(|above| above.ends_with(b"."))
 }
 
 /// Whether one saved website covers the page: its exact origin, or by `*.` its site and
-/// everything under it.
+/// everything under it of the same owner.
 pub fn saved_matches(saved: &str, page: &Origin) -> bool {
     if let Some(base) = wildcard_base(saved) {
-        return page.default_port
-            && (page.host == base
-                || page
-                    .host
-                    .strip_suffix(&base)
-                    .is_some_and(|sub| sub.ends_with('.')));
+        return page.default_port && covers(&base, &page.host);
     }
     Origin::of_saved(saved).as_ref() == Some(page)
 }
@@ -160,6 +188,22 @@ pub fn saved_matches(saved: &str, page: &Origin) -> bool {
 /// Whether any of an item's saved websites covers the page.
 pub fn item_matches<S: AsRef<str>>(saved: &[S], page: &Origin) -> bool {
     saved.iter().any(|url| saved_matches(url.as_ref(), page))
+}
+
+/// Whether the `*.` entry `saved` covers a website known only by its host name, as a phone's
+/// autofill reports one (a name, no scheme or port). The rule is [`saved_matches`]'s, so the
+/// phone and the extension agree: an entry over a public suffix (`*.co.uk`, `*.github.io`,
+/// where anyone can have a site) or one that is not a plain name covers nothing, and `false`
+/// is also the answer for a saved website that is not a `*.` entry at all.
+pub fn wildcard_covers_host(saved: &str, host: &str) -> bool {
+    let Some(base) = wildcard_base(saved) else {
+        return false;
+    };
+    // Parsed as the browser does: lower case, international names in their ASCII form.
+    let Ok(url::Host::Domain(host)) = url::Host::parse(host.trim()) else {
+        return false;
+    };
+    covers(&base, &host)
 }
 
 #[cfg(test)]
@@ -206,6 +250,11 @@ mod tests {
             Some("someone.github.io")
         );
         assert_eq!(passkey_site("co.uk", &page("https://shop.co.uk")), None);
+        // Nor right above a suffix made by a `*` rule: every `name.nom.br` has its own owner.
+        assert_eq!(
+            passkey_site("nom.br", &page("https://joao.silva.nom.br")),
+            None
+        );
         assert_eq!(
             passkey_site("shop.co.uk", &page("https://www.shop.co.uk:8443")).as_deref(),
             Some("shop.co.uk")
@@ -344,6 +393,98 @@ mod tests {
             wildcard_base(" *.Example.COM ").as_deref(),
             Some("example.com")
         );
+    }
+
+    #[test]
+    fn a_star_entry_covers_a_bare_host_by_the_same_rule() {
+        for host in [
+            "example.com",
+            "accounts.example.com",
+            "a.b.example.com",
+            "ACCOUNTS.Example.com",
+        ] {
+            assert!(wildcard_covers_host("*.example.com", host), "{host}");
+        }
+        assert!(wildcard_covers_host(
+            "https://*.example.com/",
+            "x.example.com"
+        ));
+        for host in [
+            "badexample.com",
+            "example.com.evil.example",
+            "example.org",
+            "",
+            "1.2.3.4",
+            "accounts.example.com:8443",
+        ] {
+            assert!(!wildcard_covers_host("*.example.com", host), "{host}");
+        }
+        // Over a public suffix, a registry's or a hosting company's: other people's sites.
+        for (saved, host) in [
+            ("*.co.uk", "shop.co.uk"),
+            ("*.com", "example.com"),
+            ("*.com.br", "loja.com.br"),
+            ("*.github.io", "someone.github.io"),
+            ("*.blogspot.com", "someone.blogspot.com"),
+            ("http://*.example.com", "x.example.com"),
+            ("*.example.com:8443", "x.example.com"),
+        ] {
+            assert!(!wildcard_covers_host(saved, host), "{saved} {host}");
+        }
+        // A site of its own under a public suffix is fine.
+        assert!(wildcard_covers_host("*.shop.co.uk", "www.shop.co.uk"));
+        assert!(!wildcard_covers_host("*.shop.co.uk", "other.co.uk"));
+        // Right above a suffix made by a `*` rule (`*.nom.br`: every `name.nom.br` is one),
+        // and a suffix that lies below the entry: other people's sites again.
+        for (saved, host) in [
+            ("*.nom.br", "joao.silva.nom.br"),
+            ("*.kawasaki.jp", "shop.x.kawasaki.jp"),
+            ("*.replit.dev", "someone.replit.dev"),
+            ("*.digitaloceanspaces.com", "a.b.digitaloceanspaces.com"),
+            ("*.r.appspot.com", "app.x.r.appspot.com"),
+            ("*.amazonaws.com", "evil.s3.amazonaws.com"),
+            ("*.amazonaws.com", "s3.amazonaws.com"),
+        ] {
+            assert!(!wildcard_covers_host(saved, host), "{saved} {host}");
+            assert!(
+                !item_matches(&[saved], &page(&format!("https://{host}/"))),
+                "{saved} {host}"
+            );
+        }
+        for wide in [
+            "*.nom.br",
+            "*.kawasaki.jp",
+            "*.replit.dev",
+            "*.r.appspot.com",
+        ] {
+            assert_eq!(wildcard_base(wide), None, "{wide}");
+        }
+        // One owner's name stays usable: under an exception of a `*` rule, or above a suffix
+        // only its own hosts are under.
+        assert!(wildcard_covers_host(
+            "*.city.kawasaki.jp",
+            "www.city.kawasaki.jp"
+        ));
+        assert!(wildcard_covers_host("*.amazonaws.com", "www.amazonaws.com"));
+        assert!(wildcard_covers_host(
+            "*.silva.joao.nom.br",
+            "www.silva.joao.nom.br"
+        ));
+        assert!(wildcard_covers_host(
+            "*.a.b.example.com",
+            "x.a.b.example.com"
+        ));
+        // Not a `*.` entry: no answer here.
+        assert!(!wildcard_covers_host("example.com", "example.com"));
+        // International names compare in their ASCII form.
+        assert!(wildcard_covers_host(
+            "*.bücher.example",
+            "www.xn--bcher-kva.example"
+        ));
+        assert!(wildcard_covers_host(
+            "*.bücher.example",
+            "www.bücher.example"
+        ));
     }
 
     #[test]

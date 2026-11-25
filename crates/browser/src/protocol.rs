@@ -172,10 +172,19 @@ pub enum Request {
     /// Replaces the password of login `id`, saved for `url`'s origin, with `password`. The old
     /// one goes into the item's password history. A locked login is opened first, as for a
     /// fill.
+    ///
+    /// `username` and `stamp` bind it to the login the person was offered to update: the
+    /// username typed and the stamp the app gave in its [`Response::Changed`]. When given, a
+    /// login edited since (in the app, by a sync) or with another username now is not
+    /// overwritten (`changed_since`). Older extensions leave them out.
     Update {
         url: String,
         id: String,
         password: Secret,
+        #[serde(default)]
+        username: Option<String>,
+        #[serde(default)]
+        stamp: Option<String>,
         #[serde(default)]
         check: Option<Secret>,
         #[serde(default)]
@@ -286,9 +295,11 @@ pub enum Response {
     },
     /// The answer to [`Request::Changed`]: the login it is about, and whether its password is
     /// another one (`None`: the login is locked, so the app can't tell without opening it).
+    /// `stamp` names this version of the login (not secret), for [`Request::Update`].
     Changed {
         id: String,
         changed: Option<bool>,
+        stamp: String,
     },
     /// The password of the login was replaced (`changed`), or was already that one.
     Updated {
@@ -378,6 +389,10 @@ pub struct Attestation {
     pub public_key: String,
     /// Its COSE algorithm (ES256, -7).
     pub algorithm: i64,
+    /// A passkey kept before for the same site and account was replaced by this one: once the
+    /// site has this one, the earlier one no longer signs in (as with a security key).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub replaced: bool,
 }
 
 /// One login in the extension's view of the vault.
@@ -491,4 +506,10 @@ pub enum ErrorCode {
     Unsupported,
     /// The person turned this off in the app (saving logins, or passkeys).
     TurnedOff,
+    /// The change could not be written to the vault file (it was changed elsewhere, or the
+    /// disk refused): nothing was kept, and it may be asked again.
+    NotSaved,
+    /// The login an update was offered for has been changed since (edited in the app, merged
+    /// by a sync, another username): nothing was replaced.
+    ChangedSince,
 }
