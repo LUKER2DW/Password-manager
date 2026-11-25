@@ -12,6 +12,7 @@
 //! Nothing typed opens it. A PIN would be weak here: whoever copies the file could try every
 //! PIN away from the app, while each Windows Hello try needs the person and the chip.
 
+use crypto_box::{PublicKey, SecretKey as BoxSecret, aead::OsRng};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
@@ -86,6 +87,112 @@ impl LockedFillKey {
         let padded = aead::open(&self.0, sealed, &aad(b"passwords", vault_id))?;
         postcard::from_bytes(padding::unpad(&padded)?).map_err(|_| Error::Malformed)
     }
+}
+
+/// The key of the passwords of logins behind the item lock (CRYPTO.md §3.4): an X25519 key
+/// pair. Its private half is kept only wrapped for the device's user verification, never
+/// with the vault key, so whoever holds the vault key (malware reading an open vault from
+/// memory) still can't read a locked login's password from the locked-fill file: the item
+/// lock keeps its meaning there too. The open app adds a password with the public half
+/// alone (libsodium's sealed box), so keeping the file current asks for nothing.
+pub struct GuardedFillKey {
+    secret: BoxSecret,
+}
+
+impl std::fmt::Debug for GuardedFillKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("GuardedFillKey(<redacted>)")
+    }
+}
+
+/// Bytes of a [`GuardedFillKey`]'s public half.
+pub const GUARDED_PUBLIC_KEY_LEN: usize = 32;
+
+impl GuardedFillKey {
+    pub fn generate() -> Result<Self> {
+        let bytes = random::secret_array::<32>()?;
+        Ok(Self {
+            secret: BoxSecret::from_bytes(*bytes),
+        })
+    }
+
+    /// The public half, which passwords are sealed to ([`seal_guarded`]).
+    pub fn public_key(&self) -> [u8; GUARDED_PUBLIC_KEY_LEN] {
+        self.secret.public_key().to_bytes()
+    }
+
+    /// Wraps the private half for the device's user verification (as
+    /// [`LockedFillKey::wrap_for_device`]).
+    pub fn wrap_for_device(&self, device_secret: &[u8], vault_id: &str) -> Result<Vec<u8>> {
+        let kek = keys::locked_fill_kek(device_secret, vault_id)?;
+        let bytes = Zeroizing::new(self.secret.to_bytes());
+        aead::seal(&kek, bytes.as_ref(), &aad(b"guarded-key", vault_id))
+    }
+
+    /// Opens what [`GuardedFillKey::wrap_for_device`] made.
+    pub fn unwrap_for_device(device_secret: &[u8], vault_id: &str, sealed: &[u8]) -> Result<Self> {
+        let kek = keys::locked_fill_kek(device_secret, vault_id)?;
+        let bytes = aead::open(&kek, sealed, &aad(b"guarded-key", vault_id))?;
+        let array: [u8; 32] = bytes.as_slice().try_into().map_err(|_| Error::Malformed)?;
+        let array = Zeroizing::new(array);
+        Ok(Self {
+            secret: BoxSecret::from_bytes(*array),
+        })
+    }
+
+    /// Opens one password sealed by [`seal_guarded`], for login `item_id` as it was when
+    /// `stamp` was taken. Fails for another vault, another login or another stamp: a password
+    /// kept for one version of a login is never handed out for another (another website, say).
+    pub fn open_guarded(
+        &self,
+        vault_id: &str,
+        item_id: &str,
+        stamp: &[u8; 32],
+        sealed: &[u8],
+    ) -> Result<Zeroizing<String>> {
+        let plain = Zeroizing::new(
+            self.secret
+                .unseal(sealed)
+                .map_err(|_| Error::DecryptionFailed)?,
+        );
+        let prefix = guarded_prefix(vault_id, item_id, stamp);
+        let rest = plain
+            .strip_prefix(prefix.as_slice())
+            .ok_or(Error::DecryptionFailed)?;
+        let password = padding::unpad(rest)?;
+        let text = std::str::from_utf8(password).map_err(|_| Error::Malformed)?;
+        Ok(Zeroizing::new(text.to_owned()))
+    }
+}
+
+fn guarded_prefix(vault_id: &str, item_id: &str, stamp: &[u8; 32]) -> Vec<u8> {
+    [
+        aad(b"guarded", vault_id).as_slice(),
+        b"/",
+        item_id.as_bytes(),
+        b"/",
+        stamp,
+    ]
+    .concat()
+}
+
+/// Seals the password of login `item_id` (as of `stamp`, see `Vault::item_stamp`) to a
+/// [`GuardedFillKey`]'s public half. Padded like an item.
+pub fn seal_guarded(
+    public_key: &[u8; GUARDED_PUBLIC_KEY_LEN],
+    vault_id: &str,
+    item_id: &str,
+    stamp: &[u8; 32],
+    password: &str,
+) -> Result<Vec<u8>> {
+    let prefix = guarded_prefix(vault_id, item_id, stamp);
+    let padded = padding::pad(password.as_bytes(), padding::item_bucket)?;
+    let mut plain = Zeroizing::new(Vec::with_capacity(prefix.len() + padded.len()));
+    plain.extend_from_slice(&prefix);
+    plain.extend_from_slice(&padded);
+    PublicKey::from_bytes(*public_key)
+        .seal(&mut OsRng, &plain)
+        .map_err(|_| Error::Rng)
 }
 
 #[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
@@ -175,5 +282,37 @@ mod tests {
         let copy = LockedFillKey::from_bytes(key.as_bytes()).unwrap();
         assert_eq!(copy.open_passwords("v1", &sealed).unwrap().len(), 2);
         assert!(LockedFillKey::from_bytes(&[1; 5]).is_err());
+    }
+
+    #[test]
+    fn a_locked_logins_password_opens_with_the_device_and_for_that_version_only() {
+        let key = GuardedFillKey::generate().unwrap();
+        let public = key.public_key();
+        let stamp = [3; 32];
+        // Sealed with the public half alone (the open app, asking nothing).
+        let sealed = seal_guarded(&public, "v1", "aa", &stamp, "locked-secret").unwrap();
+        assert!(!sealed.windows(6).any(|w| w == b"locked"));
+        let wrapped = key.wrap_for_device(&DEVICE, "v1").unwrap();
+        drop(key);
+        let key = GuardedFillKey::unwrap_for_device(&DEVICE, "v1", &wrapped).unwrap();
+        assert_eq!(key.public_key(), public);
+        assert_eq!(
+            key.open_guarded("v1", "aa", &stamp, &sealed)
+                .unwrap()
+                .as_str(),
+            "locked-secret"
+        );
+        // Another version of the login, another login, another vault: nothing.
+        assert!(key.open_guarded("v1", "aa", &[4; 32], &sealed).is_err());
+        assert!(key.open_guarded("v1", "bb", &stamp, &sealed).is_err());
+        assert!(key.open_guarded("v2", "aa", &stamp, &sealed).is_err());
+        // Only the device opens the private half.
+        assert!(GuardedFillKey::unwrap_for_device(&[8; 32], "v1", &wrapped).is_err());
+        assert!(GuardedFillKey::unwrap_for_device(&DEVICE, "v2", &wrapped).is_err());
+        // The blob key's wrap is another one: neither stands in for the other.
+        let blob = LockedFillKey::generate().unwrap();
+        let blob_wrapped = blob.wrap_for_device(&DEVICE, "v1").unwrap();
+        assert!(GuardedFillKey::unwrap_for_device(&DEVICE, "v1", &blob_wrapped).is_err());
+        assert!(LockedFillKey::unwrap_for_device(&DEVICE, "v1", &wrapped).is_err());
     }
 }

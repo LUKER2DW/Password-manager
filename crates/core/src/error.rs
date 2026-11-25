@@ -55,6 +55,8 @@ pub enum Error {
     DeviceRemoved,
     #[error("this device was removed from the vault on another device")]
     RemovedHere,
+    #[error("the file was changed by someone else since it was read: nothing was written")]
+    FileChanged,
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }

@@ -2,7 +2,8 @@
 
 use proptest::prelude::*;
 use vault_core::{
-    Error, GuardCheck, ItemData, ItemId, KdfParams, SecretKey, Unlock, Vault,
+    Error, GuardCheck, GuardOpened, ItemData, ItemId, KdfParams, RecoveryKey, SecretKey, Unlock,
+    Vault,
     sync::{DeviceId, SeenRevisions, SyncDevice},
 };
 
@@ -383,6 +384,475 @@ fn an_item_lock_set_on_one_device_follows_on_the_others() {
     assert_eq!(
         d[0].vault.get_item(&shared).unwrap().password,
         "first-password"
+    );
+}
+
+/// Two devices under one PIN lock; the phone (`d[1]`) holds a login of its own, sealed under
+/// it; then the desktop (`d[0]`) sets the lock again with another PIN, so another key.
+fn lock_changed_elsewhere() -> (Vec<Device>, ItemId, SecretKey, Vec<u8>) {
+    let (mut d, _, secret_key) = devices(2);
+    d[0].vault
+        .set_item_guard(true, GuardCheck::Pin, Some("4821"), Some(PASSWORD))
+        .unwrap();
+    d[0].vault.lock_secrets();
+    exchange(&mut d);
+    assert!(d[1].vault.unlock_secrets("4821").unwrap());
+    let only_here = d[1]
+        .vault
+        .add_item(&ItemData::login(
+            "Only here",
+            "me",
+            "local-secret",
+            "https://local.example",
+        ))
+        .unwrap();
+    assert_eq!(d[1].vault.pending_seal().unwrap(), 0, "sealed at once");
+    // Through the master password as the check (no key), then a PIN again: a new key.
+    assert!(d[0].vault.unlock_secrets("4821").unwrap());
+    d[0].vault
+        .set_item_guard(true, GuardCheck::Master, None, None)
+        .unwrap();
+    d[0].vault
+        .set_item_guard(true, GuardCheck::Pin, Some("9137"), Some(PASSWORD))
+        .unwrap();
+    d[0].vault.lock_secrets();
+    let desktop = d[0].copy();
+    (d, only_here, secret_key, desktop)
+}
+
+#[test]
+fn a_new_item_lock_key_never_leaves_a_sealed_item_without_its_seal() {
+    let (mut d, only_here, secret_key, desktop) = lock_changed_elsewhere();
+    // The phone, its lock open, takes the desktop's copy: the new lock waits for its key.
+    let report = d[1].take(&desktop);
+    assert!(!report.guard_changed);
+    assert!(report.waiting_for_lock >= 1);
+    assert!(d[1].vault.guard_waiting());
+    assert_eq!(
+        d[1].vault.pending_seal().unwrap(),
+        0,
+        "nothing lost its seal"
+    );
+    // Every copy written meanwhile keeps it: saved, opened again, the item is still sealed.
+    let written = d[1].copy();
+    let reopened = open(&written, &secret_key, PASSWORD).unwrap();
+    assert_eq!(reopened.pending_seal().unwrap(), 0);
+    assert!(reopened.get_item(&only_here).unwrap().is_locked());
+    // The new PIN typed here: remembered for the move (this copy's own lock stays as it is).
+    assert!(!d[1].vault.unlock_secrets("9137").unwrap());
+    assert!(d[1].vault.secrets_open(), "the old lock is still open");
+    let report = d[1].take(&desktop);
+    assert!(report.guard_changed);
+    assert!(!d[1].vault.guard_waiting());
+    assert_eq!(
+        d[1].vault.pending_seal().unwrap(),
+        0,
+        "moved to the new key directly"
+    );
+    assert_eq!(
+        d[1].vault.get_item(&only_here).unwrap().password,
+        "local-secret"
+    );
+    // From now on only the new PIN opens it, here and in what this copy writes.
+    let written = d[1].copy();
+    let mut reopened = open(&written, &secret_key, PASSWORD).unwrap();
+    assert!(reopened.get_item(&only_here).unwrap().is_locked());
+    assert!(!reopened.unlock_secrets("4821").unwrap());
+    assert!(reopened.unlock_secrets("9137").unwrap());
+    assert_eq!(
+        reopened.get_item(&only_here).unwrap().password,
+        "local-secret"
+    );
+    // And the desktop gets the phone's login, sealed under its own key.
+    let report = d[0].take(&written);
+    assert_eq!(report.added, 1);
+    assert!(d[0].vault.get_item(&only_here).unwrap().is_locked());
+    assert!(d[0].vault.unlock_secrets("9137").unwrap());
+    assert_eq!(
+        d[0].vault.get_item(&only_here).unwrap().password,
+        "local-secret"
+    );
+}
+
+#[test]
+fn the_master_password_opens_both_locks_for_the_move() {
+    let (mut d, only_here, _, desktop) = lock_changed_elsewhere();
+    d[1].take(&desktop);
+    assert!(d[1].vault.guard_waiting());
+    // Closed meanwhile: the old lock's items can't be read, so the copy waits whole.
+    d[1].vault.lock_secrets();
+    assert!(matches!(d[1].try_take(&desktop), Err(Error::SecretsLocked)));
+    assert_eq!(d[1].vault.pending_seal().unwrap(), 0);
+    assert!(d[1].vault.unlock_secrets_with_master(PASSWORD).unwrap());
+    let report = d[1].take(&desktop);
+    assert!(report.guard_changed);
+    assert_eq!(d[1].vault.pending_seal().unwrap(), 0);
+    assert_eq!(
+        d[1].vault.get_item(&only_here).unwrap().password,
+        "local-secret"
+    );
+}
+
+/// Sets the lock of `vault` (open) again: through the master password as the check, so under
+/// another key.
+fn another_lock(vault: &mut Vault, all_items: bool, pin: &str) {
+    vault
+        .set_item_guard(all_items, GuardCheck::Master, None, None)
+        .unwrap();
+    vault
+        .set_item_guard(all_items, GuardCheck::Pin, Some(pin), Some(PASSWORD))
+        .unwrap();
+}
+
+#[test]
+fn the_newer_locks_pin_is_not_a_wrong_try() {
+    let (mut d, only_here, _, desktop) = lock_changed_elsewhere();
+    // The phone's lock is closed, so the copy waits whole; what it waits for is known.
+    d[1].vault.lock_secrets();
+    assert!(!d[1].vault.guard_waiting());
+    assert!(matches!(d[1].try_take(&desktop), Err(Error::SecretsLocked)));
+    assert!(d[1].vault.guard_waiting());
+    assert_eq!(d[1].vault.guard_waiting_check(), Some(GuardCheck::Pin));
+    assert_eq!(
+        d[1].vault.unlock_guard("0000").unwrap(),
+        GuardOpened::Neither
+    );
+    // The new PIN first, as the person would: told apart from a wrong try, and this copy's
+    // own lock stays closed.
+    assert_eq!(
+        d[1].vault.unlock_guard("9137").unwrap(),
+        GuardOpened::NewerOnly
+    );
+    assert!(!d[1].vault.secrets_open() && !d[1].vault.guard_move_ready());
+    assert!(d[1].vault.get_item(&only_here).unwrap().is_locked());
+    // Then the earlier one: both are open, and the next merge moves.
+    assert_eq!(d[1].vault.unlock_guard("4821").unwrap(), GuardOpened::Own);
+    assert!(d[1].vault.guard_move_ready());
+    assert!(d[1].take(&desktop).guard_changed);
+    assert!(!d[1].vault.guard_waiting() && !d[1].vault.guard_move_ready());
+    assert_eq!(d[1].vault.pending_seal().unwrap(), 0);
+    d[1].vault.lock_secrets();
+    assert_eq!(
+        d[1].vault.unlock_guard("4821").unwrap(),
+        GuardOpened::Neither,
+        "the earlier PIN opens nothing any more"
+    );
+    assert_eq!(d[1].vault.unlock_guard("9137").unwrap(), GuardOpened::Own);
+    assert_eq!(
+        d[1].vault.get_item(&only_here).unwrap().password,
+        "local-secret"
+    );
+}
+
+#[test]
+fn a_closed_lock_forgets_the_newer_ones_key_too() {
+    let (mut d, _, _, desktop) = lock_changed_elsewhere();
+    d[1].vault.lock_secrets();
+    assert!(d[1].try_take(&desktop).is_err());
+    assert_eq!(
+        d[1].vault.unlock_guard("9137").unwrap(),
+        GuardOpened::NewerOnly
+    );
+    d[1].vault.lock_secrets();
+    assert_eq!(d[1].vault.unlock_guard("4821").unwrap(), GuardOpened::Own);
+    assert!(!d[1].vault.guard_move_ready(), "typed again after closing");
+    assert!(!d[1].take(&desktop).guard_changed);
+}
+
+#[test]
+fn a_lock_turned_off_elsewhere_has_no_key_to_wait_for() {
+    let (mut d, shared, _) = devices(2);
+    d[0].vault
+        .set_item_guard(true, GuardCheck::Pin, Some("4821"), Some(PASSWORD))
+        .unwrap();
+    exchange(&mut d);
+    // The phone holds a login the desktop doesn't have, sealed under the lock.
+    assert!(d[1].vault.unlock_secrets("4821").unwrap());
+    let only_here = d[1]
+        .vault
+        .add_item(&ItemData::login(
+            "Only here",
+            "me",
+            "local-secret",
+            "https://local.example",
+        ))
+        .unwrap();
+    d[1].vault.lock_secrets();
+    // The desktop turns the lock off.
+    d[0].vault
+        .set_item_guard(false, GuardCheck::Master, None, None)
+        .unwrap();
+    let off = d[0].copy();
+    // The phone's lock closed: its own PIN is what is missing, nothing else.
+    assert!(matches!(d[1].try_take(&off), Err(Error::SecretsLocked)));
+    assert_eq!(d[1].vault.guard_waiting_check(), Some(GuardCheck::Master));
+    assert_eq!(d[1].vault.unlock_guard("4821").unwrap(), GuardOpened::Own);
+    assert!(d[1].vault.guard_move_ready());
+    let report = d[1].take(&off);
+    assert!(report.guard_changed && report.waiting_for_lock == 0);
+    assert!(!d[1].vault.item_guard().encrypts() && !d[1].vault.guard_waiting());
+    for id in [shared, only_here] {
+        assert!(!d[1].vault.get_item(&id).unwrap().is_locked());
+    }
+    // And the phone's login reaches the desktop, in full.
+    exchange(&mut d);
+    assert_eq!(
+        d[0].vault.get_item(&only_here).unwrap().password,
+        "local-secret"
+    );
+    assert_eq!(contents(&d[0].vault), contents(&d[1].vault));
+}
+
+#[test]
+fn the_newest_of_several_newer_locks_is_the_one_that_waits() {
+    let (mut d, _, _) = devices(3);
+    d[0].vault
+        .set_item_guard(true, GuardCheck::Pin, Some("4821"), Some(PASSWORD))
+        .unwrap();
+    exchange(&mut d);
+    assert!(d[0].vault.unlock_secrets("4821").unwrap());
+    let laptop_only = d[0]
+        .vault
+        .add_item(&ItemData::login("Laptop", "me", "laptop-pw", ""))
+        .unwrap();
+    // The tablet sets another lock once; the phone twice, so later.
+    assert!(d[1].vault.unlock_secrets("4821").unwrap());
+    another_lock(&mut d[1].vault, true, "1111");
+    let tablet = d[1].copy();
+    assert!(d[2].vault.unlock_secrets("4821").unwrap());
+    another_lock(&mut d[2].vault, true, "3333");
+    another_lock(&mut d[2].vault, true, "2222");
+    let phone = d[2].copy();
+
+    // Whichever comes first, the phone's is the one that waits, round after round.
+    for copy in [&tablet, &phone, &tablet] {
+        assert!(!d[0].take(copy).guard_changed);
+    }
+    assert!(d[0].vault.guard_waiting());
+    assert_eq!(
+        d[0].vault.unlock_guard("1111").unwrap(),
+        GuardOpened::Neither,
+        "the tablet's lock is not the one to move to"
+    );
+    assert_eq!(d[0].vault.unlock_guard("4821").unwrap(), GuardOpened::Own);
+    assert_eq!(
+        d[0].vault.unlock_guard("2222").unwrap(),
+        GuardOpened::NewerOnly
+    );
+    // The next round reads the tablet's copy first: the key just opened is not forgotten.
+    assert!(!d[0].take(&tablet).guard_changed);
+    assert!(d[0].vault.guard_move_ready());
+    assert!(d[0].take(&phone).guard_changed);
+    assert!(!d[0].vault.guard_waiting());
+    assert_eq!(d[0].vault.pending_seal().unwrap(), 0);
+    // The tablet's older lock changes nothing any more.
+    assert!(!d[0].take(&tablet).guard_changed);
+    assert!(!d[0].vault.guard_waiting());
+
+    // The tablet follows, with the phone's PIN and its own; then all three hold the same.
+    let laptop = d[0].copy();
+    assert!(!d[1].take(&laptop).guard_changed);
+    assert_eq!(
+        d[1].vault.unlock_guard("2222").unwrap(),
+        GuardOpened::NewerOnly
+    );
+    assert!(d[1].take(&laptop).guard_changed);
+    for device in &mut d {
+        device.vault.unlock_guard("2222").unwrap();
+    }
+    exchange(&mut d);
+    for device in &mut d {
+        assert!(device.vault.unlock_secrets("2222").unwrap());
+        assert_eq!(
+            device.vault.get_item(&laptop_only).unwrap().password,
+            "laptop-pw"
+        );
+    }
+    assert_eq!(contents(&d[0].vault), contents(&d[1].vault));
+    assert_eq!(contents(&d[0].vault), contents(&d[2].vault));
+}
+
+#[test]
+fn a_lock_set_here_meanwhile_replaces_the_one_that_waited() {
+    let (mut d, only_here, _, desktop) = lock_changed_elsewhere();
+    d[1].take(&desktop);
+    assert!(d[1].vault.guard_waiting());
+    // The person sets this device's lock again: theirs is the last word.
+    d[1].vault
+        .set_item_guard(true, GuardCheck::Pin, Some("5555"), Some(PASSWORD))
+        .unwrap();
+    assert!(!d[1].vault.guard_waiting());
+    assert!(!d[1].take(&desktop).guard_changed);
+    assert!(!d[1].vault.guard_waiting(), "not newer than this one");
+    let phone = d[1].copy();
+    // The desktop moves to it, with both PINs.
+    assert!(d[0].vault.unlock_secrets("9137").unwrap());
+    assert!(!d[0].take(&phone).guard_changed);
+    assert_eq!(
+        d[0].vault.unlock_guard("5555").unwrap(),
+        GuardOpened::NewerOnly
+    );
+    assert!(d[0].take(&phone).guard_changed);
+    assert_eq!(
+        d[0].vault.get_item(&only_here).unwrap().password,
+        "local-secret"
+    );
+}
+
+#[test]
+fn a_removed_devices_lock_stops_waiting() {
+    let (mut d, _, _, desktop) = lock_changed_elsewhere();
+    let removed = d[0].vault.device();
+    d[1].vault
+        .add_sync_device(SyncDevice {
+            id: removed,
+            name: "Desktop".into(),
+            signing_key: None,
+            added_at: 1,
+        })
+        .unwrap();
+    d[1].take(&desktop);
+    assert!(d[1].vault.guard_waiting());
+    d[1].vault.remove_sync_device(&removed).unwrap();
+    assert!(!d[1].vault.guard_waiting());
+    assert!(matches!(d[1].try_take(&desktop), Err(Error::DeviceRemoved)));
+}
+
+#[test]
+fn a_lock_that_covers_fewer_items_never_unseals_them_while_it_waits() {
+    let (mut d, shared, _) = devices(2);
+    d[0].vault
+        .set_item_guard(true, GuardCheck::Pin, Some("4821"), Some(PASSWORD))
+        .unwrap();
+    exchange(&mut d);
+    // The desktop's new lock is for marked items only: its copy holds the login unsealed, as
+    // a later version of the one sealed here.
+    another_lock(&mut d[0].vault, false, "9137");
+    let desktop = d[0].copy();
+    assert!(d[1].vault.unlock_secrets("4821").unwrap());
+    let report = d[1].take(&desktop);
+    assert!(d[1].vault.guard_waiting() && report.waiting_for_lock > 0);
+    assert_eq!(report.updated, 0);
+    assert_eq!(
+        d[1].vault.pending_seal().unwrap(),
+        0,
+        "the login keeps its seal while the lock waits"
+    );
+    // Moved: the new lock's rules.
+    assert_eq!(
+        d[1].vault.unlock_guard("9137").unwrap(),
+        GuardOpened::NewerOnly
+    );
+    assert!(d[1].take(&desktop).guard_changed);
+    d[1].vault.lock_secrets();
+    assert!(!d[1].vault.get_item(&shared).unwrap().is_locked());
+    exchange(&mut d);
+    assert_eq!(contents(&d[0].vault), contents(&d[1].vault));
+}
+
+/// Two devices with the committed vault of format v6, whose PIN lock (4821, every item) was
+/// made before copies said which key is theirs.
+fn devices_from_before_v7() -> Vec<Device> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let bytes = std::fs::read(dir.join("vault-v6.bin")).unwrap();
+    let text = std::fs::read_to_string(dir.join("vault-v6.credentials.txt")).unwrap();
+    let recovery = text
+        .lines()
+        .find_map(|line| line.strip_prefix("recovery_key")?.trim().strip_prefix('='))
+        .unwrap();
+    let recovery = RecoveryKey::parse(recovery.trim()).unwrap();
+    (0..2)
+        .map(|_| {
+            let mut vault = Vault::open(&bytes, Unlock::Recovery(&recovery)).unwrap();
+            vault.set_device(DeviceId::generate().unwrap());
+            Device {
+                vault,
+                seen: SeenRevisions::new(),
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn a_new_pin_for_a_lock_from_before_v7_is_the_same_key() {
+    let mut d = devices_from_before_v7();
+    for device in &mut d {
+        assert!(device.vault.unlock_secrets("4821").unwrap());
+    }
+    let only_here = d[0]
+        .vault
+        .add_item(&ItemData::login("Only here", "me", "local-secret", ""))
+        .unwrap();
+    // The other device changes the PIN and nothing else: the key stays, so nothing waits.
+    d[1].vault
+        .set_item_guard(true, GuardCheck::Pin, Some("7777"), None)
+        .unwrap();
+    let copy = d[1].copy();
+    let report = d[0].take(&copy);
+    assert!(report.guard_changed && !d[0].vault.guard_waiting());
+    assert_eq!(report.waiting_for_lock, 0);
+    assert!(d[0].vault.secrets_open(), "the same key stays open");
+    d[0].vault.lock_secrets();
+    assert!(!d[0].vault.unlock_secrets("4821").unwrap());
+    assert!(d[0].vault.unlock_secrets("7777").unwrap());
+    assert_eq!(
+        d[0].vault.get_item(&only_here).unwrap().password,
+        "local-secret"
+    );
+    // Items sealed on either device open on the other.
+    let copy = d[0].copy();
+    assert_eq!(d[1].take(&copy).added, 1);
+    assert_eq!(
+        d[1].vault.get_item(&only_here).unwrap().password,
+        "local-secret"
+    );
+}
+
+#[test]
+fn a_copy_that_never_named_its_key_is_recognized_by_what_it_opens() {
+    let mut d = devices_from_before_v7();
+    // One device changes the PIN (so its copy names the key); the other changes the master
+    // password twice, which rewraps the same key without naming it, and is the later change.
+    assert!(d[0].vault.unlock_secrets("4821").unwrap());
+    d[0].vault
+        .set_item_guard(true, GuardCheck::Pin, Some("7777"), None)
+        .unwrap();
+    let secret_key = SecretKey::generate().unwrap();
+    for password in ["another test password", "yet another test password"] {
+        d[1].vault
+            .change_password(password, &secret_key, None, KdfParams::minimum().unwrap())
+            .unwrap();
+    }
+    let copy = d[1].copy();
+    let report = d[0].take(&copy);
+    assert!(report.guard_changed && report.waiting_for_lock == 0);
+    assert!(!d[0].vault.guard_waiting());
+    d[0].vault.lock_secrets();
+    assert!(
+        d[0].vault.unlock_secrets("4821").unwrap(),
+        "that copy's PIN"
+    );
+}
+
+#[test]
+fn a_lock_from_before_v7_turned_off_elsewhere_leaves_nothing_sealed_for_good() {
+    let mut d = devices_from_before_v7();
+    assert!(d[0].vault.unlock_secrets("4821").unwrap());
+    let only_here = d[0]
+        .vault
+        .add_item(&ItemData::login("Only here", "me", "local-secret", ""))
+        .unwrap();
+    assert!(d[1].vault.unlock_secrets("4821").unwrap());
+    d[1].vault
+        .set_item_guard(false, GuardCheck::Master, None, None)
+        .unwrap();
+    let off = d[1].copy();
+    assert!(d[0].take(&off).guard_changed);
+    d[0].vault.lock_secrets();
+    assert_eq!(
+        d[0].vault.get_item(&only_here).unwrap().password,
+        "local-secret",
+        "never left sealed under a key that is gone"
     );
 }
 

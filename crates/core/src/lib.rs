@@ -43,7 +43,7 @@ pub mod totp;
 
 pub mod card;
 pub use error::Error;
-pub use guard::{GuardCheck, ItemGuard};
+pub use guard::{GuardCheck, GuardOpened, ItemGuard};
 pub use item::{
     Attachment, CustomField, Folder, FolderId, ItemData, ItemId, ItemKind, ItemSummary,
     PasswordChange, RecoveryCode, SealedSecrets, VaultSettings,
@@ -51,7 +51,7 @@ pub use item::{
 pub use kdf::{KdfMethod, KdfParams, KdfStrength, PasswordKdf};
 pub use keys::{Keyfile, PartLabel, RecoveryKey, RecoveryPart, RecoveryParts, SecretKey};
 pub use passkey::Passkey;
-pub use vault::{Unlock, Vault, VaultInfo};
+pub use vault::{Unlock, Vault, VaultInfo, VaultSnapshot};
 
 /// Convenience alias used throughout the crate.
 pub type Result<T> = std::result::Result<T, Error>;

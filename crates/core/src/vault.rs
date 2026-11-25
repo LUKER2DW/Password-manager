@@ -11,7 +11,7 @@ use crate::{
         self, ItemRecord, KeySlot, PartsSlot, SlotKind, VaultBody, VaultBodyV0, VaultBodyV1,
         VaultBodyV2, VaultBodyV3, VaultBodyV4, VaultBodyV5, VaultBodyV6, VaultHeader,
     },
-    guard::{GuardKeySlots, GuardSlot, WrappedGuardKey},
+    guard::{GuardKeySlots, GuardOpened, GuardSlot, WrappedGuardKey},
     item::{
         FolderV1, FolderV3, ItemDataV0, ItemDataV1, ItemDataV2, ItemDataV3, ItemDataV5, ItemDataV8,
         ItemDataV9, ItemSecrets, PasswordChange, SealedSecrets,
@@ -102,6 +102,30 @@ pub struct Vault {
     guard_key: Option<Zeroizing<aead::Key>>,
     /// What sync needs (format v7).
     sync: SyncState,
+    /// A newer item lock with another key, from another device's copy, that this copy can't
+    /// take yet: in memory only (see `merge::IncomingGuard`).
+    incoming_guard: Option<merge::IncomingGuard>,
+}
+
+/// A vault as it was, to put back when a change could not be written (see
+/// [`Vault::snapshot`]). Items stay sealed in it.
+pub struct VaultSnapshot {
+    header: VaultHeader,
+    revision: u64,
+    items: Vec<ItemRecord>,
+    folders: Vec<Folder>,
+    settings: VaultSettings,
+    guard: ItemGuard,
+    sync: SyncState,
+}
+
+impl fmt::Debug for VaultSnapshot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VaultSnapshot")
+            .field("revision", &self.revision)
+            .field("items", &self.items.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl fmt::Debug for Vault {
@@ -141,6 +165,7 @@ impl Vault {
             settings: VaultSettings::default(),
             guard: ItemGuard::default(),
             guard_key: None,
+            incoming_guard: None,
             sync: SyncState::default(),
         };
         let slot = vault.password_slot(password, secret_key, None, &vault.header.kdf)?;
@@ -375,6 +400,7 @@ impl Vault {
             settings: body.settings,
             guard: body.guard,
             guard_key: None,
+            incoming_guard: None,
             sync: body.sync,
         };
         if parsed.version < format::ITEM_LAYOUT_VERSION {
@@ -515,6 +541,7 @@ impl Vault {
             std::mem::replace(&mut self.guard_key, guard_key),
         );
         let previous_sync = self.sync.clone();
+        let previous_incoming = self.incoming_guard.clone();
         self.note_guard_change();
         let records = self
             .items
@@ -533,6 +560,7 @@ impl Vault {
             Err(err) => {
                 (self.guard, self.guard_key) = previous;
                 self.sync = previous_sync;
+                self.incoming_guard = previous_incoming;
                 Err(err)
             }
         }
@@ -545,33 +573,71 @@ impl Vault {
     /// The first time after an upgrade from format v5 this also encrypts the guarded secrets
     /// ([`ItemGuard::encrypts`] turns true): save the vault afterwards.
     pub fn unlock_secrets(&mut self, secret: &str) -> Result<bool> {
-        if let Some(slots) = &self.guard.key {
+        Ok(self.unlock_guard(secret)? == GuardOpened::Own)
+    }
+
+    /// [`Vault::unlock_secrets`], telling a wrong try from the PIN or password of a newer item
+    /// lock that waits from another device ([`Vault::guard_waiting`]). That one is remembered
+    /// for the move to it until the secrets are closed; it doesn't open this copy's own lock,
+    /// nor close it when that is open. The same secret often opens both.
+    pub fn unlock_guard(&mut self, secret: &str) -> Result<GuardOpened> {
+        let newer = self.open_incoming_guard(secret, GuardSlot::Check)?;
+        let own = if let Some(slots) = &self.guard.key {
             let key = slots
                 .check
                 .unwrap(secret, &self.header.vault_id, GuardSlot::Check)?;
-            self.guard_key = key;
-            return Ok(self.guard_key.is_some());
-        }
-        if !self.guard.verify_legacy(secret)? {
-            return Ok(false);
-        }
-        let (all_items, check) = (self.guard.all_items, self.guard.check);
-        self.set_item_guard(all_items, check, Some(secret), None)?;
-        Ok(true)
+            match key {
+                Some(key) => {
+                    self.open_guard_with(key);
+                    true
+                }
+                None => {
+                    if !newer {
+                        self.guard_key = None;
+                    }
+                    false
+                }
+            }
+        } else if self.guard.verify_legacy(secret)? {
+            let (all_items, check) = (self.guard.all_items, self.guard.check);
+            self.set_item_guard(all_items, check, Some(secret), None)?;
+            true
+        } else {
+            false
+        };
+        Ok(opened(own, newer))
     }
 
     /// Opens guarded secrets with the master password, when the guard kept a copy of its key
     /// for it ([`ItemGuard::master_can_reset`]). `false` when there is none or it is wrong.
     pub fn unlock_secrets_with_master(&mut self, master_password: &str) -> Result<bool> {
-        let Some(slot) = self.guard.key.as_ref().and_then(|k| k.master.as_ref()) else {
-            return Ok(false);
-        };
-        let key = slot.unwrap(master_password, &self.header.vault_id, GuardSlot::Master)?;
-        let opened = key.is_some();
-        if opened {
-            self.guard_key = key;
+        Ok(self.unlock_guard_with_master(master_password)? == GuardOpened::Own)
+    }
+
+    /// [`Vault::unlock_guard`] with the master password, which opens a newer item lock waiting
+    /// from another device too, when each lock kept a copy of its key for it.
+    pub fn unlock_guard_with_master(&mut self, master_password: &str) -> Result<GuardOpened> {
+        let newer = self.open_incoming_guard(master_password, GuardSlot::Master)?;
+        let slot = self.guard.key.as_ref().and_then(|k| k.master.as_ref());
+        let key = slot
+            .map(|slot| slot.unwrap(master_password, &self.header.vault_id, GuardSlot::Master))
+            .transpose()?
+            .flatten();
+        let own = key.is_some();
+        if let Some(key) = key {
+            self.open_guard_with(key);
         }
-        Ok(opened)
+        Ok(opened(own, newer))
+    }
+
+    /// Guarded secrets are open with `key`. A copy that never said which key seals its items
+    /// (a lock from before format v7, not changed since) says so from now on, so sync can tell
+    /// a new PIN for this key from another key.
+    fn open_guard_with(&mut self, key: Zeroizing<aead::Key>) {
+        if self.sync.guard_key_id == [0; 8] {
+            self.sync.guard_key_id = guard_key_id(key.as_ref());
+        }
+        self.guard_key = Some(key);
     }
 
     /// Wraps the item guard key for this device, so that the device's user verification
@@ -600,7 +666,7 @@ impl Vault {
             return Ok(false);
         };
         let key: aead::Key = bytes.as_slice().try_into().map_err(|_| Error::Malformed)?;
-        self.guard_key = Some(Zeroizing::new(key));
+        self.open_guard_with(Zeroizing::new(key));
         Ok(true)
     }
 
@@ -615,9 +681,11 @@ impl Vault {
     }
 
     /// Records that the item lock changed, for sync: a newer revision, and which key now
-    /// seals guarded items.
+    /// seals guarded items. Newer than a lock that was waiting from another device too: the
+    /// person set this one after it, so it is the one that counts.
     fn note_guard_change(&mut self) {
-        self.sync.guard_revision = self.sync.guard_revision.saturating_add(1);
+        let waiting = self.incoming_guard.take().map_or(0, |lock| lock.revision);
+        self.sync.guard_revision = self.sync.guard_revision.max(waiting).saturating_add(1);
         self.sync.guard_key_id = self
             .guard_key
             .as_ref()
@@ -627,6 +695,9 @@ impl Vault {
     /// Closes guarded secrets again: the guard key leaves memory.
     pub fn lock_secrets(&mut self) {
         self.guard_key = None;
+        if let Some(incoming) = self.incoming_guard.as_mut() {
+            incoming.key = None;
+        }
     }
 
     /// Whether encrypted secrets are open right now.
@@ -870,6 +941,23 @@ impl Vault {
         self.items.is_empty()
     }
 
+    /// A fingerprint of the item as stored now: it changes with every change to the item (its
+    /// secrets, websites, anything), whether or not its secrets are open here. Not secret (a
+    /// hash of encrypted bytes). `None` for an unknown id.
+    ///
+    /// What is kept outside the vault for one version of an item (the locked-fill file) is
+    /// tied to it, so it is never used for another version.
+    pub fn item_stamp(&self, id: &ItemId) -> Option<[u8; 32]> {
+        use sha2::{Digest, Sha256};
+        let record = self.items.iter().find(|record| record.id == *id)?;
+        let mut hash = Sha256::new();
+        hash.update(b"vault-v0/item-stamp/");
+        hash.update(record.id.as_bytes());
+        hash.update(record.revision.to_le_bytes());
+        hash.update(&record.data);
+        Some(hash.finalize().into())
+    }
+
     pub fn item_ids(&self) -> impl Iterator<Item = ItemId> + '_ {
         self.items.iter().map(|record| record.id)
     }
@@ -1093,6 +1181,49 @@ impl Vault {
         result
     }
 
+    /// What the vault holds now, for [`Vault::roll_back`]: everything a change to items,
+    /// folders, settings, the item lock or sync can touch. Items stay sealed in it; no key is
+    /// copied (keys and whether guarded secrets are open stay as they are).
+    ///
+    /// For a change whose write may still fail: the copy in memory is put back as it was, so
+    /// it never holds what the file on disk doesn't (a login the browser was told was saved,
+    /// say) and a later save can't write it behind the person's back.
+    pub fn snapshot(&self) -> VaultSnapshot {
+        VaultSnapshot {
+            header: self.header.clone(),
+            revision: self.revision,
+            items: self.items.clone(),
+            folders: self.folders.clone(),
+            settings: self.settings.clone(),
+            guard: self.guard.clone(),
+            sync: self.sync.clone(),
+        }
+    }
+
+    /// Puts back what [`Vault::snapshot`] took. When the item lock is not the one it was,
+    /// guarded secrets are closed: the key open now belongs to the other one.
+    pub fn roll_back(&mut self, snapshot: VaultSnapshot) {
+        let VaultSnapshot {
+            header,
+            revision,
+            items,
+            folders,
+            settings,
+            guard,
+            sync,
+        } = snapshot;
+        self.header = header;
+        self.revision = revision;
+        self.items = items;
+        self.folders = folders;
+        self.settings = settings;
+        if self.guard != guard {
+            self.guard_key = None;
+        }
+        self.guard = guard;
+        self.sync = sync;
+    }
+
     /// Re-protects the vault with a new master password and/or Secret Key, KDF cost and
     /// keyfile. The vault key and items are unchanged; only the password slot is rewritten.
     ///
@@ -1292,6 +1423,7 @@ impl Vault {
         }
         self.sync
             .bury(Gone::Device, *id.as_bytes(), crate::item::unix_now());
+        self.drop_lock_of_removed_devices();
         Ok(())
     }
 
@@ -1411,6 +1543,15 @@ impl Vault {
             &record.data,
             &item_aad(vault_id, &record.id, record.revision),
         )
+    }
+}
+
+/// What a try opened: this copy's `own` lock, the `newer` one waiting, or neither.
+fn opened(own: bool, newer: bool) -> GuardOpened {
+    match (own, newer) {
+        (true, _) => GuardOpened::Own,
+        (false, true) => GuardOpened::NewerOnly,
+        (false, false) => GuardOpened::Neither,
     }
 }
 

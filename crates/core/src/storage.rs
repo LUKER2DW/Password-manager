@@ -41,6 +41,57 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(result?)
 }
 
+/// [`write_atomic`], only while `path` still holds what was read from it (`expected`, its
+/// [`fingerprint`]): someone else's save in the meantime is never written over (AGENTS.md
+/// §4.1, rule 7).
+///
+/// The file is compared when the new bytes are already on disk, and once more right before
+/// the rename, so the only moment left unchecked is the rename itself. The `.bak` copy is
+/// made from the bytes compared, never from another writer's file.
+///
+/// # Errors
+/// [`Error::FileChanged`](crate::Error::FileChanged) when the file holds anything else (or is
+/// gone): nothing was written, and no temporary file is left.
+pub fn write_atomic_if_unchanged(path: &Path, expected: &[u8; 32], bytes: &[u8]) -> Result<()> {
+    write_checked(path, expected, bytes, || {})
+}
+
+/// [`write_atomic_if_unchanged`], with `before_rename` run between the last two steps (the
+/// tests change the file there).
+fn write_checked(
+    path: &Path,
+    expected: &[u8; 32],
+    bytes: &[u8],
+    before_rename: impl FnOnce(),
+) -> Result<()> {
+    let still = || -> Result<Vec<u8>> {
+        let now = match fs::read(path) {
+            Ok(now) => now,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                return Err(crate::Error::FileChanged);
+            }
+            Err(err) => return Err(err.into()),
+        };
+        if fingerprint(&now) != *expected {
+            return Err(crate::Error::FileChanged);
+        }
+        Ok(now)
+    };
+    let tmp = temp_path(path)?;
+    let result = (|| -> Result<()> {
+        write_new(&tmp, bytes)?;
+        let current = still()?;
+        write_backup(path, &current)?;
+        before_rename();
+        still()?;
+        Ok(fs::rename(&tmp, path)?)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
 /// Location of the previous generation kept by [`write_atomic`].
 pub fn backup_path(path: &Path) -> PathBuf {
     sibling(path, "bak")
@@ -69,6 +120,17 @@ fn replace_backup(path: &Path) -> io::Result<()> {
         .open(&backup)?;
     io::copy(&mut from, &mut to)?;
     to.sync_all()
+}
+
+/// Writes `bytes` (what `path` holds now) as `<path>.bak`, the same way as `replace_backup`.
+fn write_backup(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let backup = backup_path(path);
+    match fs::remove_file(&backup) {
+        Ok(()) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err),
+    }
+    write_new(&backup, bytes)
 }
 
 /// `<file>.<random>.tmp` next to `path`.
@@ -127,6 +189,52 @@ mod tests {
         write_atomic(&path, b"vault").unwrap();
         assert_eq!(read(&path).unwrap(), b"vault");
         assert_eq!(read(&planted).unwrap(), b"someone else's");
+    }
+
+    #[test]
+    fn a_conditional_write_never_replaces_another_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("my.vault");
+        write_atomic(&path, b"first").unwrap();
+        write_atomic(&path, b"as read").unwrap();
+        let read = fingerprint(b"as read");
+
+        // Saved by someone else before the write: refused, nothing touched.
+        fs::write(&path, b"saved elsewhere").unwrap();
+        let refused = write_atomic_if_unchanged(&path, &read, b"mine");
+        assert!(matches!(refused, Err(crate::Error::FileChanged)));
+        assert_eq!(read_back(&path), b"saved elsewhere");
+        assert_eq!(read_back(&backup_path(&path)), b"first");
+        assert_eq!(names(dir.path()), ["my.vault", "my.vault.bak"]);
+
+        // Saved by someone else while the new file was being written, right before the
+        // rename: still refused, their save stays.
+        fs::write(&path, b"as read").unwrap();
+        let refused = write_checked(&path, &read, b"mine", || {
+            fs::write(&path, b"saved meanwhile").unwrap();
+        });
+        assert!(matches!(refused, Err(crate::Error::FileChanged)));
+        assert_eq!(read_back(&path), b"saved meanwhile");
+        assert_eq!(names(dir.path()), ["my.vault", "my.vault.bak"]);
+
+        // A file that is gone counts as changed (it is not created).
+        let missing = dir.path().join("gone.vault");
+        assert!(matches!(
+            write_atomic_if_unchanged(&missing, &read, b"mine"),
+            Err(crate::Error::FileChanged)
+        ));
+        assert!(!missing.exists());
+
+        // Unchanged: written, the backup is what was read.
+        fs::write(&path, b"as read").unwrap();
+        write_atomic_if_unchanged(&path, &read, b"mine").unwrap();
+        assert_eq!(read_back(&path), b"mine");
+        assert_eq!(read_back(&backup_path(&path)), b"as read");
+        assert_eq!(names(dir.path()), ["my.vault", "my.vault.bak"]);
+    }
+
+    fn read_back(path: &Path) -> Vec<u8> {
+        read(path).unwrap()
     }
 
     #[test]

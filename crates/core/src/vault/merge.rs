@@ -4,14 +4,172 @@ use std::collections::BTreeMap;
 
 use sha2::{Digest, Sha256};
 
-use super::Vault;
+use zeroize::Zeroizing;
+
+use super::{Vault, secrets_aad};
 use crate::{
-    Error, Folder, FolderId, ItemData, ItemId, Result,
+    Error, Folder, FolderId, GuardCheck, ItemData, ItemGuard, ItemId, Result, aead,
     format::{self, ItemRecord},
+    guard::GuardSlot,
     item::PasswordChange,
     padding,
-    sync::{Gone, MergeReport, SeenRevisions, record_digest},
+    sync::{DeviceId, Gone, MergeReport, SeenRevisions, guard_key_id, record_digest},
 };
+
+/// The id of a guard key no copy has named: no lock, or one from before format v7.
+const NO_KEY_ID: [u8; 8] = [0; 8];
+
+/// A newer item lock from another device's copy, sealed under a key this copy doesn't have,
+/// while this copy holds items sealed under its own. Taking it would leave those items with
+/// no seal at all (only the vault key) until the new lock opens here, in this copy and in
+/// every copy written meanwhile; so it waits here, in memory, until its key is open too: the
+/// new lock's PIN or password, or the master password, typed on this device (the item
+/// lock's own `unlock_guard*`). The next merge then moves the items from one key to the
+/// other directly.
+///
+/// With several devices on several newer locks, the newest of them is the one that waits: the
+/// others are older than the lock this copy will end up with.
+#[derive(Clone)]
+pub(crate) struct IncomingGuard {
+    guard: ItemGuard,
+    /// Its guard revision.
+    pub(super) revision: u64,
+    key_id: [u8; 8],
+    /// The device whose copy brought it.
+    writer: DeviceId,
+    /// Its key, once opened here.
+    pub(crate) key: Option<Zeroizing<aead::Key>>,
+}
+
+/// Which of two item locks is newer: the revision, then the bytes (so every device picks the
+/// same one of two set at the same time).
+fn guard_rank(revision: u64, guard: &ItemGuard) -> Result<(u64, Vec<u8>)> {
+    Ok((
+        revision,
+        postcard::to_allocvec(guard).map_err(|_| Error::Malformed)?,
+    ))
+}
+
+impl Vault {
+    /// The waiting item lock, while it is newer than this copy's own (which may have changed
+    /// since it came).
+    fn waiting_guard(&self) -> Option<&IncomingGuard> {
+        let incoming = self.incoming_guard.as_ref()?;
+        let newer = guard_rank(incoming.revision, &incoming.guard).ok()?;
+        let own = guard_rank(self.sync.guard_revision, &self.guard).ok()?;
+        (newer > own).then_some(incoming)
+    }
+
+    /// Tries `secret` on the waiting item lock (see [`IncomingGuard`]); whether it opened.
+    pub(super) fn open_incoming_guard(&mut self, secret: &str, slot: GuardSlot) -> Result<bool> {
+        let Some(incoming) = self.waiting_guard() else {
+            return Ok(false);
+        };
+        let wrapped = incoming.guard.key.as_ref().and_then(|slots| match slot {
+            GuardSlot::Check => Some(&slots.check),
+            GuardSlot::Master => slots.master.as_ref(),
+        });
+        let key = wrapped
+            .map(|wrapped| wrapped.unwrap(secret, &self.header.vault_id, slot))
+            .transpose()?
+            .flatten();
+        // A lock from before format v7 says no key id: the key that opened it is its key.
+        let named = incoming.key_id;
+        let Some(key) = key.filter(|key| named == NO_KEY_ID || guard_key_id(key.as_ref()) == named)
+        else {
+            return Ok(false);
+        };
+        if let Some(incoming) = self.incoming_guard.as_mut() {
+            incoming.key = Some(key);
+        }
+        Ok(true)
+    }
+
+    /// Whether a newer item lock from another device waits here for this copy's items to move
+    /// to it: for its key (its PIN or password, or the master password), or for this copy's
+    /// own lock to be open.
+    pub fn guard_waiting(&self) -> bool {
+        self.waiting_guard().is_some()
+    }
+
+    /// What opens the newer item lock that waits ([`Vault::guard_waiting`]): its PIN or its
+    /// password. The master password when it encrypts nothing: the lock was turned off on
+    /// another device, and only this copy's own lock is still to be opened.
+    pub fn guard_waiting_check(&self) -> Option<GuardCheck> {
+        self.waiting_guard().map(|incoming| incoming.guard.check)
+    }
+
+    /// Whether both locks are open: the next merge of the other device's copy moves the items.
+    pub fn guard_move_ready(&self) -> bool {
+        self.guard_key.is_some()
+            && self
+                .waiting_guard()
+                .is_some_and(|incoming| incoming.key.is_some() || !incoming.guard.encrypts())
+    }
+
+    /// Remembers `theirs`' item lock as the newer one that waits. The same lock again keeps
+    /// its key.
+    fn note_incoming_guard(&mut self, theirs: &Vault) {
+        let same = self.incoming_guard.as_ref().is_some_and(|known| {
+            known.revision == theirs.sync.guard_revision && known.guard == theirs.guard
+        });
+        if !same {
+            self.incoming_guard = Some(IncomingGuard {
+                guard: theirs.guard.clone(),
+                revision: theirs.sync.guard_revision,
+                key_id: theirs.sync.guard_key_id,
+                writer: theirs.sync.writer,
+                key: None,
+            });
+        }
+    }
+
+    /// Copies from a removed device are refused: a lock that waits from one never comes.
+    pub(super) fn drop_lock_of_removed_devices(&mut self) {
+        let removed = self.incoming_guard.as_ref().is_some_and(|incoming| {
+            let writer = incoming.writer.as_bytes();
+            self.sync.tombstone(Gone::Device, writer).is_some()
+        });
+        if removed {
+            self.incoming_guard = None;
+        }
+    }
+
+    /// Whether both copies seal guarded items under the same key. Copies say which key is
+    /// theirs, except for a lock from before format v7 that was not opened or changed since
+    /// ([`NO_KEY_ID`]): then the key open here decides, and without one they count as different
+    /// keys (the lock is opened first, as for any other key).
+    fn same_guard_key(&self, theirs: &Vault) -> Result<bool> {
+        let (ours, other) = match (&self.guard.key, &theirs.guard.key) {
+            (None, None) => return Ok(true),
+            (Some(ours), Some(other)) => (ours, other),
+            _ => return Ok(false),
+        };
+        // The same wrapped copy of the key, by the PIN or by the master password.
+        if ours.check == other.check || (ours.master.is_some() && ours.master == other.master) {
+            return Ok(true);
+        }
+        let their_id = theirs.sync.guard_key_id;
+        let our_id = match &self.guard_key {
+            Some(key) => guard_key_id(key.as_ref()),
+            None => self.sync.guard_key_id,
+        };
+        if our_id == their_id {
+            return Ok(true);
+        }
+        if their_id == NO_KEY_ID
+            && let Some(key) = &self.guard_key
+        {
+            for record in &theirs.items {
+                if let Some(sealed) = &self.open_visible(record)?.sealed {
+                    let aad = secrets_aad(&self.header.vault_id, &record.id);
+                    return Ok(aead::open(key, &sealed.ciphertext, &aad).is_ok());
+                }
+            }
+        }
+        Ok(false)
+    }
+}
 
 /// One side of an item while merging: its record and what can be read of it.
 struct Side<'a> {
@@ -56,8 +214,9 @@ impl Vault {
     ///   taken as deleted, and an item changed after it was deleted elsewhere is kept.
     /// - The master password and the item lock follow the copy where they changed last.
     ///
-    /// On error nothing here has changed. On success `seen` records the copy; save the vault
-    /// when [`MergeReport::changed`].
+    /// On error nothing here has changed (a newer item lock that came with
+    /// [`Error::SecretsLocked`] is only remembered, see [`Vault::guard_waiting`]). On success
+    /// `seen` records the copy; save the vault when [`MergeReport::changed`].
     ///
     /// # Errors
     /// [`Error::OtherVault`], [`Error::UnsupportedVersion`] for a copy written by another
@@ -111,6 +270,7 @@ impl Vault {
             self.guard.clone(),
             self.guard_key.clone(),
             self.sync.clone(),
+            self.incoming_guard.clone(),
         );
         match self.fold(&theirs) {
             Ok(mut report) => {
@@ -119,6 +279,8 @@ impl Vault {
                 Ok(report)
             }
             Err(err) => {
+                // The newer lock that is why, so the person can be told what to type.
+                let waiting = self.incoming_guard.take();
                 (
                     self.header,
                     self.items,
@@ -127,7 +289,11 @@ impl Vault {
                     self.guard,
                     self.guard_key,
                     self.sync,
+                    self.incoming_guard,
                 ) = snapshot;
+                if matches!(err, Error::SecretsLocked) {
+                    self.incoming_guard = waiting;
+                }
                 Err(err)
             }
         }
@@ -169,6 +335,7 @@ impl Vault {
             .map(|d| d.id)
             .collect();
         self.sync.devices.retain(|d| !removed.contains(&d.id));
+        self.drop_lock_of_removed_devices();
         report.other_changed |=
             self.sync.devices != devices_before || self.sync.tombstones.len() != tombstones_before;
 
@@ -213,43 +380,80 @@ impl Vault {
     }
 
     /// The item lock: the copy with the higher guard revision wins. When its key is another
-    /// one, this copy's sealed items are opened with the key open here and stored waiting for
-    /// the new key (sealed again at the next unlock of the lock, as new items are).
+    /// one, this copy's sealed items are opened with the key open here and sealed again under
+    /// the new key, which must be open here too (see [`IncomingGuard`]). Until it is, the new
+    /// lock waits and this copy keeps its own: a sealed item is never stored without its seal.
+    ///
+    /// A newer lock that encrypts nothing (turned off on another device, with the master
+    /// password) has no key to wait for: with this copy's own lock open, it is taken at once.
     fn fold_guard(&mut self, theirs: &Vault, report: &mut MergeReport) -> Result<()> {
-        let encode = |guard: &crate::ItemGuard| postcard::to_allocvec(guard);
-        let ours = (
-            self.sync.guard_revision,
-            encode(&self.guard).map_err(|_| Error::Malformed)?,
-        );
-        let other = (
-            theirs.sync.guard_revision,
-            encode(&theirs.guard).map_err(|_| Error::Malformed)?,
-        );
-        if other <= ours {
+        // Not newer than this copy's own any more: its own was changed since.
+        if self.waiting_guard().is_none() {
+            self.incoming_guard = None;
+        }
+        let other = guard_rank(theirs.sync.guard_revision, &theirs.guard)?;
+        if other <= guard_rank(self.sync.guard_revision, &self.guard)? {
             return Ok(());
         }
-        let same_key = theirs.sync.guard_key_id == self.sync.guard_key_id;
+        // The lock that waits, when it is this one: its key, if it was opened here.
+        let opened = self
+            .incoming_guard
+            .as_ref()
+            .filter(|incoming| {
+                incoming.revision == theirs.sync.guard_revision && incoming.guard == theirs.guard
+            })
+            .and_then(|incoming| incoming.key.clone());
+        let key_id = |key: &Zeroizing<aead::Key>| guard_key_id(key.as_ref());
+        let same_key = self.same_guard_key(theirs)?
+            || (opened.is_some()
+                && opened.as_ref().map(key_id) == self.guard_key.as_ref().map(key_id));
         let mut reopened = Vec::new();
         if !same_key {
+            // An even newer lock waits: the items move to that one.
+            if let Some(incoming) = &self.incoming_guard
+                && guard_rank(incoming.revision, &incoming.guard)? > other
+            {
+                return Ok(());
+            }
             for (index, record) in self.items.iter().enumerate() {
                 if self.open_visible(record)?.sealed.is_none() {
                     continue;
                 }
                 let data = self.open_item(record)?;
                 if data.sealed.is_some() {
+                    self.note_incoming_guard(theirs);
                     return Err(Error::SecretsLocked);
                 }
                 reopened.push((index, data));
             }
         }
+        if !reopened.is_empty() && theirs.guard.encrypts() && opened.is_none() {
+            self.note_incoming_guard(theirs);
+            report.waiting_for_lock += reopened.len();
+            return Ok(());
+        }
+        let key = if same_key {
+            self.guard_key.clone()
+        } else {
+            opened
+        };
         self.guard = theirs.guard.clone();
         self.sync.guard_revision = theirs.sync.guard_revision;
-        self.sync.guard_key_id = theirs.sync.guard_key_id;
+        // The key's id when the other copy doesn't say it (see `same_guard_key`).
+        self.sync.guard_key_id = match (&self.guard.key, theirs.sync.guard_key_id, &key) {
+            (None, _, _) => NO_KEY_ID,
+            (Some(_), NO_KEY_ID, Some(key)) => guard_key_id(key.as_ref()),
+            (Some(_), NO_KEY_ID, None) if same_key => self.sync.guard_key_id,
+            (Some(_), named, _) => named,
+        };
+        if self.waiting_guard().is_none() {
+            self.incoming_guard = None;
+        }
         if !same_key {
-            self.guard_key = None;
+            self.guard_key = key;
             for (index, data) in reopened {
                 let record = &self.items[index];
-                let record = self.seal_item(record.id, record.revision, &data)?;
+                let record = self.store_item(record.id, record.revision, &data)?;
                 self.replace_record(index, record);
             }
         }
@@ -259,7 +463,11 @@ impl Vault {
 
     fn fold_items(&mut self, theirs: &Vault, report: &mut MergeReport) -> Result<()> {
         // Their sealed items open here only under the same guard key.
-        let foreign = theirs.sync.guard_key_id != self.sync.guard_key_id;
+        let foreign = !self.same_guard_key(theirs)?;
+        // While a newer lock waits, what other devices store without a seal (a lock turned off,
+        // or one that covers fewer items) doesn't replace a record sealed here: it arrives when
+        // this copy takes that lock.
+        let lock_waits = self.guard_waiting();
         let theirs_by_id: BTreeMap<ItemId, &ItemRecord> =
             theirs.items.iter().map(|r| (r.id, r)).collect();
         let mut ids: Vec<ItemId> = self.items.iter().map(|r| r.id).collect();
@@ -323,11 +531,12 @@ impl Vault {
                 merged.push(ours.record.clone());
                 continue;
             }
+            let unseals = lock_waits && ours.sealed && !other.sealed;
             // One made from the other: the later one, as it is.
             let theirs_later = other.lineage.contains(&ours.digest);
             let ours_later = ours.lineage.contains(&other.digest);
             if theirs_later != ours_later {
-                if theirs_later && other.sealed && foreign {
+                if theirs_later && ((other.sealed && foreign) || unseals) {
                     report.waiting_for_lock += 1;
                     merged.push(ours.record.clone());
                 } else if theirs_later {
@@ -341,7 +550,7 @@ impl Vault {
             }
             // Changed on both devices. Both versions are needed in full to keep both
             // passwords; without them this copy keeps its own until the item lock is open.
-            if !(ours.readable() && other.readable()) {
+            if !(ours.readable() && other.readable()) || unseals {
                 report.waiting_for_lock += 1;
                 merged.push(ours.record.clone());
                 continue;

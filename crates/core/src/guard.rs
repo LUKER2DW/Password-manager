@@ -34,6 +34,20 @@ pub enum GuardCheck {
     Password,
 }
 
+/// What was typed for the item lock opened, when a newer lock set on another device may be
+/// waiting here too (see `Vault::guard_waiting`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GuardOpened {
+    /// This copy's own lock: its guarded secrets are open. (The newer lock as well, when the
+    /// same secret opens both.)
+    Own,
+    /// Only the newer lock, not a wrong try: this copy's own lock stays as it was, closed or
+    /// open, and its items move once both are open.
+    NewerOnly,
+    /// Neither lock: a wrong try.
+    Neither,
+}
+
 /// Which wrapped copy of the guard key (part of its AAD).
 #[derive(Clone, Copy)]
 pub(crate) enum GuardSlot {
