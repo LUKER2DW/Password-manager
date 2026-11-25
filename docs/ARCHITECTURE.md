@@ -213,7 +213,33 @@ Rust gives us is **control**: short lifetimes, no hidden copies, explicit zeroiz
   3/4 (with a key file), an export sealed under a password (`.vaultx`), and on Windows a
   browser's own store read directly on request.
 - Export: JSON (also sealed under a password) and CSV; plain-text export only after the master
-  password again, and plain-text files the app read are offered for secure wiping.
+  password again, and plain-text files the app read are offered for secure wiping. Before a file
+  is made the app shows what the chosen format leaves out and what it writes in plain text
+  (`vault_import::export_report`), and an import names what it left out.
+
+What each format keeps:
+
+| What an item holds | `.vault` (vault file, backup) | `.vaultx` (sealed export) | JSON (plain) | CSV (plain) |
+|---|---|---|---|---|
+| Title, username, password, notes, favourite, "ask again" | kept | kept | kept, in clear | kept, in clear |
+| Websites | all | all | all | the first only |
+| One-time code (TOTP; a HOTP counter inside its URI) | kept | kept | kept, in clear | kept, written as is |
+| Custom fields | kept, hidden mark kept | kept, hidden mark kept | kept, hidden mark kept, in clear | "name: value" lines, no hidden mark (the app hides names that look secret again); a value of several lines comes back whole unless a later line holds ": " |
+| Recovery codes | codes, used marks | codes, used marks | as `.vaultx`, in clear | one text field, hidden again by name |
+| Earlier passwords | kept | kept | left out (named on import) | left out |
+| Created, changed, password set dates | kept | kept | kept | left out |
+| Attached files | kept | left out (counted, named on import) | left out | left out |
+| Passkeys | kept | left out (their private keys never leave the vault) | left out | left out |
+| Item kind | kept | passkey items come back as logins | as `.vaultx` | cards and SSH keys as notes, passkey items as logins |
+| Folders | name, icon, colour, picture, order | names | names | a name per item |
+| Item lock | kept | not carried (the importing vault's applies) | not carried | not carried |
+| Items whose secrets are locked | sealed | export refused until they are opened | refused | refused |
+| Protection | master password and Secret Key | its own password (Argon2id) | none | none |
+
+From other managers: passkeys in a JSON export and KeePass attachments are not imported and
+are counted in a warning; a website rule narrower than an origin is kept for reference and not
+filled; KeePass entry history is not imported (one warning per file counts the entries with
+earlier passwords).
 - Passkeys, later: the FIDO Alliance Credential Exchange Protocol/Format.
 
 ## 10. Licensing

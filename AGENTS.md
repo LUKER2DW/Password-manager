@@ -149,7 +149,7 @@ reading of a site's password rules, `app.js` the native messaging calls. Passkey
 (the relay), `passkey-worker.js` (the worker's side) and `passkey.html`/`passkey.js` (the window
 where the person chooses). See
 [apps/extension/README.md](apps/extension/README.md). Tests: `cargo test -p vault-browser` and
-`node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs`.
+`node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs`.
 
 Rules for this part: UI in a page only as the extension's own frame (`inline.html`), never as
 page DOM, and every click there goes through the visibility check; no new permission without
@@ -217,7 +217,9 @@ screens, `src/shell.rs` talks to the activity over JNI, `src/system.rs` is the `
 controller asks, and `src/autofill.rs` answers autofill. The Java side is in
 `java/org/passwordvault/phone/`: `VaultActivity` (Android's `NativeActivity` plus the file
 picker, "save as", Back, screenshots, updates), `Biometrics` (the Keystore key behind the
-fingerprint), `VaultAutofillService`, `AutofillActivity` and `Fields` (autofill). `res/` holds
+fingerprint), `VaultAutofillService`, `AutofillActivity`, `Autofill`, `Fields` and `Place`
+(autofill, and who would receive a login), `PdfPreview` and `Wipe` (previews of attached PDFs),
+`Updates` and `InstallReceiver` (updates). `res/` holds
 the launcher icon and autofill's own words and layout. Build:
 `apps/mobile-android/build.ps1` (docs/MOBILE.md §7.2).
 
@@ -276,7 +278,7 @@ cargo run -p vault-mobile                                  # the phone app in a 
 cargo run -p vault-mobile --example phone_screens -- target/phone-screens   # its screens as PNGs
 cargo run -p vault-cli -- --help                           # the `vault` command
 cargo run -p vault-server -- serve                         # a sync server (docs/SERVER.md)
-node --test apps/extension/test/fill.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs
+node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs
 ```
 
 The APK and the browser build have their own scripts, `apps/mobile-android/build.ps1` and

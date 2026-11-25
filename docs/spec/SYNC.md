@@ -60,7 +60,8 @@ Each device (unchanged from today)
 Sync target (folder, WebDAV collection or server)
   <vault_id hex>/
     devices/<device_id hex>.vault      one whole vault file, written ONLY by that device
-    devices/<device_id hex>.vault.tmp  (folder/WebDAV: written, then renamed)
+    devices/.<device_id hex>.<random>.vault.tmp  (folder: written under a fresh name, then renamed)
+    devices/.<device_id hex>.tmp       (WebDAV: PUT, then MOVE)
 ```
 
 - **One writer per file.** Each device writes only its own `devices/<own id>.vault` and reads
@@ -180,9 +181,28 @@ device open with the same key. `guard_key_id` says which key a copy's items are 
 under. When a newer item lock arrives with another key (the lock was turned on, or set up
 again with the lock closed):
 
-- this copy's sealed items are opened with the key open here and stored waiting for the new
-  key. They are sealed again the next time the lock is opened, as new items are. Merging
-  fails with `SecretsLocked` while this copy's lock is closed, and nothing changes;
+- this copy's sealed items move from the key open here to the new one directly, and only
+  when both are open here: the old one (this device's own PIN or password, or Windows Hello),
+  and the new one, opened by its own PIN or password, in either order. The master password
+  opens both when each lock kept a copy of its key for it. Until then the new lock **waits**
+  in memory (`Vault::guard_waiting`), this copy keeps its own lock, and its sealed items are
+  counted in `waiting_for_lock`: a sealed item is never stored with only the vault key, in
+  this copy or in any copy written meanwhile, and no item sealed here is replaced by an
+  unsealed version from another device. Merging fails with `SecretsLocked` while this copy's
+  lock is closed, and nothing changes; such a copy is read again once the lock opens;
+- a try that opens only the newer lock is not a wrong try (`Vault::unlock_guard` answers
+  `GuardOpened::NewerOnly`): the app asks next for the earlier PIN or password, keeps the
+  newer key for the open period (5 minutes) at most, and runs a sync round once both are
+  open, which moves the locked items straight from one key to the other;
+- a lock turned off, or switched to the master password, on another device has no key to
+  wait for: it is taken as soon as this device's own lock is open;
+- with several newer locks, the one with the highest guard revision waits (then the lock's
+  bytes, so every device picks the same); older ones change nothing, the same lock arriving
+  again keeps the key opened for it, and a lock set on this device meanwhile, or a removed
+  device's lock, stops the wait. Locks made before format v7 (no key id) are recognised by
+  the key open here, or by what that key opens;
+- after a merge takes another device's lock, whatever the old lock had opened closes: the
+  open period, an item's page or an editor on a locked item, a copied secret;
 - the other copy's sealed items can't be read here. They wait (`waiting_for_lock`) until that
   device has taken this copy's lock and stored them again.
 
@@ -216,14 +236,26 @@ session (`fetch` with the known tags; the first round after an unlock reads them
 `put` our own copy if our revision moved. Rounds run at unlock, after each save (debounced a few seconds), every few minutes while
 unlocked, and on demand. With the vault locked nothing is merged: merging needs the vault key.
 
-- **Folder**: a directory the person picks. `put` writes `.tmp` and renames it. The app
-  watches the directory for changes. Desktop only (Android: only with Syncthing's real folder,
+- **Folder**: a directory the person picks. `put` writes the copy under a fresh random name
+  (`.<device>.<128 random bits>.vault.tmp`), created new, so a file or link another program
+  left under any name is never opened or written through, then renames it over the copy; on
+  a failure only the file it made is removed. The vault's folder and its `devices` folder
+  must be real folders (a link there is refused before anything is written, removed or
+  watched). What an interrupted write leaves behind is deleted by that device's next write a
+  day later, and at once when the device is removed. The app watches the directory for
+  changes. Desktop only (Android: only with Syncthing's real folder,
   through the system file picker's directory access).
 - **WebDAV** (`sync/webdav.rs`): `PROPFIND` (depth 1) for `list` (ETags as tags), `GET`,
   `PUT` to a temporary name then `MOVE` over the copy (a plain `PUT` where `MOVE` isn't
-  supported), `MKCOL` for the folders, `DELETE`. Basic auth over HTTPS only. The password is
-  stored in the OS credential store, never in the vault file or in device state; Settings
-  checks it answers before keeping it.
+  supported), `MKCOL` for the folders, `DELETE`. Basic auth over HTTPS only: every request carries the
+  password, so plain `http://` is taken only to this computer (a loopback address or
+  `localhost`), never to a Tailscale range or any other address, since an address proves
+  nothing about the way the traffic takes (`check_webdav_address`, checked again before the
+  password is read from the store). WebDAV requests, and any plain `http://` request, never
+  go through a proxy named in the environment (`ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`); a
+  vault server's `https://` address may. Behind a network that requires a proxy a cloud
+  WebDAV is therefore out of reach, on purpose. The password is stored in the OS credential store,
+  never in the vault file or in device state; Settings checks it answers before keeping it.
 - **Own server** (`apps/server`, `vault-server`, AGPL-3.0, axum, one SQLite file or plain
   files on disk, Docker image + Compose):
   - the same four calls over HTTPS (`GET /v1/vaults/{id}/devices`, `GET|PUT|DELETE
@@ -280,7 +312,7 @@ the signature verified, so strangers can't fill the cache).
 
 | Route | What |
 |---|---|
-| `POST /v1/enroll` | `{invite, vault, device, key, name, time, signature}`: the new device signs `"vault-sync-v1/enroll\n" vault device key name time hex(digest(invite))` with the key it enrolls, proving it holds it. The invite is used up. A device id already enrolled is refused (409 `already_enrolled`): a device that lost its key joins as a new device, so an invite can't take another device's place. |
+| `POST /v1/enroll` | `{invite, vault, device, key, name, time, signature}` (at most 4 KiB): the new device signs `"vault-sync-v1/enroll\n" vault device key name time hex(digest(invite))` with the key it enrolls, proving it holds it. The invite is used up. The invite is checked first: without a good one the answer is always 401 `invite`, so a stranger learns nothing of the vault. With one, a device id already enrolled is refused (409 `already_enrolled`): a device that lost its key joins as a new device, so an invite can't take another device's place. |
 | `GET /v1/vaults/{v}/devices` | `{copies: [{device, tag, size}], seq}` |
 | `GET /v1/vaults/{v}/devices/{d}` | the copy (`ETag`, `If-None-Match` → 304) |
 | `PUT /v1/vaults/{v}/devices/{d}` | only `d` = the signer; optional `If-Match`. With `x-vault-body-sha256` the copy is read only once the signature verifies, one upload per device at a time. Without it, only once the headers name `d`, enrolled, at a time close to now, one such upload at a time in all; then the signature over it is checked |
@@ -304,11 +336,29 @@ joins the vault that is open where it is used.
 The change counter starts at the server's start time in milliseconds and only grows, so a
 restart never makes it go back and devices keep nothing about the server between sessions.
 
+**Removal holds at once.** A request is let in when its signature is checked, but a change it
+asks for (its copy, a removal, an invite) is made only if its device is still enrolled with
+the key that signed it, checked under the store's lock at the moment of the change: a device
+taken out while its upload was arriving gets 401 `unknown_device` and its copy doesn't come
+back. An answer read from the disk for it (a listing, a copy, the devices, an app update) is
+handed over only if it is still enrolled once it is read. The long-poll's answer, a number,
+is the one left as it is.
+
+**One store, several processes.** Every change to the data folder (devices, invites,
+copies) is made under a lock in memory and a file lock on `store.lock`, so the admin
+commands (`vault-server remove`, `invite`), which run as processes of their own beside a
+serving server, wait their turn. Each write or removal of a copy writes a new random value to
+`vaults/<vault>/generation`; the server keeps a vault's listing in memory only together with
+the generation read before it, and reads it again (and wakes the devices waiting) when the
+file says otherwise, so a device removed by `vault-server remove` is gone from the next
+listing.
+
 The device's Ed25519 key is made on the device and kept in the OS credential store (per vault
 and device); the server only gets the public half. Limits (per device, per failing address,
 sizes, devices, invites) are listed in [../SERVER.md](../SERVER.md). The client refuses
-redirects, `http://` except to this computer or a Tailscale address, and answers bigger than
-a copy can be.
+redirects, `http://` except to this computer or a Tailscale address (its requests are signed
+and carry no password; WebDAV, which sends one, gets `http://` only to this computer), and
+answers bigger than a copy can be.
 
 A server with HTTPS of its own (`serve --tls`, for a home network without a domain name) is
 reached at `https://host:port#pin=<hex SHA-256 of its certificate authority, DER>`. The

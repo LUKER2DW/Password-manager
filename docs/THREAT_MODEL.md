@@ -102,7 +102,13 @@ On top of that:
   for 150 ms (a frame slid under the pointer takes no click meant for the page); the card
   shows nothing inside a frame of the page (an advert, a widget), only directly in the page
   whose logins it lists; it shows usernames, never passwords; a fill goes only into the
-  site the login is saved for, top frame only; and a locked login still needs Windows Hello
+  site the login is saved for, top frame only, and into the field the card was shown under
+  and that field's own form (each card is one offer: its id is in the frame's address, which
+  the page can read, but what it stands for, the field, its form and where that form sends, is
+  kept in the extension's isolated world, out of the page's reach): nothing is typed when the
+  page has since moved the field into another form, changed where the form sends (its action,
+  a submit button's `formaction`, the page's `<base>`) or made it send over plain `http:`;
+  fields outside any form go together only when they sit next to each other; and a locked login still needs Windows Hello
   (the system's own prompt, which a page can't click) or the PIN, typed in the extension's
   window. New vaults lock every item by default for that reason. The site's icon in the frame
   comes from the browser's own cache (`favicon` permission): nothing is fetched for it.
@@ -125,8 +131,16 @@ On top of that:
   public suffix) and writes the signed client data with that origin itself; and an answer is
   handed back only while the tab still shows that origin. Nothing is made or signed until the
   person chooses in a window of the extension's own (a page can't draw over it or click in it),
-  and a login behind the item lock asks for its check there too. A page can ask again and
-  again, but only one window is open per tab, and closing it says no. A page can also see that
+  and a login behind the item lock asks for its check there too. The window names the page
+  that asks and, when it is another name, the site its passkey belongs to as the app checked
+  it, so a subdomain can't pass for its parent (while the vault is locked the app hasn't
+  checked one, and the window names the page alone, never a site the page wrote). The app is asked to make or sign only while the very document
+  that asked (same tab, document and origin) still waits for that request and passkeys are
+  still Vault's, and that is checked again before the answer goes back; a passkey already
+  made for a page that went away stays in the vault, and the window says so (and, when it
+  took the place of the account's earlier passkey, as a security key does, that the earlier
+  one is gone too: the site may still expect it). A page can ask
+  again and again, but only one window is open per tab, and closing it says no. A page can also see that
   something stands in front of `navigator.credentials` (that Vault is installed), as it can
   with other password managers. Residual risk: a site with an XSS flaw can ask for its own
   passkey, as it could from the browser's own passkeys, but still needs the person's click.
@@ -134,7 +148,17 @@ On top of that:
   and password (in the extension's isolated world) and passes them to the background worker,
   which keeps them in `chrome.storage.session` (memory only, closed to content scripts) for
   at most two minutes, until the person answers "Save this login?". They reach the app only if
-  the person says Save; a page can't trigger the save by itself (same visibility check).
+  the person says Save; a page can't trigger the save by itself (same visibility check). Only
+  the form the person sent is read (a help link, an eye button or a button of another form
+  reads nothing), and only after the person's own act in that form: a made-up click or key
+  press is ignored, and a form's `submit`, which the browser reports as the person's even when
+  a page script asks for it (`requestSubmit()`), counts only within a few seconds after the
+  person's click or Enter in that same form, one submit per act. Save acts on the one offer its card
+  shows, for the site it was typed on, and an update only for the version of the login the
+  app compared and its username (a login changed since is not overwritten). Turned off in the
+  extension's Settings, nothing typed is read, kept or compared at all. A save or an update is answered as done only once the vault file
+  is written: when it can't be (the file changed elsewhere, the disk refused it), the app puts
+  the open vault back as it was and says "not saved".
 - **The phone's QR code scanner** is Google's (Play services' code scanner): the camera
   screen runs in Play services, the app has no camera permission and gets back only the
   code's text. That text (the invite) passes through Play services on the phone; it opens
@@ -148,7 +172,8 @@ On top of that:
   on unlock with the phone): the Keystore key that opens the vault answers to a strong
   fingerprint or face, or to the phone's PIN, pattern or password. Someone who knows that PIN
   and has the phone in hand can open the vault, for up to 14 days after the
-  last master password; guesses are rate-limited by the phone's secure hardware, but a 4-digit
+  last master password (turning fingerprint unlock off and on again doesn't start them anew,
+  and a clock moved back counts as too long ago); guesses are rate-limited by the phone's secure hardware, but a 4-digit
   PIN is weaker than a master password. It is the person's choice in Settings, Security, and
   the master password always works.
 - **Previews of attached files on the phone**: pictures and text are decoded in the app's own
@@ -175,7 +200,11 @@ On top of that:
   keeps its own history the same way (sealed with the vault key next to its copy, masked
   until shown, the last 50).
 - **Tray mode** keeps an unlocked vault in memory while the window is hidden; the idle lock
-  still applies, and the tray menu locks at once.
+  still applies, and the tray menu locks at once, also while a background job holds the vault.
+- **Background jobs** (unlock, password hashing, export, a check of the item lock): each
+  result is bound to the session and the vault file it was started for. Locking, or choosing
+  another vault, drops it and wipes its keys, so a late result never reopens a vault or writes
+  one vault over another; the vault chooser is off while a job runs.
 - **The `.vault` file type** is registered for the signed-in user (`HKEY_CURRENT_USER`), so a
   double-click opens the file in the app. A program running as the same user could point it
   at another program, as it could replace the app's shortcut; the file itself stays
@@ -183,7 +212,9 @@ On top of that:
   extension is taken only when no other program has it.
 - **Saving while the vault is locked**: a login the person saves from the browser is sealed to
   a public key (libsodium sealed box) whose private key only the open vault reads, and added
-  at the next unlock. Nothing is asked for (no PIN, no Windows Hello) and the locked app can't
+  at the next unlock (for a site and username already saved, it updates that login, the old
+  password going to its history; behind the closed item lock it waits in the file until the
+  lock opens: nothing the browser was told is kept is dropped unread). Nothing is asked for (no PIN, no Windows Hello) and the locked app can't
   read back what it wrote, so the file reveals nothing to someone who copies it. A program
   running as the same user could replace the public key and read later saves; it would
   already see those passwords in the browser as they are typed.
@@ -192,7 +223,10 @@ On top of that:
   Windows Hello opens (TPM signature after the person is verified), so a locked vault can fill
   one login at a time with the person's face, fingerprint or Windows PIN. The item lock's PIN
   does not open it: a copied file could be tried against every PIN offline, a TPM-backed
-  signature can't. What changes: names, usernames and websites of logins are readable to
+  signature can't. The password of a login behind the item lock is sealed to a key only that
+  Windows Hello secret opens, so the vault's own key is not a way round it, and each entry is
+  bound to the version of the login it was sealed for: a login that changed since fills
+  nothing until the vault is opened again. What changes: names, usernames and websites of logins are readable to
   malware running as the same Windows user (DPAPI), as are the extension's connection key
   and the browser's own data; passwords still need Windows Hello. Turning the setting off
   deletes the file.

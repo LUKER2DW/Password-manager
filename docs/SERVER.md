@@ -7,9 +7,11 @@ anything that opens the vault**. Design and protocol: [spec/SYNC.md](spec/SYNC.m
 ## What it keeps
 
 ```text
+/data/store.lock                             locked while the files below are changed
 /data/admin-invites.json                     invites made with `vault-server invite` (digests)
 /data/vaults/<vault id>/enrolled.json        each device's id, name and Ed25519 public key
-/data/vaults/<vault id>/invites.json         invites made by a device already in (digests)
+/data/vaults/<vault id>/invites.json         invites made by a device already in (digests, and who made each)
+/data/vaults/<vault id>/generation           changes whenever a copy is written or removed
 /data/vaults/<vault id>/copies/<device>.vault  each device's sealed copy of the vault
 ```
 
@@ -87,7 +89,9 @@ Without Docker: `cargo build --release -p vault-server`, then
 
 Plain `http://` is accepted by the apps only to this computer or to a Tailscale address
 (`100.64.0.0/10`), where WireGuard already encrypts the traffic. Anything else must be
-`https://`.
+`https://`. (That is for this server, whose requests are signed and carry no password. A
+WebDAV place, which sends its password with every request, must be `https://` unless it is on
+this computer.)
 
 ## Or on your home network, with its own HTTPS
 
@@ -149,17 +153,22 @@ docker compose -f apps/server/compose.yaml exec vault-server vault-server publis
 ```
 
 On the phone, **Settings → Updates → Check for updates**, then **Install**. The phone fetches
-the package with its device key, checks its size and SHA-256 against the release, and hands it
+the package with its device key, checks its size and SHA-256 against the release, checks that
+it is this app, newer, and signed with the same certificate, and hands it
 to Android, which asks you and installs it only if it is signed with the same key as the app
 already there. Someone who took the server over can offer an old or a broken package; Android
 refuses one signed with another key, and the phone never installs anything without you.
+The APKs are signed with the Android debug key of the computer that built them, so whoever has
+that key file can make updates; a key for distribution is still to be chosen, and changing it
+means installing the app anew.
 
 ## Look after it
 
 - **List devices:** `vault-server list` (in Docker: `docker compose … exec vault-server
   vault-server list`).
 - **A lost phone:** remove it from the PC (**Settings → Sync → Remove**, or
-  `vault sync --remove <id>`). That takes its key off the server and puts it in the vault's
+  `vault sync --remove <id>`; on the server, `vault-server remove` is safe to run while it
+  serves). That takes its key off the server and puts it in the vault's
   list of removed devices, so every device refuses its copies. The phone still has the copy
   it had, which opens only with the master password and the Secret Key; if you want to be
   sure, change the master password too, and every device follows.
@@ -186,6 +195,7 @@ refuses one signed with another key, and the phone never installs anything witho
 | How long one request may take | 90 seconds (then 408) |
 | Copies being uploaded at once | 4, one per device; one must arrive within 60 seconds |
 | Copies and app packages being sent at once | 4, two per device |
+| An enrollment's body | 4 KiB |
 | Any other request's body | 64 KiB |
 
 A device that syncs normally makes a handful of requests a minute: one waiting long-poll,
@@ -211,10 +221,25 @@ and a list plus one upload after each change.
 - **Memory for answers.** Copies and app packages are held in memory four at a time while
   they are sent, two per device, so many downloads at once can't fill the memory. A vault's
   live state is made only for an enrolled device, never for a stranger's enrollment try.
-- **One change at a time to the files.** The devices and the invites are read, changed and
-  written back under one lock: two requests at once never undo each other (a removed device
-  can't come back because a request was answered meanwhile), and an invite is used once even
-  when two devices try it together.
+- **One change at a time to the files.** The devices, the invites and the copies are
+  changed under one lock, held in memory and on `store.lock`, so the admin commands run
+  beside a serving server wait their turn: two changes at once never undo each other (a
+  removed device can't come back because a request was answered meanwhile), and an invite is
+  used once even when two devices try it together.
+- **A removal holds at once.** A device taken out while one of its requests was under way
+  changes nothing after it: its copy, a removal or an invite it asked for is made only if it
+  is still enrolled at that moment, and nothing read for it is handed over once it is gone.
+  The next listing agrees with the removal, also one made by `vault-server remove`, which is
+  safe to run beside a serving server (if it is cut short, running it again finishes it).
+  The invites a device made end with its place in the vault, also those made before it was
+  removed. (Invites made for a vault with `vault-server invite --vault` by an older version
+  record no maker and are no longer taken: make them again. Admin invites for a new vault are
+  not affected.)
+- **Strangers learn nothing.** Without a good invite an enrollment always gets the same
+  answer; whether a device id is enrolled or a vault is full is told only to someone holding
+  one. A signed request that no enrolled key verifies gets 401 `unknown_device` whether the
+  device is unknown or the signature is wrong, so no one can find out which device ids are
+  enrolled.
 - **A device's place can't be taken.** An invite enrolls a new device id only; one already
   enrolled is refused (409). A device that lost its key joins again as a new device.
 - **Files only the server reads.** On Linux (and in the image) the data folder's files are

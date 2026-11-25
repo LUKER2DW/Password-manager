@@ -502,8 +502,44 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
 - The CLI brought level with the apps: SSH keys, attached files, folders, export, health,
   item lock settings
 
-### M9 — Hardening and audit ⬜
+### M9 — Hardening and audit 🚧
 - Threat model review, fuzzing campaign, dependency review, external audit, then real use.
+- 🚧 Fixes from the internal security audit of 2026-11-25, each with a regression test:
+  - Extension: only the form that is sent is read (N-01); a login picked in the frame goes
+    into that field's own form, never over `http:` (N-02); "saved" only once the vault file
+    is written (N-03); Save acts on the offer its card shows; a passkey is made or signed
+    only while the very document that asked still waits, and its window names the page and
+    the site; the "Vault offers to save" setting stops capture too; a page's password
+    pattern can't stall the worker.
+  - Desktop: locked-fill passwords behind the item lock sealed to a Windows Hello key, bound to
+    the login's version (PM-03, PM-05); pairing installs the key that was approved (PM-04);
+    the generator's result leaves the screen with the item lock (PM-18); a late job result
+    restores nothing after a lock or a vault switch (PM-19); a backup only of the file this
+    session read; an imported file wiped only if it is the one read.
+  - Core and sync: a new item-lock key from another device waits until both keys are open
+    here, never leaving a sealed item without its seal (PM-13).
+  - Import: website rules narrower than an origin kept, not filled (N-04); duplicates only
+    when an entry brings nothing new (N-07); what each export format leaves out is reported
+    (`export_report`) and shown in the desktop's and the phone's export dialogs, and the phone
+    shows an import's warnings. ⬜ attachments and passkeys in `.vaultx`.
+  - Phone: `*.` rules over a public suffix fill nothing (N-05); the generator's history
+    follows the item lock (PM-01); two recovery parts are retired before the key is kept
+    (PM-07); leaving the app locks also while a job holds the vault (PM-08); the 14 days of
+    fingerprint unlock run from the last master password (PM-09).
+  - Android: who receives a login is worked out from the fields (known browsers by
+    certificate, https, one web view) and saving follows the item lock (PM-02, PM-06); PDF
+    previews from memory, wiped over their full length, within a pixel budget (PM-15, PM-16);
+    updates only of this app, newer, same certificate. ⬜ tried on a device; ⬜ a distribution
+    signing key.
+  - Server: a listing agrees with an admin's removal (N-06); a removed device's request
+    already under way changes nothing (PM-11); admin commands and the server share one lock;
+    enrollment tells nothing without a good invite.
+  - Sync and CLI: WebDAV over plain http only to this computer (PM-10); folder sync writes
+    under fresh names, never through a link (PM-12); recovery parts retired only over the file
+    they were checked against (PM-14); `vault rm` asks for the item lock (PM-17); one-time codes
+    shown only with `--reveal`, their secret can be typed at a prompt.
+  - CI: CodeQL leaves test code out (`.github/codeql/codeql-config.yml`), gitleaks allows
+    `Cargo.lock`, Dependabot holds jni at 0.21 until the Android code moves.
 
 ## Engineering practices
 

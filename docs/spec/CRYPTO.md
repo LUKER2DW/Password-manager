@@ -201,30 +201,46 @@ AAD_device    = "vault-v0/device" ‖ vault_id ‖ SHA-256(password slot's wrapp
 
 ### 3.4 Filling from the browser while the vault is locked
 
-Kept **outside** the vault file, per vault, in `<app dir>/browser-locked-<vault id>.bin`, only
-while the setting is on and the item lock opens with Windows Hello (`vault_core::locked_fill`):
+Kept **outside** the vault file, per vault, in `<app dir>/browser-locked-v2-<vault id>.bin`,
+only while the setting is on and the item lock opens with Windows Hello
+(`vault_core::locked_fill`):
 
 ```
 K               = 32 random bytes (the blob's key)
+G, G_pub        = an X25519 key pair (GuardedFillKey) for logins behind the item lock
 device_secret   = the item lock's Windows Hello secret (§3.2: TPM signature after verification)
 KEK_locked      = HKDF-SHA-256(ikm = device_secret, salt = vault_id_hex,
                                info = "vault-v0/kek/locked-fill")
 key_by_device   = seal(KEK_locked, K, "vault-v0/locked-fill/key/" ‖ vault_id_hex)
 key_by_vault    = seal_local("browser-locked-fill", K)          (vault-key subkey, §6)
+guarded_key_by_device = seal(KEK_locked, G, "vault-v0/locked-fill/guarded-key/" ‖ vault_id_hex)
+guarded_public_by_vault = seal_local("browser-locked-fill-public", G_pub)
 passwords       = seal(K, pad(postcard([(item_id_hex, password)…])),
                        "vault-v0/locked-fill/passwords/" ‖ vault_id_hex)
-logins          = DPAPI(postcard([(id, title, username, urls, fillable)…]))  (current user)
+                  (logins outside the item lock only)
+stamp           = SHA-256("vault-v0/item-stamp/" ‖ item_id ‖ revision_le ‖ item record bytes)
+guarded         = [(item_id_hex, stamp, sealed_box(G_pub, P ‖ pad(password)))…]
+                  P = "vault-v0/locked-fill/guarded/" ‖ vault_id_hex ‖ "/" ‖ item_id_hex ‖ "/" ‖ stamp
+                  (logins behind an item lock that encrypts, §3.3; libsodium sealed box as §3.5)
+logins          = DPAPI(postcard([(id, title, username, urls, fillable, stamp)…]))  (current user)
 ```
 
-- The locked app opens `key_by_device` only with Windows Hello, once per request, and hands
-  out one password. Nothing typed opens it: a PIN could be guessed offline against a copied
-  file, a TPM-backed signature can't (each try needs the person and the chip's
-  anti-hammering).
-- The open app keeps `passwords` current through `key_by_vault` without asking. Passwords of
-  logins whose secrets are behind the closed item lock are carried over from the previous
-  blob; they are refreshed the next time the item lock is opened in the app.
-- Saving the item lock makes `K` anew; turning Windows Hello or the setting off deletes the
-  file.
+- The locked app opens `key_by_device` or `guarded_key_by_device` only with Windows Hello,
+  once per request, and hands out one password. Nothing typed opens them: a PIN could be
+  guessed offline against a copied file, a TPM-backed signature can't (each try needs the
+  person and the chip's anti-hammering).
+- The vault key opens `K` (to keep `passwords` current without asking), never `G`: a locked
+  login's password is sealed to `G_pub`, so the vault key alone (malware reading an open vault
+  from memory) can't read it from this file either. The item lock keeps its meaning here.
+- A locked login's password is sealed for one version of the login (`stamp`). While the item
+  lock is closed the open app carries an entry over only when the login's stamp is unchanged;
+  a login changed meanwhile (a sync from another device moving it to another website, say)
+  is listed as not fillable until the item lock opens in the app, never filled with the old
+  password on the new website. The locked app checks the entry's stamp against the listed
+  login's before opening it.
+- Saving the item lock makes `K` and `G` anew; turning Windows Hello or the setting off deletes
+  the file. The file of earlier versions (`browser-locked-<vault id>.bin`, whose `key_by_vault`
+  opened every password) is deleted with its backup whenever the index is read or written.
 - The extension's connection key is kept a second time, DPAPI-protected
   (`browser-pairing-<vault id>.dpapi`), so the locked app can check requests.
 

@@ -317,6 +317,9 @@ When an item's password changes, `Vault::update_item` moves the old one into
 
 ## 6. Rules
 
+- Saves compare the file with the one last read just before replacing it
+  (`storage::write_atomic_if_unchanged`, which keeps as `.bak` the very bytes it compared;
+  the CLI and the desktop use it), and refuse when another writer changed it.
 - Writes are atomic: write `vault.tmp`, flush to disk, keep the previous file as `vault.bak`,
   then rename over the original.
 - Item ids are unique within a vault, and so are folder ids; duplicates make the vault invalid.
