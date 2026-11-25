@@ -77,6 +77,14 @@ enum Command {
     },
     /// Change the master password.
     Passwd,
+    /// Renew the vault key: a new vault key, Secret Key and emergency kit, the master password
+    /// kept. An older copy of the file (a backup, an old kit) no longer opens newer ones; every
+    /// other device asks once for the new Secret Key (`vault sync --take-new-key`).
+    RenewKey {
+        /// Don't ask to confirm.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Forgot your master password? Unlock with all three recovery parts (or the Recovery Key
     /// of an older kit) and set a new password and Secret Key.
     Recover,
@@ -144,6 +152,10 @@ struct SyncArgs {
     /// Stop syncing this vault on this device (the copies there are left).
     #[arg(long, conflicts_with_all = ["folder", "server", "join", "webdav"])]
     stop: bool,
+    /// The vault key was renewed on another device: ask for the new Secret Key (from the new
+    /// emergency kit) and take the new key.
+    #[arg(long, conflicts_with = "stop")]
+    take_new_key: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -438,6 +450,7 @@ fn run() -> Result<()> {
         }
         Command::Totp { item, copy } => commands::totp(&ctx, &mut prompter, &item, copy),
         Command::Passwd => commands::passwd(&ctx, &mut prompter),
+        Command::RenewKey { yes } => commands::renew_key(&ctx, &mut prompter, yes),
         Command::Recover => commands::recover(&ctx, &mut prompter),
         Command::Kit { new_parts } => commands::kit(&ctx, &mut prompter, new_parts),
         Command::PartPicture { cover, out } => {
@@ -467,6 +480,7 @@ fn run() -> Result<()> {
                 devices: args.devices,
                 remove: args.remove,
                 stop: args.stop,
+                take_new_key: args.take_new_key,
             },
         ),
         Command::Import(args) => commands::import(

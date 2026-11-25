@@ -2,7 +2,7 @@
 
 use std::{path::PathBuf, time::Duration};
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use vault_core::{
     ItemData, ItemId, ItemKind, KdfMethod, KdfParams, KdfStrength, PartLabel, PasswordKdf,
     RecoveryKey, RecoveryPart, RecoveryParts, SecretKey, Unlock, Vault,
@@ -526,6 +526,150 @@ pub fn passwd(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
     Ok(())
 }
 
+/// The desktop app's files for vault `id` that hold more than one sealed piece (the drop box
+/// of logins saved while locked, the index for filling while locked): the app seals them again
+/// itself when it renews or takes a key, this command can't. Named as in
+/// apps/desktop/src/controller/drop_box.rs and locked_fill.rs.
+fn app_files_held(id: &str) -> Vec<PathBuf> {
+    let Ok(dir) = vault_platform::paths::app_dir() else {
+        return Vec::new();
+    };
+    [
+        format!("browser-drop-{id}.bin"),
+        format!("browser-locked-v2-{id}.bin"),
+    ]
+    .into_iter()
+    .map(|name| dir.join(name))
+    .filter(|path| path.exists())
+    .collect()
+}
+
+/// Refuses a renewal (or a renewed key taken) here while the desktop app keeps files only it
+/// can seal again: the logins it holds for the next unlock would be lost.
+fn refuse_while_app_files(id: &str) -> Result<()> {
+    let held = app_files_held(id);
+    if !held.is_empty() {
+        bail!(
+            "the desktop app keeps files for this vault that only it can seal again under a new \
+             key ({}): do this in the app (Emergency kit → Renew the vault key, or Settings → \
+             Sync). Nothing was changed.",
+            held.iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    Ok(())
+}
+
+/// After the vault key changed here: what the desktop app sealed whole with the former key
+/// (generator history, the extension's connection key, website icons, the leak watch) is sealed
+/// again, and Windows Hello, whose copy of the key opens nothing any more, is turned off. Named
+/// as in the desktop app's controller modules. `true` when Windows Hello was on.
+fn reseal_app_files(vault: &Vault, former: &vault_core::FormerKey) -> bool {
+    use vault_platform::{files, quick_unlock};
+    let id = vault.id_hex();
+    if let Ok(dir) = vault_platform::paths::app_dir() {
+        for (name, purpose) in [
+            (format!("generated-{id}.bin"), "generated-history"),
+            (format!("browser-pairing-{id}.bin"), "browser-pairing"),
+            (format!("icons-{id}.cache"), "icons"),
+            (
+                format!("leak-watch-{id}.bin"),
+                vault_platform::leak_check::WATCH_PURPOSE,
+            ),
+        ] {
+            files::reseal(&dir.join(name), vault, former, purpose);
+        }
+    }
+    let _ = quick_unlock::record_password_unlock(vault);
+    let hello = quick_unlock::is_enrolled(&id);
+    quick_unlock::forget(&id);
+    hello
+}
+
+/// Renews the vault key (`Vault::renew_key`): a new vault key, Secret Key and kit, with the
+/// master password just typed. Written only over the file this session read, and kept only
+/// together with the new Secret Key (as `recover` does); then the new kit is printed.
+pub fn renew_key(ctx: &Context, prompter: &mut Prompter, yes: bool) -> Result<()> {
+    use vault_platform::DeviceState;
+
+    let mut session = ctx.unlock(prompter)?;
+    refuse_while_app_files(&session.vault.id_hex())?;
+    if !yes {
+        eprintln!(
+            "Renewing the vault key makes a new Secret Key and a new emergency kit. The old kit \
+             and the old Secret Key stop working, and every other device asks once for the new \
+             Secret Key."
+        );
+        if prompter.line("Type RENEW to go on")? != "RENEW" {
+            bail!("nothing was changed");
+        }
+    }
+    let read = storage::read(&session.path).map_err(explain)?;
+    if storage::fingerprint(&read) != session.file_hash() {
+        bail!(
+            "{} was changed while this command was running: nothing was renewed. Run it again.",
+            session.path.display()
+        );
+    }
+    let before = session.vault.unlock_id();
+    let password = session.password.clone();
+    let renewed = session
+        .vault
+        .renew_key(&password, &session.secret_key, session.keyfile.as_ref())
+        .map_err(explain)?;
+    let id = session.vault.id_hex();
+    let written = session.vault.to_bytes().map_err(explain)?;
+    match session::replace_then_keep(&session.path, &read, &written, || {
+        session::store_secret_key(&id, &renewed.secret_key)
+    }) {
+        Ok(hash) => session.wrote(hash),
+        Err(NotKept::NotWritten(err)) => return Err(err.context("nothing was renewed")),
+        Err(NotKept::PutBack(err)) => {
+            return Err(err.context(
+                "this device didn't keep the new Secret Key, so the vault was left as it was",
+            ));
+        }
+        Err(NotKept::Replaced { error, back }) => {
+            print_kit(
+                &id,
+                &session.path,
+                &renewed.secret_key,
+                Some(&renewed.parts),
+            );
+            return Err(error.context(format!(
+                "this device didn't keep the new Secret Key, and putting the vault back as it \
+                 was failed ({back:#}): only the new emergency kit above opens it now, write it \
+                 down"
+            )));
+        }
+    }
+    let mut state = DeviceState::load()?;
+    state.retire_unlock(&id, &before);
+    state.record_revision(&id, session.vault.revision());
+    state.save()?;
+    if reseal_app_files(&session.vault, &renewed.former) {
+        println!("Windows Hello was turned off for this vault: turn it on again in the app.");
+    }
+    println!(
+        "The vault key was renewed. The old Secret Key and the old kit no longer open this vault \
+         or any copy made from now on."
+    );
+    print_kit(
+        &id,
+        &session.path,
+        &renewed.secret_key,
+        Some(&renewed.parts),
+    );
+    println!(
+        "Next: `vault sync` to send the renewed copy. Each other device asks once for the new \
+         Secret Key and the master password (`vault sync --take-new-key`, or the app's Sync \
+         settings)."
+    );
+    Ok(())
+}
+
 pub fn recover(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
     recover_with(ctx, prompter, session::store_secret_key)
 }
@@ -700,6 +844,8 @@ pub struct SyncRequest {
     pub devices: bool,
     pub remove: Option<String>,
     pub stop: bool,
+    /// Ask for the new Secret Key of a vault key renewed on another device, and take the key.
+    pub take_new_key: bool,
 }
 
 pub fn sync(ctx: &Context, prompter: &mut Prompter, request: SyncRequest) -> Result<()> {
@@ -870,6 +1016,80 @@ pub fn sync(ctx: &Context, prompter: &mut Prompter, request: SyncRequest) -> Res
         eprintln!("Couldn't read the copy of device {}: {why}", short(other));
     }
     let mut round = sync::merge_all(&mut session.vault, &fetched, &mut seen);
+    // Copies the key held here can't open: from a device yet to take a key renewed here, or
+    // sealed under a key renewed on that device.
+    let mismatch = sync::key_mismatch_in(&id, &fetched.copies, &round, &DeviceState::load()?);
+    if request.take_new_key {
+        if mismatch.renewed.is_empty() {
+            bail!("no copy there was sealed under a renewed vault key: nothing to take");
+        }
+        refuse_while_app_files(&id)?;
+        let typed = prompter.secret("New Secret Key (S0-..., from the new emergency kit)")?;
+        let new_secret_key = SecretKey::parse(&typed).map_err(explain)?;
+        let read = storage::read(&session.path).map_err(explain)?;
+        if storage::fingerprint(&read) != session.file_hash() {
+            bail!(
+                "{} was changed while this command was running: run it again",
+                session.path.display()
+            );
+        }
+        let mut state = DeviceState::load()?;
+        let password = session.password.clone();
+        let taken = sync::take_renewed_key(
+            &mut session.vault,
+            &mismatch.renewed,
+            &password,
+            &new_secret_key,
+            session.keyfile.as_ref(),
+            &mut state,
+        )
+        .map_err(|err| match err {
+            vault_core::Error::DecryptionFailed => anyhow!(
+                "that Secret Key (with this master password) opens none of the renewed copies"
+            ),
+            other => explain(other),
+        })?;
+        if let Some(former) = &taken {
+            let written = session.vault.to_bytes().map_err(explain)?;
+            match session::replace_then_keep(&session.path, &read, &written, || {
+                session::store_secret_key(&id, &new_secret_key)
+            }) {
+                Ok(hash) => session.wrote(hash),
+                Err(NotKept::NotWritten(err)) | Err(NotKept::PutBack(err)) => {
+                    return Err(err.context("the new key was not taken: the vault is as it was"));
+                }
+                Err(NotKept::Replaced { error, back }) => {
+                    return Err(error.context(format!(
+                        "the vault now opens with the new Secret Key only, but this device \
+                         didn't keep it, and putting the vault back failed ({back:#}): keep \
+                         the new emergency kit at hand"
+                    )));
+                }
+            }
+            session.secret_key = new_secret_key;
+            state.save()?;
+            if reseal_app_files(&session.vault, former) {
+                println!(
+                    "Windows Hello was turned off for this vault: turn it on again in the app."
+                );
+            }
+            println!("This device took the renewed vault key.");
+        }
+        round = sync::merge_all(&mut session.vault, &fetched, &mut seen);
+    } else if !mismatch.renewed.is_empty() {
+        println!(
+            "{} copy(ies) there can't be opened with this vault's key. If the vault key was \
+             renewed on another device, run `vault sync --take-new-key` with its new Secret Key.",
+            mismatch.renewed.len()
+        );
+    }
+    if !mismatch.behind.is_empty() {
+        println!(
+            "{} device(s) still use the vault's former key: their copies are used once they \
+             take the new one.",
+            mismatch.behind.len()
+        );
+    }
     if round.removed_here {
         state = DeviceState::load()?;
         state.set_sync_to(&id, None);
@@ -933,6 +1153,10 @@ pub fn sync(ctx: &Context, prompter: &mut Prompter, request: SyncRequest) -> Res
         );
     }
     for (other, err) in round.refused {
+        // Said above: copies under another vault key.
+        if matches!(err, vault_core::Error::DecryptionFailed) {
+            continue;
+        }
         eprintln!(
             "Not used: the copy of device {}: {}",
             short(&other),

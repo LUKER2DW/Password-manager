@@ -226,6 +226,17 @@ impl Session {
         self.vault.get_item(id).map_err(explain)
     }
 
+    /// The fingerprint of the file as this session read or last wrote it.
+    pub fn file_hash(&self) -> [u8; 32] {
+        self.file_hash
+    }
+
+    /// The vault file now holds what this session wrote another way (`replace_then_keep`),
+    /// with `hash` as its fingerprint.
+    pub fn wrote(&mut self, hash: [u8; 32]) {
+        self.file_hash = hash;
+    }
+
     /// Encrypts and writes the vault, unless the file changed since this session read it.
     pub fn save(&mut self) -> Result<()> {
         let bytes = self.vault.to_bytes().map_err(explain)?;

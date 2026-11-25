@@ -546,6 +546,87 @@ fn a_v5_item_lock_is_asked_for_too() {
     );
 }
 
+/// Renewing the vault key on one device: the old Secret Key opens nothing new, the other
+/// device asks once for the new one (`sync --take-new-key`) and keeps what it changed.
+/// Both "devices" share this computer's credential store, so the phone forgets the key first
+/// to stand for a phone that still has the old one.
+#[test]
+fn a_renewed_vault_key_goes_round_through_a_folder() {
+    let desktop = Env::new();
+    let kit = desktop.ok(
+        &["init", "--kdf-target-ms", "50", "--kdf-memory-mib", "64"],
+        &[MASTER],
+    );
+    let old_key = kit_value(&kit, "Secret Key:");
+    desktop.ok(
+        &[
+            "add",
+            "Desktop item",
+            "-u",
+            "d",
+            "--url",
+            "https://d.example",
+        ],
+        &[MASTER, "desktop-item-password"],
+    );
+    let phone = Env::new();
+    std::fs::copy(&desktop.vault, &phone.vault).unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let folder_arg = folder.path().to_str().unwrap();
+    desktop.ok(&["sync", folder_arg], &[MASTER]);
+    phone.ok(&["sync", folder_arg], &[MASTER]);
+
+    // Asked to confirm; anything but RENEW changes nothing.
+    let before = std::fs::read(&desktop.vault).unwrap();
+    desktop.fails(&["renew-key"], &[MASTER, "no"]);
+    assert!(std::fs::read(&desktop.vault).unwrap() == before);
+    let renewed = desktop.ok(&["renew-key"], &[MASTER, "RENEW"]);
+    let new_key = kit_value(&renewed, "Secret Key:");
+    assert_ne!(new_key, old_key);
+    assert!(
+        kit_value(&renewed, "Part A:").starts_with("A0-"),
+        "{renewed}"
+    );
+    let sent = desktop.ok(&["sync"], &[MASTER]);
+    assert!(sent.contains("still use the vault's former key"), "{sent}");
+
+    // The phone, still on the old key, is told; a wrong key takes nothing.
+    phone.ok(&["forget"], &[]);
+    let told = phone.ok(&["sync"], &[&old_key, MASTER]);
+    assert!(told.contains("--take-new-key"), "{told}");
+    phone.ok(
+        &["add", "Phone item", "-u", "p", "--url", "https://p.example"],
+        &[MASTER, "phone-item-password"],
+    );
+    let wrong = phone.fails(&["sync", "--take-new-key"], &[MASTER, &old_key]);
+    assert!(wrong.contains("opens none"), "{wrong}");
+    let taken = phone.ok(&["sync", "--take-new-key"], &[MASTER, &new_key]);
+    assert!(taken.contains("took the renewed vault key"), "{taken}");
+    assert!(taken.contains("Synced with 1 other device(s)"), "{taken}");
+    let list = phone.ok(&["list"], &[MASTER]);
+    assert!(
+        list.contains("Desktop item") && list.contains("Phone item"),
+        "{list}"
+    );
+
+    // The desktop gets the phone's item; nothing is left on the old key.
+    let back = desktop.ok(&["sync"], &[MASTER]);
+    assert!(back.contains("1 added"), "{back}");
+    assert!(
+        !back.contains("former key") && !back.contains("can't be opened"),
+        "{back}"
+    );
+
+    // The old Secret Key opens neither copy any more.
+    let stray = Env::new();
+    std::fs::copy(&desktop.vault, &stray.vault).unwrap();
+    let refused = stray.fails(&["list"], &[&old_key, MASTER]);
+    assert!(!refused.is_empty());
+    stray.ok(&["forget"], &[]);
+    // That forget was this vault's key on this computer: put it back for the cleanup.
+    desktop.ok(&["list"], &[&new_key, MASTER]);
+}
+
 #[test]
 fn two_devices_sync_through_a_folder() {
     let desktop = Env::new();
