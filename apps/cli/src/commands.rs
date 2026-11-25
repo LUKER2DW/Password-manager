@@ -15,7 +15,7 @@ use zeroize::Zeroizing;
 use crate::{
     clipboard,
     prompt::Prompter,
-    session::{self, Session, explain},
+    session::{self, NotKept, Session, explain},
 };
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -115,12 +115,28 @@ pub fn init(
     kdf_memory_mib: u32,
     other_hash: Option<(KdfMethod, KdfStrength)>,
 ) -> Result<()> {
-    if ctx.path.exists() {
-        bail!(
-            "{} already exists; refusing to overwrite it",
-            ctx.path.display()
-        );
-    }
+    init_with(
+        ctx,
+        prompter,
+        no_recovery_key,
+        kdf_target_ms,
+        kdf_memory_mib,
+        other_hash,
+        session::store_secret_key,
+    )
+}
+
+/// [`init`], with `keep` keeping the new vault's Secret Key on this device.
+fn init_with(
+    ctx: &Context,
+    prompter: &mut Prompter,
+    no_recovery_key: bool,
+    kdf_target_ms: u64,
+    kdf_memory_mib: u32,
+    other_hash: Option<(KdfMethod, KdfStrength)>,
+    keep: impl FnOnce(&str, &SecretKey) -> Result<()>,
+) -> Result<()> {
+    refuse_to_overwrite(&ctx.path)?;
     let password = new_master_password(prompter)?;
 
     let kdf: PasswordKdf = match other_hash {
@@ -161,16 +177,35 @@ pub fn init(
             .with_context(|| format!("creating {}", parent.display()))?;
     }
     let bytes = vault.to_bytes().map_err(explain)?;
+    // Again now: while the password was typed and the hash calibrated, the app or a sync
+    // client may have put a vault here, which is not written over.
+    refuse_to_overwrite(&ctx.path)?;
     storage::write_atomic(&ctx.path, &bytes).map_err(explain)?;
-    session::store_secret_key(&vault.id_hex(), &secret_key)?;
-    session::record_new_vault(&vault)?;
 
+    // From here on the file is only opened with this kit: it is shown whatever fails next.
     eprintln!(
         "Vault created: {} ({})",
         ctx.path.display(),
         describe_kdf(vault.kdf_params())
     );
     print_kit(&vault.id_hex(), &ctx.path, &secret_key, parts.as_ref());
+    keep(&vault.id_hex(), &secret_key).context(
+        "the vault was created, but this device didn't keep its Secret Key: write down the kit \
+         above, the Secret Key is asked for when the vault is opened here",
+    )?;
+    session::record_new_vault(&vault)?;
+    Ok(())
+}
+
+/// Refuses to make a vault at `path` when anything is there, also a link to nowhere (which
+/// `exists` would not see).
+fn refuse_to_overwrite(path: &std::path::Path) -> Result<()> {
+    if std::fs::symlink_metadata(path).is_ok() {
+        bail!(
+            "{} already exists; refusing to overwrite it",
+            path.display()
+        );
+    }
     Ok(())
 }
 
@@ -264,8 +299,9 @@ pub fn add(ctx: &Context, prompter: &mut Prompter, new: NewItem) -> Result<()> {
     item.notes = new.notes.unwrap_or_default();
     item.favorite = new.favorite;
     if let Some(totp) = new.totp {
+        let mut totp = typed_totp(prompter, totp)?;
         Totp::parse(&totp).map_err(explain)?;
-        item.totp = totp;
+        item.totp = std::mem::take(&mut *totp);
     }
     let generated = match &new.generate {
         Some(recipe) => {
@@ -323,9 +359,14 @@ pub fn show(
         println!("  url:       {url}");
     }
     if !item.totp.is_empty() {
-        let totp = Totp::parse(&item.totp).map_err(explain)?;
-        let (code, remaining) = totp.now();
-        println!("  totp:      {} ({remaining} s left)", code.as_str());
+        // The current code opens the account as the password does: hidden the same way.
+        if reveal {
+            let totp = Totp::parse(&item.totp).map_err(explain)?;
+            let (code, remaining) = totp.now();
+            println!("  totp:      {} ({remaining} s left)", code.as_str());
+        } else {
+            println!("  totp:      (hidden; use --reveal, or `vault totp`)");
+        }
     }
     for field in &item.custom_fields {
         let value = if field.sensitive && !reveal {
@@ -351,6 +392,27 @@ pub fn show(
     Ok(())
 }
 
+/// `--totp -`: the secret is typed at a prompt that doesn't show it. A value given on the
+/// command line stays in the shell's history (and in the list of running processes while the
+/// command runs), and the secret makes every code from now on.
+///
+/// Nothing typed there is refused: Enter pressed to back out (or an empty line in a script)
+/// must not remove the secret an item has. `--totp ""` is how that is asked for.
+fn typed_totp(prompter: &mut Prompter, given: String) -> Result<Zeroizing<String>> {
+    if given != "-" {
+        return Ok(Zeroizing::new(given));
+    }
+    let typed = prompter.secret("TOTP secret (Base32) or otpauth:// URI")?;
+    let typed = Zeroizing::new(typed.trim().to_owned());
+    if typed.is_empty() {
+        bail!(
+            "nothing was typed for the TOTP secret, so nothing was changed (to remove one, pass \
+             --totp \"\")"
+        );
+    }
+    Ok(typed)
+}
+
 pub fn edit(ctx: &Context, prompter: &mut Prompter, changes: ItemChanges) -> Result<()> {
     let mut session = ctx.unlock(prompter)?;
     let id = resolve(&session.vault, &changes.item)?;
@@ -369,10 +431,11 @@ pub fn edit(ctx: &Context, prompter: &mut Prompter, changes: ItemChanges) -> Res
         item.notes = notes;
     }
     if let Some(totp) = changes.totp {
+        let mut totp = typed_totp(prompter, totp)?;
         if !totp.is_empty() {
             Totp::parse(&totp).map_err(explain)?;
         }
-        item.totp = totp;
+        item.totp = std::mem::take(&mut *totp);
     }
     if let Some(favorite) = changes.favorite {
         item.favorite = favorite;
@@ -394,7 +457,9 @@ pub fn edit(ctx: &Context, prompter: &mut Prompter, changes: ItemChanges) -> Res
 pub fn remove(ctx: &Context, prompter: &mut Prompter, query: &str, yes: bool) -> Result<()> {
     let mut session = ctx.unlock(prompter)?;
     let id = resolve(&session.vault, query)?;
-    let item = session.vault.get_item(&id).map_err(explain)?;
+    // Behind the item lock, deleting asks for its PIN or password like showing does: the
+    // deletion goes to every device the vault syncs with. Nothing is changed before it passes.
+    let item = session.open_item(&id, prompter)?;
     if !yes {
         let answer = prompter.line(&format!("Type the title \"{}\" to delete it", item.title))?;
         if answer != item.title {
@@ -462,6 +527,15 @@ pub fn passwd(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
 }
 
 pub fn recover(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
+    recover_with(ctx, prompter, session::store_secret_key)
+}
+
+/// [`recover`], with `keep` keeping the new Secret Key on this device.
+fn recover_with(
+    ctx: &Context,
+    prompter: &mut Prompter,
+    keep: impl FnOnce(&str, &SecretKey) -> Result<()>,
+) -> Result<()> {
     let bytes = session::read_vault_file(&ctx.path)?;
     let info = Vault::inspect(&bytes).map_err(explain)?;
     let mut vault = if info.has_recovery_key {
@@ -499,11 +573,28 @@ pub fn recover(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
             .map_err(explain)?;
         Some(parts)
     };
-    session::ensure_unchanged(&ctx.path, &storage::fingerprint(&bytes))?;
-    let bytes = vault.to_bytes().map_err(explain)?;
-    storage::write_atomic(&ctx.path, &bytes).map_err(explain)?;
-    session::store_secret_key(&vault.id_hex(), &secret_key)?;
-    session::record_new_vault(&vault)?;
+    // Written only over the file the kit was checked against, and kept only together with the
+    // new Secret Key: once written, nothing but the new kit opens the vault.
+    let id = vault.id_hex();
+    let written = vault.to_bytes().map_err(explain)?;
+    match session::replace_then_keep(&ctx.path, &bytes, &written, || keep(&id, &secret_key)) {
+        Ok(_) => {}
+        Err(NotKept::NotWritten(err)) => return Err(err),
+        Err(NotKept::PutBack(err)) => {
+            return Err(err.context(
+                "this device didn't keep the new Secret Key, so the vault was left as it was: \
+                 the emergency kit you typed still opens it",
+            ));
+        }
+        Err(NotKept::Replaced { error, back }) => {
+            print_kit(&id, &ctx.path, &secret_key, new_parts.as_ref());
+            return Err(error.context(format!(
+                "this device didn't keep the new Secret Key, and putting the vault back as it \
+                 was failed ({back:#}): only the new emergency kit above opens it now, write it \
+                 down"
+            )));
+        }
+    }
 
     println!(
         "{}",
@@ -518,8 +609,10 @@ pub fn recover(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
         let _ = vault_platform::keyfile::remember_path(&vault.id_hex(), None);
         println!("The keyfile is no longer needed; add one again with `vault keyfile create`.");
     }
-    print_kit(&vault.id_hex(), &ctx.path, &secret_key, new_parts.as_ref());
-    Ok(())
+    print_kit(&id, &ctx.path, &secret_key, new_parts.as_ref());
+    // After the kit: what is noted here only helps tell an old copy of the file later.
+    session::record_new_vault(&vault)
+        .context("the vault was recovered (its new kit is above), but this device didn't note it")
 }
 
 pub fn kit(ctx: &Context, prompter: &mut Prompter, new_parts: bool) -> Result<()> {
@@ -655,7 +748,7 @@ pub fn sync(ctx: &Context, prompter: &mut Prompter, request: SyncRequest) -> Res
             ),
         }
     } else if let Some((address, user)) = request.webdav {
-        let url = sync::check_address(&address)?;
+        let url = sync::check_webdav_address(&address)?;
         let password = prompter.secret("WebDAV password")?;
         // Checked before it is kept: the folder must answer with these credentials.
         let target = sync::WebDavTarget::new(&url, &id, &user, &password)?;
@@ -936,7 +1029,10 @@ pub fn import(ctx: &Context, prompter: &mut Prompter, request: ImportRequest) ->
         return Ok(());
     }
     let outcome = report.add_to_vault(&mut session.vault).map_err(explain)?;
-    session.save()?;
+    // Only duplicates: the vault is as it was, so the file (and its .bak) stays untouched.
+    if outcome.added > 0 || outcome.new_folders > 0 {
+        session.save()?;
+    }
     println!(
         "Imported {} item(s) ({format:?}), {} new folder(s); skipped {} duplicate(s).",
         outcome.added, outcome.new_folders, outcome.duplicates
@@ -944,7 +1040,7 @@ pub fn import(ctx: &Context, prompter: &mut Prompter, request: ImportRequest) ->
 
     if !format.needs_password() {
         if request.delete_source {
-            wipe_file(&request.file)?;
+            wipe_file(&request.file, &source)?;
             println!("The export file was overwritten and deleted.");
         } else {
             println!(
@@ -959,11 +1055,14 @@ pub fn import(ctx: &Context, prompter: &mut Prompter, request: ImportRequest) ->
 
 /// Best-effort wipe: overwrite with zeros, flush, delete. (On SSDs and copy-on-write file systems
 /// old blocks may survive; full-disk encryption is the real protection there.)
-/// A link is refused: writing through it would zero the file it points at, and deleting only
-/// the link would leave the plain-text export where it is.
-fn wipe_file(path: &std::path::Path) -> Result<()> {
+/// Only the export that was read: a link is refused (writing through it would zero the file it
+/// points at, and deleting only the link would leave the plain-text export where it is), and so
+/// is a file put in its place since it was read (in a shared or synced folder, say), which may
+/// be someone else's.
+fn wipe_file(path: &std::path::Path, read: &[u8]) -> Result<()> {
     use vault_platform::files;
-    let meta = std::fs::symlink_metadata(path)?;
+    let meta = std::fs::symlink_metadata(path)
+        .with_context(|| format!("{} is gone: nothing was wiped", path.display()))?;
     if files::is_link(&meta) {
         bail!(
             "{} is a link, not the export itself: nothing was wiped. Delete the file it points \
@@ -971,12 +1070,7 @@ fn wipe_file(path: &std::path::Path) -> Result<()> {
             path.display()
         );
     }
-    {
-        let mut file = std::fs::OpenOptions::new().write(true).open(path)?;
-        files::overwrite_with_zeros(&mut file, meta.len())?;
-    }
-    std::fs::remove_file(path)?;
-    Ok(())
+    files::wipe_if_same(path, read)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1109,5 +1203,253 @@ fn truncate(text: &str, max: usize) -> String {
     } else {
         let cut: String = text.chars().take(max - 1).collect();
         format!("{cut}…")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `--delete-source` wipes the export that was read, never a file put in its place since.
+    #[test]
+    fn only_the_export_that_was_read_is_wiped() {
+        let dir = tempfile::tempdir().unwrap();
+        let export = dir.path().join("test-export.csv");
+        let read = b"name,url,username,password\nShop,https://shop.example,me,test-pw\n";
+        std::fs::write(&export, read).unwrap();
+
+        // Someone else's file, put in its place after the import read it.
+        std::fs::write(&export, b"someone else's file").unwrap();
+        let refused = format!("{:#}", wipe_file(&export, read).unwrap_err());
+        assert!(refused.contains("nothing was wiped"), "{refused}");
+        assert_eq!(std::fs::read(&export).unwrap(), b"someone else's file");
+
+        // The export as read: wiped.
+        std::fs::write(&export, read).unwrap();
+        wipe_file(&export, read).unwrap();
+        assert!(!export.exists());
+        // Gone already: said so, not reported as wiped.
+        assert!(wipe_file(&export, read).is_err());
+    }
+
+    /// A link where the export was is refused, and the message reads as one sentence.
+    #[test]
+    fn a_link_is_not_wiped_through() {
+        let dir = tempfile::tempdir().unwrap();
+        let export = dir.path().join("test-export.csv");
+        let link = dir.path().join("link.csv");
+        let read = b"name,password\nShop,test-pw\n";
+        std::fs::write(&export, read).unwrap();
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_file(&export, &link).is_ok();
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&export, &link).is_ok();
+        if !linked {
+            // Making links needs a right this account may not have (Windows without
+            // developer mode).
+            return;
+        }
+        let refused = format!("{:#}", wipe_file(&link, read).unwrap_err());
+        assert!(
+            refused.contains("nothing was wiped. Delete the file it points to yourself."),
+            "{refused}"
+        );
+        assert_eq!(std::fs::read(&export).unwrap(), read);
+    }
+
+    /// `--totp -` with nothing typed (Enter to back out) changes nothing; a secret given on the
+    /// command line is taken as it is, and `--totp ""` still removes one.
+    #[test]
+    fn nothing_typed_for_a_totp_secret_is_refused() {
+        for nothing in ["", "   ", "\t"] {
+            let mut prompter = Prompter::scripted(&[nothing], |_| {});
+            let refused = typed_totp(&mut prompter, "-".into())
+                .unwrap_err()
+                .to_string();
+            assert!(refused.contains("nothing was changed"), "{refused}");
+        }
+        let mut prompter = Prompter::scripted(&["  JBSWY3DPEHPK3PXP \t"], |_| {});
+        let typed = typed_totp(&mut prompter, "-".into()).unwrap();
+        assert_eq!(typed.as_str(), "JBSWY3DPEHPK3PXP");
+        let mut prompter = Prompter::scripted(&[], |label| panic!("asked for {label}"));
+        assert_eq!(
+            typed_totp(&mut prompter, String::new()).unwrap().as_str(),
+            ""
+        );
+        let given = typed_totp(&mut prompter, "GEZDGNBVGY3TQOJQ".into()).unwrap();
+        assert_eq!(given.as_str(), "GEZDGNBVGY3TQOJQ");
+    }
+
+    const PASSWORD: &str = "unit test master passphrase";
+    const NEW_PASSWORD: &str = "unit test new passphrase";
+
+    fn context(path: &std::path::Path) -> Context {
+        Context {
+            path: path.to_owned(),
+            allow_rollback: false,
+            keyfile: None,
+        }
+    }
+
+    /// A test vault with recovery parts written at `path`: its bytes, and the parts as typed.
+    fn vault_with_parts(path: &std::path::Path) -> (Vec<u8>, Vec<String>) {
+        let secret_key = SecretKey::generate().unwrap();
+        let kdf = KdfParams::minimum().unwrap();
+        let mut vault = Vault::create(PASSWORD, &secret_key, None, kdf).unwrap();
+        let parts = RecoveryParts::generate().unwrap();
+        vault.set_recovery_parts(&parts, &secret_key).unwrap();
+        let bytes = vault.to_bytes().unwrap();
+        storage::write_atomic(path, &bytes).unwrap();
+        let typed = PartLabel::ALL
+            .map(|label| parts.part(label).to_display_string().as_str().to_owned())
+            .to_vec();
+        (bytes, typed)
+    }
+
+    /// The prompts of `vault recover`: the three parts, then the new master password.
+    fn recovery_answers(parts: &[String]) -> Vec<&str> {
+        let mut answers: Vec<&str> = parts.iter().map(String::as_str).collect();
+        answers.push(NEW_PASSWORD);
+        answers
+    }
+
+    /// PM-14: a recovery whose new Secret Key this device can't keep leaves the vault as it
+    /// was, so the kit just typed still opens it (and nothing opens it that was never shown).
+    #[test]
+    fn a_recovery_whose_secret_key_cant_be_kept_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+        let (before, parts) = vault_with_parts(&path);
+        let mut prompter = Prompter::scripted(&recovery_answers(&parts), |_| {});
+        let failed = recover_with(&context(&path), &mut prompter, |_, _| {
+            bail!("no credential store here")
+        })
+        .unwrap_err();
+        let message = format!("{failed:#}");
+        assert!(
+            message.contains("no credential store here") && message.contains("still opens it"),
+            "{message}"
+        );
+        assert_eq!(storage::read(&path).unwrap(), before);
+    }
+
+    /// Kept only once written, and written only over the file the kit was checked against.
+    #[test]
+    fn a_recovery_is_not_written_over_another_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+        let (_, parts) = vault_with_parts(&path);
+        let at = path.clone();
+        let mut prompter = Prompter::scripted(&recovery_answers(&parts), move |label| {
+            if label == "New master password" {
+                storage::write_atomic(&at, b"saved meanwhile").unwrap();
+            }
+        });
+        let failed = recover_with(&context(&path), &mut prompter, |_, _| {
+            panic!("the Secret Key was kept, but the vault not written")
+        })
+        .unwrap_err();
+        let message = format!("{failed:#}");
+        assert!(
+            message.contains("changed while this command was running"),
+            "{message}"
+        );
+        assert_eq!(storage::read(&path).unwrap(), b"saved meanwhile");
+
+        // Nothing in the way: the new Secret Key is kept for the file written.
+        let (_, parts) = vault_with_parts(&path);
+        let mut prompter = Prompter::scripted(&recovery_answers(&parts), |_| {});
+        let mut kept = None;
+        let recovered = recover_with(&context(&path), &mut prompter, |_, secret_key| {
+            let bytes = storage::read(&path).unwrap();
+            let unlock = Unlock::Password {
+                password: NEW_PASSWORD,
+                secret_key,
+            };
+            kept = Some(Vault::open(&bytes, unlock).is_ok());
+            bail!("stopped here, before this device's state is noted")
+        });
+        assert!(recovered.is_err());
+        assert_eq!(kept, Some(true), "the new key opens the file written");
+    }
+
+    /// When the vault can't be put back either, the new kit is all that opens it: the command
+    /// says so (and shows it) instead of ending without it.
+    #[test]
+    fn a_recovery_that_cant_be_put_back_says_the_new_kit_is_needed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+        let (_, parts) = vault_with_parts(&path);
+        let mut prompter = Prompter::scripted(&recovery_answers(&parts), |_| {});
+        let failed = recover_with(&context(&path), &mut prompter, |_, _| {
+            storage::write_atomic(&path, b"saved meanwhile").unwrap();
+            bail!("no credential store here")
+        })
+        .unwrap_err();
+        let message = format!("{failed:#}");
+        assert!(
+            message.contains("only the new emergency kit above opens it now"),
+            "{message}"
+        );
+    }
+
+    /// `vault init` checks again right before it writes: a vault put at that place while the
+    /// password was typed (by the app, or a sync client) is not written over.
+    #[test]
+    fn a_vault_put_in_place_during_init_is_not_written_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+        let at = path.clone();
+        let mut prompter = Prompter::scripted(&[PASSWORD], move |_| {
+            std::fs::write(&at, b"someone else's vault").unwrap();
+        });
+        let refused = init_with(
+            &context(&path),
+            &mut prompter,
+            true,
+            50,
+            64,
+            None,
+            |_, _| panic!("a Secret Key kept for a vault not written"),
+        )
+        .unwrap_err();
+        assert!(refused.to_string().contains("already exists"), "{refused}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"someone else's vault");
+        assert!(!storage::backup_path(&path).exists());
+    }
+
+    /// Once the new vault is written, only its kit opens it: a Secret Key this device can't
+    /// keep comes after the kit is shown, and the file stays.
+    #[test]
+    fn an_init_whose_secret_key_cant_be_kept_keeps_the_vault_and_its_kit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+        let mut prompter = Prompter::scripted(&[PASSWORD], |_| {});
+        let mut made = None;
+        let failed = init_with(
+            &context(&path),
+            &mut prompter,
+            true,
+            50,
+            64,
+            None,
+            |_, secret_key| {
+                made = Some(secret_key.to_display_string().as_str().to_owned());
+                bail!("no credential store here")
+            },
+        )
+        .unwrap_err();
+        let message = format!("{failed:#}");
+        assert!(
+            message.contains("no credential store here") && message.contains("kit above"),
+            "{message}"
+        );
+        let secret_key = SecretKey::parse(&made.unwrap()).unwrap();
+        let bytes = storage::read(&path).unwrap();
+        let unlock = Unlock::Password {
+            password: PASSWORD,
+            secret_key: &secret_key,
+        };
+        assert!(Vault::open(&bytes, unlock).is_ok());
     }
 }

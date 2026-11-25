@@ -121,11 +121,6 @@ impl Session {
             let _ = keyfile::remember_path(&info.id_hex, Some(path));
         }
 
-        if typed {
-            secret_store::store(&info.id_hex, &secret_key)?;
-            eprintln!("Secret Key saved in this device's credential store.");
-        }
-
         let mut state = DeviceState::load()?;
         if let RollbackStatus::Older {
             revision,
@@ -145,17 +140,24 @@ impl Session {
         }
         state.record_revision(&info.id_hex, vault.revision());
 
-        // Recovery parts work once: the two just typed stop working.
+        let keep_secret_key = || -> Result<()> {
+            secret_store::store(&info.id_hex, &secret_key)?;
+            eprintln!("Secret Key saved in this device's credential store.");
+            Ok(())
+        };
         let mut file_hash = storage::fingerprint(&bytes);
         if used_parts {
-            vault.clear_recovery_parts();
-            let written = vault.to_bytes().map_err(explain)?;
-            storage::write_atomic(path, &written).map_err(explain)?;
-            file_hash = storage::fingerprint(&written);
+            // Recovery parts work once: the two just typed stop working. That is written
+            // first, and only over the file they were checked against, before this device
+            // keeps the Secret Key they brought back: a device that kept it would never ask
+            // for the parts again, and they would go on working.
+            file_hash = retire_parts(path, &mut vault, &bytes, keep_secret_key)?;
             state.record_revision(&info.id_hex, vault.revision());
             eprintln!(
                 "The two recovery parts you typed no longer work. Make a new kit: vault kit --new-parts"
             );
+        } else if typed {
+            keep_secret_key()?;
         }
         state.save()?;
 
@@ -169,13 +171,22 @@ impl Session {
         })
     }
 
-    /// Opens the secrets the item lock encrypts: asks for its PIN or password, three tries.
+    /// Whether the item lock asks for its PIN or password before anything else: one that
+    /// encrypts and isn't open, or one from format v5 that only holds a hash of it (the
+    /// first right answer turns that into encryption).
+    fn lock_closed(&self) -> bool {
+        let guard = self.vault.item_guard();
+        (guard.encrypts() || guard.is_legacy()) && !self.vault.secrets_open()
+    }
+
+    /// Opens the secrets the item lock covers: asks for its PIN or password, three tries.
     /// Does nothing when the vault has no such lock or the secrets are open already.
     pub fn open_secrets(&mut self, prompter: &mut Prompter) -> Result<()> {
-        let guard = self.vault.item_guard();
-        if !guard.encrypts() || self.vault.secrets_open() {
+        if !self.lock_closed() {
             return Ok(());
         }
+        let guard = self.vault.item_guard();
+        let legacy = guard.is_legacy();
         let label = if guard.check == vault_core::GuardCheck::Pin {
             "Item PIN"
         } else {
@@ -184,8 +195,9 @@ impl Session {
         for _ in 0..3 {
             let typed = prompter.secret(label)?;
             if self.vault.unlock_secrets(&typed).map_err(explain)? {
-                // Items added while it was closed are sealed under it now.
-                if self.vault.seal_pending().map_err(explain)? > 0 {
+                // Items added while it was closed are sealed under it now, and a v5 lock
+                // has just become encryption: both are kept.
+                if self.vault.seal_pending().map_err(explain)? > 0 || legacy {
                     self.save()?;
                 }
                 return Ok(());
@@ -196,17 +208,17 @@ impl Session {
     }
 
     /// One item, asking for the item PIN or password first when its secrets are locked.
+    /// Showing, copying, changing and deleting an item all come through here.
     pub fn open_item(
         &mut self,
         id: &vault_core::ItemId,
         prompter: &mut Prompter,
     ) -> Result<vault_core::ItemData> {
         let item = self.vault.get_item(id).map_err(explain)?;
-        // An item added while the item lock was closed is not sealed under it yet, so it reads
-        // in full: the check is asked for all the same (and seals it).
-        let waits = self.vault.item_guard().encrypts()
-            && self.vault.guards(&item)
-            && !self.vault.secrets_open();
+        // An item added while the item lock was closed is not sealed under it yet, and an
+        // item behind a v5 lock never is, so they read in full: the check is asked for all
+        // the same (and seals them).
+        let waits = self.lock_closed() && self.vault.guards(&item);
         if !item.is_locked() && !waits {
             return Ok(item);
         }
@@ -216,25 +228,109 @@ impl Session {
 
     /// Encrypts and writes the vault, unless the file changed since this session read it.
     pub fn save(&mut self) -> Result<()> {
-        ensure_unchanged(&self.path, &self.file_hash)?;
         let bytes = self.vault.to_bytes().map_err(explain)?;
-        storage::write_atomic(&self.path, &bytes).map_err(explain)?;
+        write_unless_changed(&self.path, &self.file_hash, &bytes)?;
         self.file_hash = storage::fingerprint(&bytes);
         device::record_revision(&self.vault.id_hex(), self.vault.revision())
     }
 }
 
+/// Writes the vault with its recovery parts retired over `read`, the file they were just
+/// checked against, then runs `keep` (which keeps the Secret Key they brought back on this
+/// device). Returns the fingerprint of what was written.
+///
+/// When the file changed in the meantime, nothing is written and the parts still work: the
+/// other writer's changes (a new item, even a new master password) stay. When `keep` fails,
+/// the file is put back as it was read, so the parts aren't used up for nothing.
+fn retire_parts(
+    path: &Path,
+    vault: &mut Vault,
+    read: &[u8],
+    keep: impl FnOnce() -> Result<()>,
+) -> Result<[u8; 32]> {
+    vault.clear_recovery_parts();
+    let written = vault.to_bytes().map_err(explain)?;
+    replace_then_keep(path, read, &written, keep).map_err(|failed| match failed {
+        NotKept::NotWritten(err) => err.context(
+            "the recovery parts you typed still work, and this device didn't keep the Secret Key",
+        ),
+        NotKept::PutBack(err) => err.context("the recovery parts you typed still work"),
+        NotKept::Replaced { error, back } => error.context(format!(
+            "the recovery parts you typed no longer work, and putting them back failed \
+             ({back:#})"
+        )),
+    })
+}
+
+/// How [`replace_then_keep`] failed, and so what the vault file holds.
+#[derive(Debug)]
+pub enum NotKept {
+    /// Nothing was written (the file changed since it was read, or the write failed): the
+    /// file is as it was.
+    NotWritten(anyhow::Error),
+    /// Keeping failed, and the file was put back as it was read.
+    PutBack(anyhow::Error),
+    /// Keeping failed (`error`), and putting the file back failed too (`back`): it holds the
+    /// new bytes, and whatever opens only them must be shown.
+    Replaced {
+        error: anyhow::Error,
+        back: anyhow::Error,
+    },
+}
+
+/// Writes `written` over the vault file if it still holds `read` (what `written` was made
+/// from), then runs `keep`, which keeps on this device what opens the new file (its Secret
+/// Key). Both or neither: when `keep` fails, the file is put back as it was read, so a key
+/// that was never kept doesn't become the only one that opens it. Returns the fingerprint of
+/// what was written.
+pub fn replace_then_keep(
+    path: &Path,
+    read: &[u8],
+    written: &[u8],
+    keep: impl FnOnce() -> Result<()>,
+) -> std::result::Result<[u8; 32], NotKept> {
+    write_unless_changed(path, &storage::fingerprint(read), written)
+        .map_err(NotKept::NotWritten)?;
+    let written_hash = storage::fingerprint(written);
+    if let Err(error) = keep() {
+        return Err(match write_unless_changed(path, &written_hash, read) {
+            Ok(()) => NotKept::PutBack(error),
+            Err(back) => NotKept::Replaced { error, back },
+        });
+    }
+    Ok(written_hash)
+}
+
+/// Writes `bytes` over the vault file, unless it no longer holds what `read` was taken from.
+///
+/// The file is compared before anything is written, and again by
+/// [`storage::write_atomic_if_unchanged`] once the new file is on disk, right before its
+/// rename: a save by the app while this one was being written is noticed too, and kept.
+pub fn write_unless_changed(path: &Path, read: &[u8; 32], bytes: &[u8]) -> Result<()> {
+    ensure_unchanged(path, read)?;
+    match storage::write_atomic_if_unchanged(path, read, bytes) {
+        Ok(()) => Ok(()),
+        Err(CoreError::FileChanged) => Err(changed_meanwhile(path)),
+        Err(err) => Err(explain(err)),
+    }
+}
+
+/// Someone else saved the vault file while this command ran.
+fn changed_meanwhile(path: &Path) -> anyhow::Error {
+    anyhow!(
+        "{} changed while this command was running (another app or device saved it). \
+         Nothing was written: run the command again.",
+        path.display()
+    )
+}
+
 /// Refuses to go on when the vault file no longer holds what was read: someone else (the
 /// app, another device's sync, another command) wrote it in the meantime, and saving now
 /// would throw their changes away (AGENTS.md §4.1, rule 7).
-pub fn ensure_unchanged(path: &Path, read: &[u8; 32]) -> Result<()> {
+fn ensure_unchanged(path: &Path, read: &[u8; 32]) -> Result<()> {
     let now = storage::read(path).map_err(explain)?;
     if storage::fingerprint(&now) != *read {
-        bail!(
-            "{} changed while this command was running (another app or device saved it). \
-             Nothing was written: run the command again.",
-            path.display()
-        );
+        return Err(changed_meanwhile(path));
     }
     Ok(())
 }
@@ -267,6 +363,255 @@ mod tests {
         assert!(
             refused.contains("changed while this command was running"),
             "{refused}"
+        );
+    }
+
+    const PASSWORD: &str = "unit test master passphrase";
+
+    /// A test vault with recovery parts, written at `path`: its bytes and the vault, open.
+    fn vault_with_parts(path: &Path) -> (Vec<u8>, Vault, SecretKey) {
+        vault_with(path, &vault_core::RecoveryParts::generate().unwrap())
+    }
+
+    /// [`vault_with_parts`], with these parts.
+    fn vault_with(path: &Path, parts: &vault_core::RecoveryParts) -> (Vec<u8>, Vault, SecretKey) {
+        let secret_key = SecretKey::generate().unwrap();
+        let kdf = vault_core::KdfParams::minimum().unwrap();
+        let mut vault = Vault::create(PASSWORD, &secret_key, None, kdf).unwrap();
+        vault.set_recovery_parts(parts, &secret_key).unwrap();
+        let bytes = vault.to_bytes().unwrap();
+        storage::write_atomic(path, &bytes).unwrap();
+        let vault = Vault::open(&bytes, unlock(&secret_key)).unwrap();
+        (bytes, vault, secret_key)
+    }
+
+    fn unlock(secret_key: &SecretKey) -> Unlock<'_> {
+        Unlock::Password {
+            password: PASSWORD,
+            secret_key,
+        }
+    }
+
+    fn has_parts(path: &Path) -> bool {
+        Vault::inspect(&storage::read(path).unwrap())
+            .unwrap()
+            .has_recovery_parts
+    }
+
+    #[test]
+    fn used_parts_are_not_retired_over_another_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+        let (read, mut vault, secret_key) = vault_with_parts(&path);
+
+        // While the command waits for the prompts, the app adds an item and saves.
+        let mut other = Vault::open(&read, unlock(&secret_key)).unwrap();
+        other
+            .add_item(&vault_core::ItemData::login(
+                "Saved meanwhile",
+                "test-user",
+                "test-item-password",
+                "https://saved.example",
+            ))
+            .unwrap();
+        let saved = other.to_bytes().unwrap();
+        storage::write_atomic(&path, &saved).unwrap();
+
+        let refused = retire_parts(&path, &mut vault, &read, || {
+            panic!("the Secret Key is kept only once the parts are retired")
+        })
+        .unwrap_err();
+        let message = format!("{refused:#}");
+        assert!(
+            message.contains("changed while this command was running")
+                && message.contains("still work"),
+            "{message}"
+        );
+        // The app's save is what the file holds, parts and all.
+        assert_eq!(storage::read(&path).unwrap(), saved);
+        assert!(has_parts(&path));
+    }
+
+    #[test]
+    fn used_parts_are_retired_before_the_secret_key_is_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+        let (read, mut vault, _) = vault_with_parts(&path);
+
+        let mut kept = false;
+        let written = retire_parts(&path, &mut vault, &read, || {
+            assert!(!has_parts(&path), "retired on disk first");
+            kept = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(kept);
+        assert_eq!(
+            written,
+            storage::fingerprint(&storage::read(&path).unwrap())
+        );
+        assert!(!has_parts(&path));
+    }
+
+    #[test]
+    fn a_secret_key_that_cant_be_kept_leaves_the_parts_working() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+        let (read, mut vault, _) = vault_with_parts(&path);
+
+        let failed = retire_parts(&path, &mut vault, &read, || {
+            bail!("no credential store here")
+        })
+        .unwrap_err();
+        let message = format!("{failed:#}");
+        assert!(
+            message.contains("no credential store here") && message.contains("still work"),
+            "{message}"
+        );
+        assert_eq!(storage::read(&path).unwrap(), read);
+        assert!(has_parts(&path));
+    }
+
+    /// What the vault file holds after each way [`replace_then_keep`] can end.
+    #[test]
+    fn a_replaced_file_is_kept_with_its_key_or_put_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+        let (old, new) = (b"as read".as_slice(), b"as written".as_slice());
+        let fresh = || storage::write_atomic(&path, old).unwrap();
+
+        fresh();
+        let written = replace_then_keep(&path, old, new, || {
+            assert_eq!(
+                storage::read(&path).unwrap(),
+                new,
+                "written before it is kept"
+            );
+            Ok(())
+        });
+        assert_eq!(written.unwrap(), storage::fingerprint(new));
+        assert_eq!(storage::read(&path).unwrap(), new);
+
+        // Changed since it was read: not written, not kept.
+        storage::write_atomic(&path, b"saved meanwhile").unwrap();
+        let failed = replace_then_keep(&path, old, new, || panic!("kept, though not written"));
+        assert!(matches!(failed, Err(NotKept::NotWritten(_))));
+        assert_eq!(storage::read(&path).unwrap(), b"saved meanwhile");
+
+        // Not kept: put back.
+        fresh();
+        let failed = replace_then_keep(&path, old, new, || bail!("no credential store here"));
+        assert!(matches!(failed, Err(NotKept::PutBack(_))));
+        assert_eq!(storage::read(&path).unwrap(), old);
+
+        // Not kept, and changed again before it could be put back: said so.
+        fresh();
+        let failed = replace_then_keep(&path, old, new, || {
+            storage::write_atomic(&path, b"saved meanwhile").unwrap();
+            bail!("no credential store here")
+        });
+        let Err(NotKept::Replaced { error, back }) = failed else {
+            panic!("{failed:?}");
+        };
+        assert!(format!("{error:#}").contains("no credential store here"));
+        assert!(format!("{back:#}").contains("changed while this command was running"));
+        assert_eq!(storage::read(&path).unwrap(), b"saved meanwhile");
+    }
+
+    /// PM-14, through `Session::unlock`: two recovery parts typed while the app saves the
+    /// vault. Nothing is written over the app's save, the parts still work, and this device
+    /// keeps no Secret Key. Run as a process of its own (this test again) with `VAULT_HOME` in
+    /// a temporary folder, so the device state it reads and could write is a test's. The OS
+    /// credential store is the real one, as in tests/cli.rs (Windows only, as they are), asked
+    /// only about this test vault.
+    #[cfg(windows)]
+    #[test]
+    fn recovery_parts_typed_while_the_app_saves_retire_nothing() {
+        const CHILD: &str = "VAULT_TEST_PARTS_TYPED_WHILE_SAVED";
+        if std::env::var_os(CHILD).is_some() {
+            return parts_typed_while_the_app_saves();
+        }
+        let home = tempfile::tempdir().unwrap();
+        let (_, tests) = module_path!().split_once("::").unwrap();
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg(format!(
+                "{tests}::recovery_parts_typed_while_the_app_saves_retire_nothing"
+            ))
+            .arg("--nocapture")
+            .env(CHILD, "1")
+            .env("VAULT_HOME", home.path())
+            .env_remove("VAULT_FILE")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while child.try_wait().unwrap().is_none() {
+            if std::time::Instant::now() > until {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("the test's own process didn't end");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let output = child.wait_with_output().unwrap();
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.status.success(), "{said}");
+        assert!(said.contains("1 passed"), "it ran: {said}");
+    }
+
+    /// What the test above runs in its own process.
+    #[cfg(windows)]
+    fn parts_typed_while_the_app_saves() {
+        assert!(std::env::var_os("VAULT_HOME").is_some());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+        let parts = vault_core::RecoveryParts::generate().unwrap();
+        let (read, _, secret_key) = vault_with(&path, &parts);
+        let id = Vault::inspect(&read).unwrap().id_hex;
+        let mut app = Vault::open(&read, unlock(&secret_key)).unwrap();
+        app.add_item(&vault_core::ItemData::login(
+            "Saved meanwhile",
+            "test-user",
+            "test-item-password",
+            "https://saved.example",
+        ))
+        .unwrap();
+        let saved = app.to_bytes().unwrap();
+
+        let [first, second] = [vault_core::PartLabel::A, vault_core::PartLabel::B]
+            .map(|label| parts.part(label).to_display_string().as_str().to_owned());
+        let (at, app_save) = (path.clone(), saved.clone());
+        let mut prompter = Prompter::scripted(&[&first, &second, PASSWORD], move |label| {
+            // The app saves while the master password is typed.
+            if label == "Master password" {
+                storage::write_atomic(&at, &app_save).unwrap();
+            }
+        });
+        let unlocked = Session::unlock(&path, &mut prompter, false, None);
+        let kept = secret_store::load(&id);
+        // Whatever a wrong order left in the credential store goes before anything is checked.
+        let _ = secret_store::forget(&id);
+        let refused = match unlocked {
+            Ok(_) => panic!("unlocked and saved over the app's save"),
+            Err(err) => format!("{err:#}"),
+        };
+        assert!(
+            refused.contains("changed while this command was running")
+                && refused.contains("still work"),
+            "{refused}"
+        );
+        assert_eq!(storage::read(&path).unwrap(), saved, "the app's save stays");
+        assert!(has_parts(&path), "the parts still work");
+        assert!(
+            kept.unwrap().is_none(),
+            "this device kept the Secret Key the parts brought back"
         );
     }
 }

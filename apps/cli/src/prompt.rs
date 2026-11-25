@@ -12,7 +12,15 @@ use zeroize::Zeroizing;
 /// line of standard input instead of asking interactively.
 pub struct Prompter {
     script_lines: Option<VecDeque<Zeroizing<String>>>,
+    /// In tests, what happens while a person types at each prompt (another program saving the
+    /// vault, say): called with the prompt's label before it is answered.
+    #[cfg(test)]
+    asked: Option<Asked>,
 }
+
+/// See [`Prompter::scripted`].
+#[cfg(test)]
+type Asked = Box<dyn FnMut(&str)>;
 
 impl Prompter {
     pub fn new(script_mode: bool) -> Result<Self> {
@@ -25,10 +33,33 @@ impl Prompter {
         } else {
             None
         };
-        Ok(Self { script_lines })
+        Ok(Self {
+            script_lines,
+            #[cfg(test)]
+            asked: None,
+        })
+    }
+
+    /// Answers each prompt with the next of `lines`, as `--password-stdin` does, and runs
+    /// `asked` with the prompt's label first.
+    #[cfg(test)]
+    pub fn scripted(lines: &[&str], asked: impl FnMut(&str) + 'static) -> Self {
+        Self {
+            script_lines: Some(
+                lines
+                    .iter()
+                    .map(|l| Zeroizing::new(l.to_string()))
+                    .collect(),
+            ),
+            asked: Some(Box::new(asked)),
+        }
     }
 
     fn next_script_line(&mut self, label: &str) -> Option<Result<Zeroizing<String>>> {
+        #[cfg(test)]
+        if let Some(asked) = self.asked.as_mut() {
+            asked(label);
+        }
         let lines = self.script_lines.as_mut()?;
         Some(
             lines

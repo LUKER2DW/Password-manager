@@ -12,6 +12,8 @@ use std::{
 
 const MASTER: &str = "e2e test master passphrase";
 const NEW_MASTER: &str = "e2e test second passphrase";
+/// The item lock's PIN in these tests.
+const ITEM_PIN: &str = "4821";
 
 struct Env {
     _dir: tempfile::TempDir,
@@ -147,12 +149,29 @@ fn full_lifecycle() {
     assert!(list.contains("GitHub") && list.contains("Bank") && list.contains("2 item(s)"));
     assert!(env.ok(&["list", "git"], &[MASTER]).contains("1 item(s)"));
 
-    // show: hidden by default, revealed on request
+    // show: hidden by default, revealed on request; the current one-time code too
+    let totp_line = |shown: &str| {
+        shown
+            .lines()
+            .find(|line| line.trim_start().starts_with("totp:"))
+            .unwrap_or_else(|| panic!("no totp line:\n{shown}"))
+            .to_owned()
+    };
     let hidden = env.ok(&["show", "github"], &[MASTER]);
     assert!(!hidden.contains("gh-item-password-1") && hidden.contains("octocat"));
     assert!(
-        env.ok(&["show", "GitHub", "--reveal"], &[MASTER])
-            .contains("gh-item-password-1")
+        !totp_line(&hidden).chars().any(|c| c.is_ascii_digit()),
+        "{hidden}"
+    );
+    let revealed = env.ok(&["show", "GitHub", "--reveal"], &[MASTER]);
+    assert!(revealed.contains("gh-item-password-1"));
+    assert!(
+        totp_line(&revealed)
+            .chars()
+            .filter(char::is_ascii_digit)
+            .count()
+            >= 6,
+        "{revealed}"
     );
 
     // totp
@@ -268,12 +287,20 @@ fn import_browser_csv() {
         first.contains("Imported 2 item(s)") && first.contains("PLAIN TEXT"),
         "{first}"
     );
+    let backup = vault_core::storage::backup_path(&env.vault);
+    let (before, backup_before) = (
+        std::fs::read(&env.vault).unwrap(),
+        std::fs::read(&backup).unwrap(),
+    );
     let again = env.ok(&["import", csv_arg, "--delete-source"], &[MASTER]);
     assert!(
         again.contains("Imported 0 item(s)") && again.contains("skipped 2 duplicate(s)"),
         "{again}"
     );
     assert!(!csv.exists(), "--delete-source removes the export");
+    // Nothing new: the vault isn't written again (nor its previous copy replaced).
+    assert_eq!(std::fs::read(&env.vault).unwrap(), before);
+    assert_eq!(std::fs::read(&backup).unwrap(), backup_before);
 
     let list = env.ok(&["list"], &[MASTER]);
     assert!(
@@ -351,6 +378,172 @@ fn keyfile_as_a_third_factor() {
     assert!(env.ok(&["info"], &[]).contains("Keyfile:        not used"));
     std::fs::remove_file(&moved).unwrap();
     assert!(env.ok(&["list"], &[NEW_MASTER]).contains("Site"));
+}
+
+/// Opens the test vault in this process, as the app would, with the master password and the
+/// Secret Key from the kit.
+fn open_here(env: &Env, secret_key: &str) -> vault_core::Vault {
+    let secret_key = vault_core::SecretKey::parse(secret_key).unwrap();
+    let bytes = std::fs::read(&env.vault).unwrap();
+    vault_core::Vault::open(
+        &bytes,
+        vault_core::Unlock::Password {
+            password: MASTER,
+            secret_key: &secret_key,
+        },
+    )
+    .unwrap()
+}
+
+/// Saves the vault from this process (another writer than the command under test).
+fn save_here(env: &Env, vault: &mut vault_core::Vault) -> Vec<u8> {
+    let bytes = vault.to_bytes().unwrap();
+    vault_core::storage::write_atomic(&env.vault, &bytes).unwrap();
+    bytes
+}
+
+/// A one-time-code secret can be typed at a prompt instead of on the command line, where it
+/// would stay in the shell's history.
+#[test]
+fn a_totp_secret_can_be_typed_at_a_prompt() {
+    let env = Env::new();
+    env.ok(
+        &["init", "--kdf-target-ms", "50", "--kdf-memory-mib", "64"],
+        &[MASTER],
+    );
+    env.ok(
+        &["add", "Mail", "-u", "me", "--totp", "-"],
+        &[MASTER, "JBSWY3DPEHPK3PXP", "mail-item-password"],
+    );
+    let code = env.ok(&["totp", "Mail"], &[MASTER]);
+    assert!(
+        code.chars().filter(char::is_ascii_digit).count() >= 6,
+        "{code}"
+    );
+    // Nothing typed (Enter to back out): refused, and the secret stays.
+    let before = std::fs::read(&env.vault).unwrap();
+    let refused = env.fails(&["edit", "Mail", "--totp", "-"], &[MASTER, ""]);
+    assert!(refused.contains("nothing was changed"), "{refused}");
+    assert!(std::fs::read(&env.vault).unwrap() == before, "written");
+    assert!(
+        env.ok(&["totp", "Mail"], &[MASTER])
+            .chars()
+            .any(|c| c.is_ascii_digit())
+    );
+    // Changed the same way; a wrong one is refused and nothing changes.
+    env.fails(&["edit", "Mail", "--totp", "-"], &[MASTER, "not base32 !"]);
+    env.ok(
+        &["edit", "Mail", "--totp", "-"],
+        &[MASTER, "GEZDGNBVGY3TQOJQ"],
+    );
+    let shown = env.ok(&["show", "Mail"], &[MASTER]);
+    assert!(!shown.contains("GEZDGNBVGY3TQOJQ"), "{shown}");
+    assert!(
+        env.ok(&["totp", "Mail"], &[MASTER])
+            .chars()
+            .any(|c| c.is_ascii_digit())
+    );
+}
+
+#[test]
+fn deleting_an_item_behind_the_item_lock_asks_for_it() {
+    let env = Env::new();
+    let kit = env.ok(
+        &["init", "--kdf-target-ms", "50", "--kdf-memory-mib", "64"],
+        &[MASTER],
+    );
+    env.ok(
+        &["add", "Locked item", "-u", "me"],
+        &[MASTER, "locked-item-password"],
+    );
+    // The item lock (a PIN over every item) is set up in the app: the CLI has no command
+    // for it.
+    let mut vault = open_here(&env, &kit_value(&kit, "Secret Key:"));
+    vault
+        .set_item_guard(
+            true,
+            vault_core::GuardCheck::Pin,
+            Some(ITEM_PIN),
+            Some(MASTER),
+        )
+        .unwrap();
+    let before = save_here(&env, &mut vault);
+    let untouched = || {
+        assert!(
+            std::fs::read(&env.vault).unwrap() == before,
+            "the vault was written: an item removed, or its tombstone"
+        );
+    };
+
+    // A wrong PIN three times: the title isn't even asked, and nothing is written.
+    let refused = env.fails(
+        &["rm", "Locked item"],
+        &[MASTER, "0000", "1111", "2222", "Locked item"],
+    );
+    assert!(refused.contains("wrong three times"), "{refused}");
+    untouched();
+    let refused = env.fails(
+        &["rm", "Locked item", "--yes"],
+        &[MASTER, "0000", "1111", "2222"],
+    );
+    assert!(refused.contains("wrong three times"), "{refused}");
+    untouched();
+    // The title where the PIN is asked doesn't pass either.
+    env.fails(&["rm", "Locked item"], &[MASTER, "Locked item"]);
+    untouched();
+    assert!(env.ok(&["list"], &[MASTER]).contains("Locked item"));
+
+    // The PIN, then the title: deleted.
+    env.ok(&["rm", "Locked item"], &[MASTER, ITEM_PIN, "Locked item"]);
+    assert!(env.ok(&["list"], &[MASTER]).contains("(no items)"));
+}
+
+#[test]
+fn a_v5_item_lock_is_asked_for_too() {
+    // Test values of the format v5 fixture (crates/core/tests/format_v5.rs).
+    const V5_PASSWORD: &str = "fixture password v5 ✓ çãé";
+    const V5_PIN: &str = "4821";
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/core/tests/fixtures");
+    let env = Env::new();
+    std::fs::copy(fixtures.join("vault-v5.bin"), &env.vault).unwrap();
+    let keyfile = env.vault.with_file_name("test.keyfile");
+    std::fs::copy(fixtures.join("vault-v5.keyfile"), &keyfile).unwrap();
+    let credentials = std::fs::read_to_string(fixtures.join("vault-v5.credentials.txt")).unwrap();
+    let secret_key = kit_value(&credentials, "secret_key =");
+    let with_keyfile = |args: &[&'static str]| {
+        let mut all = vec!["--vault-keyfile", keyfile.to_str().unwrap()];
+        all.extend_from_slice(args);
+        all
+    };
+    env.ok(&["forget"], &[]); // left over from an interrupted run
+    let before = std::fs::read(&env.vault).unwrap();
+
+    // A v5 lock only keeps a hash of its PIN, nothing encrypted under it yet: it is asked
+    // for all the same, before secrets show and before a deletion.
+    let shown = env.run(
+        &with_keyfile(&["show", "Fixture Login", "--reveal"]),
+        &[&secret_key, V5_PASSWORD, "0000", "1111", "2222"],
+    );
+    assert!(!shown.status.success());
+    assert!(!String::from_utf8_lossy(&shown.stdout).contains("Fixture-P@ss-123"));
+    let refused = env.fails(
+        &with_keyfile(&["rm", "Fixture Login", "--yes"]),
+        &[V5_PASSWORD, "0000", "1111", "2222"],
+    );
+    assert!(refused.contains("wrong three times"), "{refused}");
+    assert!(std::fs::read(&env.vault).unwrap() == before, "written");
+
+    // The PIN: deleted, and the lock now encrypts (the file is written in today's format).
+    env.ok(
+        &with_keyfile(&["rm", "Fixture Login", "--yes"]),
+        &[V5_PASSWORD, V5_PIN],
+    );
+    let list = env.ok(&with_keyfile(&["list"]), &[V5_PASSWORD]);
+    assert!(
+        !list.contains("Fixture Login") && list.contains("1 item(s)"),
+        "{list}"
+    );
 }
 
 #[test]

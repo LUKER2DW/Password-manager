@@ -53,7 +53,7 @@ enum Command {
     },
     /// Add an item.
     Add(AddArgs),
-    /// Show an item (password hidden unless --reveal).
+    /// Show an item (password, notes, hidden fields and one-time code hidden unless --reveal).
     Show(ShowArgs),
     /// Change fields of an item.
     Edit(EditArgs),
@@ -238,7 +238,8 @@ struct AddArgs {
     url: Vec<String>,
     #[arg(long)]
     notes: Option<String>,
-    /// TOTP secret (Base32) or otpauth:// URI.
+    /// TOTP secret (Base32) or otpauth:// URI; `-` asks for it without showing it (a value
+    /// typed here stays in the shell's history).
     #[arg(long)]
     totp: Option<String>,
     #[arg(long)]
@@ -258,7 +259,7 @@ struct AddArgs {
 struct ShowArgs {
     /// Item id (prefix) or title.
     item: String,
-    /// Print the password in clear text.
+    /// Print the password, notes, hidden fields and the current one-time code in clear text.
     #[arg(long)]
     reveal: bool,
     /// Copy the password to the clipboard (cleared after 20 s).
@@ -279,7 +280,8 @@ struct EditArgs {
     url: Vec<String>,
     #[arg(long)]
     notes: Option<String>,
-    /// New TOTP secret or URI; pass an empty string to remove it.
+    /// New TOTP secret or URI (`-` asks for it without showing it); an empty string removes
+    /// it.
     #[arg(long)]
     totp: Option<String>,
     #[arg(long)]
