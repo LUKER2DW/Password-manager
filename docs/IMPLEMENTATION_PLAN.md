@@ -529,8 +529,8 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   - Android: who receives a login is worked out from the fields (known browsers by
     certificate, https, one web view) and saving follows the item lock (PM-02, PM-06); PDF
     previews from memory, wiped over their full length, within a pixel budget (PM-15, PM-16);
-    updates only of this app, newer, same certificate. ⬜ tried on a device; ⬜ a distribution
-    signing key.
+    updates only of this app, newer, same certificate; the APK signed with a release key of its
+    own (`make-release-key.ps1`, kept outside the repository). ⬜ tried on a device.
   - Server: a listing agrees with an admin's removal (N-06); a removed device's request
     already under way changes nothing (PM-11); admin commands and the server share one lock;
     enrollment tells nothing without a good invite.
@@ -539,7 +539,14 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
     they were checked against (PM-14); `vault rm` asks for the item lock (PM-17); one-time codes
     shown only with `--reveal`, their secret can be typed at a prompt.
   - CI: CodeQL leaves test code out (`.github/codeql/codeql-config.yml`), gitleaks allows
-    `Cargo.lock`, Dependabot holds jni at 0.21 until the Android code moves.
+    `Cargo.lock`, Dependabot holds jni at 0.21 until the Android code moves; if-addrs 0.15,
+    notify 9, resvg 0.49 and base64 0.23 taken; the code scanning alerts triaged (false
+    positives and test code dismissed with their reason).
+- ⬜ Renewing the vault key: a new vault key, Secret Key and kit, every item sealed again, so
+  that an old copy opened with old factors or an old kit no longer opens newer copies. Today
+  the vault key never changes (CRYPTO.md §3): a new master password, Secret Key or kit
+  rewrites only the slots. Needs every device to take the new key at its next unlock (sync)
+  and the device unlocks (Windows Hello, fingerprint) and side files sealed again.
 
 ## Engineering practices
 
