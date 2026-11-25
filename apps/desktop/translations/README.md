@@ -8,7 +8,7 @@ Windows language; `VAULT_LANG=pt_BR` overrides both).
 
 ```
 vault-desktop-ui.pot                      every text to translate (generated, do not edit)
-pt_BR/LC_MESSAGES/vault-desktop-ui.po     Brazilian Portuguese (started)
+pt_BR/LC_MESSAGES/vault-desktop-ui.po     Brazilian Portuguese
 ```
 
 A text missing from a catalogue shows in English, so a language can be translated a piece at
