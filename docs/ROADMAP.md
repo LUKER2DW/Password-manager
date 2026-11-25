@@ -27,14 +27,15 @@
 ## Phase 1: Rust core + CLI 🚧
 - ✅ Vault: create, open, items, folders, change master password, recovery
 - ✅ Secret Key, calibrated Argon2id, emergency kit with three recovery parts
+- ✅ Renewing the vault key (new key, Secret Key and kit), so an older copy opens only itself
 - ✅ Password and passphrase generator (EFF word list), TOTP and HOTP
 - ✅ Property tests and tamper tests; no known vulnerability in any dependency (`cargo deny`)
 - ✅ CI on every push: tests, advisories, secret scanning of the history, CodeQL, Scorecard
 - ⬜ Fuzzing of the file parser
 - 🚧 **The CLI is unfinished.** It does: `init`, `info`, `list`, `add`, `show`, `edit`, `rm`
-  (logins, cards, secure notes), `generate`, `totp`, `passwd`, `recover`, `kit`,
+  (logins, cards, secure notes), `generate`, `totp`, `passwd`, `renew-key`, `recover`, `kit`,
   `part-picture`, `forget`, `keyfile`, `import` and `sync` (folder, server, WebDAV, invites,
-  devices). It does not yet: make or show SSH key items and attached files, manage folders
+  devices, taking a renewed vault key). It does not yet: make or show SSH key items and attached files, manage folders
   beyond putting an item in one, export, check password health or leaks, set the item lock
   or the unlock protection, or use Windows Hello. Locked items stay locked in it. It was
   only tried on Windows.

@@ -80,14 +80,16 @@ KEK_recovery = HKDF-SHA-256(ikm  = recovery_key,
                             salt = vault_id,
                             info = "vault-v0/kek/recovery")            → 32 bytes
 
-vault_key    = 32 random bytes (generated once per vault)
+vault_key    = 32 random bytes (generated when the vault is made, and again when it is
+               renewed, §3.8)
 subkey(p)    = HKDF-SHA-256(ikm = vault_key, salt = vault_id, info = "vault-v0/subkey/" ‖ p)
-               p ∈ { "body", "item-wrap" }
+               p ∈ { "body", "item-wrap", "parts", "local/" ‖ purpose }
 item_key     = 32 random bytes per item revision
 ```
 
-The vault key never changes when the password, Secret Key or Recovery Key changes; only the key
-slots that wrap it are rewritten.
+The vault key does not change when the password, Secret Key, keyfile, Recovery Key or kit
+changes; only the key slots that wrap it are rewritten. It changes only when it is renewed
+(§3.8).
 
 ### 3.0 Keyfile (optional third factor)
 
@@ -195,6 +197,9 @@ AAD_device    = "vault-v0/device" ‖ vault_id ‖ SHA-256(password slot's wrapp
   anti-hammering). Device secrets shorter than 32 bytes are refused.
 - Binding to the password slot means **changing the master password revokes every device
   unlock** — including one made on another device, once the changed file arrives.
+- Renewing the vault key (§3.8) revokes it too: `device_unlock` holds the former vault key,
+  and the new password slot no longer matches its AAD. The app deletes it (Windows Hello is
+  off until the person turns it on again).
 - Every 14 days the master password is required once. The date of the last password unlock is
   device-local data sealed with the vault key (`local/last-password-unlock`, see §6), so it can't
   be moved forward without the vault key; missing or future dates count as expired.
@@ -272,7 +277,8 @@ file          = unlock-<vault id>.json next to the vault: { sealed_key: device_u
   weaker than the master password (THREAT_MODEL.md, the phone).
 - `password_at` is the last master password unlock: after 14 days fingerprint unlock waits for
   the master password again. A new master password revokes it (the AAD binds the password
-  slot), and the app deletes the file and the key.
+  slot), and the app deletes the file and the key. So does a renewed vault key taken on the
+  phone (§3.8): fingerprint unlock is off until the person turns it on again.
 - Autofill's fingerprint path opens the vault file with `device_unlock` for one fill and
   drops it (`vault_mobile::autofill`).
 
@@ -296,6 +302,8 @@ file        = postcard(pk, sealed_key, [entry…])
 - At the next unlock the app opens `sealed_key`, then each entry (checking the vault id
   prefix), adds the logins that aren't there yet as items (§3.2 for the item lock) and empties
   the list. A key that doesn't open (another vault, damage) replaces the file.
+- A renewed vault key (§3.8) seals `sealed_key` again; `sk` and `pk` stay, so the entries
+  waiting still open.
 - `pk` is not authenticated while locked: nothing secret is available then. A program running
   as the user could swap it and read later entries; it would already see those passwords
   where they are typed (THREAT_MODEL.md).
@@ -329,7 +337,8 @@ parts.secret_key = seal(K_secret_key, secret_key)
   again without the parts. The master password is not stored anywhere.
 - A new kit draws a new `kit_id` and `pair_key`, so nothing the old parts open is left in the
   file. The vault key itself is not changed: an old copy of the file still opens with that
-  copy's parts (as with a changed master password).
+  copy's parts (as with a changed master password), and the vault key it gives opens every
+  newer copy too. Renewing the vault key (§3.8) is what ends that.
 - Parts work once. Parts typed on a device may have been seen there, so once they have
   opened the vault (two of them bringing back the Secret Key, then the master password; or
   all three for a new master password) the apps remove the whole slot
@@ -370,6 +379,116 @@ derived deterministically (RFC 6979), and SHA-256.
   for an IP address, and only on HTTPS in the top frame (`vault_browser::origin::passkey_site`).
 - **At rest.** The private key is item data: encrypted with the item key, and sealed under the
   item guard key with the item's other secrets when the guard covers the item (§3.2).
+
+### 3.8 Renewing the vault key
+
+A new master password, Secret Key, keyfile or kit rewrites only the slots (§3): the vault key
+stays. So whoever opened one copy of the file (a stolen copy with its factors, an old kit, a
+backup) holds the key to every copy written after it. Renewing draws a new vault key, so that
+from then on newer copies are out of that key's reach (`Vault::renew_key`). There is no new
+format version: a renewed file is an ordinary file of the current version.
+
+**What the person gives.** The master password, typed again, with the Secret Key and (when the
+vault has a `PasswordKeyfile` slot) the keyfile this device holds. They must open the current
+password slot, and the key it opens must be the vault key in memory; otherwise the renewal
+fails with `DecryptionFailed` (`KeyfileRequired` without the keyfile) and nothing changes. A
+typo never becomes the master password. The master password itself stays.
+
+**What is generated.**
+
+```
+vault_key'   = 32 random bytes
+secret_key'  = a new Secret Key (§2.2)
+A', B', C'   = new recovery parts (§2.4), with a new kit_id' and pair_key' (§3.6)
+kdf'         = the same method and cost as kdf, with a new random salt
+```
+
+**What is wrapped again.** Every item record keeps its id, revision and sealed `data`; only its
+wrapped item key changes:
+
+```
+item_key     = open(subkey(vault_key,  "item-wrap"), wrapped_key, AAD_item_key)
+wrapped_key' = seal(subkey(vault_key', "item-wrap"), item_key,    AAD_item_key)
+AAD_item_key = "vault-v0/item-key" ‖ vault_id ‖ item_id        (unchanged, §6)
+```
+
+Item keys are not drawn again. An item's `data` is the same bytes, so its record digest
+(§6.1) and lineage stay the same and other devices see no item change. Whoever held the former
+vault key gains nothing from that: an unchanged item is the version already in the older copy,
+and the body around it is sealed under the new key. An item saved after the renewal gets a new
+item key (§3), wrapped under `vault_key'`.
+
+**The header after.**
+
+- `kdf = kdf'`.
+- `slots` holds one slot only: the password slot, `seal(KEK_password, vault_key')` with
+  `KEK_password` worked out from the master password, `secret_key'`, the keyfile when the vault
+  needs one, and `kdf'` (kind `Password` or `PasswordKeyfile`, AAD as in §6). A `Recovery`
+  slot from a kit made before format v8 is dropped.
+- `parts` is the new kit (§3.6 with `A'`, `B'`, `C'`, `kit_id'`, `pair_key'`, sealing
+  `vault_key'` and `secret_key'`). The former kit's slot is gone.
+- `unlock_revision` goes up by one (SYNC.md §4.5).
+
+The body is sealed under `subkey(vault_key', "body")` from the next write on, with the new
+header bytes as its AAD.
+
+**What stays.** The item guard key (§3.2): it is wrapped by the PIN, the password, Windows Hello
+or the master password, never by the vault key, so the item lock keeps working, and guarded
+secrets stay sealed under it. The drop box's `sk` and `pk` (§3.5). The vault id.
+
+**Unlock id.** A name for what opens a copy, read from its public header without any key
+(`Vault::inspect`, `VaultInfo::unlock_id`). Sync uses it to tell a copy still under a former
+key from one under a key renewed elsewhere (SYNC.md §4.7):
+
+```
+unlock_id = SHA-256( "vault-v0/unlock-id"
+                   ‖ vault_id                                   (16 bytes)
+                   ‖ for each slot, in header order:
+                         kind (1 byte: 0x01 Password, 0x02 Recovery, 0x03 PasswordKeyfile)
+                       ‖ len(wrapped_vault_key) (u64 LE)
+                       ‖ wrapped_vault_key
+                   ‖ if the header has parts:
+                         kit_id (16 bytes) ‖ parts.vault_key (the sealed vault key, no length) )[..16]
+```
+
+It digests public bytes only, so it says nothing the header doesn't. It changes with every
+change to the slots or the kit (a new master password too), not only with a renewal; a device
+records the ones it stopped using only when it renews or takes a renewed key.
+
+**Device-local data.** What a device sealed outside the file with `seal_local` under the former
+key (§6: the generator's history, the extension's connection key, the website icon cache, the
+leak watch, the drop box's `sealed_key`, the locked-fill index's `key_by_vault` and
+`guarded_public_by_vault`) is opened once with the former key (`FormerKey::open_local`, the
+same `subkey("local/" ‖ purpose)` and AAD) and sealed again under `vault_key'`
+(`Vault::reseal_local`). A file's `.bak`, still under the former key, is deleted. The date of
+the last password unlock is written anew. Then the former key is dropped and wiped
+(`FormerKey` zeroizes on drop). Device unlocks (§3.1, §3.1.1) can't be sealed again without the
+person: they are deleted. The `vault` command seals the desktop app's whole-file ones again
+too, and refuses to renew or take a key while the app keeps a drop box or a locked-fill index
+for the vault (files only the app reads): those are renewed from the app.
+
+**Writing it.** The renewed file is written only over the bytes read before (AGENTS.md §4.1,
+rule 7), and kept only together with `secret_key'` in the OS credential store. When storing the
+key fails, the file is put back and `Vault::put_back_key` restores the vault in memory, former
+key and all. The new kit is shown once, to be printed.
+
+**What it protects, and what it can't.**
+
+- After a renewal, the former factors, the former kit (and an older Recovery Key) and the vault
+  key of any older copy open no copy written from then on.
+- An older copy still opens itself with its own factors and kit: a backup, a stolen copy, a
+  server's or folder's old copies, and the `.bak` written next to the file by the renewal's own
+  save (it holds the copy from before, until the next save replaces it). What was in it is
+  as exposed as before.
+- Data an attacker already decrypted is not taken back. A password read from an older copy
+  must be changed on its website.
+- Devices that haven't taken the new key yet keep writing their copies under the former key
+  (SYNC.md §4.7). Until each one does, its copy is readable with the former key.
+- It does nothing against someone who can still read this device (malware): the new Secret Key
+  is kept on it, and the master password is typed there.
+- Other devices take the new key with the master password and `secret_key'`
+  (`Vault::adopt_key`, SYNC.md §4.7): their item keys are wrapped again the same way and the
+  renewed header is taken as it is.
 
 ## 4. Argon2id parameters
 
@@ -476,6 +595,10 @@ key or reveals one:
 
 Another device's copy is opened with this vault's own key (`subkey("body")` and the item
 keys under `subkey("item-wrap")`); nothing in it is used to derive or select a key.
+
+A third digest, the unlock id (§3.8), is read from a copy's public header, not its body. It
+only sorts the copies this vault's key doesn't open (SYNC.md §4.7); it opens nothing and
+selects no key.
 
 ## 7. Padding
 

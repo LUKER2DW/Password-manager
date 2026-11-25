@@ -65,7 +65,7 @@ Rules:
 
 ### M3 — CLI 🚧 (`apps/cli`, binary `vault`)
 - ✅ `init`, `info`, `list`, `add`, `show`, `edit`, `rm`, `generate`, `totp`, `passwd`,
-  `recover`, `kit`, `forget`
+  `recover`, `kit`, `forget`; `renew-key` and `sync --take-new-key` (M9)
 - ✅ Secret Key kept in the OS credential store; typed from the kit on a new device
 - ✅ Rollback detection: highest revision seen per vault is remembered on the device
 - ✅ Hidden prompts, clipboard copy excluded from history with auto-clear after 20 s
@@ -542,11 +542,15 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
     `Cargo.lock`, Dependabot holds jni at 0.21 until the Android code moves; if-addrs 0.15,
     notify 9, resvg 0.49 and base64 0.23 taken; the code scanning alerts triaged (false
     positives and test code dismissed with their reason).
-- ⬜ Renewing the vault key: a new vault key, Secret Key and kit, every item sealed again, so
-  that an old copy opened with old factors or an old kit no longer opens newer copies. Today
-  the vault key never changes (CRYPTO.md §3): a new master password, Secret Key or kit
-  rewrites only the slots. Needs every device to take the new key at its next unlock (sync)
-  and the device unlocks (Windows Hello, fingerprint) and side files sealed again.
+- ✅ Renewing the vault key (CRYPTO.md §3.8, SYNC.md §4.7): a new vault key, Secret Key and
+  kit with the master password kept, every item key wrapped again under the new key
+  (`Vault::renew_key`), so that an old copy opened with old factors or an old kit no longer
+  opens newer copies. Renewed on a computer: the desktop's Emergency kit page ("Renew the vault
+  key…") or `vault renew-key`. Other devices tell copies still under a former key from renewed
+  ones by their unlock id, and take the new key once with the new Secret Key and the master
+  password (`Vault::adopt_key`): desktop Settings → Sync, `vault sync --take-new-key`, the
+  phone's Settings → Sync, with no merge conflicts. Side files sealed again, Windows Hello and
+  fingerprint unlock turned off; tests in `crates/core/tests/renew.rs`.
 
 ## Engineering practices
 

@@ -93,10 +93,11 @@ impl Vault {
 1. Parse it with the same rules as opening a file: same magic, a known version, KDF parameters
    inside the floor and ceiling, no trailing bytes. Anything else is an error (fail closed).
 2. Its `vault_id` must equal ours. Another vault is never merged in.
-3. Open its body with **our vault key** (it never changes, CRYPTO.md §3). No password, no
-   Argon2id, no key from the other copy. A file that wasn't sealed by a holder of this vault's key
-   fails the AEAD and is refused. The body is bound to that copy's header bytes, so a header
-   can't be swapped either.
+3. Open its body with **our vault key** (it changes only when renewed, CRYPTO.md §3.8). No
+   password, no Argon2id, no key from the other copy. A file that wasn't sealed by a holder of
+   this vault's key fails the AEAD and is refused (`DecryptionFailed`; a copy under a renewed
+   key is one, §4.7). The body is bound to that copy's header bytes, so a header can't be
+   swapped either.
 4. The body says which device wrote it (`writer`, §6) and its `revision`. The writer must be
    the device named in the file name. The revision must not be lower than the highest one
    already seen from that writer (`SeenRevisions`, kept in device state). A lower one is a
@@ -168,7 +169,8 @@ is still there is its password or in its history.
 ### 4.5 The master password and the item lock changed on another device
 
 The vault key stays the same when the master password, Secret Key, keyfile or KDF changes
-(CRYPTO.md §3). Only the key slots in the header change. So device B can merge A's copy
+(CRYPTO.md §3). Only the key slots in the header change. (Renewing the vault key is the one
+change that gives it a new key; §4.7.) So device B can merge A's copy
 after A changed the master password: B opens A's body with the vault key it already holds,
 sees a higher `unlock_revision` and takes A's header. B's next unlock needs the **new**
 password. B says so right after the merge ("The master password was changed on another
@@ -206,7 +208,8 @@ again with the lock closed):
 - the other copy's sealed items can't be read here. They wait (`waiting_for_lock`) until that
   device has taken this copy's lock and stored them again.
 
-A new Secret Key is the same: the vault key is unchanged and the slots follow.
+A new Secret Key is the same: the vault key is unchanged and the slots follow. A renewed
+vault key is not: §4.7.
 
 ### 4.6 What the server can still do
 
@@ -215,6 +218,80 @@ It can withhold files (a device sees no news) and show different devices differe
 every device still has the full vault. It sees how big each file is and when each device
 writes. None of this reveals or changes a password. The app shows each device's last
 successful sync, so an "it's been days" is visible.
+
+### 4.7 A vault key renewed on another device
+
+Renewing the vault key (CRYPTO.md §3.8) gives the vault a new key, a new Secret Key and a new
+kit; the master password stays. Every other device still holds the former key, so the renewed
+copy fails §4.1 step 3 there (`DecryptionFailed`), and their copies fail the same way on the
+device that renewed. Nothing is merged across the two keys, in either direction, until a
+device takes the new one.
+
+**Behind or renewed.** Each device keeps, per vault in its device state, the unlock ids
+(CRYPTO.md §3.8) it stopped using: the one it had when it renewed the key or took a renewed
+one (`DeviceState::retire_unlock`, `retired_unlocks`, the last 16). After a round, the copies
+refused with `DecryptionFailed` are read once more without a key (`Vault::inspect`); a copy
+of another vault is left out, and the rest are sorted by their unlock id
+(`vault_platform::sync::key_mismatch`, `KeyMismatch`):
+
+- **behind**: the unlock id is one this device retired. The copy was written under the former
+  key by a device that hasn't taken the new one yet. Nothing to do here: that device's changes
+  come in once it takes the key and writes its copy again. Settings → Sync says how many
+  devices still use the former key;
+- **renewed**: any other unlock id. The copy may be sealed under a key renewed on its device.
+  It is kept in memory for the step below, and the person is told once ("The vault key was
+  renewed on another device").
+
+A copy that is neither (tampered with, or sealed with some other key) shows as renewed too.
+That is harmless: nothing is taken from it unless the master password and a typed Secret Key
+open it as a whole file. Other refusals (§4.1) are reported as before.
+
+**Taking the new key.** The person types the new Secret Key, from the kit printed when the key
+was renewed, and the master password (with the keyfile this device holds, when the vault needs
+one). `vault_platform::sync::take_renewed_key` then:
+
+1. opens the first renewed copy that these open, as a whole file (the password hashing and
+   every check of an unlock). When none opens, it fails with `DecryptionFailed` (or
+   `KeyfileRequired`) and nothing changes;
+2. takes its key (`Vault::adopt_key`): the copy must be this vault (`OtherVault` otherwise);
+   this copy's item keys are wrapped again under the renewed key, its sealed item data left as
+   it is; the renewed copy's header (its password slot and kit) becomes this copy's; its
+   `unlock_revision` becomes the larger of the two. A copy already under the same key changes
+   nothing;
+3. retires the unlock id this copy had.
+
+The app then writes the vault file only over the bytes it read, and keeps it only together
+with the new Secret Key in the OS credential store (the Android Keystore on a phone): when
+storing the key fails, the file is put back and `Vault::put_back_key` restores the vault in
+memory. What the device sealed with the former key is sealed again and the former key is
+wiped (CRYPTO.md §3.8). Windows Hello or fingerprint unlock is turned off, since its copy of
+the key opens nothing now. Then a new round reads the copies refused until now.
+
+Any copy under the renewed key will do, not only the one written by the device that renewed: a
+device that took the key already passes it on with its next copy.
+
+**Why nothing conflicts.** A renewal, and taking it, change only the wrapped item keys. Each
+item's sealed data, revision and lineage are the same bytes on every device, so its record
+digest (CRYPTO.md §6.1) is the same: once a device took the key, the renewed copy merges as
+usual and every item nobody changed is reported unchanged (no conflicts, nothing updated). The
+header is the same too, so §4.5 changes nothing. What this device changed and hadn't sent yet
+is kept: those items are in its own copy, now under the new key, and reach the others with its
+next copy.
+
+**Where.**
+
+- Desktop: the Emergency kit page, "Renew the vault key…" (asks first, then the master password),
+  shows the new kit to print. Settings → Sync shows "The vault key was renewed on another
+  device" with "Type the new Secret Key…", whose dialog asks the new Secret Key and the master
+  password.
+- Command line: `vault renew-key` (asks to type RENEW, or `--yes`) renews and prints the new kit.
+  `vault sync --take-new-key` asks for the new Secret Key and takes the key; a plain `vault sync`
+  says how many copies this key can't open and how many devices still use the former key.
+- Phone: Settings → Sync takes a renewed key (a sheet asking the new Secret Key and the master
+  password). The phone doesn't renew: the new kit is printed, so that is done on a computer.
+
+The target sees only new sealed copies, as after any save, and the new Secret Key never
+travels through it (§7).
 
 ## 5. Targets
 
@@ -439,7 +516,8 @@ open one.
   is on, and nothing when it's off.
 - After a merge with conflicts: one line, "2 items were changed on two devices; the newer
   version was kept", linking to them. After a master password change elsewhere: the notice of
-  §4.5.
+  §4.5. After a vault key renewed elsewhere: "The vault key was renewed on another device.
+  Settings → Sync asks once for the new Secret Key, from the new emergency kit." (§4.7)
 - Refusals (§4.1) say what happened and what to do: "A copy from Phone is older than one
   already seen. It was not used. If you restored a backup on that phone, remove it and add it
   again."
@@ -454,6 +532,10 @@ open one.
   another key, a swapped header, a replayed older copy, a fork (same revision, other bytes),
   a copy whose writer doesn't match its file name or isn't a known device, a truncated file, a
   file with a lower `unlock_revision` carrying an old password.
+- A renewed vault key (§4.7, `crates/core/tests/renew.rs`): copies under the former and the
+  renewed key refused both ways; copies told apart as behind or renewed; the key taken with the
+  new Secret Key from either device's copy, with no conflicts and the taking device's unsent
+  changes kept; a wrong Secret Key or another vault's copy takes nothing.
 - The ETH Zurich group's ZK-AE-Tester style checks against the server build.
 - Two real devices converge (desktop + phone in the headless tests, a folder target in a temp
   directory).

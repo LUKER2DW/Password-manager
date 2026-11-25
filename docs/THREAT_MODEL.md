@@ -22,6 +22,27 @@ This works because the vault key depends on **factors that are never in the file
 With the Secret Key, the search space is at least 2^128 **multiplied** by the Argon2id cost, so
 the file on its own is useless.
 
+**When a copy was opened anyway.** A stolen copy together with the kit, or with the master
+password and Secret Key caught on an infected computer, opens. Whoever opened it holds that
+copy's vault key, and a new master password, Secret Key or kit doesn't change the vault key
+(only the slots that wrap it): with it they would open every newer copy too (a backup made
+later, the sync server's copies). **Renewing the vault key** (CRYPTO.md §3.8) is the answer:
+
+- it stops the old factors, the old kit and the vault key of any older copy from opening any
+  copy written from then on; every other device takes the new key once, with the new Secret
+  Key and the master password (SYNC.md §4.7);
+- it can't take back what was already read: the older copy still opens with its own factors
+  and kit, and the passwords in it must be changed on their websites. Other older copies
+  (backups, the `.bak` next to the file until the next save, a server's old copies) still open
+  the same way, and a device that hasn't taken the new key yet still writes its copy under the
+  former one;
+- it doesn't help while malware is still on the device: the new Secret Key is kept there and
+  the master password is typed there. Clean the device first, then renew.
+
+Renew after a kit was lost or seen, after a device with the vault was stolen, or after malware
+was removed. It is done on a computer (the desktop app's Emergency kit page or
+`vault renew-key`), where the new kit is printed.
+
 ## 2. Adversaries
 
 | # | Adversary | Capability | Protected? |

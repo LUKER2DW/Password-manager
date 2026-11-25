@@ -76,7 +76,7 @@ filesystem policy** beyond atomic writes.
 | `encoding.rs` | Crockford Base32 for the printed keys |
 | `padding.rs` | Length-hiding padding for items and body |
 | `format.rs` | File envelope, header, body, and the layouts of older versions |
-| `vault.rs` | `Vault`: open, create, items, folders, settings, history, save |
+| `vault.rs` | `Vault`: open, create, items, folders, settings, history, save; renewing the vault key and taking a renewed one (`renew_key`, `adopt_key`, CRYPTO.md §3.8) |
 | `vault/merge.rs` | Folding another device's copy into this one (`Vault::merge`, SYNC.md §4) |
 | `sync.rs` | What sync needs from the vault: writers, tombstones, devices, revisions |
 | `item.rs` | `ItemData`, `ItemSummary`, folders, recovery codes, password history, attachments |
@@ -129,9 +129,9 @@ Importers only produce `ItemData`; they never touch keys.
 
 ### 2.4 `apps/cli` (vault-cli)
 
-`vault init | info | list | add | show | edit | rm | generate | totp | passwd | recover | kit |
-part-picture | forget | keyfile | import | sync`. Same vault and device state as the desktop
-app. `tests/cli.rs` runs the binary, including sync through a running server.
+`vault init | info | list | add | show | edit | rm | generate | totp | passwd | renew-key |
+recover | kit | part-picture | forget | keyfile | import | sync` (`sync --take-new-key` takes a
+vault key renewed on another device). Same vault and device state as the desktop app. `tests/cli.rs` runs the binary, including sync through a running server.
 
 ### 2.4.1 `crates/browser` (vault-browser) and `apps/extension/`
 
@@ -290,7 +290,8 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
   `crates/core/tests/fixtures/` must keep opening forever. Never regenerate an old fixture.
 - `crates/core/tests/vault.rs`, `robustness.rs` — tampering, swapping, rollback, downgrade,
   malformed input. `sync.rs` — the merge, with a property test over three devices;
-  `recovery_parts.rs` — the kit's three parts.
+  `recovery_parts.rs` — the kit's three parts; `renew.rs` — a renewed vault key, what older
+  copies open afterwards and other devices taking the new key.
 - `apps/desktop/src/tests.rs` — the whole app flow headless (onboarding, unlock, items, cards,
   folders, history, health, generator, import, export, kit, second vault). Slow work runs inline
   there (`Runner::Inline`); dialogs and network are skipped.

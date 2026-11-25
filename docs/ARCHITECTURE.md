@@ -73,6 +73,11 @@ Keyfile [optional] ────────────────────�
   one alone opens nothing. No secret-sharing scheme: pairwise HKDF wraps in the header
   (CRYPTO.md §3.6). Parts work once: after one is used the app offers a new kit. Part C can
   also live inside a photo of the person's own (a PNG with it in its pixels).
+- **Renewing the Vault Key**: a new master password, Secret Key or kit leaves the Vault Key as
+  it is, so whoever opened an older copy holds the key to newer ones. A renewal (desktop
+  Emergency kit page, `vault renew-key`) draws a new Vault Key, Secret Key and kit and wraps
+  every item key again; other devices take it once with the new Secret Key (CRYPTO.md §3.8,
+  SYNC.md §4.7).
 
 ## 3. Primitives
 
