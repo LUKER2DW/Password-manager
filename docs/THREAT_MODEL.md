@@ -311,3 +311,11 @@ On top of that:
    a warning mark. Every image taken (SVG included, drawn without fetching anything it links
    to) is size-limited and decoded by pure-Rust decoders. A site on the internet can't steer
    the fetch into the local network (A11). The leak check follows no redirect.
+   Updates: the desktop app asks GitHub for the newest release only when **Check for updates**
+   is pressed (one anonymous request, no redirect followed) and downloads nothing; the person
+   replaces the program. A sync server follows the releases only when its owner turns it on
+   (`--app-updates`): it takes a phone app package only from github.com, only when its size
+   and SHA-256 match what GitHub lists, and the phone still checks the package is this app,
+   newer and signed with the same certificate before Android asks to install it. GitHub (or
+   whoever took the server over) can withhold an update or offer an old one, never one
+   signed with another key.

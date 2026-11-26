@@ -1,9 +1,9 @@
 # Browser extension (Chrome, Edge)
 
 Fills, shows and saves logins from the desktop app, and suggests strong passwords. It keeps
-no passwords and does no cryptography of its own: it asks the app on the same computer,
-through a small helper program the browser starts (`vault-browser-host`, built from
-`crates/browser`).
+no passwords and does no cryptography of its own: it asks the app on the same computer. The
+browser starts the desktop app's own program (`vault-desktop.exe`) as its native messaging
+host, which relays each message to the app's window over a pipe and shows nothing itself.
 
 Status: alpha, like the rest of the project (loaded unpacked; not in a store yet). Test with a test vault.
 
@@ -140,11 +140,12 @@ one below it (`*.amazonaws.com` doesn't cover `x.s3.amazonaws.com`, someone else
 
 ## Install (development)
 
-1. Build the app and the helper so they sit side by side:
-   `cargo build --release -p vault-desktop -p vault-browser`
+1. Build the app (`cargo build --release -p vault-desktop`), or take `vault-desktop.exe` from a
+   release.
 2. Run the app with a test vault and turn on **Settings → Browser extension**. This writes the
-   helper's manifest under the app's data folder and points Chrome and Edge at it (one registry
-   value each, for your Windows user). Turning it off removes them.
+   host's manifest (pointing at this `vault-desktop.exe`) under the app's data folder and
+   points Chrome and Edge at it (one registry value each, for your Windows user). Turning it
+   off removes them.
 3. Open `chrome://extensions` (or `edge://extensions`), turn on *Developer mode*, choose
    *Load unpacked* and pick this folder (`apps/extension`). Pin the extension to the toolbar. After an
    update of this folder, click the reload arrow on the extension's card.
@@ -152,11 +153,11 @@ one below it (`*.amazonaws.com` doesn't cover `x.s3.amazonaws.com`, someone else
    *Connect*. Done.
 
 If the extension says the app isn't answering: the app must be running (the window may be
-closed to the notification area) with the browser extension turned on, and
-`vault-browser-host.exe` must sit next to `vault-desktop.exe` (both are in `target/release`
-after step 1). Restart the browser after turning the setting on for the first time.
+closed to the notification area) with the browser extension turned on. After moving or
+replacing `vault-desktop.exe`, start it once so it points the browsers at its new place.
+Restart the browser after turning the setting on for the first time.
 
-The `key` in `manifest.json` fixes the extension's id, which is the only id the helper accepts.
+The `key` in `manifest.json` fixes the extension's id, which is the only id the host accepts.
 
 ## Files
 

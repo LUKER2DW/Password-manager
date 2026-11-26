@@ -42,13 +42,16 @@ personal use) gives your devices a private network and real HTTPS certificates.
 
 1. On the machine that will run it (a mini PC, a Raspberry Pi, a NAS, a small VPS), install
    Docker and Tailscale and sign Tailscale in.
-2. From a copy of this repository:
+2. From a copy of this repository (only `apps/server/compose.yaml` is needed):
 
    ```sh
-   docker compose -f apps/server/compose.yaml up -d --build
+   docker compose -f apps/server/compose.yaml up -d
    ```
 
-   It listens on `127.0.0.1:8750` of that machine only.
+   It runs the image each release publishes (`ghcr.io/luker2dw/vault-server`, for amd64 and
+   arm64 such as a Raspberry Pi), listens on `127.0.0.1:8750` of that machine only and follows
+   the project's releases for the phone app's updates (below). `up -d --build` builds the
+   same image from the copy instead.
 3. Put HTTPS in front of it, for your tailnet only:
 
    ```sh
@@ -83,9 +86,11 @@ personal use) gives your devices a private network and real HTTPS certificates.
    `vault sync --join "<line>"` on the other device.) The new device still needs your master
    password and Secret Key to open the vault.
 
-Without Docker: `cargo build --release -p vault-server`, then
-`vault-server --data /var/lib/vault-server serve` under a service manager, with the same
-`tailscale serve` in front.
+Without Docker: take `vault-server-linux-x64`, `vault-server-linux-arm64` or
+`vault-server-windows-x64.exe` from the [latest release](https://github.com/LUKER2DW/Password-manager/releases/latest)
+(or `cargo build --release -p vault-server`), then
+`vault-server --data /var/lib/vault-server serve --app-updates LUKER2DW/Password-manager`
+under a service manager, with the same `tailscale serve` in front.
 
 Plain `http://` is accepted by the apps only to this computer or to a Tailscale address
 (`100.64.0.0/10`), where WireGuard already encrypts the traffic. Anything else must be
@@ -140,10 +145,20 @@ from.
 
 ## Updates of the phone app
 
-The server can hand the phone app's updates to the phones that sync through it, so an update
-doesn't have to be copied to each phone by hand. Build the APK
-(`apps/mobile-android/build.ps1`, which takes its version from `apps/mobile-android/Cargo.toml`),
-then on the server:
+The server hands the phone app's updates to the phones that sync through it, so an update
+doesn't have to be copied to each phone by hand.
+
+**From the releases, by itself.** With `serve --app-updates LUKER2DW/Password-manager` (or
+`VAULT_SERVER_APP_UPDATES`, which `compose.yaml` sets), the server asks GitHub for the newest
+release a minute after it starts and then every 6 hours. When that release carries a newer
+phone app than the one here, it downloads it, checks its size and SHA-256 against what GitHub
+lists for it, and keeps it; the phones offer it in **Settings → Updates**. Its log also says
+when a newer server is out. That is one anonymous request to GitHub every 6 hours, plus the
+package when there is a new one; nothing about the vaults or the devices is in them. Without
+the option it asks nothing. `vault-server fetch-app` does the same once, now.
+
+**By hand.** An APK you built yourself (`apps/mobile-android/build.ps1`, which takes its
+version from `apps/mobile-android/Cargo.toml`):
 
 ```bash
 vault-server publish-app vault-mobile-android.apk --version 0.2.0
@@ -156,11 +171,11 @@ On the phone, **Settings → Updates → Check for updates**, then **Install**. 
 the package with its device key, checks its size and SHA-256 against the release, checks that
 it is this app, newer, and signed with the same certificate, and hands it
 to Android, which asks you and installs it only if it is signed with the same key as the app
-already there. Someone who took the server over can offer an old or a broken package; Android
-refuses one signed with another key, and the phone never installs anything without you.
-The APKs are signed with the app's release key (`make-release-key.ps1`, kept on the computer
-that builds them and backed up offline): whoever has that key can make updates, so it never goes
-near the server.
+already there. Someone who took the server over, or GitHub, can offer an old or a broken
+package; Android refuses one signed with another key, and the phone never installs anything
+without you. The APKs are signed with the app's release key, which only the release workflow
+(a secret of its `android-release` environment) and the maintainer's own computer hold: whoever
+has that key can make updates, so it never goes near the server.
 
 ## Look after it
 
@@ -174,7 +189,9 @@ near the server.
   sure, change the master password too, and every device follows.
 - **Backups:** not needed for safety (every device has the whole vault), but a copy of the
   volume does no harm and holds nothing that opens the vault.
-- **Updates:** `git pull`, then the same `docker compose … up -d --build`.
+- **Updates of the server:** `docker compose -f apps/server/compose.yaml pull`, then
+  `docker compose -f apps/server/compose.yaml up -d` (or, building from source: `git pull`,
+  then `up -d --build`). With `--app-updates` the log says when a newer one is out.
 
 ## Limits it enforces
 

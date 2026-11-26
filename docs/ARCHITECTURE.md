@@ -25,8 +25,8 @@
           crypto · vault format · items · merge
           generator · TOTP · health · SSH keys
 
- apps/extension ── Native Messaging ── vault-browser-host ── named pipe ── desktop app
- (no secrets)                          (crates/browser)
+ apps/extension ── Native Messaging ── vault-desktop.exe ── named pipe ── desktop app
+ (no secrets)                          (started as the host: crates/browser's relay)
 
  platform's sync targets ── signed requests (crates/sync-wire) ──► apps/server
                                                                    (sealed copies only)
@@ -114,10 +114,11 @@ with HPKE and a hybrid X25519 + ML-KEM-768 KEM against "harvest now, decrypt lat
 - WebExtension (`apps/extension/`, Manifest V3) with **no secrets and no crypto**, in plain
   JavaScript with no build step and no packages: what is reviewed is what the browser runs. It
   talks to the desktop app over **Native Messaging** (local process, no network).
-- Path of a request: extension window → native host (`vault-browser-host`, started by the
-  browser, accepts only our extension id) → named pipe of the signed-in user → desktop app.
-  The app and the host each check the other end is the program installed next to them. The
-  link is off until turned on in Settings.
+- Path of a request: extension window → native host (the desktop app's own executable,
+  started by the browser with our extension's id as its argument, which it checks; it then
+  only relays and shows nothing) → named pipe of the signed-in user → desktop app. Each end
+  checks the other is that same executable (by the path of its process). The link is off
+  until turned on in Settings.
 - A content script on https pages (top frame) notices sign-in fields and submitted forms; a
   background worker relays to the app. When a sign-in field is focused and the app has a
   login for the site, a small frame (the extension's own page, `inline.html`, in a

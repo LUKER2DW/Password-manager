@@ -230,9 +230,10 @@ Rules:
   Settings → Appearance or from Windows, template of every text; Brazilian Portuguese started
 
 ### M5 — Browser extension 🚧 (`apps/extension/`, `crates/browser`)
-- ✅ Native Messaging host (`vault-browser-host`) relaying to the desktop app over a per-user
-  named pipe; both ends check the other program; off until turned on in Settings, which also
-  registers the host for Chrome and Edge
+- ✅ Native Messaging host relaying to the desktop app over a per-user named pipe; both ends
+  check the other program; off until turned on in Settings, which also registers the host for
+  Chrome and Edge. Since 0.4.3 the host is `vault-desktop.exe` itself (started with the
+  extension's origin, it only relays), so the desktop app is one file
 - ✅ Extension (Manifest V3, plain JavaScript, no packages) with no secrets
 - ✅ Fill with the login chosen in the extension's own window; strict origin matching in the
   app (scheme + host + port, https only, top frame only); the item lock is respected; each fill
@@ -554,6 +555,11 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   password (`Vault::adopt_key`): desktop Settings → Sync, `vault sync --take-new-key`, the
   phone's Settings → Sync, with no merge conflicts. Side files sealed again, Windows Hello and
   fingerprint unlock turned off; tests in `crates/core/tests/renew.rs`.
+- ✅ Releases (`.github/workflows/release.yml`, `CHANGELOG.md`): each version on `main` builds
+  the desktop exe, the CLI, the server (Linux x64/arm64, Windows, and its image on ghcr.io),
+  the signed and checked APK and the extension, attests every file and publishes
+  `v<version>`. The sync server can follow the releases and hand new phone apps to the phones
+  (`--app-updates`, `vault-server fetch-app`); the desktop has Check for updates in About.
 
 ## Engineering practices
 

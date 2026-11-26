@@ -4,6 +4,30 @@ What each release brought, newest first. A version's section is the text of its 
 release (`.github/workflows/release.yml`), so write it for the people who install it. Alpha:
 never use the apps with real passwords yet.
 
+## [0.4.3] - 2026-11-26
+
+Updates that find their own way: the sync server follows the releases and hands each new phone
+app to your phones, and the desktop app is one file that checks for a newer one when you ask.
+
+### Added
+- **The sync server follows the releases** (`--app-updates LUKER2DW/Password-manager`, set in
+  `apps/server/compose.yaml`): every 6 hours it asks GitHub for the newest release, downloads a
+  newer phone app, checks it against the SHA-256 GitHub lists and offers it to the phones
+  (Settings → Updates). Its log says when a newer server is out. `vault-server fetch-app` does
+  it once, now.
+- **Check for updates** in the desktop app (Settings → About): asks GitHub only when you press
+  it, says whether a newer version is out and opens its page.
+- **The sync server is released too:** an image on GitHub Packages
+  (`ghcr.io/luker2dw/vault-server`, amd64 and arm64, so a Raspberry Pi as well) and programs
+  for Linux (x64, arm64) and Windows. `compose.yaml` runs the image; `pull` then `up -d`
+  updates it.
+
+### Changed
+- **The desktop app is one file**, `vault-desktop.exe`: the browsers start it as the
+  extension's helper, so `vault-browser-host.exe` is gone. After updating, open the app once
+  with the browser extension on, so the browsers point at the new file.
+- Releases list each file on its own, with the SHA-256 GitHub shows next to it.
+
 ## [0.4.2] - 2026-11-26
 
 The first release with every app built, signed and published by GitHub Actions: the desktop

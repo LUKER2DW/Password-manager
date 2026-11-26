@@ -105,7 +105,8 @@ extension's local pipe and host registration (`browser_link.rs`), the emergency 
 (`kit_pdf.rs`, with a QR code for each key), a recovery part hidden in a picture (`part_picture.rs`), opt-in website icons
 fetched directly from each site with a sealed cache (`website_icons.rs`), the `.vault` file
 type for this user on Windows (icon, opens in the app; `file_types.rs`), file helpers and
-secure wiping (`files.rs`), app paths (`paths.rs`), sync targets and one sync
+secure wiping (`files.rs`), app paths (`paths.rs`), the desktop's Check for updates
+(`updates.rs`), sync targets and one sync
 round (`sync.rs`: the folder target, fetch, merge, this device joining the vault;
 `sync/server.rs` the sync server client, `sync/webdav.rs` WebDAV, `sync/http.rs` which
 addresses are allowed). The server key and the WebDAV password live in the credential store
@@ -138,8 +139,9 @@ vault key renewed on another device). Same vault and device state as the desktop
 The extension holds no secrets. `origin.rs` decides which saved website belongs to which page
 (exact scheme, host and port; https only) and which site a page may use passkeys for, `protocol.rs` is the JSON it exchanges with the
 app, `pairing.rs` is the connection key and the proof on every request, `service.rs` answers
-from an open vault (with the item lock as a `Gate`), `host.rs` + `main.rs` are the native host
-(`vault-browser-host`) that relays between the browser and the app's pipe. In `apps/extension/`,
+from an open vault (with the item lock as a `Gate`), `host.rs` is the native host's relay
+between the browser and the app's pipe, run by the desktop app's own executable when a browser
+starts it with the extension's origin (`apps/desktop/src/main.rs`). In `apps/extension/`,
 `popup.js` is the extension's window, `link.js` its connection key and request signing, and
 `fill.js` the function that types a login into a page, `content.js` + `fields.js` the
 content script (sign-in fields, submitted forms), `inline.html`/`inline.js` the frame shown
@@ -173,6 +175,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/locked_fill.rs` | Filling from the browser while the vault is locked |
 | `src/controller/attachments.rs` | Files attached to items and SSH key items in the editor and on the item page |
 | `src/controller/watch.rs` | The leak watch: every login checked once a day while open, new leaks told and shown on Password health |
+| `src/controller/updates.rs` | Settings → About → Check for updates (GitHub's newest release, on the button only) |
 | `src/tray.rs` | The notification area icon (tray mode) and its menu window (`ui/tray.slint`) |
 | `src/i18n.rs` | The app's language: picks a compiled-in catalogue from `translations/` |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
@@ -230,7 +233,10 @@ enrollment, invites, JSON bodies). `vault-server` (AGPL-3.0) stores sealed copie
 public keys and invite digests as plain files (`store.rs`) behind the API in `api.rs`
 (signature, time and nonce checks, limits), served by `connections.rs` (open connections
 capped, header and write time limits), with an HTTPS of its own for a home network
-(`tls.rs`). Tests: `cargo test -p vault-server` runs a real server with two devices. Setup:
+(`tls.rs`), and can follow the project's releases to hand new phone apps to the phones
+(`updates.rs`, `--app-updates`; the release list is read by `vault_sync_wire::releases`).
+Released as binaries and as an image on ghcr.io (`release.Dockerfile`). Tests:
+`cargo test -p vault-server` runs a real server with two devices. Setup:
 [docs/SERVER.md](docs/SERVER.md); Docker files next to the code.
 
 ## 3. Build, run, test
@@ -318,7 +324,9 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
    (setting, off by default), the leak check (button; k-anonymous, 5 hex chars of SHA-1,
    padded) and the leak watch (the same check once a day; setting, off by default), an icon
    site or picture link chosen for an item or folder, sync to a place the person set up
-   (sealed copies only), and the phone app's updates from that server. Nothing is sent to a
+   (sealed copies only), the phone app's updates from that server, the desktop's **Check for
+   updates** (a button; GitHub's release list) and a sync server following the releases
+   (`--app-updates`, its owner's choice; `apps/server/src/updates.rs`). Nothing is sent to a
    third-party service for icons. Links handed to the OS to open are `http(s)` only
    (`vault_platform::browsers::web_link`). The browser extension's link is local only (a
    named pipe), off by default.
@@ -362,9 +370,11 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
 - Dependabot's pull requests are never merged as they are: the update is redone in a `Build:`
   commit of the maintainer's and the pull request closed, so every commit on `main` has the one
   author.
-- Releases: bump the version in every app (`.github/workflows/release.yml` lists the files) and
+- Releases: bump the version in every app (`.github/workflows/release.yml` lists the files),
+  add the phone's notes for it (`apps/mobile/ui/app.slint`, with its pt_BR translation) and
   write its section in `CHANGELOG.md`; the push to `main` builds, signs and publishes
-  `v<version>`.
+  `v<version>` (the desktop exe, the CLI, the server for Linux and Windows and its image on
+  ghcr.io, the APK, the extension).
 
 ## 5. How to do common things
 
