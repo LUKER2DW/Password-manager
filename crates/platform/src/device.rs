@@ -167,6 +167,10 @@ pub struct Settings {
     pub browser_fill_notices: bool,
     /// The drawn texture behind the open vault. On by default.
     pub backdrop: bool,
+    /// Look for a newer version on GitHub by itself, every hour while the app runs (one
+    /// anonymous request; nothing about the vault). On by default, so a fix reaches every
+    /// computer soon after it is released.
+    pub update_checks: bool,
 }
 
 impl Default for Settings {
@@ -186,6 +190,7 @@ impl Default for Settings {
             browser_passkeys: true,
             browser_fill_notices: true,
             backdrop: true,
+            update_checks: true,
         }
     }
 }
