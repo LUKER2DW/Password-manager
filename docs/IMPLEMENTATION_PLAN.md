@@ -348,7 +348,7 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   keys and is no older than what the phone saw; "Bring a newer copy" in Settings
 - ✅ The phone app in a browser (`apps/mobile-web`, WebAssembly): the real screens and
   controller on a canvas with a demo vault, to try it on a computer (MOBILE.md §7.1)
-- 🚧 M7.1 Runs on a phone: ✅ an APK (`apps/mobile-android`, cargo + Gradle, NDK 28, Slint's
+- 🚧 M7.1 Runs on a phone: ✅ an APK (`apps/mobile-android`, cargo + Gradle, NDK 30, Slint's
   Android backend) with the system keyboard for secret fields (stand-ins only, MOBILE.md
   §7.2), setup from the sync server on the start screen, the Keystore-backed credential
   store and the system clipboard over JNI; tried on a phone; Back; ⬜ bundled fonts
@@ -485,8 +485,10 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
 - ✅ M7.4 Autofill Service (exact site or app, a fingerprint or the phone's lock before every
   fill, a strong password suggested, "Save to Vault?" with a drop box while locked);
   ⬜ tried on a device; ⬜ M7.5 Credential Manager provider (passwords, passkeys)
-- ✅ Updates of the app from the person's own server (`vault-server publish-app`, checked
-  against the release, installed by Android only when signed like the app)
+- ✅ Updates of the app from the project's releases on GitHub (the default) or the person's own
+  server (`vault-server publish-app`, or the server following the releases), checked against
+  the release, installed by Android only when signed like the app; looked for every hour
+  while a vault is open (a switch turns it off)
 - ✅ M7.6 Sync (M6.4)
 - ✅ Brazilian Portuguese: every text of the phone (647, `apps/mobile/translations/`, with the
   desktop's shared widgets), the language from Settings → Appearance or the phone's (the browser's
@@ -559,7 +561,10 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   the desktop exe, the CLI, the server (Linux x64/arm64, Windows, and its image on ghcr.io),
   the signed and checked APK and the extension, attests every file and publishes
   `v<version>`. The sync server can follow the releases and hand new phone apps to the phones
-  (`--app-updates`, `vault-server fetch-app`); the desktop has Check for updates in About.
+  (`--app-updates`, `vault-server fetch-app`); the desktop and the phone look for a newer
+  release by themselves every hour (About), and the phone installs it from GitHub. Every
+  release checks that the phone's library loads on Android (`check-library.ps1`: 0.4.2 and
+  0.4.3 closed at start, Skia built with a newer NDK).
 
 ## Engineering practices
 

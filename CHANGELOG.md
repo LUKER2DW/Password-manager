@@ -4,6 +4,32 @@ What each release brought, newest first. A version's section is the text of its 
 release (`.github/workflows/release.yml`), so write it for the people who install it. Alpha:
 never use the apps with real passwords yet.
 
+## [0.4.4] - 2026-11-26
+
+The phone app opens again, and every app now hears of a new version within the hour, so a fix
+reaches everyone the same day.
+
+### Fixed
+- **The phone app closed as soon as it started (0.4.2 and 0.4.3).** Skia, which draws its
+  screens, came built with a newer Android NDK than the one the app was built with, so Android
+  couldn't load the app's library. It is built with NDK 30 now, and every release checks that
+  the library loads on Android before it is signed.
+
+### Added
+- **The phone takes updates from GitHub** (Settings → About and updates → Get updates from:
+  GitHub, the default, or your vault server). The package is taken only if it matches the
+  SHA-256 GitHub lists for it, and Android installs it only when it is signed with the same
+  key as the app already there.
+- **Updates are looked for by themselves:** the phone every hour while a vault is open, the
+  desktop app a moment after it starts and every hour while it runs (a notice says when a
+  newer version is out). One anonymous request to GitHub each time; a switch next to Check for
+  updates turns it off.
+
+### Security
+- The phone app's Java side may no longer use plain http (`usesCleartextTraffic="false"`);
+  the app's own connections were never affected by it and keep refusing http:// except to the
+  phone itself or a Tailscale address.
+
 ## [0.4.3] - 2026-11-26
 
 Updates that find their own way: the sync server follows the releases and hands each new phone

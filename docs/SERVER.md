@@ -145,8 +145,10 @@ from.
 
 ## Updates of the phone app
 
-The server hands the phone app's updates to the phones that sync through it, so an update
-doesn't have to be copied to each phone by hand.
+The phones take their updates from GitHub by default (Settings → About and updates). A phone
+can take them from its sync server instead (**Get updates from: My vault server**), which
+hands the phone app's updates to the phones that sync through it: then the phones never ask
+GitHub themselves, and an update doesn't have to be copied to each phone by hand.
 
 **From the releases, by itself.** With `serve --app-updates LUKER2DW/Password-manager` (or
 `VAULT_SERVER_APP_UPDATES`, which `compose.yaml` sets), the server asks GitHub for the newest
@@ -167,7 +169,8 @@ docker compose -f apps/server/compose.yaml cp vault-mobile-android.apk vault-ser
 docker compose -f apps/server/compose.yaml exec vault-server vault-server publish-app /data/vault-mobile-android.apk --version 0.2.0
 ```
 
-On the phone, **Settings → Updates → Check for updates**, then **Install**. The phone fetches
+On the phone, with updates from the server, **Settings → Updates → Check for updates** (or
+wait: it looks after syncing), then **Install**. The phone fetches
 the package with its device key, checks its size and SHA-256 against the release, checks that
 it is this app, newer, and signed with the same certificate, and hands it
 to Android, which asks you and installs it only if it is signed with the same key as the app

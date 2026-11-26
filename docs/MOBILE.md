@@ -80,7 +80,7 @@ them when an item is open.
 | Editor | New login, card, note, authenticator item or SSH key, edit, delete, attach files; a folder (from a list) and an icon (the site's, or a preset line icon in colours of its own, behind Choose); the setup key scanned from a QR code (the kind of code under Advanced options); "Make a strong one" opens the generator and Use brings it back; an SSH key made here, pasted or read from a file in any common form, its passphrase asked once | ✅; ⬜ custom fields |
 | Codes | One-time codes with a countdown pie and its seconds, green to yellow to red; tap a card to copy, or drag it to the left (Copy shows under it, and "Copied" on the card); drag it to the right to edit it (the page doesn't change place there); hold a card, then drag it up or down to put it elsewhere (the order is kept on this phone, per vault); Next for counter-based ones; Add | ✅ |
 | Generator | Characters or words, length (a held slider keeps the finger), Advanced options, strength, the password in a box as tall as it needs; copy; "New login with it"; the history of copied passwords (masked, with the date and time, those an item already uses leave it for good, and while an item's secrets are behind the item lock the list stays masked and nothing in it can be copied (checked again after every sync that brings items); each deletable after a confirmation, the list cleared after one) | ✅ |
-| Settings | Security, autofill, vaults (its name, kept in the vault; an icon and its colours on this phone), import and export, sync (a device without a copy where the vault syncs now says so; a vault key renewed on a computer is taken once with the new Secret Key and the master password), appearance, about and updates (with short notes for each version; the servers are asked once after the first sync of an unlock, and what each has is said), password health (a ring with the share of logins that are fine, what to do first, counts that filter the list, each login's problems as tags, the leak watch's switch, what the words mean), folders (inside other folders, with an icon and a colour) | ✅ |
+| Settings | Security, autofill, vaults (its name, kept in the vault; an icon and its colours on this phone), import and export, sync (a device without a copy where the vault syncs now says so; a vault key renewed on a computer is taken once with the new Secret Key and the master password), appearance, about and updates (with short notes for each version; updates from GitHub, looked for every hour while a vault is open, or from the vault's servers, asked after syncing; what was found is said), password health (a ring with the share of logins that are fine, what to do first, counts that filter the list, each login's problems as tags, the leak watch's switch, what the words mean), folders (inside other folders, with an icon and a colour) | ✅ |
 | Autofill sheet | Android's own picker over another app | ✅ (Java) |
 
 Every page scrolls on its own (`Scroller` in app.slint: one per page and a thin bar while it
@@ -325,7 +325,7 @@ libraries from Google's Maven repository; later builds use Gradle's cache.
 ```powershell
 # Once: the NDK and platform 35 (sdkmanager), Rust's Android targets. Gradle runs on
 # Android Studio's Java (JAVA_HOME, or its jbr folder).
-sdkmanager "ndk;28.2.13676358" "platforms;android-35"
+sdkmanager "ndk;30.0.16248370" "platforms;android-35"
 rustup target add aarch64-linux-android x86_64-linux-android
 
 ./apps/mobile-android/build.ps1          # target/release/apk/vault-mobile-android.apk
@@ -352,8 +352,9 @@ with the release certificate alone (its SHA-256 is written in the workflow). Whe
 every app carries has no release yet, it publishes `v<version>`: the notes are that version's
 section of `CHANGELOG.md`, and every file has a provenance attestation. To release, bump the
 version in each app (the workflow's comment lists the files), add the notes shown in About and
-write the changelog section. A sync server that follows the releases (`--app-updates`,
-docs/SERVER.md) then offers the new APK to the phones by itself.
+write the changelog section. The phones find the new APK by themselves within the hour, on
+GitHub or, when they take updates from it, on a sync server that follows the releases
+(`--app-updates`, docs/SERVER.md).
 The key and its password are secrets of the `android-release` environment
 (`ANDROID_SIGNING_STORE`, the `.p12` in base64; `ANDROID_SIGNING_PASSWORD`), handed only to jobs
 running for `main`. GitHub keeps them write-only: they are not a backup of the key.
@@ -382,9 +383,10 @@ What is in this first build (M7.1):
 - **The credential store** is SharedPreferences encrypted with a key in the Android Keystore
   (`android-native-keyring-store`); **the clipboard** is the system's `ClipboardManager`
   over JNI, with copied secrets marked sensitive.
-- `INTERNET` is the only permission that reaches out. Android lets plain http through only so
-  a Tailscale address works; the app itself refuses `http://` to anything else (and to
-  WebDAV, which sends its password with every request, anything but the phone itself).
+- `INTERNET` is the only permission that reaches out. The Java side may use no plain http
+  (`usesCleartextTraffic="false"`); the app's own connections, made by its Rust library,
+  refuse `http://` except to the phone itself or a Tailscale address (and for WebDAV, which
+  sends its password with every request, anything but the phone itself).
 - **Scan the QR code** (the start screen and Settings → Sync) reads the invite a computer
   shows under Add a device with Google's code scanner (`play-services-code-scanner`, the
   same as Sentinela's): the camera screen is Play services' own, so the app has no camera
@@ -427,7 +429,10 @@ What is in this first build (M7.1):
   master password; the phone then keeps the new Secret Key in the Keystore, syncs again and
   turns fingerprint unlock off. The phone doesn't renew the key itself: the new kit has to be
   printed, so that is done on a computer (the desktop app or `vault renew-key`).
-- **Updates** from the vault server (docs/SERVER.md, "Updates of the phone app").
+- **Updates** from the project's releases on GitHub (the default: looked for every hour while
+  a vault is open, the package taken only as the release lists it) or from the vault server
+  (docs/SERVER.md, "Updates of the phone app"); Settings → About and updates chooses, and
+  turns the looks on their own off.
 - **Import** of another manager's export, and **Check this password** (strength, leak check)
   on the item page. **The leak watch** (Security, off until turned on): every login checked
   once a day while open; a new leak is told and marked in the list.

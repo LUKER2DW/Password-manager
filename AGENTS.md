@@ -105,8 +105,8 @@ extension's local pipe and host registration (`browser_link.rs`), the emergency 
 (`kit_pdf.rs`, with a QR code for each key), a recovery part hidden in a picture (`part_picture.rs`), opt-in website icons
 fetched directly from each site with a sealed cache (`website_icons.rs`), the `.vault` file
 type for this user on Windows (icon, opens in the app; `file_types.rs`), file helpers and
-secure wiping (`files.rs`), app paths (`paths.rs`), the desktop's Check for updates
-(`updates.rs`), sync targets and one sync
+secure wiping (`files.rs`), app paths (`paths.rs`), the apps' updates from GitHub's releases
+(`updates.rs`: the release list, and the phone's package checked against it), sync targets and one sync
 round (`sync.rs`: the folder target, fetch, merge, this device joining the vault;
 `sync/server.rs` the sync server client, `sync/webdav.rs` WebDAV, `sync/http.rs` which
 addresses are allowed). The server key and the WebDAV password live in the credential store
@@ -175,7 +175,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/locked_fill.rs` | Filling from the browser while the vault is locked |
 | `src/controller/attachments.rs` | Files attached to items and SSH key items in the editor and on the item page |
 | `src/controller/watch.rs` | The leak watch: every login checked once a day while open, new leaks told and shown on Password health |
-| `src/controller/updates.rs` | Settings → About → Check for updates (GitHub's newest release, on the button only) |
+| `src/controller/updates.rs` | Updates: GitHub's newest release, looked for every hour (Settings → About → Look for updates by itself) and on Check for updates; a notice tells of a newer one |
 | `src/tray.rs` | The notification area icon (tray mode) and its menu window (`ui/tray.slint`) |
 | `src/i18n.rs` | The app's language: picks a compiled-in catalogue from `translations/` |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
@@ -324,9 +324,11 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
    (setting, off by default), the leak check (button; k-anonymous, 5 hex chars of SHA-1,
    padded) and the leak watch (the same check once a day; setting, off by default), an icon
    site or picture link chosen for an item or folder, sync to a place the person set up
-   (sealed copies only), the phone app's updates from that server, the desktop's **Check for
-   updates** (a button; GitHub's release list) and a sync server following the releases
-   (`--app-updates`, its owner's choice; `apps/server/src/updates.rs`). Nothing is sent to a
+   (sealed copies only), the apps' updates (GitHub's release list, one anonymous request:
+   looked at by the desktop and the phone every hour while they run and on the **Check for
+   updates** button, a setting on by default so a fix reaches everyone; the phone may take
+   them from its sync server instead; `vault_platform::updates`) and a sync server following
+   the releases (`--app-updates`, its owner's choice; `apps/server/src/updates.rs`). Nothing is sent to a
    third-party service for icons. Links handed to the OS to open are `http(s)` only
    (`vault_platform::browsers::web_link`). The browser extension's link is local only (a
    named pipe), off by default.
