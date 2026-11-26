@@ -11,7 +11,7 @@
 # apps/mobile/Cargo.toml, apps/mobile-android/Cargo.toml, apps/desktop/Cargo.toml,
 # apps/cli/Cargo.toml, apps/server/Cargo.toml and apps/extension/manifest.json (the run refuses
 # them unequal), add the phone's notes (apps/mobile/ui/app.slint) and the CHANGELOG.md section,
-# push to main. Sync servers that follow the releases then hand the new APK to the phones.
+# push to main. The phones and the desktop app find it by themselves within the hour.
 #
 # The release key lives only in the secrets of the `android-release` environment, which GitHub
 # hands to jobs running for main alone (the environment's branch policy): a pull request, or a
@@ -50,7 +50,9 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  NDK_VERSION: 28.2.13676358
+  # As in apps/mobile-android/build.ps1. Skia comes built with this NDK's compiler, so the C++
+  # library linked with it has to be at least as new (check-library.ps1 says so before signing).
+  NDK_VERSION: 30.0.16248370
   BUILD_TOOLS: 36.0.0
   # SHA-256 of the release certificate, as make-release-key.ps1 printed it (docs/MOBILE.md).
   RELEASE_CERTIFICATE: 5b8f1f7929a87c7bdd1a0b5b0e188fa16d0b06926f230f6ade0f85a5c9b1e971
@@ -140,6 +142,15 @@ jobs:
           mkdir -p target/android-libs/arm64-v8a
           "$bin/llvm-strip" --strip-all -o target/android-libs/arm64-v8a/libvault_mobile_android.so \
             target/android/aarch64-linux-android/release/libvault_mobile_android.so
+
+      # Android loads the library before the app's first line runs: a symbol missing from the
+      # system's libraries is a crash at start, which no test here would show.
+      - name: The library loads on Android
+        shell: pwsh
+        run: >-
+          apps/mobile-android/check-library.ps1
+          -Library target/android-libs/arm64-v8a/libvault_mobile_android.so
+          -Ndk "$env:ANDROID_SDK_ROOT/ndk/$env:NDK_VERSION"
 
       - name: APK, signed with the release key
         env:
@@ -343,7 +354,7 @@ jobs:
 
           ### Downloads
           - **Desktop (Windows x64):** \`vault-desktop.exe\`, one file: run it. It is also what the browser extension talks to. Not signed for Windows yet, so SmartScreen may ask first (More info → Run anyway).
-          - **Phone (Android, 64-bit ARM):** \`vault-mobile-android-$VERSION.apk\`, signed with the release certificate (SHA-256 \`$RELEASE_CERTIFICATE\`). A phone that syncs through a server following the releases is offered it in Settings → Updates.
+          - **Phone (Android, 64-bit ARM):** \`vault-mobile-android-$VERSION.apk\`, signed with the release certificate (SHA-256 \`$RELEASE_CERTIFICATE\`). Phones find it by themselves within the hour (Settings → About and updates), from GitHub or from a sync server that follows the releases.
           - **Browser extension (Chrome, Edge):** \`vault-extension-$VERSION.zip\`. Unzip it, open \`chrome://extensions\`, turn on Developer mode, choose *Load unpacked*, then turn the link on in the desktop app (Settings → Browser extension).
           - **Sync server:** the image \`$image:$VERSION\` (amd64, arm64), or the program \`vault-server-linux-x64\`, \`vault-server-linux-arm64\`, \`vault-server-windows-x64.exe\`. With \`--app-updates $GITHUB_REPOSITORY\` (as in \`apps/server/compose.yaml\`) it hands each new phone app to your phones by itself.
           - **Command line (Windows x64):** \`vault.exe\`.

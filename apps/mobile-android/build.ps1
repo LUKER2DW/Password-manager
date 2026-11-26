@@ -1,6 +1,6 @@
 # Builds the Android app (an APK for 64-bit ARM phones) into target/release/apk.
-# Needs: the Android SDK with platform 35 and NDK 28 (sdkmanager "platforms;android-35"
-# "ndk;28.2.13676358"), Android Studio's Java (JDK 17 or newer, for Gradle and keytool),
+# Needs: the Android SDK with platform 35 and NDK 30 (sdkmanager "platforms;android-35"
+# "ndk;30.0.16248370"), Android Studio's Java (JDK 17 or newer, for Gradle and keytool),
 #        rustup target add aarch64-linux-android x86_64-linux-android
 # Two steps: cargo builds the Rust library (the app's screens and everything behind them) with
 # the NDK's linker, then Gradle (gradlew, build.gradle) packages it with the Java shell (java/),
@@ -19,7 +19,11 @@
 param([string]$Target = "aarch64-linux-android", [switch]$Release)
 $ErrorActionPreference = "Stop"
 $sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { "$env:LOCALAPPDATA\Android\Sdk" }
-$ndk = Get-ChildItem "$sdk\ndk" | Sort-Object Name -Descending | Select-Object -First 1
+# The NDK the release workflow uses too (NDK_VERSION). Skia comes built with that NDK's
+# compiler, so the C++ library linked with it has to be as new: check-library.ps1 makes sure.
+$ndkVersion = "30.0.16248370"
+$ndk = Get-Item "$sdk\ndk\$ndkVersion" -ErrorAction SilentlyContinue
+if (-not $ndk) { throw "NDK $ndkVersion is missing: sdkmanager `"ndk;$ndkVersion`"" }
 $bin = "$($ndk.FullName)\toolchains\llvm\prebuilt\windows-x86_64\bin"
 if (-not $env:JAVA_HOME) { $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr" }
 $env:Path = "$env:JAVA_HOME\bin;$env:Path"
@@ -84,6 +88,9 @@ try {
     & "$bin\llvm-strip.exe" --strip-all -o "$libs/$abi/libvault_mobile_android.so" `
         "target/android/$Target/$cargoProfile/libvault_mobile_android.so"
     if ($LASTEXITCODE -ne 0) { throw "llvm-strip failed" }
+    # Android has to be able to load it: a missing symbol is a crash before the app starts.
+    & "$PSScriptRoot/check-library.ps1" -Library "$libs/$abi/libvault_mobile_android.so" `
+        -Ndk $ndk.FullName -Triple $Target
 
     Push-Location apps/mobile-android
     try {
