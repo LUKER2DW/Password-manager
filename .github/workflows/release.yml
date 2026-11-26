@@ -1,33 +1,46 @@
-# The phone app's APK, built and signed here from main, and published as a release when its
-# version (apps/mobile-android/Cargo.toml) has none yet: bump the version to release.
+# Releases. Every push to main that changes an app builds all of them from that commit:
+#  - the phone app's APK, signed with the release key;
+#  - the desktop app for Windows (vault-desktop.exe, the browser extension's helper
+#    vault-browser-host.exe and the `vault` command), in one zip;
+#  - the browser extension, as a zip to load unpacked.
+# Each run keeps them as artifacts. When the version they carry has no release yet, the run
+# also publishes the GitHub release v<version>: its notes are that version's section of
+# CHANGELOG.md, with SHA256SUMS and a provenance attestation for every file. To release: bump
+# the version in apps/mobile/Cargo.toml, apps/mobile-android/Cargo.toml, apps/desktop/Cargo.toml,
+# apps/cli/Cargo.toml and apps/extension/manifest.json (the run refuses them unequal), write the
+# CHANGELOG.md section, push to main.
 #
 # The release key lives only in the secrets of the `android-release` environment, which GitHub
 # hands to jobs running for main alone (the environment's branch policy): a pull request, or a
-# run of this workflow from another branch, never sees it.
+# run from another branch, never sees it.
 #   ANDROID_SIGNING_STORE     the key (release.p12: PKCS#12, alias "vault"), in base64
 #   ANDROID_SIGNING_PASSWORD  its password
 # The APK must come out signed with the certificate named below, or nothing is published: a key
-# swapped in the secrets can't sign a release. Each APK gets a provenance attestation
-# (`gh attestation verify <apk> --repo <owner>/<repo>` says it was built here, from which commit).
-name: Android release
+# swapped in the secrets can't sign a release. `gh attestation verify <file> --repo <repo>` says
+# a file was built here, and from which commit.
+name: Release
 
 on:
   push:
     branches: [main]
     paths:
+      - "apps/cli/**"
+      - "apps/desktop/**"
+      - "apps/extension/**"
       - "apps/mobile/**"
       - "apps/mobile-android/**"
       - "crates/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
-      - ".github/workflows/android-release.yml"
+      - "CHANGELOG.md"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: android-release
+  group: release
   cancel-in-progress: false
 
 env:
@@ -39,33 +52,42 @@ env:
   RELEASE_CERTIFICATE: 5b8f1f7929a87c7bdd1a0b5b0e188fa16d0b06926f230f6ade0f85a5c9b1e971
 
 jobs:
-  apk:
-    name: Signed APK
+  version:
+    name: Version
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    environment: android-release
+    timeout-minutes: 5
     permissions:
-      # The release and its tag.
-      contents: write
-      # The APK's provenance attestation.
-      id-token: write
-      attestations: write
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      published: ${{ steps.version.outputs.published }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Version
+      - name: The same version everywhere
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(sed -n 's/^version = "\([0-9]*\.[0-9]*\.[0-9]*\)"\r\?$/\1/p' apps/mobile-android/Cargo.toml | head -n 1)
+          crate_version() { sed -n 's/^version = "\([0-9]*\.[0-9]*\.[0-9]*\)"\r\?$/\1/p' "$1" | head -n 1; }
+          version=$(crate_version apps/mobile-android/Cargo.toml)
           if [ -z "$version" ]; then
-            echo "::error::No version in apps/mobile-android/Cargo.toml"
+            echo "::error file=apps/mobile-android/Cargo.toml::No version"
             exit 1
           fi
-          tag="android-v$version"
+          for file in apps/mobile/Cargo.toml apps/desktop/Cargo.toml apps/cli/Cargo.toml; do
+            if [ "$(crate_version "$file")" != "$version" ]; then
+              echo "::error file=$file::Its version is not $version, as in apps/mobile-android/Cargo.toml"
+              exit 1
+            fi
+          done
+          if [ "$(jq -r .version apps/extension/manifest.json)" != "$version" ]; then
+            echo "::error file=apps/extension/manifest.json::Its version is not $version"
+            exit 1
+          fi
+          tag="v$version"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             published=true
           else
@@ -76,7 +98,20 @@ jobs:
             echo "tag=$tag"
             echo "published=$published"
           } >> "$GITHUB_OUTPUT"
-          echo "Version $version (tag $tag), already released: $published"
+          echo "Version $version, already released: $published"
+
+  apk:
+    name: Phone app (signed APK)
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: android-release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # rust-toolchain.toml names the toolchain; this installs it with the phone's target.
       - name: Toolchain
@@ -122,7 +157,7 @@ jobs:
 
       - name: Check the signature
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           apk=target/gradle/vault-mobile-android/outputs/apk/release/vault-mobile-android-release.apk
           "$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/apksigner" verify --print-certs "$apk" \
@@ -133,40 +168,146 @@ jobs:
             echo "::error::The APK is not signed with the release certificate alone"
             exit 1
           fi
-          mkdir dist
-          cp "$apk" "dist/vault-mobile-android-$VERSION.apk"
-          (cd dist && sha256sum ./*.apk > SHA256SUMS)
-          cat dist/SHA256SUMS
-
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: dist/*.apk
+          mkdir out
+          cp "$apk" "out/vault-mobile-android-$VERSION.apk"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: vault-mobile-android
+          name: apk
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+
+  desktop:
+    name: Desktop app (Windows)
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: rustup show active-toolchain
+      - name: Build
+        run: cargo build --release --locked -p vault-desktop -p vault-browser -p vault-cli
+      # The helper must sit next to vault-desktop.exe: the app registers it from its own folder.
+      - name: Zip
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          $name = "vault-desktop-$env:VERSION-windows-x64"
+          New-Item -ItemType Directory -Force "out/$name" | Out-Null
+          Copy-Item target/release/vault-desktop.exe, target/release/vault-browser-host.exe, `
+            target/release/vault.exe "out/$name/"
+          Compress-Archive -Path "out/$name" -DestinationPath "out/$name.zip"
+          Remove-Item -Recurse "out/$name"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+
+  extension:
+    name: Browser extension
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # What the browser loads: the extension's files without its tests and notes.
+      - name: Zip
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir out
+          cd apps/extension
+          git ls-files | grep -v -e '^test/' -e '^package\.json$' -e '^README\.md$' \
+            | zip -X -q "$GITHUB_WORKSPACE/out/vault-extension-$VERSION.zip" -@
+          unzip -l "$GITHUB_WORKSPACE/out/vault-extension-$VERSION.zip"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: extension
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+
+  release:
+    name: Attest and publish
+    needs: [version, apk, desktop, extension]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # The release and its tag.
+      contents: write
+      # The files' provenance attestations.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          (cd dist && sha256sum ./*.apk ./*.zip > SHA256SUMS)
+          cat dist/SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.apk
+            dist/*.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vault-${{ needs.version.outputs.version }}
           path: dist/
           retention-days: 30
           if-no-files-found: error
 
       - name: Release
-        if: steps.version.outputs.published == 'false'
+        if: needs.version.outputs.published == 'false' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
-          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
-          cat > "$RUNNER_TEMP/notes.md" << EOF
-          The phone app (Android, 64-bit ARM), version $VERSION. Alpha: never use it with real passwords yet.
+          notes="$RUNNER_TEMP/notes.md"
+          # This version's section of CHANGELOG.md, each paragraph and list item joined onto
+          # one line (the release page keeps line breaks).
+          awk -v v="$VERSION" 'index($0, "## [" v "]") == 1 {f = 1; next} f && /^## \[/ {exit} f' CHANGELOG.md |
+            awk '/^[[:space:]]*$/ { if (have) print line; have = 0; if (started) blank = 1; next }
+                 have && line !~ /^#/ && $0 !~ /^[[:space:]]*([-*] |#|[0-9]+\. )/ { s = $0; sub(/^ +/, "", s); line = line " " s; next }
+                 { if (have) print line; if (blank) print ""; blank = 0; line = $0; have = 1; started = 1 }
+                 END { if (have) print line }' > "$notes"
+          if ! grep -q '[^[:space:]]' "$notes"; then
+            echo "::error file=CHANGELOG.md::No section for $VERSION"
+            exit 1
+          fi
+          prev=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          cat >> "$notes" << EOF
 
-          Signed with the release certificate, SHA-256:
-          \`$RELEASE_CERTIFICATE\`
+          ### Downloads
+          - **Phone (Android, 64-bit ARM):** \`vault-mobile-android-$VERSION.apk\`, signed with the release certificate (SHA-256 \`$RELEASE_CERTIFICATE\`).
+          - **Desktop (Windows x64):** \`vault-desktop-$VERSION-windows-x64.zip\`. Keep the three files together and run \`vault-desktop.exe\`. Not signed for Windows yet, so SmartScreen may ask first.
+          - **Browser extension (Chrome, Edge):** \`vault-extension-$VERSION.zip\`. Unzip it, open \`chrome://extensions\`, turn on Developer mode and choose *Load unpacked*; then turn the link on in the desktop app (Settings → Browser extension).
 
-          Check what you downloaded:
-          - \`sha256sum -c SHA256SUMS\`
-          - \`gh attestation verify vault-mobile-android-$VERSION.apk --repo $GITHUB_REPOSITORY\` (built by this repository's workflow, from commit $GITHUB_SHA)
-
-          Phones that sync through your own server get it from there once you publish it: \`vault-server publish-app vault-mobile-android-$VERSION.apk --version $VERSION\` (docs/SERVER.md).
+          Check a download: \`sha256sum -c SHA256SUMS --ignore-missing\`, and \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` (built here, from commit $GITHUB_SHA).
           EOF
+          if [ -n "$prev" ]; then
+            printf '\n**Full changelog**: %s/%s/compare/%s...%s\n' \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$prev" "$TAG" >> "$notes"
+          fi
           gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Phone app $VERSION" --notes-file "$RUNNER_TEMP/notes.md" --prerelease
+            --title "Vault $VERSION" --notes-file "$notes" --prerelease
