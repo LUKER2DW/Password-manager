@@ -87,6 +87,12 @@ On top of that:
   hibernation file (lesson from KeePass CVE-2023-32784).
 - A custom master-password input that does not leave copies of the string in memory.
 - Window excluded from screen capture (`WDA_EXCLUDEFROMCAPTURE` on Windows, `FLAG_SECURE` on Android).
+- A memory bug is harder to turn into control of the app: the Windows programs have ASLR with
+  a high-entropy address space, DEP and Control Flow Guard (an indirect call to anywhere but
+  the start of a function stops the program; `.cargo/config.toml`), and every release checks
+  each exe for them (`apps/desktop/check-exe.ps1`). Control Flow Guard covers our code and the
+  C compiled with it (ring, SQLite), not the standard library or Skia, which come
+  precompiled. Most of the code is safe Rust, where such bugs can't happen to begin with.
 - Clipboard: automatic clearing and exclusion from Windows clipboard history and cloud sync.
 - Optional re-prompt: critical items (bank, primary email, crypto) require a fresh check
   on every use. Implemented as the item lock: the master password (re-derived against the

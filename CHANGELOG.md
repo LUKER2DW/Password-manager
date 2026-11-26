@@ -4,6 +4,22 @@ What each release brought, newest first. A version's section is the text of its 
 release (`.github/workflows/release.yml`), so write it for the people who install it. Alpha:
 never use the apps with real passwords yet.
 
+## [0.4.6] - 2026-11-26
+
+The Windows apps are harder to take over through a memory bug. Nothing changes on the phone.
+
+### Security
+- **Control Flow Guard** in the desktop app, the `vault` command and the server for Windows.
+  Windows stops the program when a call through a function pointer goes anywhere but the
+  start of a real function, so a memory bug in C code or in `unsafe` Rust ends in a crash
+  instead of handing over the program. It covers the apps' own code and the C built with
+  them (ring, SQLite); the Rust standard library and Skia come precompiled without it.
+- Every release checks each Windows exe for ASLR, DEP and Control Flow Guard before
+  publishing it.
+- The release no longer runs an install script downloaded during the build: the Linux
+  server's builds use the rustup that comes with the runner (code scanning's
+  Pinned-Dependencies alert).
+
 ## [0.4.5] - 2026-11-26
 
 Updates that hold up on a network that stumbles.

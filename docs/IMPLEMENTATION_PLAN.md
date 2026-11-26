@@ -565,6 +565,10 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   release by themselves every hour (About), and the phone installs it from GitHub. Every
   release checks that the phone's library loads on Android (`check-library.ps1`: 0.4.2 and
   0.4.3 closed at start, Skia built with a newer NDK).
+- ✅ Exploit protections on Windows: Control Flow Guard in every Windows build
+  (`-Ccontrol-flow-guard` in `.cargo/config.toml`, passed on to the C that cc compiles), so the
+  tests run under it; the release checks ASLR, DEP and the guard in each exe
+  (`apps/desktop/check-exe.ps1`). ⬜ Authenticode signing of the exes.
 
 ## Engineering practices
 

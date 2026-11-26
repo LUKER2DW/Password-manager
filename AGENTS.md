@@ -242,7 +242,10 @@ Released as binaries and as an image on ghcr.io (`release.Dockerfile`). Tests:
 ## 3. Build, run, test
 
 The toolchain comes from `rust-toolchain.toml`. On Windows, if `cargo` is not on `PATH`, prefix
-the shell with `$env:Path = "$HOME\.cargo\bin;$env:Path"` (PowerShell).
+the shell with `$env:Path = "$HOME\.cargo\bin;$env:Path"` (PowerShell). Windows builds get
+Control Flow Guard from `.cargo/config.toml`; a `RUSTFLAGS` variable replaces those flags, so
+don't set one for a Windows build (the release refuses an exe without it,
+`apps/desktop/check-exe.ps1`).
 
 ```bash
 cargo build --workspace
