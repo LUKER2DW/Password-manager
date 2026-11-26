@@ -560,6 +560,10 @@ mod tests {
                             .unwrap()
                             .push(String::from_utf8_lossy(&head).into_owned());
                         let _ = stream.write_all(answer.as_bytes());
+                        // Finish the response, then drain any request body still in flight.
+                        // Closing a socket with unread bytes can reset it on Windows.
+                        let _ = stream.shutdown(std::net::Shutdown::Write);
+                        let _ = std::io::copy(&mut stream, &mut std::io::sink());
                     }
                 })
             };

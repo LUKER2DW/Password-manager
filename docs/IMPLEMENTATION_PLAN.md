@@ -460,8 +460,9 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
     signature before reading it (the body's SHA-256 sent with the request), counts an IPv6
     /64 as one address, holds copies being sent four at a time, makes a vault's live state
     only for an enrolled device, and takes an admin invite without `--vault` for a new vault
-    only; device names can't carry invisible or text-turning characters; a sync round reads
-    at most 64 copies and 256 MiB; website icons can't be steered into the local network by
+    only; device names can't carry invisible or text-turning characters; each sync target has
+    a budget of 64 copy read attempts (including failures) and 256 MiB per round; website
+    icons can't be steered into the local network by
     a site's links or redirects (checked at each name lookup); the leak check follows no
     redirect
 - ✅ A second round the same day (built and tested; the APK 0.4.1):
