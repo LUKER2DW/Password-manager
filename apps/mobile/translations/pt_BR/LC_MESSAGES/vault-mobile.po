@@ -3235,6 +3235,10 @@ msgid "The new address answers with this vault: it is the one used from now on."
 msgstr "O novo endereço responde com este cofre: ele é o usado daqui em diante."
 
 msgctxt "PhoneWindow"
+msgid "Autofill in other apps checks who signed the app, not only its name: a login saved from an app is tied to its certificate. A vault key renewed on a computer is taken here with the new Secret Key and your master password. Signed with the app's own release key: uninstall an older copy once before installing it."
+msgstr "O preenchimento em outros apps confere quem assinou o app, não só o nome dele: um login salvo de um app fica ligado ao certificado dele. Uma chave do cofre renovada no computador é adotada aqui com a nova chave secreta e a sua senha mestra. Assinado com a chave de lançamento do próprio app: desinstale uma cópia mais antiga uma vez antes de instalá-lo."
+
+msgctxt "PhoneWindow"
 msgid "Passwords shown evenly spaced, in a font of the app's own. The Secret Key shown two groups to a line, in bigger boxes. A recovery part read from the picture it was hidden in. A new version offered as soon as your server has it. The languages with their flags."
 msgstr "Senhas mostradas com espaçamento uniforme, numa fonte do próprio app. A chave secreta mostrada em dois grupos por linha, em quadros maiores. Uma parte de recuperação lida da imagem onde foi escondida. Uma versão nova oferecida assim que seu servidor a tiver. Os idiomas com suas bandeiras."
 
