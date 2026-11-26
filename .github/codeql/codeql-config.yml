@@ -1,7 +1,8 @@
 # CodeQL's configuration (read by .github/workflows/codeql.yml). Test code and the
 # screenshot/demo examples are left out: they hold made-up passwords, keys and patterns on
-# purpose (the same paths .gitleaks.toml and .github/secret_scanning.yml allow). Everything
-# under src/ is still analysed, the #[cfg(test)] modules inside it included.
+# purpose (the same paths .gitleaks.toml and .github/secret_scanning.yml allow). The
+# #[cfg(test)] modules inside src/ are left out by the Rust extractor itself (cfg `test`
+# turned off in .github/workflows/codeql.yml); everything else under src/ is analysed.
 name: Password vault
 
 paths-ignore:
@@ -16,3 +17,5 @@ paths-ignore:
   # The screenshot tools and the demo vault: made-up data, never shipped.
   - "apps/desktop/examples/**"
   - "apps/mobile/examples/**"
+  # The fuzz targets: they feed made-up bytes and a fixed test password to the readers.
+  - "fuzz/**"

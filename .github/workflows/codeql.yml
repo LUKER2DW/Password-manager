@@ -1,6 +1,7 @@
 # CodeQL's code scanning: the Rust, the extension's JavaScript, the Android side's Java and
 # the workflows, read without building (build-mode: none). Results go to the Security tab.
-# Test code and the screenshot examples are left out (.github/codeql/codeql-config.yml).
+# Test code, the fuzz targets and the screenshot examples are left out
+# (.github/codeql/codeql-config.yml, and cfg `test` off for Rust below).
 name: CodeQL
 
 on:
@@ -27,6 +28,11 @@ jobs:
       # Uploading results to code scanning reads the run it belongs to.
       actions: read
       security-events: write
+    env:
+      # The Rust extractor turns cfg `test` on by default, so the #[cfg(test)] modules inside
+      # src/ were analysed and every made-up test password became a "hard-coded
+      # cryptographic value" alert. Turned off, those modules are not extracted at all.
+      CODEQL_EXTRACTOR_RUST_OPTION_CARGO_CFG_OVERRIDES: "-test"
     strategy:
       fail-fast: false
       matrix:
