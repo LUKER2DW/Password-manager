@@ -4,11 +4,13 @@
 //! signing certificate, and, for fields inside a web page, that page's own domain and scheme.
 //!
 //! - Who would receive a login ([`Recipient`]): a website only when a browser this app knows
-//!   by its certificate names it, over https; else the app itself, by its package; else
-//!   nobody. A domain in any other app's view tree is only that app's word (Digital Asset
-//!   Links, which tie an app to a site, can't be checked offline), so it counts for nothing.
+//!   by its certificate names it, over https; else the app itself, by its package and signing
+//!   identity; else nobody. A domain in any other app's view tree is only that app's word
+//!   (Digital Asset Links, which tie an app to a site, can't be checked offline), so it counts
+//!   for nothing.
 //! - Which logins belong there: the website's exact domain (or everything under a saved
-//!   `*.example.com`), or an app by the `androidapp://<package>` address saved in the login.
+//!   `*.example.com`), or an app by the `androidapp://<certificate>@<package>` address saved in
+//!   the login.
 //! - A login behind the item lock is neither offered nor changed ([`behind_lock`]).
 //! - Before anything is filled, the person confirms with a fingerprint or the phone's own lock
 //!   (the Java side asks). With the vault locked, fingerprint unlock opens the vault file here
@@ -54,8 +56,8 @@ impl std::fmt::Debug for Login {
 pub struct Asker {
     /// The app the form is in, which gets what is filled (the system's word, not the app's).
     pub app: String,
-    /// SHA-256 of the certificate it is signed with, and of those it was rotated from, as the
-    /// package manager proved them. Empty when it has several signers or isn't known.
+    /// SHA-256 of the certificate it is signed with first, then those it was rotated from, as
+    /// the package manager proved them. Empty when it has several signers or isn't known.
     pub signers: Vec<[u8; 32]>,
     /// It opens any https link: a browser, whether this app knows it or not.
     pub browser: bool,
@@ -75,15 +77,63 @@ pub struct Recipient(To);
 enum To {
     /// A website, named by a browser this app knows.
     Site(String),
-    /// An app, by its package.
-    App(String),
+    /// An app, by its package and Android-verified signing lineage.
+    App(App),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct App {
+    package: String,
+    /// Always nonempty: the current signer first, then the verified rotation history.
+    signers: Vec<[u8; 32]>,
+}
+
+impl App {
+    fn of(package: &str, signers: &[[u8; 32]]) -> Option<Self> {
+        signers.first()?;
+        Some(Self {
+            package: package.to_owned(),
+            signers: signers.to_vec(),
+        })
+    }
+
+    fn matches(&self, url: &str) -> bool {
+        app_matches(url, &self.package, &self.signers)
+    }
+
+    fn address(&self) -> String {
+        format!(
+            "{APP_ADDRESS}{}@{}",
+            certificate_hex(&self.signers[0]),
+            self.package
+        )
+    }
+
+    /// Replaces package-only facets after Android's explicit save confirmation. They are never
+    /// considered by [`Self::matches`], so this cannot happen as part of a fill.
+    fn bind_legacy(&self, item: &mut ItemData) -> bool {
+        let address = self.address();
+        let mut rebound = false;
+        for url in &mut item.urls {
+            if legacy_app_matches(url, &self.package) {
+                url.clone_from(&address);
+                rebound = true;
+            }
+        }
+        rebound
+    }
 }
 
 impl To {
     /// The place an address made by [`place_of`] stands for.
-    fn of_saved(url: &str) -> Option<Self> {
-        if let Some(app) = url.strip_prefix("androidapp://") {
-            return Some(Self::App(app.to_owned()));
+    fn of_saved(url: &str, history: &[[u8; 32]]) -> Option<Self> {
+        if let Some((package, signer)) = app_facet(url) {
+            let mut signers = vec![signer];
+            signers.extend_from_slice(history);
+            return Some(Self::App(App {
+                package: package.to_owned(),
+                signers,
+            }));
         }
         url.strip_prefix("https://")
             .map(|domain| Self::Site(domain.to_owned()))
@@ -93,21 +143,32 @@ impl To {
     fn fits(&self, item: &ItemData) -> bool {
         item.urls.iter().any(|url| match self {
             Self::Site(domain) => site_matches(url, domain),
-            Self::App(app) => app_matches(url, app),
+            Self::App(app) => app.matches(url),
         })
     }
 
-    /// The logins of `vault` saved for this place and `username`, those behind the item lock
-    /// too.
-    fn logins(&self, vault: &Vault, username: &str) -> Vec<(ItemId, ItemData)> {
-        vault
-            .item_ids()
-            .filter_map(|id| Some((id, vault.get_item(&id).ok()?)))
-            .filter(|(_, item)| {
-                item.kind == ItemKind::Login && item.username == username && self.fits(item)
-            })
-            .collect()
+    /// Whether `item` has the old package-only facet for this app. This is used only after the
+    /// person explicitly accepts Android's save prompt, never when choosing what to fill.
+    fn fits_legacy(&self, item: &ItemData) -> bool {
+        match self {
+            Self::Site(_) => false,
+            Self::App(app) => item
+                .urls
+                .iter()
+                .any(|url| legacy_app_matches(url, &app.package)),
+        }
     }
+}
+
+/// Includes guarded logins so saving a second copy can preserve their protection.
+fn account_logins<'a>(
+    vault: &'a Vault,
+    username: &'a str,
+) -> impl Iterator<Item = (ItemId, ItemData)> + 'a {
+    vault
+        .item_ids()
+        .filter_map(|id| Some((id, vault.get_item(&id).ok()?)))
+        .filter(move |(_, item)| item.kind == ItemKind::Login && item.username == username)
 }
 
 impl Recipient {
@@ -119,7 +180,8 @@ impl Recipient {
     /// - Any other browser gets nothing: its package says nothing about the page, so a login
     ///   saved "for the browser" would be offered on every site in it. The same goes for an
     ///   app that has a known browser's name and somebody else's certificate.
-    /// - Any other app is only itself, whatever domain its view tree gives.
+    /// - Any other app is only itself, whatever domain its view tree gives, and only when
+    ///   Android supplies one current signer and its verified signing history.
     pub fn of(asker: &Asker) -> Option<Self> {
         let app = asker.app.trim();
         if app.is_empty() {
@@ -141,7 +203,7 @@ impl Recipient {
             }
             (Some(_), _) => None,
             (None, _) if asker.browser => None,
-            (None, _) => Some(Self(To::App(app.to_owned()))),
+            (None, _) => Some(Self(To::App(App::of(app, &asker.signers)?))),
         }
     }
 
@@ -149,7 +211,7 @@ impl Recipient {
     pub fn name(&self) -> &str {
         match &self.0 {
             To::Site(domain) => domain,
-            To::App(app) => app,
+            To::App(app) => &app.package,
         }
     }
 }
@@ -165,7 +227,7 @@ fn plain_host(domain: &str) -> Option<String> {
 /// Whether `asker` is signed with one of `certificates` (SHA-256, in hex).
 fn signed_with(asker: &Asker, certificates: &[&str]) -> bool {
     asker.signers.iter().any(|signer| {
-        let hex: String = signer.iter().map(|byte| format!("{byte:02X}")).collect();
+        let hex = certificate_hex(signer);
         certificates.contains(&hex.as_str())
     })
 }
@@ -302,12 +364,59 @@ fn wildcard_is_rule(_saved: &str) -> bool {
     false
 }
 
-/// Whether a login's saved address `url` is the app `package` (`androidapp://<package>`).
-pub fn app_matches(url: &str, package: &str) -> bool {
+const APP_ADDRESS: &str = "androidapp://";
+
+fn certificate_hex(certificate: &[u8; 32]) -> String {
+    certificate
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect()
+}
+
+fn app_facet(url: &str) -> Option<(&str, [u8; 32])> {
     let url = url.trim();
-    url.len() > "androidapp://".len()
-        && url[.."androidapp://".len()].eq_ignore_ascii_case("androidapp://")
-        && url["androidapp://".len()..].trim_end_matches('/') == package
+    let scheme = url.get(..APP_ADDRESS.len())?;
+    let facet = url.get(APP_ADDRESS.len()..)?.trim_end_matches('/');
+    if !scheme.eq_ignore_ascii_case(APP_ADDRESS) {
+        return None;
+    }
+    let (digest, package) = facet.split_once('@')?;
+    if digest.len() != 64 || package.is_empty() || package.contains('@') {
+        return None;
+    }
+    let nibble = |byte| match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    };
+    let mut signer = [0; 32];
+    let (pairs, _) = digest.as_bytes().as_chunks::<2>();
+    for (to, pair) in signer.iter_mut().zip(pairs) {
+        *to = nibble(pair[0])? << 4 | nibble(pair[1])?;
+    }
+    Some((package, signer))
+}
+
+/// Whether a login's signed app facet names `package` and one of Android's verified `signers`.
+pub fn app_matches(url: &str, package: &str, signers: &[[u8; 32]]) -> bool {
+    app_facet(url).is_some_and(|(saved_package, signer)| {
+        saved_package == package && signers.contains(&signer)
+    })
+}
+
+/// Package-only app facets from older versions. These are deliberately separate from
+/// [`app_matches`]: they can be rebound after an explicit save, but can never authorize a fill.
+fn legacy_app_matches(url: &str, package: &str) -> bool {
+    legacy_package(url) == Some(package)
+}
+
+fn legacy_package(url: &str) -> Option<&str> {
+    let url = url.trim();
+    let scheme = url.get(..APP_ADDRESS.len())?;
+    let package = url.get(APP_ADDRESS.len()..)?.trim_end_matches('/');
+    (scheme.eq_ignore_ascii_case(APP_ADDRESS) && !package.is_empty() && !package.contains('@'))
+        .then_some(package)
 }
 
 /// Whether `item` is behind the item lock: its secrets are sealed, or they wait for the lock's
@@ -414,6 +523,9 @@ struct Dropped {
     title: String,
     username: String,
     password: String,
+    /// Needed only to preserve key-rotation matching while this signed app login is waiting.
+    #[serde(default)]
+    app_signer_history: Vec<[u8; 32]>,
 }
 
 fn drop_path(folder: &Path, vault_id: &str) -> PathBuf {
@@ -453,7 +565,7 @@ fn place_of(from: &Recipient) -> (String, String) {
             let title = domain.strip_prefix("www.").unwrap_or(domain).to_owned();
             (title, format!("https://{domain}"))
         }
-        To::App(app) => (app.clone(), format!("androidapp://{app}")),
+        To::App(app) => (app.package.clone(), app.address()),
     }
 }
 
@@ -479,6 +591,10 @@ pub fn keep_locked(home: &Path, from: &Recipient, username: &str, password: &str
         title,
         username: username.to_owned(),
         password: password.to_owned(),
+        app_signer_history: match &from.0 {
+            To::Site(_) => Vec::new(),
+            To::App(app) => app.signers[1..].to_vec(),
+        },
     };
     let Ok(plain) = serde_json::to_vec(&dropped).map(Zeroizing::new) else {
         return false;
@@ -513,9 +629,19 @@ pub(crate) fn dropped_logins(folder: &Path, vault: &Vault) -> Vec<ItemData> {
             item.username.clone_from(&dropped.username);
             item.password.clone_from(&dropped.password);
             item.urls = vec![dropped.url.clone()];
-            item.reprompt = To::of_saved(&dropped.url).is_some_and(|place| {
-                let saved = place.logins(vault, &dropped.username);
-                saved.iter().any(|(_, item)| item.reprompt)
+            let place = To::of_saved(&dropped.url, &dropped.app_signer_history);
+            item.reprompt = account_logins(vault, &dropped.username).any(|(_, saved)| {
+                saved.reprompt
+                    && match &place {
+                        Some(place) => place.fits(&saved) || place.fits_legacy(&saved),
+                        // Queued before the upgrade: keep the old guard and leave the facet unbound.
+                        None => legacy_package(&dropped.url).is_some_and(|package| {
+                            saved
+                                .urls
+                                .iter()
+                                .any(|url| legacy_app_matches(url, package))
+                        }),
+                    }
             });
             Some(item)
         })
@@ -562,7 +688,7 @@ pub enum Kept {
     /// It was there already.
     Same,
     /// The login saved there for the same place and username has the new password (the old
-    /// one went into its history).
+    /// one went into its history), or its legacy app facet was explicitly rebound.
     Replaced,
     /// A new login.
     Added,
@@ -572,7 +698,9 @@ pub enum Kept {
 }
 
 /// Adds a login saved from another app to the open `vault`: the password of a login already
-/// saved there for the same place and username changes, else a new login is made.
+/// saved there for the same place and username changes, else a new login is made. Android's
+/// save confirmation may also rebind a legacy package-only app facet to the verified signer
+/// shown in that confirmation; fills never use or change a legacy facet.
 ///
 /// A login behind the item lock is never changed here ([`behind_lock`]), nor is its password
 /// compared with the new one: the person's "Save" in another app isn't the item's check. The
@@ -587,9 +715,16 @@ pub(crate) fn save_into(
     if password.is_empty() {
         return Ok(Kept::Same);
     }
-    let (locked, open): (Vec<_>, Vec<_>) = from
-        .0
-        .logins(vault, username)
+    let mut current = Vec::new();
+    let mut legacy = Vec::new();
+    for (id, item) in account_logins(vault, username) {
+        if from.0.fits(&item) {
+            current.push((id, item));
+        } else if from.0.fits_legacy(&item) {
+            legacy.push((id, item));
+        }
+    }
+    let (mut locked, open): (Vec<_>, Vec<_>) = current
         .into_iter()
         .partition(|(_, item)| behind_lock(vault, item));
     match open.into_iter().next() {
@@ -600,6 +735,21 @@ pub(crate) fn save_into(
             Ok(Kept::Replaced)
         }
         None => {
+            let (legacy_locked, mut legacy_open): (Vec<_>, Vec<_>) = legacy
+                .into_iter()
+                .partition(|(_, item)| behind_lock(vault, item));
+            locked.extend(legacy_locked);
+            // A save confirms the package and signer, but does not select among legacy items.
+            if locked.is_empty()
+                && legacy_open.len() == 1
+                && let Some((id, mut item)) = legacy_open.pop()
+                && let To::App(app) = &from.0
+                && app.bind_legacy(&mut item)
+            {
+                item.password = password.to_owned();
+                vault.update_item(&id, &item)?;
+                return Ok(Kept::Replaced);
+            }
             let (title, url) = place_of(from);
             let mut item = ItemData::new(ItemKind::Login, &title);
             item.username = username.to_owned();
@@ -642,14 +792,22 @@ mod tests {
         Recipient::of(&in_chrome(domain)).unwrap()
     }
 
-    /// An app's own fields.
-    fn app(package: &str) -> Recipient {
+    fn app_with_signers(package: &str, signers: Vec<[u8; 32]>) -> Recipient {
         Recipient::of(&Asker {
             app: package.into(),
-            signers: vec![[7; 32]],
+            signers,
             ..Asker::default()
         })
         .unwrap()
+    }
+
+    /// An app's own fields.
+    fn app(package: &str) -> Recipient {
+        app_with_signers(package, vec![[7; 32]])
+    }
+
+    fn app_address(package: &str, signer: [u8; 32]) -> String {
+        App::of(package, &[signer]).unwrap().address()
     }
 
     fn test_vault() -> Vault {
@@ -680,19 +838,6 @@ mod tests {
         assert!(site_matches("https://*.example.com", "mail.example.com"));
         assert!(!site_matches("*.example.com", "badexample.com"));
         assert!(!site_matches("androidapp://com.example", "com.example"));
-        assert!(app_matches(
-            "androidapp://com.example.app",
-            "com.example.app"
-        ));
-        assert!(app_matches(
-            "AndroidApp://com.example.app/",
-            "com.example.app"
-        ));
-        assert!(!app_matches(
-            "androidapp://com.example.app",
-            "com.example.app2"
-        ));
-        assert!(!app_matches("https://com.example.app", "com.example.app"));
         assert_eq!(
             place_of(&site("www.Example.com")),
             (
@@ -704,9 +849,172 @@ mod tests {
             place_of(&app("com.example.app")),
             (
                 "com.example.app".to_owned(),
-                "androidapp://com.example.app".to_owned()
+                app_address("com.example.app", [7; 32])
             )
         );
+    }
+
+    #[test]
+    fn app_logins_require_a_verified_signing_lineage() {
+        let package = "com.example.app";
+        let (former, current, attacker) = ([7; 32], [8; 32], [9; 32]);
+        let saved = app_address(package, former);
+        let alternate = format!(
+            "AndroidApp://{}/",
+            saved[APP_ADDRESS.len()..].to_ascii_lowercase()
+        );
+        assert!(app_matches(&saved, package, &[former]));
+        assert!(app_matches(&alternate, package, &[former]));
+        assert!(app_matches(&saved, package, &[current, former]));
+        assert!(!app_matches(&saved, package, &[]));
+        assert!(!app_matches(&saved, package, &[attacker]));
+        assert!(!app_matches(&saved, "com.example.other", &[former]));
+        assert!(!app_matches(
+            "androidapp://com.example.app",
+            package,
+            &[former]
+        ));
+        assert!(!app_matches(
+            "androidapp://not-a-digest@com.example.app",
+            package,
+            &[former]
+        ));
+        assert!(!app_matches("https://com.example.app", package, &[former]));
+
+        let mut vault = test_vault();
+        vault
+            .add_item(&ItemData::login("The app", "me", "test-pw", &saved))
+            .unwrap();
+        let rotated = app_with_signers(package, vec![current, former]);
+        assert_eq!(logins_for(&vault, &rotated).len(), 1, "verified rotation");
+        assert!(
+            logins_for(&vault, &app_with_signers(package, vec![attacker])).is_empty(),
+            "same package with another signer"
+        );
+        assert_eq!(place_of(&rotated).1, app_address(package, current));
+        let original = logins_for(&vault, &rotated).pop().unwrap();
+        let replacement = app_with_signers(package, vec![attacker]);
+        assert!(login_by_id(&vault, &original.id, &replacement).is_none());
+        assert_eq!(
+            save_into(&mut vault, &replacement, "me", "other-pw").unwrap(),
+            Kept::Added
+        );
+        assert_eq!(
+            login_by_id(&vault, &original.id, &rotated)
+                .unwrap()
+                .password
+                .as_str(),
+            "test-pw"
+        );
+        assert_eq!(
+            Recipient::of(&Asker {
+                app: package.into(),
+                ..Asker::default()
+            }),
+            None,
+            "an app without one verified signer gets nothing"
+        );
+    }
+
+    #[test]
+    fn a_legacy_app_facet_is_rebound_only_by_saving() {
+        let package = "com.example.app";
+        let signer = [7; 32];
+        let from = app_with_signers(package, vec![signer]);
+        let mut vault = test_vault();
+        let id = vault
+            .add_item(&ItemData::login(
+                "Legacy",
+                "me",
+                "old-pw",
+                "androidapp://com.example.app",
+            ))
+            .unwrap();
+
+        assert!(
+            logins_for(&vault, &from).is_empty(),
+            "never offered for fill"
+        );
+        assert_eq!(
+            save_into(&mut vault, &from, "me", "new-pw").unwrap(),
+            Kept::Replaced
+        );
+        let rebound = vault.get_item(&id).unwrap();
+        assert_eq!(rebound.urls, [app_address(package, signer)]);
+        assert_eq!(rebound.password, "new-pw");
+        assert_eq!(logins_for(&vault, &from).len(), 1);
+        assert!(
+            logins_for(&vault, &app_with_signers(package, vec![[9; 32]])).is_empty(),
+            "the rebound facet remains signer-bound"
+        );
+    }
+
+    #[test]
+    fn a_save_does_not_choose_between_ambiguous_legacy_logins() {
+        let mut vault = test_vault();
+        let from = app("com.example.app");
+        for title in ["First", "Second"] {
+            vault
+                .add_item(&ItemData::login(
+                    title,
+                    "me",
+                    "old-pw",
+                    "androidapp://com.example.app",
+                ))
+                .unwrap();
+        }
+        assert_eq!(
+            save_into(&mut vault, &from, "me", "new-pw").unwrap(),
+            Kept::Added
+        );
+        assert_eq!(passwords(&vault), ["new-pw", "old-pw", "old-pw"]);
+        assert_eq!(logins_for(&vault, &from).len(), 1);
+    }
+
+    #[test]
+    fn queued_app_saves_keep_legacy_and_rotated_accounts_guarded() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = test_vault();
+        vault
+            .set_item_guard(false, GuardCheck::Master, None, None)
+            .unwrap();
+        let package = "com.example.app";
+        let legacy = "androidapp://com.example.app";
+        for (user, url) in [
+            ("legacy", legacy.to_owned()),
+            ("rotated", app_address(package, [1; 32])),
+        ] {
+            let mut item = ItemData::login(user, user, "old-pw", &url);
+            item.reprompt = true;
+            vault.add_item(&item).unwrap();
+        }
+        std::fs::write(
+            dir.path().join(prefs::FIRST_VAULT),
+            vault.to_bytes().unwrap(),
+        )
+        .unwrap();
+        assert!(dropped_logins(dir.path(), &vault).is_empty());
+        // A queued record written before app facets carried a signer.
+        let id = vault.id_hex();
+        let mut file = read_drop(dir.path(), &id).unwrap();
+        let old = br#"{"title":"Legacy","url":"androidapp://com.example.app","username":"legacy","password":"test-pw"}"#;
+        file.entries
+            .push(drop_box::seal_entry(&file.public_key, &id, old).unwrap());
+        assert!(write_drop(dir.path(), &id, &file));
+
+        let rotated = app_with_signers(package, vec![[2; 32], [1; 32]]);
+        for user in ["legacy", "rotated", "new"] {
+            assert!(keep_locked(dir.path(), &rotated, user, "test-pw"));
+        }
+        let items = dropped_logins(dir.path(), &vault);
+        assert_eq!(
+            items.iter().map(|item| item.reprompt).collect::<Vec<_>>(),
+            [true, true, true, false]
+        );
+        assert_eq!(items[0].urls, [legacy]);
+        for item in &items[1..] {
+            assert_eq!(item.urls, [app_address(package, [2; 32])]);
+        }
     }
 
     #[test]
@@ -931,7 +1239,13 @@ mod tests {
             browser: false,
             ..in_chrome("example.com")
         };
-        assert_eq!(Recipient::of(&other), Some(app("com.example.app")));
+        assert_eq!(
+            Recipient::of(&other),
+            Some(app_with_signers(
+                "com.example.app",
+                vec![certificate(CHROME)]
+            ))
+        );
         // A browser this app doesn't know: neither the site nor "the browser".
         for domain in [Some("example.com".to_owned()), None] {
             let unknown = Asker {
@@ -991,14 +1305,15 @@ mod tests {
     #[test]
     fn a_domain_nobody_vouches_for_matches_no_website() {
         let mut vault = test_vault();
+        let signer = [1; 32];
         for (title, url) in [
-            ("Bank", "https://bank.example"),
-            ("Bank's app", "androidapp://com.example.bank"),
-            ("The app", "androidapp://com.example.app"),
-            ("In Chrome", "androidapp://com.android.chrome"),
+            ("Bank", "https://bank.example".to_owned()),
+            ("Bank's app", app_address("com.example.bank", signer)),
+            ("The app", app_address("com.example.app", signer)),
+            ("In Chrome", app_address("com.android.chrome", signer)),
         ] {
             vault
-                .add_item(&ItemData::login(title, "me", "test-pw", url))
+                .add_item(&ItemData::login(title, "me", "test-pw", &url))
                 .unwrap();
         }
         let titles = |asker: &Asker| -> Vec<String> {
@@ -1028,7 +1343,7 @@ mod tests {
         let to = Recipient::of(&claims).unwrap();
         assert_eq!(
             place_of(&to).1,
-            "androidapp://com.example.app",
+            app_address("com.example.app", signer),
             "not https://bank.example"
         );
     }

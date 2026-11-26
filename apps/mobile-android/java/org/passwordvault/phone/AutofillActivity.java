@@ -119,6 +119,13 @@ public class AutofillActivity extends Activity {
     }
 
     private void fill(String username, String password) {
+        // The biometric prompt or account picker may have outlived the original caller.
+        Place current = Place.read(this, getIntent().getExtras());
+        if (current == null || !current.app.equals(getCallingPackage())
+                || Autofill.recipient(current) == null) {
+            done(null);
+            return;
+        }
         Dataset.Builder dataset = new Dataset.Builder();
         boolean any = false;
         android.widget.RemoteViews row = Autofill.row(this, username.isEmpty() ? "•••" : username, null);
