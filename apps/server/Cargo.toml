@@ -1,6 +1,6 @@
 [package]
 name = "vault-server"
-version = "0.0.0"
+version = "0.4.3"
 description = "Self-hosted sync server: stores each device's sealed copy of a vault, never a key"
 edition.workspace = true
 rust-version.workspace = true
@@ -33,10 +33,11 @@ if-addrs = "0.15"
 sha2 = "0.11"
 # `vault-server invite --address`: the link drawn as a QR code in the terminal.
 qrcode = { version = "0.14", default-features = false }
+# Following the project's releases for the phone app's updates (updates.rs), over HTTPS.
+ureq = { version = "3.5", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 tempfile = "3.27"
-ureq = "3.5"
 # End to end: two devices sync a real vault through a running server.
 vault-core = { path = "../../crates/core" }
 vault-platform = { path = "../../crates/platform" }

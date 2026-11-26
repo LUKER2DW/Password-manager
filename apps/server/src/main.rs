@@ -1,5 +1,5 @@
 //! The `vault-server` command: serve, make an invite, list or remove devices, publish an
-//! update of the phone app.
+//! update of the phone app or fetch it from the project's releases.
 
 use std::{net::SocketAddr, path::PathBuf};
 
@@ -32,6 +32,12 @@ enum Command {
         /// in it).
         #[arg(long = "tls-name", value_name = "NAME")]
         tls_names: Vec<String>,
+        /// Follow this GitHub repository's releases (owner/name, e.g. LUKER2DW/Password-manager):
+        /// every 6 hours, a newer phone app there is downloaded, checked against the SHA-256
+        /// GitHub lists and offered to the phones, and the log says when a newer server is out.
+        /// Off when not given.
+        #[arg(long, env = "VAULT_SERVER_APP_UPDATES", value_name = "OWNER/NAME")]
+        app_updates: Option<String>,
     },
     /// Make a one-time invite for a device to join a vault. Without `--vault` it starts a new
     /// vault only (the first device of a vault); a device of a vault already here joins with
@@ -67,6 +73,13 @@ enum Command {
         #[arg(long)]
         version: String,
     },
+    /// Fetch the phone app from the newest release on GitHub now and publish it here, when it
+    /// is newer than the one here (what `serve --app-updates` does every 6 hours).
+    FetchApp {
+        /// The repository (owner/name).
+        #[arg(long, default_value = vault_sync_wire::releases::REPOSITORY)]
+        from: String,
+    },
 }
 
 #[tokio::main]
@@ -77,6 +90,7 @@ async fn main() -> Result<()> {
             listen,
             tls,
             tls_names,
+            app_updates,
         } => {
             if !listen.ip().is_loopback() && !tls {
                 eprintln!(
@@ -88,6 +102,25 @@ async fn main() -> Result<()> {
                 .await
                 .with_context(|| format!("listening on {listen}"))?;
             eprintln!("vault-server: serving {} on {listen}", cli.data.display());
+            match app_updates.as_deref().map(str::trim) {
+                None | Some("" | "off") => {}
+                Some(repository) => {
+                    if !vault_sync_wire::releases::is_repository(repository) {
+                        anyhow::bail!(
+                            "--app-updates (VAULT_SERVER_APP_UPDATES) is a GitHub repository, \
+                             owner/name"
+                        );
+                    }
+                    eprintln!(
+                        "vault-server: following the releases of {repository} for the phone \
+                         app's updates"
+                    );
+                    tokio::spawn(vault_server::updates::follow(
+                        cli.data.clone(),
+                        repository.to_owned(),
+                    ));
+                }
+            }
             let stop = stopped();
             if !tls {
                 return vault_server::serve(&cli.data, listener, stop).await;
@@ -191,6 +224,20 @@ async fn main() -> Result<()> {
                 cli.data.display()
             );
             Ok(())
+        }
+        Command::FetchApp { from } => {
+            let data = cli.data.clone();
+            let found =
+                tokio::task::spawn_blocking(move || vault_server::updates::look_once(&data, &from))
+                    .await?;
+            if let Ok((_, vault_server::updates::Looked::UpToDate(here))) = &found {
+                println!(
+                    "Up to date: the phone app here is {}.",
+                    here.as_deref().unwrap_or("none")
+                );
+            }
+            vault_server::updates::report(&found);
+            found.map(|_| ())
         }
         Command::Remove { vault, device } => {
             let store = Store::open(&cli.data)?;

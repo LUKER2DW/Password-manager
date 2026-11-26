@@ -17,6 +17,8 @@
 //!
 //! Shared by the client (`vault-platform`) and the server, so both build the same bytes.
 
+pub mod releases;
+
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

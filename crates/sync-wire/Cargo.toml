@@ -14,9 +14,8 @@ workspace = true
 ed25519-dalek = { version = "2.2", features = ["zeroize"] }
 getrandom = "0.4"
 serde = { version = "1.0", features = ["derive"] }
+# The project's releases on GitHub, read for updates (releases.rs).
+serde_json = "1.0"
 sha2 = "0.11"
 subtle = "2.6"
 zeroize = "1.9"
-
-[dev-dependencies]
-serde_json = "1.0"

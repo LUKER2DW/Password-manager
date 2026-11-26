@@ -1,13 +1,18 @@
 # vault-server with Docker Compose (docs/SERVER.md):
-#   docker compose -f apps/server/compose.yaml up -d --build
+#   docker compose -f apps/server/compose.yaml up -d
 #   docker compose -f apps/server/compose.yaml exec vault-server vault-server invite \
 #     --address https://<where your devices reach it>      # a link and its QR code
+# A newer server: docker compose -f apps/server/compose.yaml pull, then up -d again. To build
+# it from this checkout instead of taking the released image: up -d --build.
 #
 # The port is published on this machine only (127.0.0.1); `tailscale serve` puts HTTPS in
 # front of it for your own devices. Never publish it on 0.0.0.0 of a machine on the internet.
 
 services:
   vault-server:
+    # The image each release publishes (amd64, arm64), built from the release's attested
+    # binaries; "build" below makes the same from source.
+    image: ghcr.io/luker2dw/vault-server:latest
     build:
       context: ../..
       dockerfile: apps/server/Dockerfile
@@ -16,6 +21,11 @@ services:
       - "127.0.0.1:8750:8750"
     volumes:
       - vault-data:/data
+    environment:
+      # Follow the project's releases: each new phone app is downloaded, checked against the
+      # SHA-256 GitHub lists and offered to the phones (Settings, Updates); the log says when a
+      # newer server is out. One request to GitHub every 6 hours; remove the line to stop it.
+      VAULT_SERVER_APP_UPDATES: LUKER2DW/Password-manager
     read_only: true
     cap_drop: [ALL]
     security_opt:

@@ -10,6 +10,7 @@ pub mod api;
 pub mod connections;
 pub mod store;
 pub mod tls;
+pub mod updates;
 
 use std::path::Path;
 
