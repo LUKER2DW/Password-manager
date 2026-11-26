@@ -1,0 +1,172 @@
+# The phone app's APK, built and signed here from main, and published as a release when its
+# version (apps/mobile-android/Cargo.toml) has none yet: bump the version to release.
+#
+# The release key lives only in the secrets of the `android-release` environment, which GitHub
+# hands to jobs running for main alone (the environment's branch policy): a pull request, or a
+# run of this workflow from another branch, never sees it.
+#   ANDROID_SIGNING_STORE     the key (release.p12: PKCS#12, alias "vault"), in base64
+#   ANDROID_SIGNING_PASSWORD  its password
+# The APK must come out signed with the certificate named below, or nothing is published: a key
+# swapped in the secrets can't sign a release. Each APK gets a provenance attestation
+# (`gh attestation verify <apk> --repo <owner>/<repo>` says it was built here, from which commit).
+name: Android release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      - "apps/mobile-android/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/android-release.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  NDK_VERSION: 28.2.13676358
+  BUILD_TOOLS: 36.0.0
+  # SHA-256 of the release certificate, as make-release-key.ps1 printed it (docs/MOBILE.md).
+  RELEASE_CERTIFICATE: 5b8f1f7929a87c7bdd1a0b5b0e188fa16d0b06926f230f6ade0f85a5c9b1e971
+
+jobs:
+  apk:
+    name: Signed APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: android-release
+    permissions:
+      # The release and its tag.
+      contents: write
+      # The APK's provenance attestation.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^version = "\([0-9]*\.[0-9]*\.[0-9]*\)"\r\?$/\1/p' apps/mobile-android/Cargo.toml | head -n 1)
+          if [ -z "$version" ]; then
+            echo "::error::No version in apps/mobile-android/Cargo.toml"
+            exit 1
+          fi
+          tag="android-v$version"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            published=true
+          else
+            published=false
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "published=$published"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version $version (tag $tag), already released: $published"
+
+      # rust-toolchain.toml names the toolchain; this installs it with the phone's target.
+      - name: Toolchain
+        run: rustup target add aarch64-linux-android
+
+      - name: Android NDK, platform and build tools
+        run: |
+          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" --install "ndk;$NDK_VERSION" "platforms;android-35" "build-tools;$BUILD_TOOLS" > /dev/null
+
+      # The same steps as apps/mobile-android/build.ps1 -Release, with Linux's NDK tools.
+      - name: Rust library
+        run: |
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
+          export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
+          bin="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$bin/aarch64-linux-android28-clang"
+          export AR_aarch64_linux_android="$bin/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$bin/aarch64-linux-android28-clang"
+          export CARGO_TARGET_DIR=target/android
+          cargo build --locked -p vault-mobile-android --profile release --target aarch64-linux-android
+          mkdir -p target/android-libs/arm64-v8a
+          "$bin/llvm-strip" --strip-all -o target/android-libs/arm64-v8a/libvault_mobile_android.so \
+            target/android/aarch64-linux-android/release/libvault_mobile_android.so
+
+      - name: APK, signed with the release key
+        env:
+          SIGNING_STORE: ${{ secrets.ANDROID_SIGNING_STORE }}
+          VAULT_SIGNING_PASSWORD: ${{ secrets.ANDROID_SIGNING_PASSWORD }}
+        run: |
+          if [ -z "$SIGNING_STORE" ] || [ -z "$VAULT_SIGNING_PASSWORD" ]; then
+            echo "::error::The android-release environment has no signing key"
+            exit 1
+          fi
+          export VAULT_SIGNING_STORE="$RUNNER_TEMP/release.p12"
+          trap 'rm -f "$VAULT_SIGNING_STORE"' EXIT
+          (umask 077 && printf '%s' "$SIGNING_STORE" | base64 -d > "$VAULT_SIGNING_STORE")
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
+          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME_17_X64}"
+          cd apps/mobile-android
+          ./gradlew --no-daemon --quiet assembleRelease
+
+      - name: Check the signature
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          apk=target/gradle/vault-mobile-android/outputs/apk/release/vault-mobile-android-release.apk
+          "$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/apksigner" verify --print-certs "$apk" \
+            > "$RUNNER_TEMP/signers.txt"
+          signers=$(grep -c '^Signer #[0-9]* certificate SHA-256 digest:' "$RUNNER_TEMP/signers.txt")
+          signer=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/signers.txt")
+          if [ "$signers" != 1 ] || [ "$signer" != "$RELEASE_CERTIFICATE" ]; then
+            echo "::error::The APK is not signed with the release certificate alone"
+            exit 1
+          fi
+          mkdir dist
+          cp "$apk" "dist/vault-mobile-android-$VERSION.apk"
+          (cd dist && sha256sum ./*.apk > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.apk
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vault-mobile-android
+          path: dist/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Release
+        if: steps.version.outputs.published == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          cat > "$RUNNER_TEMP/notes.md" << EOF
+          The phone app (Android, 64-bit ARM), version $VERSION. Alpha: never use it with real passwords yet.
+
+          Signed with the release certificate, SHA-256:
+          \`$RELEASE_CERTIFICATE\`
+
+          Check what you downloaded:
+          - \`sha256sum -c SHA256SUMS\`
+          - \`gh attestation verify vault-mobile-android-$VERSION.apk --repo $GITHUB_REPOSITORY\` (built by this repository's workflow, from commit $GITHUB_SHA)
+
+          Phones that sync through your own server get it from there once you publish it: \`vault-server publish-app vault-mobile-android-$VERSION.apk --version $VERSION\` (docs/SERVER.md).
+          EOF
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Phone app $VERSION" --notes-file "$RUNNER_TEMP/notes.md" --prerelease

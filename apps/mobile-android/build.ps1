@@ -7,7 +7,8 @@
 # the manifest and res/, and the one library the Java side uses: Google's code scanner. The
 # first build fetches Gradle and that library; later builds use Gradle's cache.
 # The APK is signed with the release key when make-release-key.ps1 made one
-# (%APPDATA%\PasswordVault\signingelease.p12, its password sealed for this Windows user),
+# (%APPDATA%\PasswordVault\signing\release.p12, its password sealed for this Windows user, or
+# both given in the repository's .env, see .env.example),
 # else with the Android debug key (~/.android/debug.keystore, made if missing): fine for trying
 # it, never for publishing it.
 # Speed: the Rust library is built with the `fast` profile (Cargo.toml: optimized, parallel,
@@ -35,7 +36,23 @@ $abi = @{ "aarch64-linux-android" = "arm64-v8a"; "x86_64-linux-android" = "x86_6
 if (-not $abi) { throw "unknown target $Target" }
 $signing = "$env:APPDATA\PasswordVault\signing"
 $releaseStore = Join-Path $signing "release.p12"
-if (Test-Path $releaseStore) {
+# A .env at the repository's root (git-ignored; .env.example lists its keys) may give the key's
+# place and password instead: read here, for this process only.
+$dotEnv = Join-Path $PSScriptRoot "../../.env"
+$fromDotEnv = @{}
+if (Test-Path $dotEnv) {
+    foreach ($line in Get-Content $dotEnv) {
+        if ($line -match '^\s*(VAULT_SIGNING_STORE|VAULT_SIGNING_PASSWORD)\s*=\s*(.*?)\s*$') {
+            $fromDotEnv[$Matches[1]] = $Matches[2]
+        }
+    }
+}
+if ($fromDotEnv.VAULT_SIGNING_STORE) { $releaseStore = $fromDotEnv.VAULT_SIGNING_STORE }
+if ((Test-Path $releaseStore) -and $fromDotEnv.VAULT_SIGNING_PASSWORD) {
+    $env:VAULT_SIGNING_STORE = $releaseStore
+    $env:VAULT_SIGNING_PASSWORD = $fromDotEnv.VAULT_SIGNING_PASSWORD
+    Write-Host "Signing with the release key ($releaseStore), password from .env."
+} elseif (Test-Path $releaseStore) {
     # Handed to Gradle through this process's environment only, and removed after it.
     $sealedPassword = (Get-Content -Raw (Join-Path $signing "release.pass")).Trim()
     $env:VAULT_SIGNING_STORE = $releaseStore
