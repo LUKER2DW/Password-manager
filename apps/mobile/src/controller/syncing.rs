@@ -1126,6 +1126,7 @@ mod native {
             if !quietly {
                 self.app().set_update_state(update::ASKING);
             }
+            let from_github = matches!(source, Source::Github(_));
             let job = move || Self::newest_release(&source, &installed);
             self.off_thread(job, move |controller, result| {
                 let app = controller.app();
@@ -1146,6 +1147,12 @@ mod native {
                                 controller.notify(super::super::notice::UPDATE_READY, &version);
                             }
                         }
+                    }
+                    // GitHub not reached on its own (the network is often not back yet
+                    // right after the phone wakes): asked again in a few minutes, not an hour.
+                    Err(_) if quietly && from_github => {
+                        let again = unix_now() - GITHUB_EVERY + GITHUB_RETRY;
+                        controller.change_prefs(|prefs| prefs.github_asked_at = again);
                     }
                     _ if quietly => {}
                     Ok(Release::Newest(version)) => {
@@ -1764,6 +1771,8 @@ mod native {
     /// How often GitHub is asked while a vault is open, and at most at unlock (seconds): one
     /// small anonymous request an hour, so a fix reaches the phone soon after its release.
     const GITHUB_EVERY: i64 = 60 * 60;
+    /// After GitHub couldn't be reached on its own, it is asked again this soon (seconds).
+    const GITHUB_RETRY: i64 = 5 * 60;
 
     fn unix_now() -> i64 {
         std::time::SystemTime::now()

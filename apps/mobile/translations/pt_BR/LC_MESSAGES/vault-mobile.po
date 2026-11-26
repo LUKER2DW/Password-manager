@@ -3403,3 +3403,7 @@ msgstr "Saiu a versão {} do Vault: Configurações → Sobre → Atualizações
 msgctxt "PhoneWindow"
 msgid "Opens again: 0.4.2 and 0.4.3 closed as soon as they started. Updates come from the project's releases on GitHub, or from your server if you choose it, and are looked for every hour while a vault is open, so a fix reaches you the same day."
 msgstr "Abre de novo: a 0.4.2 e a 0.4.3 fechavam assim que começavam. As atualizações vêm das versões publicadas do projeto no GitHub, ou do seu servidor se você escolher, e são procuradas a cada hora enquanto um cofre está aberto, então uma correção chega no mesmo dia."
+
+msgctxt "PhoneWindow"
+msgid "Updates hold up on a phone whose network stumbles: a request GitHub didn't get is made again after a moment, and a look on its own that failed is made again in a few minutes."
+msgstr "Atualizações que aguentam uma rede instável: um pedido que não chegou ao GitHub é feito de novo após um instante, e uma procura automática que falhou é refeita em poucos minutos."
