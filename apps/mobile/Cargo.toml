@@ -1,6 +1,6 @@
 [package]
 name = "vault-mobile"
-version = "0.4.4"
+version = "0.4.5"
 description = "Phone app (Android first) built with Slint: the screens and their controller"
 edition.workspace = true
 rust-version.workspace = true

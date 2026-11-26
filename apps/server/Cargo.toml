@@ -1,6 +1,6 @@
 [package]
 name = "vault-server"
-version = "0.4.4"
+version = "0.4.5"
 description = "Self-hosted sync server: stores each device's sealed copy of a vault, never a key"
 edition.workspace = true
 rust-version.workspace = true

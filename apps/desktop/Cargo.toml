@@ -1,6 +1,6 @@
 [package]
 name = "vault-desktop"
-version = "0.4.4"
+version = "0.4.5"
 description = "Desktop app (Windows first, Linux later) built with Slint"
 edition.workspace = true
 rust-version.workspace = true
