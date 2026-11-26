@@ -2026,6 +2026,7 @@ export component PhoneWindow inherits Window {
     callback folder-delete();
     // About: the versions and what each brought (the newest first).
     property <[Release]> releases: [
+        { version: "0.4.6", notes: @tr("Nothing changes on the phone: this version makes the Windows apps harder to take over through a bug.") },
         { version: "0.4.5", notes: @tr("Updates hold up on a phone whose network stumbles: a request GitHub didn't get is made again after a moment, and a look on its own that failed is made again in a few minutes.") },
         { version: "0.4.4", notes: @tr("Opens again: 0.4.2 and 0.4.3 closed as soon as they started. Updates come from the project's releases on GitHub, or from your server if you choose it, and are looked for every hour while a vault is open, so a fix reaches you the same day.") },
         { version: "0.4.3", notes: @tr("Your server can now fetch each new version from the project's releases by itself, so updates show up here without anyone publishing them by hand.") },

@@ -3407,3 +3407,7 @@ msgstr "Abre de novo: a 0.4.2 e a 0.4.3 fechavam assim que começavam. As atuali
 msgctxt "PhoneWindow"
 msgid "Updates hold up on a phone whose network stumbles: a request GitHub didn't get is made again after a moment, and a look on its own that failed is made again in a few minutes."
 msgstr "Atualizações que aguentam uma rede instável: um pedido que não chegou ao GitHub é feito de novo após um instante, e uma procura automática que falhou é refeita em poucos minutos."
+
+msgctxt "PhoneWindow"
+msgid "Nothing changes on the phone: this version makes the Windows apps harder to take over through a bug."
+msgstr "Nada muda no celular: esta versão deixa os apps do Windows mais difíceis de invadir através de uma falha."
