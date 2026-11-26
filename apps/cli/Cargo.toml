@@ -1,6 +1,6 @@
 [package]
 name = "vault-cli"
-version = "0.4.5"
+version = "0.4.6"
 description = "Command-line client for the password manager"
 edition.workspace = true
 rust-version.workspace = true

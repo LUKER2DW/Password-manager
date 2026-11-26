@@ -7655,7 +7655,7 @@ dependencies = [
 
 [[package]]
 name = "vault-cli"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -7707,7 +7707,7 @@ dependencies = [
 
 [[package]]
 name = "vault-desktop"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "anyhow",
  "embed-resource",
@@ -7767,7 +7767,7 @@ dependencies = [
 
 [[package]]
 name = "vault-mobile"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "anyhow",
  "i-slint-backend-testing",
@@ -7794,7 +7794,7 @@ dependencies = [
 
 [[package]]
 name = "vault-mobile-android"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "jni 0.21.1",
  "ndk-context",
@@ -7853,7 +7853,7 @@ dependencies = [
 
 [[package]]
 name = "vault-server"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "anyhow",
  "axum",
