@@ -4429,10 +4429,6 @@ msgid "Updates"
 msgstr "Atualizações"
 
 msgctxt "SettingsPage"
-msgid "Asks GitHub, where the project's releases are, only when you press the button. Nothing about your vault is sent."
-msgstr "Pergunta ao GitHub, onde ficam as versões publicadas do projeto, só quando você aperta o botão. Nada do seu cofre é enviado."
-
-msgctxt "SettingsPage"
 msgid "Check for updates"
 msgstr "Procurar atualizações"
 
@@ -4451,3 +4447,15 @@ msgstr "A versão {} saiu. Baixe-a na página da versão e troque este programa 
 msgctxt "SettingsPage"
 msgid "Couldn't look for updates: {}"
 msgstr "Não foi possível procurar atualizações: {}"
+
+msgctxt "Messages"
+msgid "Version {} of Vault is out: Settings → About → Updates opens its page."
+msgstr "Saiu a versão {} do Vault: Configurações → Sobre → Atualizações abre a página dela."
+
+msgctxt "SettingsPage"
+msgid "Asks GitHub, where the project's releases are, every hour while the app runs and when you press the button. Nothing about your vault is sent."
+msgstr "Pergunta ao GitHub, onde ficam as versões publicadas do projeto, a cada hora enquanto o app está aberto e quando você aperta o botão. Nada do seu cofre é enviado."
+
+msgctxt "SettingsPage"
+msgid "Look for updates by itself"
+msgstr "Procurar atualizações sozinho"

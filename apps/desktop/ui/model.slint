@@ -386,6 +386,7 @@ export global Messages {
         if (code == 85) { return arg == "1" ? @tr("The vault key was renewed: the old kit, the old Secret Key and older copies of the file no longer open it. Print the new kit now. Windows Hello is off until you turn it on again.") : @tr("The vault key was renewed: the old kit, the old Secret Key and older copies of the file no longer open it. Print the new kit now."); }
         if (code == 86) { return arg == "1" ? @tr("This computer uses the renewed vault key now and syncs again. Windows Hello is off until you turn it on again.") : @tr("This computer uses the renewed vault key now and syncs again."); }
         if (code == 87) { return @tr("The vault key was renewed on another device. Settings → Sync asks once for the new Secret Key, from the new emergency kit."); }
+        if (code == 89) { return @tr("Version {} of Vault is out: Settings → About → Updates opens its page.", arg); }
         if (code == 88) { return @tr("The vault key was renewed, but the vault locked before the new kit showed. Open Emergency kit and issue new recovery parts: the ones made then can't be shown again."); }
         return "";
     }

@@ -2175,6 +2175,8 @@ export component SettingsPage inherits Rectangle {
     in property <int> update-state;
     in property <string> update-version;
     in property <string> update-detail;
+    // Updates are looked for by themselves, every hour while the app runs.
+    in-out property <bool> update-checks;
     callback check-updates();
     callback open-release();
     callback quick-unlock-toggled(bool);
@@ -3035,9 +3037,14 @@ export component SettingsPage inherits Rectangle {
                     SettingsCard {
                         icon: "download";
                         title: @tr("Updates");
-                        summary: @tr("Asks GitHub, where the project's releases are, only when you press the button. Nothing about your vault is sent.");
+                        summary: @tr("Asks GitHub, where the project's releases are, every hour while the app runs and when you press the button. Nothing about your vault is sent.");
                         VerticalLayout {
                             spacing: 10px;
+                            Check {
+                                text: @tr("Look for updates by itself");
+                                checked <=> root.update-checks;
+                                toggled => { root.settings-changed(); }
+                            }
                             HorizontalLayout {
                                 spacing: 10px;
                                 alignment: start;

@@ -634,6 +634,7 @@ export component AppWindow inherits Window {
     in property <int> update-state;
     in property <string> update-version;
     in property <string> update-detail;
+    in-out property <bool> update-checks;
     callback check-updates();
     callback open-release();
     in-out property <int> auto-lock-minutes: 5;
@@ -1080,6 +1081,7 @@ export component AppWindow inherits Window {
                 update-state: root.update-state;
                 update-version: root.update-version;
                 update-detail: root.update-detail;
+                update-checks <=> root.update-checks;
                 check-updates => { root.check-updates(); }
                 open-release => { root.open-release(); }
                 auto-lock-minutes <=> root.auto-lock-minutes;

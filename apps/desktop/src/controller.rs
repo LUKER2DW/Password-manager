@@ -269,6 +269,9 @@ mod notice {
     pub const KEY_TAKEN: i32 = 86;
     pub const SYNC_KEY_RENEWED: i32 = 87;
     pub const KEY_RENEWED_UNSEEN: i32 = 88;
+    /// A newer version of the app is out (GitHub's newest release; the argument is its
+    /// version).
+    pub const UPDATE_OUT: i32 = 89;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -520,6 +523,8 @@ struct State {
     leaks: HashMap<ItemId, u64>,
     /// The newer release Check for updates found (its page on github.com).
     release_page: Option<String>,
+    /// The newer version a notice already told of (once per version while the app runs).
+    update_told: Option<String>,
     /// The leak watch's check of every login (the tests put a stand-in in its place).
     leak_batch: watch::Batch,
     sync: syncing::SyncStatus,
@@ -579,6 +584,9 @@ struct Timers {
     sync_retry: Timer,
     /// The leak watch: a look every hour whether a day has passed.
     leak_watch: Timer,
+    /// Updates: a look at GitHub's releases a moment after the start, then every hour.
+    update_first: Timer,
+    update_every: Timer,
 }
 
 pub struct Controller {
@@ -691,6 +699,7 @@ impl Controller {
                 health_ids: Vec::new(),
                 leaks: HashMap::new(),
                 release_page: None,
+                update_told: None,
                 leak_batch: watch::batch_default,
                 sync: syncing::SyncStatus::default(),
                 import_source: None,
@@ -749,6 +758,7 @@ impl Controller {
         controller.install_shortcuts(app);
         controller.load_generator_prefs();
         controller.show_start_screen();
+        controller.start_update_checks();
         Ok(controller)
     }
 
@@ -4363,6 +4373,7 @@ impl Controller {
         app.set_clipboard_seconds(settings.clipboard_clear_seconds as i32);
         app.set_website_icons(settings.website_icons);
         app.set_leak_watch(settings.leak_watch);
+        app.set_update_checks(settings.update_checks);
         app.set_close_to_tray(settings.close_to_tray);
         app.set_browser_locked_fill(settings.browser_locked_fill);
         app.set_browser_extension(settings.browser_extension);
@@ -5059,6 +5070,7 @@ impl Controller {
             dark_theme: app.global::<Theme>().get_dark(),
             website_icons: app.get_website_icons(),
             leak_watch: app.get_leak_watch(),
+            update_checks: app.get_update_checks(),
             browser_extension: app.get_browser_extension(),
             close_to_tray: app.get_close_to_tray(),
             browser_locked_fill: app.get_browser_locked_fill(),
@@ -5078,6 +5090,7 @@ impl Controller {
         }
         let icons_were_on = self.state.borrow().settings.website_icons;
         let watch_was_on = self.state.borrow().settings.leak_watch;
+        let update_checks_were_on = self.state.borrow().settings.update_checks;
         let browser_was_on = self.state.borrow().settings.browser_extension;
         let locked_fill_was_on = self.state.borrow().settings.browser_locked_fill;
         self.state.borrow_mut().settings = settings.clone();
@@ -5100,6 +5113,9 @@ impl Controller {
         self.restart_auto_lock();
         if !watch_was_on && settings.leak_watch {
             self.watch_leaks();
+        }
+        if !update_checks_were_on && settings.update_checks {
+            self.update_checks_turned_on();
         }
         match (icons_were_on, settings.website_icons) {
             (false, true) => {

@@ -2372,18 +2372,35 @@ fn check_for_updates_says_what_github_answered() {
         assets: Vec::new(),
     };
 
-    // Inline (tests): the button asks nothing.
+    // Inline (tests): the button asks nothing, and nothing is looked for by itself.
     app.invoke_check_updates();
     assert_eq!(app.get_update_state(), 0);
+    assert!(
+        vault_platform::device::Settings::default().update_checks,
+        "looked for by itself unless turned off"
+    );
 
-    controller.finish_update_check(Ok(release(env!("CARGO_PKG_VERSION"))));
+    controller.finish_update_check(Ok(release(env!("CARGO_PKG_VERSION"))), false);
     assert_eq!(app.get_update_state(), 2, "this is the newest");
 
-    controller.finish_update_check(Ok(release("99.0.0")));
+    // Found on its own: said once in a notice, and in About.
+    controller.finish_update_check(Ok(release("99.0.0")), true);
     assert_eq!(app.get_update_state(), 3, "a newer one is out");
     assert_eq!(app.get_update_version(), "99.0.0");
+    assert_eq!(app.get_notice_code(), 89);
+    assert_eq!(app.get_notice_arg(), "99.0.0");
+    app.set_notice_code(0);
+    controller.finish_update_check(Ok(release("99.0.0")), true);
+    assert_eq!(
+        app.get_notice_code(),
+        0,
+        "the same version isn't told twice"
+    );
 
-    controller.finish_update_check(Err("offline".to_owned()));
+    // A look on its own that fails says nothing; the button says why.
+    controller.finish_update_check(Err("offline".to_owned()), true);
+    assert_eq!(app.get_update_state(), 3);
+    controller.finish_update_check(Err("offline".to_owned()), false);
     assert_eq!(app.get_update_state(), 4);
     assert_eq!(app.get_update_detail(), "offline");
 }
