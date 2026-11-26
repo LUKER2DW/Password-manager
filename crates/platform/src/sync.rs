@@ -333,28 +333,23 @@ pub struct Fetched {
     pub unchanged: usize,
 }
 
-/// The most other devices' copies one round reads, and the most bytes they may hold
+/// The most other devices' copies one round attempts to read, and the most bytes they may hold
 /// together: a target that lists thousands of copies, or huge ones, can't make this device
 /// download and hold them all (a vault syncs a few devices of a few MB).
 pub const MAX_COPIES_READ: usize = 64;
 pub const MAX_ROUND_BYTES: usize = 256 * 1024 * 1024;
 
-/// Reads every copy but this device's own whose tag isn't in `known` (pass an empty map to
-/// read them all). An unreachable target is an error; one copy that can't be read is listed
-/// and the others are still read. Past [`MAX_COPIES_READ`] copies or [`MAX_ROUND_BYTES`],
-/// the rest are listed as unreadable.
+/// Attempts to read every copy but this device's own whose tag isn't in `known` (pass an empty
+/// map to read them all). An unreachable target is an error; one copy that can't be read is
+/// listed and the others are still tried. Once [`MAX_COPIES_READ`] attempts or
+/// [`MAX_ROUND_BYTES`] are reached, one remaining copy is listed as unreadable and the round
+/// stops reading.
 pub fn fetch(target: &dyn Target, own: DeviceId, known: &Tags) -> Result<Fetched> {
     let mut fetched = Fetched::default();
     let mut bytes_read = 0usize;
+    let mut copies_attempted = 0usize;
     for listed in target.list()? {
         if listed.device == own {
-            continue;
-        }
-        if fetched.copies.len() >= MAX_COPIES_READ || bytes_read >= MAX_ROUND_BYTES {
-            fetched.unreadable.push((
-                listed.device,
-                "too many copies to read in one round".to_owned(),
-            ));
             continue;
         }
         if let Some(tag) = &listed.tag
@@ -364,6 +359,14 @@ pub fn fetch(target: &dyn Target, own: DeviceId, known: &Tags) -> Result<Fetched
             fetched.tags.insert(listed.device, tag.clone());
             continue;
         }
+        if copies_attempted >= MAX_COPIES_READ || bytes_read >= MAX_ROUND_BYTES {
+            fetched.unreadable.push((
+                listed.device,
+                "too many copies to read in one round".to_owned(),
+            ));
+            break;
+        }
+        copies_attempted += 1;
         match target.get(listed.device) {
             Ok(bytes) => {
                 bytes_read = bytes_read.saturating_add(bytes.len());
@@ -869,6 +872,77 @@ mod tests {
 
     fn device(n: u8) -> DeviceId {
         DeviceId::from_bytes([n; 16])
+    }
+
+    struct CountingTarget {
+        listed: usize,
+        fail_all: bool,
+        gets: std::sync::atomic::AtomicUsize,
+    }
+
+    impl CountingTarget {
+        fn new(listed: usize, fail_all: bool) -> Self {
+            Self {
+                listed,
+                fail_all,
+                gets: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        fn gets(&self) -> usize {
+            self.gets.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl Target for CountingTarget {
+        fn list(&self) -> Result<Vec<Listed>> {
+            Ok((1..=self.listed)
+                .map(|n| Listed {
+                    device: device(u8::try_from(n).unwrap()),
+                    tag: None,
+                })
+                .collect())
+        }
+
+        fn get(&self, _device: DeviceId) -> Result<Vec<u8>> {
+            let attempt = self.gets.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if self.fail_all || attempt % 2 == 1 {
+                anyhow::bail!("unreadable copy");
+            }
+            Ok(vec![u8::try_from(attempt).unwrap()])
+        }
+
+        fn put(&self, _own: DeviceId, _bytes: &[u8]) -> Result<()> {
+            unreachable!("the fetch tests do not write copies")
+        }
+
+        fn remove(&self, _device: DeviceId) -> Result<()> {
+            unreachable!("the fetch tests do not remove copies")
+        }
+    }
+
+    #[test]
+    fn failed_reads_count_toward_the_round_limit() {
+        let target = CountingTarget::new(MAX_COPIES_READ + 10, true);
+        let fetched = fetch(&target, device(0), &Tags::new()).unwrap();
+
+        assert_eq!(target.gets(), MAX_COPIES_READ);
+        assert!(fetched.copies.is_empty());
+        assert_eq!(fetched.unreadable.len(), MAX_COPIES_READ + 1);
+        assert_eq!(
+            fetched.unreadable.last().unwrap().1,
+            "too many copies to read in one round"
+        );
+    }
+
+    #[test]
+    fn successful_and_failed_reads_share_the_round_limit() {
+        let target = CountingTarget::new(MAX_COPIES_READ + 10, false);
+        let fetched = fetch(&target, device(0), &Tags::new()).unwrap();
+
+        assert_eq!(target.gets(), MAX_COPIES_READ);
+        assert_eq!(fetched.copies.len(), MAX_COPIES_READ.div_ceil(2));
+        assert_eq!(fetched.unreadable.len(), MAX_COPIES_READ / 2 + 1);
     }
 
     #[test]
