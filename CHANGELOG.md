@@ -4,6 +4,18 @@ What each release brought, newest first. A version's section is the text of its 
 release (`.github/workflows/release.yml`), so write it for the people who install it. Alpha:
 never use the apps with real passwords yet.
 
+## [0.4.5] - 2026-11-26
+
+Updates that hold up on a network that stumbles.
+
+### Fixed
+- **An update from GitHub failed on a phone whose DNS fails for a moment** ("No address
+  associated with hostname", seen for every app on that phone): the request for the release
+  and the download are made again after 2 and 5 seconds when the network failed them (never
+  when GitHub answered, nor after a timeout). The desktop's look for updates does the same.
+- The phone's look for updates on its own, when GitHub couldn't be reached, is made again in
+  5 minutes instead of the next hour.
+
 ## [0.4.4] - 2026-11-26
 
 The phone app opens again, and every app now hears of a new version within the hour, so a fix
