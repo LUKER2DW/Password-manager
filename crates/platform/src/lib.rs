@@ -26,6 +26,7 @@ pub mod screen;
 pub mod secret_store;
 pub mod secure_buffer;
 pub mod sync;
+pub mod updates;
 pub mod website_icons;
 
 pub use device::{DeviceState, RollbackStatus, StateFile, SyncPlace, SyncTo};
