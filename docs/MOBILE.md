@@ -345,12 +345,13 @@ or export the vault, uninstall once, install again. Gradle needs a Java it suppo
 The key's place and password may be given in the repository's `.env` instead (git-ignored;
 `.env.example` names the two variables), which `build.ps1` reads first.
 
-**Releases on GitHub.** `.github/workflows/android-release.yml` builds the same APK on GitHub
-from `main` whenever the phone app or what it is built from changes, signs it with the release
-key, checks it came out signed with the release certificate alone (its SHA-256 is written in
-the workflow), attests its provenance and keeps it as the run's artifact. When
-`apps/mobile-android/Cargo.toml` names a version with no release yet, it also publishes the
-release `android-v<version>` with the APK and its `SHA256SUMS`: bumping the version releases.
+**Releases on GitHub.** `.github/workflows/release.yml` builds the same APK on GitHub from
+`main` whenever an app or what it is built from changes, together with the desktop app and
+the browser extension, signs it with the release key and checks it came out signed with the
+release certificate alone (its SHA-256 is written in the workflow). When the version every app
+carries has no release yet, it publishes `v<version>`: the notes are that version's section of
+`CHANGELOG.md`, every file has a provenance attestation and `SHA256SUMS`. To release, bump the
+version in each app (the workflow's comment lists the files) and write the changelog section.
 The key and its password are secrets of the `android-release` environment
 (`ANDROID_SIGNING_STORE`, the `.p12` in base64; `ANDROID_SIGNING_PASSWORD`), handed only to jobs
 running for `main`. GitHub keeps them write-only: they are not a backup of the key.

@@ -359,6 +359,12 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
 - Never commit generated output (`target/`), vault files, exports or kits (see `.gitignore`).
 - Commits carry the author's GitHub no-reply address, never a personal email, and no
   attribution lines.
+- Dependabot's pull requests are never merged as they are: the update is redone in a `Build:`
+  commit of the maintainer's and the pull request closed, so every commit on `main` has the one
+  author.
+- Releases: bump the version in every app (`.github/workflows/release.yml` lists the files) and
+  write its section in `CHANGELOG.md`; the push to `main` builds, signs and publishes
+  `v<version>`.
 
 ## 5. How to do common things
 
