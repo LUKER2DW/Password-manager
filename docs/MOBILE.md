@@ -335,13 +335,25 @@ adb install -r target/release/apk/vault-mobile-android.apk
 The APK is signed with the release key when there is one, else with the Android debug key
 (for trying it, never for publishing it). The release key is made once with
 `./apps/mobile-android/make-release-key.ps1`: a 4096-bit RSA key in
-`%APPDATA%\PasswordVault\signingelease.p12`, outside the repository, its password sealed
+`%APPDATA%\PasswordVault\signing\release.p12`, outside the repository, its password sealed
 for this Windows user (DPAPI) so `build.ps1` signs without asking. Android installs an update
 only when it carries the same key as the app on the phone, so back the key and its password up
 offline: lost, no update installs over the app again; copied, whoever has it can sign an
 "update". The first APK signed with it doesn't install over one signed with the debug key: sync
 or export the vault, uninstall once, install again. Gradle needs a Java it supports (JDK 17 or
 21 in `JAVA_HOME`; a newer Android Studio's own Java may be too new for it).
+The key's place and password may be given in the repository's `.env` instead (git-ignored;
+`.env.example` names the two variables), which `build.ps1` reads first.
+
+**Releases on GitHub.** `.github/workflows/android-release.yml` builds the same APK on GitHub
+from `main` whenever the phone app or what it is built from changes, signs it with the release
+key, checks it came out signed with the release certificate alone (its SHA-256 is written in
+the workflow), attests its provenance and keeps it as the run's artifact. When
+`apps/mobile-android/Cargo.toml` names a version with no release yet, it also publishes the
+release `android-v<version>` with the APK and its `SHA256SUMS`: bumping the version releases.
+The key and its password are secrets of the `android-release` environment
+(`ANDROID_SIGNING_STORE`, the `.p12` in base64; `ANDROID_SIGNING_PASSWORD`), handed only to jobs
+running for `main`. GitHub keeps them write-only: they are not a backup of the key.
 
 What is in this first build (M7.1):
 - **Secret fields take the system keyboard, asked for a password** (no learning, no
