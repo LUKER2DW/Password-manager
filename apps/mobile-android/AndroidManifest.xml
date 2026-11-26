@@ -25,14 +25,16 @@
         </intent>
     </queries>
 
-    <!-- Plain http is let through by Android only so a Tailscale address (100.x.y.z, encrypted
-         by WireGuard) works; the app itself refuses http:// to anywhere else (sync/http.rs). -->
+    <!-- No plain http from the Java side (it makes no requests of its own; this holds the
+         libraries in it to that too). The app's own connections are made by its Rust library,
+         which Android's setting doesn't reach: it refuses http:// itself, except to this phone
+         or a Tailscale address, whose network encrypts (sync/http.rs). -->
     <application
         android:label="Vault"
         android:icon="@mipmap/ic_launcher"
         android:hasCode="true"
         android:allowBackup="false"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="false">
 
         <!-- Play services fetches the QR code scanner when the app is installed, not at the
              first scan. -->
