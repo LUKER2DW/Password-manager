@@ -8,6 +8,7 @@
     <string name="autofill_open_app">Desbloqueie o Vault, volte e toque no campo de novo.</string>
     <string name="autofill_suggest">Usar uma senha forte</string>
     <string name="autofill_suggest_detail">Feita pelo Vault; salva quando você se cadastra</string>
+    <string name="autofill_signer">Ao salvar, você vincula este login ao app com este certificado de assinatura (SHA-256).</string>
     <string name="autofill_not_saved">O Vault não conseguiu salvar este login. Abra o Vault e tente de novo.</string>
     <string name="autofill_saved_beside">Salvo como um login novo: o que você tem está atrás da trava de itens e fica como está.</string>
     <string name="autofill_no_lock">Defina um bloqueio de tela no celular para preencher com o Vault: cada preenchimento pede ele.</string>

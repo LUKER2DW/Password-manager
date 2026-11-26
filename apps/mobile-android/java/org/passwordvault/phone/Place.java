@@ -19,12 +19,15 @@ import java.util.Objects;
  * never comes from another part of the screen than they do.
  *
  * What may be offered there is decided by the app (vault_mobile::autofill::Recipient): a website
- * only when a browser known by its certificate names it.
+ * only when a browser known by its certificate names it, or an app only when its saved package
+ * and certificate match this Android-verified signing lineage.
  */
 final class Place {
     private static final String APP = "org.passwordvault.phone.APP";
     private static final String DOMAIN = "org.passwordvault.phone.DOMAIN";
     private static final String SCHEME = "org.passwordvault.phone.SCHEME";
+    private static final String SIGNERS = "org.passwordvault.phone.SIGNERS";
+    private static final char[] HEX = "0123456789ABCDEF".toCharArray();
 
     /** The app's package. */
     final String app;
@@ -33,8 +36,8 @@ final class Place {
     /** The web page's scheme, or null when it isn't given. */
     final String scheme;
     /**
-     * SHA-256 of the app's signing certificate and of those Android proved it was rotated from,
-     * 32 bytes each, one after the other; empty when it has several signers or can't be seen.
+     * SHA-256 of the app's current signing certificate first, then those Android proved it was
+     * rotated from, 32 bytes each; empty when it has several signers or can't be seen.
      */
     final byte[] signers;
     /** The app opens any https link: a browser. */
@@ -59,22 +62,28 @@ final class Place {
         to.putString(APP, app);
         to.putString(DOMAIN, domain);
         to.putString(SCHEME, scheme);
+        to.putByteArray(SIGNERS, signers.clone());
     }
 
     /**
-     * The place {@link #write} put away, or null. What the app is signed with is looked up again
-     * now: it is the app there is at this moment that gets the answer.
+     * The place {@link #write} put away, or null. The current signing lineage is looked up again
+     * and must equal the request's snapshot: a replaced app cannot take over a pending answer.
      */
     static Place read(Context context, Bundle from) {
         String app = from == null ? null : from.getString(APP);
-        return app == null ? null
-                : new Place(context, app, from.getString(DOMAIN), from.getString(SCHEME));
+        byte[] expectedSigners = from == null ? null : from.getByteArray(SIGNERS);
+        if (app == null || expectedSigners == null) {
+            return null;
+        }
+        Place current = new Place(context, app, from.getString(DOMAIN), from.getString(SCHEME));
+        return MessageDigest.isEqual(expectedSigners, current.signers) ? current : null;
     }
 
-    /** Whether this is the place {@code other} was: the same app, and the same page in it. */
+    /** Whether this is the same signed app and the same page as {@code other}. */
     boolean same(Place other) {
         return other != null && app.equals(other.app) && Objects.equals(domain, other.domain)
-                && Objects.equals(scheme, other.scheme);
+                && Objects.equals(scheme, other.scheme)
+                && MessageDigest.isEqual(signers, other.signers);
     }
 
     /**
@@ -86,6 +95,22 @@ final class Place {
                 ? recipient : recipient + " · " + domain;
     }
 
+    /** The current signer's complete SHA-256 fingerprint, for an explicit app save prompt. */
+    String currentSigner() {
+        if (signers.length < 32) {
+            return "";
+        }
+        StringBuilder shown = new StringBuilder(95);
+        for (int i = 0; i < 32; i++) {
+            if (i > 0) {
+                shown.append(':');
+            }
+            int value = signers[i] & 0xff;
+            shown.append(HEX[value >>> 4]).append(HEX[value & 0x0f]);
+        }
+        return shown.toString();
+    }
+
     private static byte[] signersOf(PackageManager packages, String app) {
         try {
             PackageInfo info = packages.getPackageInfo(app, PackageManager.GET_SIGNING_CERTIFICATES);
@@ -93,9 +118,14 @@ final class Place {
                 return new byte[0];
             }
             MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+            Signature[] history = info.signingInfo.getSigningCertificateHistory();
+            if (history == null || history.length == 0) {
+                return new byte[0];
+            }
             ByteArrayOutputStream digests = new ByteArrayOutputStream();
-            for (Signature certificate : info.signingInfo.getSigningCertificateHistory()) {
-                digests.write(sha256.digest(certificate.toByteArray()));
+            // Android returns oldest first. New logins bind to the current certificate.
+            for (int i = history.length - 1; i >= 0; i--) {
+                digests.write(sha256.digest(history[i].toByteArray()));
             }
             return digests.toByteArray();
         } catch (Exception e) {

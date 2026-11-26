@@ -86,6 +86,16 @@ final class Autofill {
         return row;
     }
 
+    /** The signed app identity shown when Android asks whether to save or rebind a login. */
+    static RemoteViews identity(Context context, String app, String signer) {
+        RemoteViews identity = new RemoteViews(
+                context.getPackageName(), id(context, "layout", "autofill_identity"));
+        identity.setTextViewText(id(context, "id", "first"), app);
+        identity.setTextViewText(id(context, "id", "second"),
+                word(context, "autofill_signer") + "\n" + signer);
+        return identity;
+    }
+
     /** A word from the app's own resources (res/values*), in the phone's language. */
     static String word(Context context, String name) {
         return context.getString(id(context, "string", name));

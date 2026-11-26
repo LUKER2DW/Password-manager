@@ -1886,9 +1886,10 @@ msgstr ""
 msgctxt "PhoneWindow"
 msgid ""
 "A website's logins are offered on that site only: its exact address, or "
-"every address under it for *.example.com. For an app, add its address to the "
-"login as androidapp:// and the app's package name, for example androidapp://"
-"com.example.app."
+"every address under it for *.example.com. For an app, Android autofill saves "
+"its verified package and signing identity. An older package-only androidapp:// "
+"address is not filled until you explicitly save it for the signer shown by "
+"Android."
 msgstr ""
 
 #: ui/app.slint:3938

@@ -10,6 +10,7 @@ import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.Looper;
 import android.service.autofill.AutofillService;
+import android.service.autofill.CustomDescription;
 import android.service.autofill.Dataset;
 import android.service.autofill.FillCallback;
 import android.service.autofill.FillContext;
@@ -67,14 +68,15 @@ public class VaultAutofillService extends AutofillService {
         new Thread(() -> {
             try {
                 Place place = Place.of(this, app, fields);
-                callback.onSuccess(Autofill.recipient(place) == null ? null : respond(fields, place));
+                String recipient = Autofill.recipient(place);
+                callback.onSuccess(recipient == null ? null : respond(fields, place, recipient));
             } catch (Exception e) {
                 callback.onFailure(String.valueOf(e.getMessage()));
             }
         }).start();
     }
 
-    private FillResponse respond(Fields fields, Place place) {
+    private FillResponse respond(Fields fields, Place place, String recipient) {
         FillResponse.Builder response = new FillResponse.Builder();
         boolean any = false;
         // id, title, username for each login (no passwords until one is chosen and confirmed).
@@ -106,6 +108,12 @@ public class VaultAutofillService extends AutofillService {
             SaveInfo.Builder save = new SaveInfo.Builder(types, new AutofillId[] {fields.password});
             if (fields.username != null) {
                 save.setOptionalIds(new AutofillId[] {fields.username});
+            }
+            // A legacy package-only facet is rebound only through this explicit save. Show the
+            // complete signer that will be recorded so package text is never the whole identity.
+            if (place.app.equals(recipient)) {
+                save.setCustomDescription(new CustomDescription.Builder(
+                        Autofill.identity(this, recipient, place.currentSigner())).build());
             }
             response.setSaveInfo(save.build());
             // Comes back with the save: it is for this place and this password field.

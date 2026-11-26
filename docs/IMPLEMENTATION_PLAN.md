@@ -528,10 +528,12 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
     (PM-07); leaving the app locks also while a job holds the vault (PM-08); the 14 days of
     fingerprint unlock run from the last master password (PM-09).
   - Android: who receives a login is worked out from the fields (known browsers by
-    certificate, https, one web view) and saving follows the item lock (PM-02, PM-06); PDF
-    previews from memory, wiped over their full length, within a pixel budget (PM-15, PM-16);
-    updates only of this app, newer, same certificate; the APK signed with a release key of its
-    own (`make-release-key.ps1`, kept outside the repository). ⬜ tried on a device.
+    certificate, https, one web view); app logins bind the package to an Android-verified
+    signer lineage, with package-only facets rebound only by an explicit save that shows the
+    current signer; saving follows the item lock (PM-02, PM-06); PDF previews from memory,
+    wiped over their full length, within a pixel budget (PM-15, PM-16); updates only of this
+    app, newer, same certificate; the APK signed with a release key of its own
+    (`make-release-key.ps1`, kept outside the repository). ⬜ tried on a device.
   - Server: a listing agrees with an admin's removal (N-06); a removed device's request
     already under way changes nothing (PM-11); admin commands and the server share one lock;
     enrollment tells nothing without a good invite.

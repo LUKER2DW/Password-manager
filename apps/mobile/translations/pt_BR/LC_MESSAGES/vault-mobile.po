@@ -621,8 +621,8 @@ msgid "Autofill service"
 msgstr "Serviço de preenchimento automático"
 
 msgctxt "PhoneWindow"
-msgid "A website's logins are offered on that site only: its exact address, or every address under it for *.example.com. For an app, add its address to the login as androidapp:// and the app's package name, for example androidapp://com.example.app."
-msgstr "Os logins de um site são oferecidos só nesse site: o endereço exato, ou todos os endereços abaixo dele para *.example.com. Para um app, adicione o endereço ao login como androidapp:// e o nome do pacote do app, por exemplo androidapp://com.example.app."
+msgid "A website's logins are offered on that site only: its exact address, or every address under it for *.example.com. For an app, Android autofill saves its verified package and signing identity. An older package-only androidapp:// address is not filled until you explicitly save it for the signer shown by Android."
+msgstr "Os logins de um site são oferecidos só nesse site: o endereço exato, ou todos os endereços abaixo dele para *.example.com. Para um app, o preenchimento automático do Android salva o pacote verificado e a identidade de assinatura. Um endereço androidapp:// antigo somente com o pacote não é preenchido até você salvá-lo explicitamente para o assinante mostrado pelo Android."
 
 msgctxt "PhoneWindow"
 msgid "Change it in Android's settings"

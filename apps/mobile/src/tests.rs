@@ -2433,9 +2433,14 @@ fn a_website_rule_autofill_skips_is_told_on_the_item_page() {
 fn form_of(package: &str) -> Recipient {
     Recipient::of(&Asker {
         app: package.into(),
+        signers: vec![[7; 32]],
         ..Asker::default()
     })
     .unwrap()
+}
+
+fn app_address(package: &str) -> String {
+    format!("androidapp://{}@{package}", "07".repeat(32))
 }
 
 /// Username, password and "behind the lock" of every item in the phone's vault file.
@@ -2459,7 +2464,7 @@ fn autofill_changes_no_login_behind_the_item_lock() {
             .unwrap();
         for (title, username, reprompt) in [("Guarded", "guarded", true), ("Open", "open", false)] {
             let mut item =
-                ItemData::login(title, username, "old-pw", "androidapp://com.example.app");
+                ItemData::login(title, username, "old-pw", &app_address("com.example.app"));
             item.reprompt = reprompt;
             vault.add_item(&item).unwrap();
         }
@@ -2510,7 +2515,7 @@ fn what_autofill_saves_is_in_the_vault_only_once_it_is_written() {
                 "Open",
                 "open",
                 "old-pw",
-                "androidapp://com.example.app",
+                &app_address("com.example.app"),
             ))
             .unwrap();
     });
