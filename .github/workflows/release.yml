@@ -208,6 +208,12 @@ jobs:
         run: rustup show active-toolchain
       - name: Build
         run: cargo build --release --locked -p vault-desktop -p vault-cli -p vault-server
+      # ASLR, DEP and Control Flow Guard (.cargo/config.toml) in every exe, or nothing ships.
+      - name: Protections
+        shell: pwsh
+        run: >-
+          apps/desktop/check-exe.ps1
+          -Exe target/release/vault-desktop.exe, target/release/vault.exe, target/release/vault-server.exe
       # Names without the version: a new one replaces the old file in place, and the browsers
       # and Explorer keep pointing at it.
       - name: Collect

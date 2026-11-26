@@ -1,4 +1,12 @@
 # Windows builds link with rust-lld (it comes with the Rust toolchain): the test binaries and the
 # desktop app are large, and it links them several times faster than MSVC's link.exe.
+#
+# Control Flow Guard: Windows stops the program when an indirect call (a call through a function
+# pointer or a vtable) goes anywhere but the start of a real function, which turns a memory bug
+# in C or `unsafe` code into a crash instead of a hijacked process. It covers our code and the C
+# compiled here (ring, SQLite: the cc crate passes it on as /guard:cf); the standard library and
+# Skia come precompiled without it. Every Windows build has it, so the tests run under it too;
+# the release checks the published exes for it (apps/desktop/check-exe.ps1).
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
+rustflags = ["-Ccontrol-flow-guard"]
