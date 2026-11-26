@@ -1,7 +1,7 @@
 [package]
 name = "vault-browser"
 version = "0.0.0"
-description = "Browser extension link: the messages the extension and the desktop app exchange, strict origin matching, and the native messaging host"
+description = "Browser extension link: the messages the extension and the desktop app exchange, strict origin matching, and the native messaging host's relay (run by the desktop app's own executable)"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,11 +10,6 @@ publish.workspace = true
 [lib]
 name = "vault_browser"
 path = "src/lib.rs"
-
-# Started by the browser when the extension asks; relays messages to the desktop app.
-[[bin]]
-name = "vault-browser-host"
-path = "src/main.rs"
 
 [lints]
 workspace = true

@@ -1,10 +1,17 @@
 //! The relay the native host runs: messages from the browser on standard input go to the
 //! desktop app, and its answers come back on standard output. The host understands none of
 //! them and keeps nothing.
+//!
+//! The host is the desktop app's own executable: a browser starts `vault-desktop.exe` with the
+//! extension's origin as its first argument, and the app then runs [`run`] instead of opening
+//! a window.
 
-use std::io::{Read, Write};
+use std::{
+    io::{Read, Write},
+    path::Path,
+};
 
-use vault_platform::browser_link::{read_frame, write_frame};
+use vault_platform::browser_link::{self, read_frame, write_frame};
 
 /// Sent in place of the app's answer when the app can't be reached.
 pub const NOT_RUNNING: &[u8] = br#"{"type":"error","code":"not_running"}"#;
@@ -12,6 +19,21 @@ pub const NOT_RUNNING: &[u8] = br#"{"type":"error","code":"not_running"}"#;
 /// Whether `caller` (the first argument a browser gives the host) is our extension.
 pub fn is_our_extension(caller: Option<&str>) -> bool {
     caller == Some(vault_platform::browser_link::extension_origin().as_str())
+}
+
+/// The native host's whole run, for the browser that started `app` (this executable) as the
+/// host: relays to the copy of `app` that holds the pipe until the browser closes its end.
+/// Whether it ended cleanly.
+pub fn run(app: &Path) -> bool {
+    let Ok(pipe) = browser_link::pipe_name() else {
+        return false;
+    };
+    relay(
+        std::io::stdin().lock(),
+        std::io::stdout().lock(),
+        |message| browser_link::request(&pipe, app, message).ok(),
+    )
+    .is_ok()
 }
 
 /// Relays messages until the browser closes the input. `send` delivers one message to the
