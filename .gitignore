@@ -24,6 +24,8 @@ emergency-kit*
 .env
 .env.*
 !.env.example
+# Local secrets kept for a while (signing keys and their passwords)
+.secrets/
 
 # ------------------------------------------------------------
 # Build / tooling
