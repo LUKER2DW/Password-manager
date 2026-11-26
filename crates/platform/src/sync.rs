@@ -342,12 +342,14 @@ pub const MAX_ROUND_BYTES: usize = 256 * 1024 * 1024;
 /// Attempts to read every copy but this device's own whose tag isn't in `known` (pass an empty
 /// map to read them all). An unreachable target is an error; one copy that can't be read is
 /// listed and the others are still tried. Once [`MAX_COPIES_READ`] attempts or
-/// [`MAX_ROUND_BYTES`] are reached, one remaining copy is listed as unreadable and the round
-/// stops reading.
+/// [`MAX_ROUND_BYTES`] are reached, one remaining copy is listed as unreadable and no other
+/// is read; copies listed after it that are known and unchanged are still counted as such, so
+/// their tags aren't forgotten for the next round.
 pub fn fetch(target: &dyn Target, own: DeviceId, known: &Tags) -> Result<Fetched> {
     let mut fetched = Fetched::default();
     let mut bytes_read = 0usize;
     let mut copies_attempted = 0usize;
+    let mut overflowed = false;
     for listed in target.list()? {
         if listed.device == own {
             continue;
@@ -359,12 +361,16 @@ pub fn fetch(target: &dyn Target, own: DeviceId, known: &Tags) -> Result<Fetched
             fetched.tags.insert(listed.device, tag.clone());
             continue;
         }
+        if overflowed {
+            continue;
+        }
         if copies_attempted >= MAX_COPIES_READ || bytes_read >= MAX_ROUND_BYTES {
             fetched.unreadable.push((
                 listed.device,
                 "too many copies to read in one round".to_owned(),
             ));
-            break;
+            overflowed = true;
+            continue;
         }
         copies_attempted += 1;
         match target.get(listed.device) {
@@ -933,6 +939,39 @@ mod tests {
             fetched.unreadable.last().unwrap().1,
             "too many copies to read in one round"
         );
+    }
+
+    #[test]
+    fn known_copies_listed_after_the_limit_keep_their_tags() {
+        struct Tagged(CountingTarget);
+        impl Target for Tagged {
+            fn list(&self) -> Result<Vec<Listed>> {
+                let mut listed = self.0.list()?;
+                // The last one is known and unchanged.
+                listed.last_mut().unwrap().tag = Some("kept".to_owned());
+                Ok(listed)
+            }
+            fn get(&self, device: DeviceId) -> Result<Vec<u8>> {
+                self.0.get(device)
+            }
+            fn put(&self, own: DeviceId, bytes: &[u8]) -> Result<()> {
+                self.0.put(own, bytes)
+            }
+            fn remove(&self, device: DeviceId) -> Result<()> {
+                self.0.remove(device)
+            }
+        }
+        let listed = MAX_COPIES_READ + 10;
+        let last = device(u8::try_from(listed).unwrap());
+        let target = Tagged(CountingTarget::new(listed, true));
+        let mut known = Tags::new();
+        known.insert(last, "kept".to_owned());
+        let fetched = fetch(&target, device(0), &known).unwrap();
+
+        assert_eq!(target.0.gets(), MAX_COPIES_READ);
+        assert_eq!(fetched.unreadable.len(), MAX_COPIES_READ + 1);
+        assert_eq!(fetched.unchanged, 1);
+        assert_eq!(fetched.tags.get(&last).map(String::as_str), Some("kept"));
     }
 
     #[test]
