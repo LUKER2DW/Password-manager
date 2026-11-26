@@ -2356,3 +2356,34 @@ fn an_export_of_locked_items_is_counted_before_it_is_made() {
         assert_eq!(app.get_revealed_password(), "");
     }
 }
+
+/// Check for updates: what each answer shows, with no network (the tests never ask GitHub).
+#[test]
+fn check_for_updates_says_what_github_answered() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let _turn = app_home(&dir.path().join("home"));
+    let app = AppWindow::new().unwrap();
+    let controller =
+        Controller::install(&app, dir.path().join("none.vault"), Runner::Inline, None).unwrap();
+    let release = |version: &str| vault_sync_wire::releases::Release {
+        version: version.to_owned(),
+        page: format!("https://github.com/o/r/releases/tag/v{version}"),
+        assets: Vec::new(),
+    };
+
+    // Inline (tests): the button asks nothing.
+    app.invoke_check_updates();
+    assert_eq!(app.get_update_state(), 0);
+
+    controller.finish_update_check(Ok(release(env!("CARGO_PKG_VERSION"))));
+    assert_eq!(app.get_update_state(), 2, "this is the newest");
+
+    controller.finish_update_check(Ok(release("99.0.0")));
+    assert_eq!(app.get_update_state(), 3, "a newer one is out");
+    assert_eq!(app.get_update_version(), "99.0.0");
+
+    controller.finish_update_check(Err("offline".to_owned()));
+    assert_eq!(app.get_update_state(), 4);
+    assert_eq!(app.get_update_detail(), "offline");
+}

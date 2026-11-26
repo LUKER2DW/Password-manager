@@ -673,10 +673,6 @@ msgid "Windows Hello no longer opens the item lock on this computer (its PIN or 
 msgstr "O Windows Hello não abre mais a trava de itens neste computador (o PIN ou a senha dele foi trocado). Use o PIN e depois ligue o Windows Hello de novo em Configurações → Trava de itens."
 
 msgctxt "Messages"
-msgid "The helper program for browsers ({}) is missing next to the app, so the extension can't be connected."
-msgstr "O programa auxiliar para navegadores ({}) está faltando ao lado do app, então a extensão não pode ser conectada."
-
-msgctxt "Messages"
 msgid "That isn't the code the extension shows. Look at the extension's window and type its six digits."
 msgstr "Este não é o código que a extensão mostra. Veja a janela da extensão e digite os seis números."
 
@@ -4423,3 +4419,35 @@ msgstr "Voltar às partes"
 msgctxt "RecoverScreen"
 msgid "Back to unlock"
 msgstr "Voltar ao desbloqueio"
+
+msgctxt "Messages"
+msgid "Vault couldn't find its own program file, which the browsers start for the extension, so the extension can't be connected."
+msgstr "O Vault não encontrou o próprio arquivo do programa, que os navegadores abrem para a extensão, então a extensão não pode ser conectada."
+
+msgctxt "SettingsPage"
+msgid "Updates"
+msgstr "Atualizações"
+
+msgctxt "SettingsPage"
+msgid "Asks GitHub, where the project's releases are, only when you press the button. Nothing about your vault is sent."
+msgstr "Pergunta ao GitHub, onde ficam as versões publicadas do projeto, só quando você aperta o botão. Nada do seu cofre é enviado."
+
+msgctxt "SettingsPage"
+msgid "Check for updates"
+msgstr "Procurar atualizações"
+
+msgctxt "SettingsPage"
+msgid "Open the release page"
+msgstr "Abrir a página da versão"
+
+msgctxt "SettingsPage"
+msgid "This is the newest version."
+msgstr "Esta é a versão mais nova."
+
+msgctxt "SettingsPage"
+msgid "Version {} is out. Download it from the release page and replace this program with it; your vault stays where it is."
+msgstr "A versão {} saiu. Baixe-a na página da versão e troque este programa por ela; seu cofre fica onde está."
+
+msgctxt "SettingsPage"
+msgid "Couldn't look for updates: {}"
+msgstr "Não foi possível procurar atualizações: {}"

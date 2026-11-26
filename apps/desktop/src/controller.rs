@@ -56,6 +56,7 @@ mod navigation;
 mod protection;
 mod renew;
 mod syncing;
+mod updates;
 mod watch;
 
 /// What to draw next to an item.
@@ -517,6 +518,8 @@ struct State {
     health_generation: u64,
     health_ids: Vec<ItemId>,
     leaks: HashMap<ItemId, u64>,
+    /// The newer release Check for updates found (its page on github.com).
+    release_page: Option<String>,
     /// The leak watch's check of every login (the tests put a stand-in in its place).
     leak_batch: watch::Batch,
     sync: syncing::SyncStatus,
@@ -687,6 +690,7 @@ impl Controller {
                 health_generation: 0,
                 health_ids: Vec::new(),
                 leaks: HashMap::new(),
+                release_page: None,
                 leak_batch: watch::batch_default,
                 sync: syncing::SyncStatus::default(),
                 import_source: None,
@@ -986,6 +990,8 @@ impl Controller {
         on!(on_open_health, |c| c.open_health());
         on!(on_health_filter_changed, |c, _filter| c.show_health());
         on!(on_check_leaks, |c| c.check_leaks());
+        on!(on_check_updates, |c| c.check_updates());
+        on!(on_open_release, |c| c.open_release());
         on!(on_health_open, |c, index| c.health_open(index));
         on!(on_add_wordlist, |c| c.add_wordlist());
         on!(on_remove_wordlist, |c| c.remove_wordlist());

@@ -125,11 +125,10 @@ impl Controller {
             browser_link::unregister_host();
             return;
         }
-        let host: Option<PathBuf> = std::env::current_exe()
-            .ok()
-            .and_then(|exe| Some(exe.parent()?.join(browser_link::HOST_EXE)));
+        // The browsers start this same executable as the extension's native host.
+        let host: Option<PathBuf> = std::env::current_exe().ok();
         let Some(host) = host.filter(|host| host.exists()) else {
-            self.set_error(error::BROWSER_HOST, browser_link::HOST_EXE);
+            self.set_error(error::BROWSER_HOST, "");
             return;
         };
         let pipe = match browser_link::pipe_name() {

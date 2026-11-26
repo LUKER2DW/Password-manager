@@ -612,7 +612,11 @@ fn main() {
     app.set_settings_section(4);
     camera.shot("settings-appearance", "Settings → Appearance");
     app.set_settings_section(5);
-    camera.shot("settings-about", "Settings → About");
+    // Check for updates found a newer version (what the person sees after pressing it).
+    app.set_update_version("0.5.0".into());
+    app.set_update_state(3);
+    camera.shot("settings-about", "Settings → About: a newer version is out");
+    app.set_update_state(0);
     // Sync, off: the three places to choose from, then each one's dialog.
     app.set_settings_section(2);
     camera.shot("settings-sync-off", "Settings → Sync: off, three places");

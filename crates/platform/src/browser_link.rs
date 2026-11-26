@@ -1,14 +1,16 @@
 //! The local link between the browser extension and the desktop app.
 //!
-//! A browser starts the native host (`vault-browser-host`) when the extension asks for it and
-//! talks to it over stdin/stdout. The host relays each message to the running desktop app
-//! through a named pipe, and the app's answer back. Nothing here touches the network.
+//! A browser starts the native host when the extension asks for it and talks to it over
+//! stdin/stdout. The host is the desktop app's own executable, started with the extension's
+//! origin as its first argument (`vault_browser::host::run`): it relays each message to the
+//! running desktop app through a named pipe, and the app's answer back. Nothing here touches the
+//! network.
 //!
 //! What protects the pipe:
 //! - only the signed-in user may open it (its access list names that user alone), and remote
 //!   clients are refused;
-//! - the app answers only when the program at the other end is its own native host, and the
-//!   host sends only to the app's own executable (both checked by the path of the process);
+//! - the app answers only when the program at the other end is its own executable, and the
+//!   host sends only to that same executable (both checked by the path of the process);
 //! - the pipe is created as the first of its name, so another program can't have taken the
 //!   name before.
 //!
@@ -22,10 +24,6 @@ use anyhow::{Context, Result};
 
 /// Name the extension uses for the native host (`chrome.runtime.sendNativeMessage`).
 pub const HOST_NAME: &str = "vault.desktop.browser_host";
-/// File name of the native host, installed next to the desktop app.
-pub const HOST_EXE: &str = "vault-browser-host.exe";
-/// File name of the desktop app, next to the native host.
-pub const APP_EXE: &str = "vault-desktop.exe";
 /// Id of the extension (fixed by the public `key` in its manifest). Only it may start the host.
 pub const EXTENSION_ID: &str = "ebfeneijifledfnmjgelpifpjgmkbpcn";
 /// Largest message accepted in either direction.
@@ -588,11 +586,10 @@ mod tests {
     #[test]
     fn the_manifest_names_the_host_and_only_our_extension() {
         let json: serde_json::Value =
-            serde_json::from_str(&manifest_json(Path::new(r"C:\apps\vault-browser-host.exe")))
-                .unwrap();
+            serde_json::from_str(&manifest_json(Path::new(r"C:\apps\vault-desktop.exe"))).unwrap();
         assert_eq!(json["name"], HOST_NAME);
         assert_eq!(json["type"], "stdio");
-        assert_eq!(json["path"], r"C:\apps\vault-browser-host.exe");
+        assert_eq!(json["path"], r"C:\apps\vault-desktop.exe");
         assert_eq!(
             json["allowed_origins"],
             serde_json::json!([format!("chrome-extension://{EXTENSION_ID}/")])

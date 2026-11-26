@@ -17,6 +17,16 @@ use vault_desktop::{
 use vault_platform::file_types;
 
 fn main() -> anyhow::Result<()> {
+    // Started by Chrome or Edge as the browser extension's native host (the extension's origin
+    // is the first argument): relay its messages to the app that holds the pipe, show nothing.
+    if vault_browser::host::is_our_extension(std::env::args().nth(1).as_deref()) {
+        let me = std::env::current_exe()?;
+        return if vault_browser::host::run(&me) {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("the browser link ended with an error"))
+        };
+    }
     let app = AppWindow::new()?;
     apply_sketches(&app);
     let opened = std::env::args_os()

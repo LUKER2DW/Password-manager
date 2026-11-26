@@ -630,6 +630,12 @@ export component AppWindow inherits Window {
     in-out property <bool> browser-fill-notices: true;
     in-out property <bool> backdrop-on: true;
     in property <string> app-version;
+    // Settings → About → Check for updates (see SettingsPage).
+    in property <int> update-state;
+    in property <string> update-version;
+    in property <string> update-detail;
+    callback check-updates();
+    callback open-release();
     in-out property <int> auto-lock-minutes: 5;
     in-out property <int> clipboard-seconds: 20;
     in-out property <bool> website-icons;
@@ -1071,6 +1077,11 @@ export component AppWindow inherits Window {
                 section <=> root.settings-section;
                 open-dialog(kind) => { root.open-settings-dialog(kind); }
                 app-version: root.app-version;
+                update-state: root.update-state;
+                update-version: root.update-version;
+                update-detail: root.update-detail;
+                check-updates => { root.check-updates(); }
+                open-release => { root.open-release(); }
                 auto-lock-minutes <=> root.auto-lock-minutes;
                 clipboard-seconds <=> root.clipboard-seconds;
                 website-icons <=> root.website-icons;

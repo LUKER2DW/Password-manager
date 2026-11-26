@@ -2170,6 +2170,13 @@ export component SettingsPage inherits Rectangle {
     in property <bool> quick-unlock-available;
     in-out property <bool> quick-unlock-on;
     in property <string> app-version;
+    // Check for updates (About): 0 not asked, 1 asking, 2 this is the newest, 3 a newer
+    // version is out (update-version), 4 the question failed (update-detail).
+    in property <int> update-state;
+    in property <string> update-version;
+    in property <string> update-detail;
+    callback check-updates();
+    callback open-release();
     callback quick-unlock-toggled(bool);
     callback settings-changed();
     callback vault-settings-changed();
@@ -3023,6 +3030,40 @@ export component SettingsPage inherits Rectangle {
                             Fact { label: @tr("Version"); value: root.app-version; }
                             Fact { label: @tr("Encryption"); value: "XChaCha20-Poly1305 · Argon2id"; }
                             Fact { label: @tr("Status"); value: @tr("Early development, not audited yet: keep a copy of what matters elsewhere too."); }
+                        }
+                    }
+                    SettingsCard {
+                        icon: "download";
+                        title: @tr("Updates");
+                        summary: @tr("Asks GitHub, where the project's releases are, only when you press the button. Nothing about your vault is sent.");
+                        VerticalLayout {
+                            spacing: 10px;
+                            HorizontalLayout {
+                                spacing: 10px;
+                                alignment: start;
+                                Button {
+                                    text: @tr("Check for updates");
+                                    busy-text: @tr("Checking…");
+                                    busy: root.update-state == 1;
+                                    clicked => { root.check-updates(); }
+                                }
+                                if root.update-state == 3: QuietButton {
+                                    text: @tr("Open the release page");
+                                    icon: "external";
+                                    outlined: true;
+                                    clicked => { root.open-release(); }
+                                }
+                            }
+                            Text {
+                                text: root.update-state == 2 ? @tr("This is the newest version.")
+                                    : root.update-state == 3 ? @tr("Version {} is out. Download it from the release page and replace this program with it; your vault stays where it is.", root.update-version)
+                                    : root.update-state == 4 ? @tr("Couldn't look for updates: {}", root.update-detail)
+                                    : "";
+                                height: self.text == "" ? 0px : self.preferred-height;
+                                font-size: Theme.small;
+                                color: root.update-state == 4 ? Theme.seal : Theme.ink;
+                                wrap: word-wrap;
+                            }
                         }
                     }
                 }
