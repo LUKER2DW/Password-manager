@@ -44,7 +44,22 @@ pub struct Prefs {
     /// (its id), in Unix seconds. Fingerprint unlock asks for it again 14 days after that
     /// (`crate::bio`); turning fingerprint unlock on starts from this time, not from now.
     pub password_typed_at: std::collections::BTreeMap<String, i64>,
+    /// Where the app's updates come from: [`UPDATES_FROM_GITHUB`] (the project's releases,
+    /// the default) or [`UPDATES_FROM_SERVER`] (the servers the open vault syncs through).
+    pub update_source: u8,
+    /// Updates are looked for by themselves while a vault is open (on until turned off), not
+    /// only with Check for updates.
+    pub update_checks: bool,
+    /// When GitHub was last asked for an update without the person pressing the button (Unix
+    /// seconds, 0 never): it is asked again only some hours later, not at every unlock.
+    pub github_asked_at: i64,
 }
+
+/// Updates from the project's releases on GitHub.
+pub const UPDATES_FROM_GITHUB: u8 = 0;
+/// Updates from the vault's own sync server, where its owner (or the server itself, following
+/// the releases) put them.
+pub const UPDATES_FROM_SERVER: u8 = 1;
 
 /// A vault this phone keeps: its file (a bare name, next to `settings.json`) and the name it
 /// had when it was last open (shown in the vault chooser; the file itself tells nothing
@@ -92,6 +107,9 @@ impl Default for Prefs {
             leak_watch: false,
             code_order: std::collections::BTreeMap::new(),
             password_typed_at: std::collections::BTreeMap::new(),
+            update_source: UPDATES_FROM_GITHUB,
+            update_checks: true,
+            github_asked_at: 0,
         }
     }
 }
@@ -209,6 +227,10 @@ mod tests {
         std::fs::write(&path, br#"{"website_icons": true}"#).unwrap();
         let loaded = Prefs::load(&path);
         assert!(loaded.website_icons && loaded.backdrop && loaded.dark_theme);
+        assert_eq!(
+            loaded.update_source, UPDATES_FROM_GITHUB,
+            "a phone that never chose takes its updates from GitHub"
+        );
         let changed = Prefs {
             dark_theme: false,
             ..loaded

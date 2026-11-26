@@ -18,10 +18,12 @@ use vault_core::{
 use zeroize::Zeroizing;
 
 use vault_platform::sync::{self, ServerTarget, Target as _};
+use vault_sync_wire::releases::{self, Release as GithubRelease};
 
 use crate::{
     Controller,
     autofill::{self, Asker, Kept, Recipient},
+    controller::Github,
     system::{PdfPage, PdfPages, PromptWords, System},
     ui::{Page, PhoneWindow, Place, Screen, Secrets, Words},
 };
@@ -1661,9 +1663,11 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     app.invoke_sync_remove_backup();
     assert_eq!(app.get_sync_backup(), "");
     drop(other);
-    // Settings → Updates: the server's owner published one; the phone fetches it, checks it
-    // and hands it to Android's installer.
+    // Settings → Updates, from the vault server rather than GitHub: the server's owner
+    // published one; the phone fetches it, checks it and hands it to Android's installer.
     assert!(app.get_updates_available());
+    app.invoke_update_source_changed(1);
+    assert!(app.get_update_servers());
     app.invoke_check_update();
     assert_eq!(
         app.get_update_state(),
@@ -2644,6 +2648,113 @@ fn a_pdf_preview_shows_no_more_than_its_budget() {
     for code in [40, 41] {
         assert!(!words.invoke_notice(code, "3".into()).is_empty());
     }
+}
+
+/// A release as GitHub's stand-in gives it: version `version`, with the phone's package.
+fn github_release(version: &str, with_package: bool) -> GithubRelease {
+    let tag = format!("v{version}");
+    let name = releases::phone_package_name(version);
+    GithubRelease {
+        version: version.to_owned(),
+        page: format!("https://github.com/o/r/releases/tag/{tag}"),
+        assets: if with_package {
+            vec![releases::Asset {
+                url: format!("https://github.com/o/r/releases/download/{tag}/{name}"),
+                name,
+                size: 30,
+                sha256: Some("0".repeat(64)),
+            }]
+        } else {
+            Vec::new()
+        },
+    }
+}
+
+/// Settings → About and updates: unless the person chooses the vault's server, the phone
+/// asks GitHub (a stand-in here: the tests never reach the network), takes the package of a
+/// newer release and hands it to Android's installer; what went wrong is said. The server is
+/// the other choice, which needs a vault that syncs through one. Both choices are kept.
+#[test]
+fn updates_come_from_github_unless_the_server_is_chosen() {
+    fn same() -> Result<GithubRelease, String> {
+        Ok(github_release("0.0.1", true))
+    }
+    fn newer() -> Result<GithubRelease, String> {
+        Ok(github_release("99.0.0", true))
+    }
+    fn newer_without_package() -> Result<GithubRelease, String> {
+        Ok(github_release("99.0.0", false))
+    }
+    fn offline() -> Result<GithubRelease, String> {
+        Err("offline".into())
+    }
+    fn package(release: &GithubRelease) -> Result<Vec<u8>, String> {
+        assert_eq!(release.version, "99.0.0");
+        Ok(b"PK a test package from GitHub".to_vec())
+    }
+    let github = |latest| Github { latest, package };
+
+    let phone = Phone::open(|_, _| {});
+    let (app, controller) = (&phone.app, &phone.controller);
+    let system = Rc::new(FakeSystem::default());
+    controller.set_system(system.clone());
+    controller.lock();
+    phone.unlock(PASSWORD);
+    assert!(app.get_updates_available());
+    assert_eq!(
+        app.get_update_source(),
+        0,
+        "GitHub, unless chosen otherwise"
+    );
+    assert!(
+        app.get_update_checks(),
+        "looked for by itself, unless turned off"
+    );
+
+    controller.use_github(github(same));
+    app.invoke_check_update();
+    assert_eq!(
+        (app.get_update_state(), app.get_update_version().as_str()),
+        (2, "0.0.1")
+    );
+    controller.use_github(github(offline));
+    app.invoke_check_update();
+    assert_eq!((app.get_update_state(), app.get_error_code()), (5, 27));
+    assert_eq!(app.get_error_detail(), "offline");
+    controller.use_github(github(newer_without_package));
+    app.invoke_check_update();
+    assert_eq!(app.get_update_state(), 5, "a release without the phone app");
+    controller.use_github(github(newer));
+    app.invoke_check_update();
+    assert_eq!(
+        (app.get_update_state(), app.get_update_version().as_str()),
+        (3, "99.0.0")
+    );
+    app.invoke_install_update();
+    assert_eq!(
+        system.installed.borrow().as_deref(),
+        Some(b"PK a test package from GitHub".as_slice())
+    );
+    controller.update_installing("");
+    assert_eq!(app.get_update_state(), 6);
+
+    // The vault's server instead: this vault syncs through none, so there is nothing to ask.
+    app.invoke_update_source_changed(1);
+    assert_eq!((app.get_update_source(), app.get_update_state()), (1, 0));
+    assert!(!app.get_update_servers());
+    app.invoke_check_update();
+    assert_eq!(app.get_update_state(), 0);
+    app.invoke_update_checks_changed(false);
+    let kept = crate::prefs::Prefs::load(&crate::prefs::path_for(&phone.path));
+    assert_eq!(
+        (kept.update_source, kept.update_checks),
+        (crate::prefs::UPDATES_FROM_SERVER, false)
+    );
+    app.invoke_update_source_changed(0);
+    assert_eq!(
+        crate::prefs::Prefs::load(&crate::prefs::path_for(&phone.path)).update_source,
+        crate::prefs::UPDATES_FROM_GITHUB
+    );
 }
 
 #[test]

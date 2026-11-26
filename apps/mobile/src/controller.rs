@@ -202,6 +202,8 @@ mod icons;
 mod preview;
 mod settings;
 mod syncing;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) use syncing::Github;
 mod watch;
 
 /// Notice codes (texts live in app.slint → Words.notice).
@@ -691,6 +693,10 @@ impl Controller {
         app.set_lock_on_leave(prefs.lock_on_leave);
         app.set_allow_capture(prefs.allow_capture);
         app.set_leak_watch(prefs.leak_watch);
+        app.set_update_source(i32::from(
+            prefs.update_source.min(prefs::UPDATES_FROM_SERVER),
+        ));
+        app.set_update_checks(prefs.update_checks);
         controller.show_generator(&prefs.generator);
         controller.wire(app);
         controller.apply_language(&prefs.language);
@@ -841,6 +847,10 @@ impl Controller {
         on!(on_sync_remove_backup, |c| c.sync_remove_backup());
         on!(on_check_update, |c| c.check_update());
         on!(on_install_update, |c| c.install_update());
+        on!(on_update_source_changed, |c, index| c
+            .update_source_changed(index));
+        on!(on_update_checks_changed, |c, on| c
+            .update_checks_changed(on));
         on!(on_change_password, |c| c.change_password());
         on!(on_health_opened, |c| c.refresh_health());
         on!(on_health_open, |c, index| c.health_open(index));
@@ -3476,6 +3486,8 @@ impl Controller {
             return self.lock();
         }
         self.watch_tick();
+        // Returns at once unless its time has come.
+        self.ask_for_update_soon();
         let app = self.app();
         if app.get_screen() != Screen::Vault {
             return;

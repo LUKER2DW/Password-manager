@@ -61,10 +61,15 @@ impl Controller {
     pub(super) fn install_update(&self) {}
     pub(super) fn sync_now(&self) {}
     pub(super) fn update_put_off(&self) {}
+    pub(super) fn ask_for_update_soon(&self) {}
+    pub(super) fn update_source_changed(&self, _index: i32) {}
+    pub(super) fn update_checks_changed(&self, _on: bool) {}
     pub fn update_installing(&self, _error: &str) {}
     pub fn sync_round(&self) {}
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) use native::Github;
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) use native::SyncStatus;
 
@@ -87,7 +92,7 @@ mod native {
         DeviceState, SyncPlace, SyncTo, secret_store,
         sync::{self, KnownTags, Role, ServerTarget, Tags},
     };
-    use vault_sync_wire::{DeviceKey, InviteLink};
+    use vault_sync_wire::{DeviceKey, InviteLink, releases::Release as GithubRelease};
 
     use zeroize::Zeroizing;
 
@@ -95,7 +100,7 @@ mod native {
         super::{CURRENT, error, field, fingerprint, notice, sheet, size_text},
         Controller, state, update,
     };
-    use crate::{platform::files, ui::DeviceRow, view};
+    use crate::{platform::files, prefs, ui::DeviceRow, view};
 
     /// The ids a join of the vault may use: the one this phone syncs it as, and the new one
     /// it enrolls as when it isn't enrolled there already (see `sync::join_server`).
@@ -207,6 +212,8 @@ mod native {
         update_asked_at: Option<i64>,
         /// The version put off with Later since unlock: not offered again until the next one.
         update_put_off: Option<String>,
+        /// What stands in for GitHub in tests (`None`: GitHub itself).
+        github: Option<Github>,
         /// Copies sealed under a vault key renewed on another device (SYNC.md §4.7), kept
         /// until this phone takes the new key (Settings, Sync asks for its Secret Key).
         renewed: Vec<(DeviceId, Vec<u8>)>,
@@ -263,14 +270,38 @@ mod native {
         outcome: Result<FormerKey, (i32, String)>,
     }
 
-    /// What the servers the vault syncs through have of the phone app.
+    /// What the place updates come from has of the phone app.
     enum Release {
-        /// A newer version than the one installed, on the server in this role.
-        Newer(String, Role),
+        /// A newer version than the one installed: on GitHub (`None`), or on the server in
+        /// this role.
+        Newer(String, Option<Role>),
         /// The newest version there, which is this one or older.
         Newest(String),
-        /// None of them has an update published.
+        /// None of the servers has an update published.
         Nothing,
+    }
+
+    /// Where the phone app's updates are looked for (Settings → About and updates).
+    enum Source {
+        /// The project's releases on GitHub (the default).
+        Github(Github),
+        /// The servers the open vault syncs through.
+        Servers(Place),
+    }
+
+    /// How GitHub is asked: `vault_platform::updates`, or a stand-in in tests (which never
+    /// reach the network).
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) struct Github {
+        pub latest: fn() -> Result<GithubRelease, String>,
+        pub package: fn(&GithubRelease) -> Result<Vec<u8>, String>,
+    }
+
+    impl Github {
+        const REAL: Self = Self {
+            latest: vault_platform::updates::latest,
+            package: vault_platform::updates::phone_package,
+        };
     }
 
     struct Place {
@@ -345,6 +376,11 @@ mod native {
             self.state.borrow_mut().sync.update_asked_at = None;
             self.state.borrow_mut().sync.update_put_off = None;
             self.state.borrow_mut().sync.key_changed();
+            // GitHub is asked at unlock (when its time has come), with or without sync; the
+            // servers after the first round.
+            if self.updates_from_github() {
+                self.ask_for_update_soon();
+            }
             let Some(place) = self.sync_place() else {
                 self.show_sync();
                 return;
@@ -844,25 +880,81 @@ mod native {
             app.set_sync_state(state::FAILED);
         }
 
-        /// After a round that reached the servers: is there an update? Asked after the first
-        /// round of an unlock, after Sync now, and otherwise at most every [`UPDATE_EVERY`]
-        /// (rounds run every few minutes and after each save).
-        fn ask_for_update_soon(&self) {
-            if self.runs_inline() || !self.system().installs_updates() {
+        /// Is there an update? Asked by itself (unless the person turned that off) while a
+        /// vault is open: from GitHub at unlock and then every [`GITHUB_EVERY`], kept across
+        /// restarts, so a new release reaches the phone within the hour; from the servers
+        /// after the first round of an unlock, after Sync now, and otherwise at most every
+        /// [`UPDATE_EVERY`] (rounds run every few minutes and after each save).
+        pub(in crate::controller) fn ask_for_update_soon(&self) {
+            if self.runs_inline()
+                || !self.system().installs_updates()
+                || !self.state.borrow().prefs.update_checks
+                || self.state.borrow().vault.is_none()
+            {
                 return;
             }
             let now = unix_now();
-            let due = self
-                .state
-                .borrow()
-                .sync
-                .update_asked_at
-                .is_none_or(|at| now < at || now - at >= UPDATE_EVERY);
-            if !due {
+            let github = self.updates_from_github();
+            let (asked_at, every) = if github {
+                let at = self.state.borrow().prefs.github_asked_at;
+                ((at != 0).then_some(at), GITHUB_EVERY)
+            } else {
+                (self.state.borrow().sync.update_asked_at, UPDATE_EVERY)
+            };
+            if asked_at.is_some_and(|at| now >= at && now - at < every) {
                 return;
             }
-            self.state.borrow_mut().sync.update_asked_at = Some(now);
+            if github {
+                self.change_prefs(|prefs| prefs.github_asked_at = now);
+            } else {
+                self.state.borrow_mut().sync.update_asked_at = Some(now);
+            }
             self.ask_for_update(true);
+        }
+
+        fn updates_from_github(&self) -> bool {
+            self.state.borrow().prefs.update_source != prefs::UPDATES_FROM_SERVER
+        }
+
+        /// Where updates are looked for now; `None` when they come from the servers and the
+        /// open vault syncs through none.
+        fn update_source(&self) -> Option<Source> {
+            if self.updates_from_github() {
+                let github = self.state.borrow().sync.github.unwrap_or(Github::REAL);
+                return Some(Source::Github(github));
+            }
+            let place = self.sync_place()?;
+            (!Self::update_servers(&place).is_empty()).then_some(Source::Servers(place))
+        }
+
+        /// Settings → About and updates → "Get updates from": GitHub (0) or the vault's
+        /// servers (1). What was found at the other place is forgotten.
+        pub(in crate::controller) fn update_source_changed(&self, index: i32) {
+            let source = if index == 1 {
+                prefs::UPDATES_FROM_SERVER
+            } else {
+                prefs::UPDATES_FROM_GITHUB
+            };
+            self.change_prefs(|prefs| prefs.update_source = source);
+            self.state.borrow_mut().sync.update_asked_at = None;
+            let app = self.app();
+            app.set_update_source(i32::from(source));
+            app.set_update_state(0);
+            app.set_update_version(SharedString::new());
+        }
+
+        /// Settings → About and updates → "Look for updates by itself".
+        pub(in crate::controller) fn update_checks_changed(&self, on: bool) {
+            self.change_prefs(|prefs| prefs.update_checks = on);
+            if on {
+                self.ask_for_update_soon();
+            }
+        }
+
+        /// Tests: GitHub answers through `github` instead of the network.
+        #[cfg(test)]
+        pub(crate) fn use_github(&self, github: Github) {
+            self.state.borrow_mut().sync.github = Some(github);
         }
 
         /// Settings → Sync now: a round, and the servers asked for an update after it.
@@ -962,10 +1054,28 @@ mod native {
             servers
         }
 
-        /// Asks every server the vault syncs through for the phone app's update (off the UI
-        /// thread) and compares the newest one with `installed`. A server that doesn't answer
-        /// is an error only when none answered.
-        fn newest_release(place: &Place, installed: &str) -> Result<Release, String> {
+        /// Asks `source` for the phone app's newest version (off the UI thread) and compares it
+        /// with `installed`.
+        fn newest_release(source: &Source, installed: &str) -> Result<Release, String> {
+            match source {
+                Source::Github(github) => {
+                    let release = (github.latest)()?;
+                    if !release.is_newer_than(installed) {
+                        return Ok(Release::Newest(release.version));
+                    }
+                    if release.phone_package().is_none() {
+                        return Err(format!("release {} has no phone app", release.version));
+                    }
+                    Ok(Release::Newer(release.version, None))
+                }
+                Source::Servers(place) => Self::newest_on_servers(place, installed),
+            }
+        }
+
+        /// Asks every server the vault syncs through for the phone app's update and compares
+        /// the newest one with `installed`. A server that doesn't answer is an error only when
+        /// none answered.
+        fn newest_on_servers(place: &Place, installed: &str) -> Result<Release, String> {
             let mut newest: Option<(vault_sync_wire::AppRelease, Role)> = None;
             let mut failed = None;
             let mut answered = false;
@@ -993,33 +1103,30 @@ mod native {
             }
             Ok(match newest {
                 Some((release, role)) if vault_sync_wire::is_newer(&release.version, installed) => {
-                    Release::Newer(release.version, role)
+                    Release::Newer(release.version, Some(role))
                 }
                 Some((release, _)) => Release::Newest(release.version),
                 None => Release::Nothing,
             })
         }
 
-        /// Settings → Updates: asks the vault servers for the phone app's update (what their
-        /// owner put there with `vault-server publish-app`).
+        /// Settings → Updates: asks GitHub, or the vault servers (what their owner put there,
+        /// or the server itself, following the releases), for the phone app's update.
         pub(in crate::controller) fn check_update(&self) {
             self.ask_for_update(false);
         }
 
-        /// Asks for an update; `quietly` (after the first round since unlock) only a newer
-        /// version is told, and nothing that went wrong.
+        /// Asks for an update; `quietly` (on its own) only a newer version is told, and
+        /// nothing that went wrong.
         fn ask_for_update(&self, quietly: bool) {
-            let Some(place) = self.sync_place() else {
+            let Some(source) = self.update_source() else {
                 return;
             };
-            if Self::update_servers(&place).is_empty() {
-                return;
-            }
             let installed = self.app().get_app_version().to_string();
             if !quietly {
                 self.app().set_update_state(update::ASKING);
             }
-            let job = move || Self::newest_release(&place, &installed);
+            let job = move || Self::newest_release(&source, &installed);
             self.off_thread(job, move |controller, result| {
                 let app = controller.app();
                 match result {
@@ -1054,32 +1161,28 @@ mod native {
             });
         }
 
-        /// "Install version …": the package is fetched from the server that has it, checked
-        /// against its release (size and SHA-256) and handed to Android's installer, which
-        /// asks the person and installs it only if it is signed like the app already here.
+        /// "Install version …": the package is fetched from GitHub or the server that has it,
+        /// checked against its release (size and SHA-256) and handed to Android's installer,
+        /// once this app has checked it is this app, newer and signed with the same
+        /// certificate (`Updates.java`); Android asks the person and checks the signature
+        /// again.
         pub(in crate::controller) fn install_update(&self) {
-            let Some(place) = self.sync_place() else {
+            let Some(source) = self.update_source() else {
                 return;
             };
             let installed = self.app().get_app_version().to_string();
             self.app().set_update_state(update::FETCHING);
             let job = move || -> Result<Vec<u8>, String> {
-                let Release::Newer(_, role) = Self::newest_release(&place, &installed)? else {
-                    return Err("the server has no newer version any more".into());
-                };
-                let (url, _) = Self::update_servers(&place)
-                    .into_iter()
-                    .find(|(_, r)| *r == role)
-                    .ok_or("the server has no newer version any more")?;
-                let server = Self::server_for(&place, &url, role)?;
-                let release = server
-                    .app_release()
-                    .map_err(|err| format!("{err:#}"))?
-                    .filter(|r| vault_sync_wire::is_newer(&r.version, &installed))
-                    .ok_or("the server has no newer version any more")?;
-                server
-                    .app_package(&release)
-                    .map_err(|err| format!("{err:#}"))
+                match source {
+                    Source::Github(github) => {
+                        let release = (github.latest)()?;
+                        if !release.is_newer_than(&installed) {
+                            return Err("GitHub has no newer version any more".into());
+                        }
+                        (github.package)(&release)
+                    }
+                    Source::Servers(place) => Self::package_from_servers(&place, &installed),
+                }
             };
             self.off_thread(job, |controller, result| {
                 let handed =
@@ -1089,6 +1192,26 @@ mod native {
                     controller.app().set_update_state(update::FAILED);
                 }
             });
+        }
+
+        /// The newer package from the server that has it, checked against its release.
+        fn package_from_servers(place: &Place, installed: &str) -> Result<Vec<u8>, String> {
+            let Release::Newer(_, Some(role)) = Self::newest_on_servers(place, installed)? else {
+                return Err("the server has no newer version any more".into());
+            };
+            let (url, _) = Self::update_servers(place)
+                .into_iter()
+                .find(|(_, r)| *r == role)
+                .ok_or("the server has no newer version any more")?;
+            let server = Self::server_for(place, &url, role)?;
+            let release = server
+                .app_release()
+                .map_err(|err| format!("{err:#}"))?
+                .filter(|r| vault_sync_wire::is_newer(&r.version, installed))
+                .ok_or("the server has no newer version any more")?;
+            server
+                .app_package(&release)
+                .map_err(|err| format!("{err:#}"))
         }
 
         /// The installer's answer: it asks the person now (""), or the update can't go in.
@@ -1344,7 +1467,8 @@ mod native {
                 .vault_id()
                 .and_then(|id| DeviceState::load().ok()?.sync_place(&id))
                 .is_some_and(|place| matches!(place.to, SyncTo::Server { .. }));
-            app.set_updates_available(through_server && self.system().installs_updates());
+            app.set_updates_available(self.system().installs_updates());
+            app.set_update_servers(through_server);
             let place = self
                 .vault_id()
                 .and_then(|id| DeviceState::load().ok()?.sync_place(&id));
@@ -1637,6 +1761,9 @@ mod native {
 
     /// How often the servers are asked for an update between rounds (seconds).
     const UPDATE_EVERY: i64 = 10 * 60;
+    /// How often GitHub is asked while a vault is open, and at most at unlock (seconds): one
+    /// small anonymous request an hour, so a fix reaches the phone soon after its release.
+    const GITHUB_EVERY: i64 = 60 * 60;
 
     fn unix_now() -> i64 {
         std::time::SystemTime::now()

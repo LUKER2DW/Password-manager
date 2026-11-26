@@ -238,7 +238,7 @@ export global Words {
         if (kind == 15) { return @tr("It leaves this phone's list. A login that uses it keeps it."); }
         if (kind == 16) { return @tr("Your vault server makes a one-time invite and this phone shows it as a QR code, for an hour. The other device still needs your master password and Secret Key."); }
         if (kind == 17) { return @tr("Type it once to open the key. The vault keeps the key without it: the vault itself protects it, and the copy you take out works without a passphrase."); }
-        if (kind == 18) { return @tr("Your vault server has a newer version of this app. Android asks you before it installs it, and installs it only if it is signed like the app you have. Later, it waits in Settings, Updates."); }
+        if (kind == 18) { return @tr("A newer version of this app is out. Android asks you before it installs it, and installs it only if it is signed like the app you have. Later, it waits in Settings, Updates."); }
         if (kind == 19) { return @tr("Another device renewed the vault key and printed a new kit. Type the Secret Key from that kit, and your master password: this phone then keeps the new key and syncs again. Unlock with the phone turns off until you turn it on again."); }
         return "";
     }
@@ -295,7 +295,7 @@ export global Words {
         if (code == 19) { return @tr("The server's address changed. This phone's key there stays the same."); }
         if (code == 20) { return @tr("{} logins saved from other apps while the vault was locked were added.", arg); }
         if (code == 21) { return @tr("{} of your passwords turned up in a data breach since the last check. They are marked in the list: change them where you use them.", arg); }
-        if (code == 22) { return @tr("Version {} of the app is on your vault server. Install it in Settings, About and updates.", arg); }
+        if (code == 22) { return @tr("Version {} of the app is out. Install it in Settings, About and updates.", arg); }
         if (code == 23) { return arg == "1" ? @tr("This phone uses the renewed vault key now and syncs again. Unlock with the phone is off until you turn it on again.") : @tr("This phone uses the renewed vault key now and syncs again."); }
         if (code == 24) { return @tr("The vault key was renewed on another device. Settings, Sync asks once for the new Secret Key, from the new emergency kit."); }
         if (code == 40) { return @tr("Only the first {} pages are shown: the rest would take too much of the phone's memory. Save the file to see all of it.", arg); }
@@ -2026,6 +2026,7 @@ export component PhoneWindow inherits Window {
     callback folder-delete();
     // About: the versions and what each brought (the newest first).
     property <[Release]> releases: [
+        { version: "0.4.4", notes: @tr("Opens again: 0.4.2 and 0.4.3 closed as soon as they started. Updates come from the project's releases on GitHub, or from your server if you choose it, and are looked for every hour while a vault is open, so a fix reaches you the same day.") },
         { version: "0.4.3", notes: @tr("Your server can now fetch each new version from the project's releases by itself, so updates show up here without anyone publishing them by hand.") },
         { version: "0.4.2", notes: @tr("Autofill in other apps checks who signed the app, not only its name: a login saved from an app is tied to its certificate. A vault key renewed on a computer is taken here with the new Secret Key and your master password. Signed with the app's own release key: uninstall an older copy once before installing it.") },
         { version: "0.4.1", notes: @tr("Passwords shown evenly spaced, in a font of the app's own. The Secret Key shown two groups to a line, in bigger boxes. A recovery part read from the picture it was hidden in. A new version offered as soon as your server has it. The languages with their flags.") },
@@ -2110,13 +2111,21 @@ export component PhoneWindow inherits Window {
     // Appearance: 0 the phone's language, 1 English, 2 Brazilian Portuguese.
     in-out property <int> language-choice;
     callback language-changed(int);
-    // Updates from the vault server: 0 not asked, 1 asking, 2 newest already, 3 one waits,
-    // 4 downloading, 5 failed, 6 handed to Android's installer.
+    // Updates: 0 not asked, 1 asking, 2 newest already, 3 one waits, 4 downloading, 5 failed,
+    // 6 handed to Android's installer, 7 none on the servers. They come from GitHub
+    // (update-source 0, the default) or the servers the vault syncs through (1; update-servers
+    // says whether it syncs through one), and are looked for by themselves unless
+    // update-checks is off.
     in property <bool> updates-available;
     in property <int> update-state;
     in property <string> update-version;
+    in-out property <int> update-source;
+    in property <bool> update-servers;
+    in-out property <bool> update-checks;
     callback check-update();
     callback install-update();
+    callback update-source-changed(int);
+    callback update-checks-changed(bool);
     // Sync: how many copies the place keeps, their size in all, this phone's; the devices.
     in property <int> sync-copies;
     in property <string> sync-total;
@@ -4802,7 +4811,29 @@ export component PhoneWindow inherits Window {
                                         }
                                         if root.updates-available: Section {
                                             title: @tr("Updates");
-                                            note: @tr("Updates come from your own vault server, where a computer puts them (vault-server publish-app). Android installs one only if it is signed with the same key as the app already here, and asks you first.");
+                                            note: root.update-source == 0
+                                                ? @tr("Updates come from the project's releases on GitHub, and the file is taken only if it matches the SHA-256 GitHub lists for it. Android installs one only if it is signed with the same key as the app already here, and asks you first.")
+                                                : @tr("Updates come from your own vault server: what it fetched from the project's releases, or what a computer put there (vault-server publish-app). Android installs one only if it is signed with the same key as the app already here, and asks you first.");
+                                            VerticalLayout {
+                                                padding-top: 12px;
+                                                padding-bottom: 12px;
+                                                spacing: 8px;
+                                                Text { text: @tr("Get updates from"); font-size: Theme.body; color: Theme.ink; }
+                                                Choice {
+                                                    options: [@tr("GitHub"), @tr("My vault server")];
+                                                    selected <=> root.update-source;
+                                                    changed(index) => { root.update-source-changed(index); }
+                                                }
+                                            }
+                                            RowRule { }
+                                            SetRow {
+                                                text: @tr("Look for updates by itself");
+                                                detail: root.update-source == 0 ? @tr("Every hour while a vault is open") : @tr("After syncing, every few minutes");
+                                                switch: true;
+                                                checked <=> root.update-checks;
+                                                toggled(on) => { root.update-checks-changed(on); }
+                                            }
+                                            RowRule { }
                                             if root.update-state == 3: SetRow {
                                                 icon: "download";
                                                 text: @tr("Install version {}", root.update-version);
@@ -4811,14 +4842,16 @@ export component PhoneWindow inherits Window {
                                             }
                                             if root.update-state != 3: SetRow {
                                                 icon: "refresh";
-                                                text: root.update-state == 1 ? @tr("Asking your vault server…")
+                                                text: root.update-state == 1 ? (root.update-source == 0 ? @tr("Asking GitHub…") : @tr("Asking your vault server…"))
                                                     : root.update-state == 4 ? @tr("Fetching version {}…", root.update-version)
                                                     : @tr("Check for updates");
-                                                detail: root.update-state == 2 ? @tr("Your vault server has version {}: nothing newer than this one.", root.update-version)
-                                                    : root.update-state == 7 ? @tr("No update is on your vault server yet. On the computer that runs it: vault-server publish-app, with the same data folder the server uses.")
+                                                detail: root.update-source == 1 && !root.update-servers ? @tr("This vault doesn't sync through a server. Choose GitHub, or set up sync in Settings, Sync.")
+                                                    : root.update-state == 2 && root.update-source == 0 ? @tr("The newest release is version {}: nothing newer than this one.", root.update-version)
+                                                    : root.update-state == 2 ? @tr("Your vault server has version {}: nothing newer than this one.", root.update-version)
+                                                    : root.update-state == 7 ? @tr("No update is on your vault server yet. It fetches them itself when it follows the releases (VAULT_SERVER_APP_UPDATES), or a computer puts one there: vault-server publish-app.")
                                                     : root.update-state == 6 ? @tr("Android asks you to confirm the update. The vault stays as it is.")
                                                     : "";
-                                                enabled: root.update-state != 1 && root.update-state != 4;
+                                                enabled: root.update-state != 1 && root.update-state != 4 && (root.update-source == 0 || root.update-servers);
                                                 chevron: true;
                                                 clicked => { root.check-update(); }
                                             }

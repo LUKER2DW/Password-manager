@@ -1047,10 +1047,6 @@ msgid "Check for updates"
 msgstr "Procurar atualizações"
 
 msgctxt "PhoneWindow"
-msgid "Updates come from your own vault server, where a computer puts them (vault-server publish-app). Android installs one only if it is signed with the same key as the app already here, and asks you first."
-msgstr "As atualizações vêm do seu próprio servidor de cofre, onde um computador as publica (vault-server publish-app). O Android instala uma somente se estiver assinada com a mesma chave do app já instalado aqui, e pergunta antes."
-
-msgctxt "PhoneWindow"
 msgid "Version {}. Free software under the GPL, version 3 or later."
 msgstr "Versão {}. Software livre sob a GPL, versão 3 ou posterior."
 
@@ -2989,10 +2985,6 @@ msgid "This vault has no recovery parts: its emergency kit was made before they 
 msgstr "Este cofre não tem partes de recuperação: o kit de emergência dele foi feito antes delas existirem, ou elas já foram usadas. Faça um kit novo no computador."
 
 msgctxt "Words"
-msgid "Version {} of the app is on your vault server. Install it in Settings, About and updates."
-msgstr "A versão {} do app está no seu servidor do cofre. Instale em Configurações, Sobre e atualizações."
-
-msgctxt "Words"
 msgid "Only the first {} pages are shown: the rest would take too much of the phone's memory. Save the file to see all of it."
 msgstr "Só as primeiras {} páginas são mostradas: o resto usaria memória demais do celular. Salve o arquivo para ver tudo."
 
@@ -3087,10 +3079,6 @@ msgstr "Ainda sem cópia aqui: ele sincronizou em outro lugar"
 msgctxt "PhoneWindow"
 msgid "Your vault server has version {}: nothing newer than this one."
 msgstr "Seu servidor do cofre tem a versão {}: nada mais novo que esta."
-
-msgctxt "PhoneWindow"
-msgid "No update is on your vault server yet. On the computer that runs it: vault-server publish-app, with the same data folder the server uses."
-msgstr "Ainda não há atualização no seu servidor do cofre. No computador que o roda: vault-server publish-app, com a mesma pasta de dados que o servidor usa."
 
 msgctxt "PhoneWindow"
 msgid "Leaked logins"
@@ -3205,10 +3193,6 @@ msgstr "Esta imagem não traz uma parte de recuperação: {}"
 msgctxt "Words"
 msgid "Version {} is ready"
 msgstr "A versão {} está pronta"
-
-msgctxt "Words"
-msgid "Your vault server has a newer version of this app. Android asks you before it installs it, and installs it only if it is signed like the app you have. Later, it waits in Settings, Updates."
-msgstr "Seu servidor do cofre tem uma versão mais nova deste app. O Android pergunta antes de instalar, e só instala se ela for assinada como o app que você tem. Se for depois, ela fica esperando em Configurações, Atualizações."
 
 msgctxt "Words"
 msgid "Install"
@@ -3355,3 +3339,67 @@ msgstr "Seu servidor agora pode buscar sozinho cada versão nova nas versões pu
 msgctxt "Messages"
 msgid "Vault couldn't find its own program file, which the browsers start for the extension, so the extension can't be connected."
 msgstr "O Vault não encontrou o próprio arquivo do programa, que os navegadores abrem para a extensão, então a extensão não pode ser conectada."
+
+msgctxt "Words"
+msgid "A newer version of this app is out. Android asks you before it installs it, and installs it only if it is signed like the app you have. Later, it waits in Settings, Updates."
+msgstr "Saiu uma versão mais nova deste app. O Android pergunta antes de instalar, e só instala se ela for assinada como o app que você tem. Se for depois, ela fica esperando em Configurações, Atualizações."
+
+msgctxt "Words"
+msgid "Version {} of the app is out. Install it in Settings, About and updates."
+msgstr "Saiu a versão {} do app. Instale em Configurações, Sobre e atualizações."
+
+msgctxt "PhoneWindow"
+msgid "Updates come from the project's releases on GitHub, and the file is taken only if it matches the SHA-256 GitHub lists for it. Android installs one only if it is signed with the same key as the app already here, and asks you first."
+msgstr "As atualizações vêm das versões publicadas do projeto no GitHub, e o arquivo só é aceito se bater com o SHA-256 que o GitHub lista para ele. O Android instala uma somente se estiver assinada com a mesma chave do app já instalado aqui, e pergunta antes."
+
+msgctxt "PhoneWindow"
+msgid "Updates come from your own vault server: what it fetched from the project's releases, or what a computer put there (vault-server publish-app). Android installs one only if it is signed with the same key as the app already here, and asks you first."
+msgstr "As atualizações vêm do seu próprio servidor do cofre: o que ele buscou nas versões publicadas do projeto, ou o que um computador colocou lá (vault-server publish-app). O Android instala uma somente se estiver assinada com a mesma chave do app já instalado aqui, e pergunta antes."
+
+msgctxt "PhoneWindow"
+msgid "Get updates from"
+msgstr "Receber atualizações de"
+
+msgctxt "PhoneWindow"
+msgid "GitHub"
+msgstr "GitHub"
+
+msgctxt "PhoneWindow"
+msgid "My vault server"
+msgstr "Meu servidor do cofre"
+
+msgctxt "PhoneWindow"
+msgid "Look for updates by itself"
+msgstr "Procurar atualizações sozinho"
+
+msgctxt "PhoneWindow"
+msgid "Every hour while a vault is open"
+msgstr "A cada hora, enquanto um cofre está aberto"
+
+msgctxt "PhoneWindow"
+msgid "After syncing, every few minutes"
+msgstr "Depois de sincronizar, a cada poucos minutos"
+
+msgctxt "PhoneWindow"
+msgid "Asking GitHub…"
+msgstr "Consultando o GitHub…"
+
+msgctxt "PhoneWindow"
+msgid "This vault doesn't sync through a server. Choose GitHub, or set up sync in Settings, Sync."
+msgstr "Este cofre não sincroniza por um servidor. Escolha o GitHub, ou configure a sincronização em Configurações, Sincronização."
+
+msgctxt "PhoneWindow"
+msgid "The newest release is version {}: nothing newer than this one."
+msgstr "A versão publicada mais nova é a {}: nada mais novo que esta."
+
+msgctxt "PhoneWindow"
+msgid "No update is on your vault server yet. It fetches them itself when it follows the releases (VAULT_SERVER_APP_UPDATES), or a computer puts one there: vault-server publish-app."
+msgstr "Ainda não há atualização no seu servidor do cofre. Ele as busca sozinho quando acompanha as versões publicadas (VAULT_SERVER_APP_UPDATES), ou um computador coloca uma lá: vault-server publish-app."
+
+msgctxt "Messages"
+msgid "Version {} of Vault is out: Settings → About → Updates opens its page."
+msgstr "Saiu a versão {} do Vault: Configurações → Sobre → Atualizações abre a página dela."
+
+msgctxt "PhoneWindow"
+msgid "Opens again: 0.4.2 and 0.4.3 closed as soon as they started. Updates come from the project's releases on GitHub, or from your server if you choose it, and are looked for every hour while a vault is open, so a fix reaches you the same day."
+msgstr "Abre de novo: a 0.4.2 e a 0.4.3 fechavam assim que começavam. As atualizações vêm das versões publicadas do projeto no GitHub, ou do seu servidor se você escolher, e são procuradas a cada hora enquanto um cofre está aberto, então uma correção chega no mesmo dia."

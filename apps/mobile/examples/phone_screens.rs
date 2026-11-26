@@ -580,14 +580,25 @@ fn main() {
         "Appearance: theme, language, background, icons",
     );
     app.set_updates_available(true);
+    app.set_update_checks(true);
     app.set_update_state(3);
-    app.set_update_version("0.3.0".into());
+    app.set_update_version("0.5.0".into());
     app.set_settings_section(6);
     camera.shot(
         "settings-about",
-        "About and updates: the version, updates, what changed",
+        "About and updates: the version, updates from GitHub, what changed",
     );
     app.set_settings_section(-1);
+    app.set_update_source(1);
+    app.set_update_servers(false);
+    app.set_update_state(0);
+    app.set_settings_section(6);
+    camera.shot(
+        "settings-about-server",
+        "Updates from the vault server, which this vault doesn't sync through",
+    );
+    app.set_settings_section(-1);
+    app.set_update_source(0);
     app.set_updates_available(false);
     app.set_update_state(0);
     app.set_settings_section(7);
