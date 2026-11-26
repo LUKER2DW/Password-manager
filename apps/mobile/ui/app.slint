@@ -2026,6 +2026,7 @@ export component PhoneWindow inherits Window {
     callback folder-delete();
     // About: the versions and what each brought (the newest first).
     property <[Release]> releases: [
+        { version: "0.4.3", notes: @tr("Your server can now fetch each new version from the project's releases by itself, so updates show up here without anyone publishing them by hand.") },
         { version: "0.4.2", notes: @tr("Autofill in other apps checks who signed the app, not only its name: a login saved from an app is tied to its certificate. A vault key renewed on a computer is taken here with the new Secret Key and your master password. Signed with the app's own release key: uninstall an older copy once before installing it.") },
         { version: "0.4.1", notes: @tr("Passwords shown evenly spaced, in a font of the app's own. The Secret Key shown two groups to a line, in bigger boxes. A recovery part read from the picture it was hidden in. A new version offered as soon as your server has it. The languages with their flags.") },
         { version: "0.4.0", notes: @tr("Pages spring back at their ends. Codes: tap or drag left to copy, drag right to edit, hold to reorder; the circle goes from green to red. Password health rebuilt, with filters. Forgot the master password: the recovery parts of the emergency kit, scanned or typed. The site's icon next to its address. Join a server with its address, pin and invite, or scan its code. Updates looked for on every server the vault syncs through.") },

@@ -1475,10 +1475,6 @@ msgid "Windows Hello no longer opens the item lock on this computer (its PIN or 
 msgstr "O Windows Hello não abre mais a trava de itens neste computador (o PIN ou a senha dele foi trocado). Use o PIN e depois ligue o Windows Hello de novo em Configurações → Trava de itens."
 
 msgctxt "Messages"
-msgid "The helper program for browsers ({}) is missing next to the app, so the extension can't be connected."
-msgstr "O programa auxiliar para navegadores ({}) está faltando ao lado do app, então a extensão não pode ser conectada."
-
-msgctxt "Messages"
 msgid "That isn't the code the extension shows. Look at the extension's window and type its six digits."
 msgstr "Este não é o código que a extensão mostra. Veja a janela da extensão e digite os seis números."
 
@@ -3351,3 +3347,11 @@ msgstr "A chave do cofre foi renovada em outro aparelho. Configurações → Sin
 msgctxt "Messages"
 msgid "The vault key was renewed, but the vault locked before the new kit showed. Open Emergency kit and issue new recovery parts: the ones made then can't be shown again."
 msgstr "A chave do cofre foi renovada, mas o cofre bloqueou antes de o novo kit aparecer. Abra o kit de emergência e gere novas partes de recuperação: as geradas então não podem ser mostradas de novo."
+
+msgctxt "PhoneWindow"
+msgid "Your server can now fetch each new version from the project's releases by itself, so updates show up here without anyone publishing them by hand."
+msgstr "Seu servidor agora pode buscar sozinho cada versão nova nas versões publicadas do projeto, então as atualizações aparecem aqui sem ninguém publicá-las à mão."
+
+msgctxt "Messages"
+msgid "Vault couldn't find its own program file, which the browsers start for the extension, so the extension can't be connected."
+msgstr "O Vault não encontrou o próprio arquivo do programa, que os navegadores abrem para a extensão, então a extensão não pode ser conectada."
