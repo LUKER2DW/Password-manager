@@ -11,6 +11,11 @@ use anyhow::Result;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use vault_core::generator;
 
+/// Every block of Rust's heap is wiped before it is freed (`vault_platform::wiping_alloc`).
+#[global_allocator]
+static ALLOCATOR: vault_platform::wiping_alloc::WipingAllocator =
+    vault_platform::wiping_alloc::WipingAllocator;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "vault",
