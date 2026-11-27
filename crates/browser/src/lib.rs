@@ -7,13 +7,18 @@
 //! picks in the extension's own window, and only for a page of the same origin.
 //!
 //! - [`origin`]: which saved website belongs to which page (exact scheme, host and port).
+//! - [`lookalike`]: pages that look like a saved site without being it, and how a host is
+//!   shown (in punycode when it mixes scripts).
+//! - [`kit`]: the emergency kit's keys, recognised in what a page sends, never taken.
 //! - [`protocol`]: the JSON messages.
 //! - [`service`]: how the app answers them from an unlocked vault.
 //! - [`locked`]: how it answers while the vault is locked (Windows Hello only).
 //! - [`host`]: the relay the native host runs.
 
 pub mod host;
+pub mod kit;
 pub mod locked;
+pub mod lookalike;
 pub mod origin;
 pub mod pairing;
 pub mod protocol;

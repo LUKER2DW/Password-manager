@@ -33,6 +33,11 @@ psl = "2.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
+# Lookalike sites (lookalike.rs): accents taken off names, and the script of each letter, so a
+# name that mixes scripts is shown in its ASCII form. Both are already in the workspace (core,
+# the UI's text shaping): nothing new is downloaded, and no list of sites either.
+unicode-normalization = "0.1"
+unicode-script = "0.5"
 # WHATWG URL parsing: origins are compared exactly as a browser computes them.
 url = "2.5"
 zeroize = "1.9"

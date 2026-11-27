@@ -6,6 +6,8 @@
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+pub use crate::lookalike::Lookalike;
+
 /// What the extension may ask.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -125,6 +127,12 @@ pub enum Request {
         username: String,
         password: Secret,
     },
+    /// Whether `password`, just pasted into a password field of the page at `url` or sent
+    /// from it, is the password of a login saved for another site, and so should not be given
+    /// to this page; or one of the emergency kit's keys, which no page may have. Answered with
+    /// that site's name at most, never which login, and only for logins outside the item lock;
+    /// the password is compared and dropped, never kept.
+    Elsewhere { url: String, password: Secret },
     /// Which passkeys the vault has for the site `rp_id` (empty: the page's host), which the
     /// page at `url` must be allowed to speak for ([`crate::origin::passkey_site`]). `allow`
     /// is the site's list of credential ids (base64url), when it gave one. Answered without
@@ -316,6 +324,11 @@ pub enum Response {
         /// Browser extension): every entry is `locked`.
         always_asks: bool,
         items: Vec<LoginEntry>,
+        /// With no login for this page: the saved site it looks like without being it
+        /// ([`crate::lookalike`]), which the extension warns about instead of offering nothing.
+        /// Left out otherwise; older extensions ignore it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        lookalike: Option<Lookalike>,
     },
     Fill(Credentials),
     Code(OneTimeCode),
@@ -357,6 +370,21 @@ pub enum Response {
     /// The password of the login was replaced (`changed`), or was already that one.
     Updated {
         changed: bool,
+    },
+    /// The answer to [`Request::Elsewhere`]: what to warn the person about, if anything.
+    Elsewhere {
+        /// The page's host, as a warning shows it (punycode when it mixes scripts).
+        page: String,
+        /// The site the password is saved for (its registrable domain, as shown), when it is
+        /// the password of a login of another site and of no login of this page's owner.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        site: Option<String>,
+        /// The page looks like that site without being it ([`crate::lookalike`]).
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        lookalike: bool,
+        /// It is one of the emergency kit's keys ([`crate::kit`]): never given to any page.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        kit: bool,
     },
     /// The passkeys for a site ([`Request::Passkeys`]).
     Passkeys {
@@ -582,6 +610,9 @@ pub enum ErrorCode {
     /// The login an update was offered for has been changed since (edited in the app, merged
     /// by a sync, another username): nothing was replaced.
     ChangedSince,
+    /// What a page sent as a password is one of the emergency kit's keys
+    /// ([`crate::kit`]): it is never saved, compared or kept.
+    KitKey,
 }
 
 #[cfg(test)]

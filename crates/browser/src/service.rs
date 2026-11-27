@@ -11,6 +11,8 @@ use vault_core::{
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
+    kit::holds_kit_key,
+    lookalike::{display_host, lookalike, same_owner, saved_host, shown_site},
     origin::{Origin, PageProblem, item_matches, passkey_site},
     protocol::{
         Assertion, Attestation, Check, CopyWhat, Credentials, ErrorCode, GeneratedPassword,
@@ -89,6 +91,11 @@ pub trait Gate {
     /// [`Gate::locked`] is true for every login).
     fn always(&self) -> bool {
         false
+    }
+    /// Whether the item lock covers this login, whatever "every use asks" says: its password
+    /// is never compared with one a page sent ([`Request::Elsewhere`]).
+    fn guarded(&self, vault: &Vault, item: &ItemData) -> bool {
+        vault.guards(item)
     }
     /// How long the app keeps a copied secret on the clipboard.
     fn clipboard_seconds(&self) -> u32 {
@@ -488,6 +495,59 @@ fn stamp_of(vault: &Vault, id: &ItemId) -> Option<String> {
         .map(|stamp| URL_SAFE_NO_PAD.encode(stamp))
 }
 
+/// Passwords shorter than this are not compared with other sites' ([`Request::Elsewhere`]):
+/// a PIN or a short code matches another login's by chance too often to mean anything.
+const SHORTEST_COMPARED: usize = 6;
+
+/// The site whose login has `password`, when it is not the page's: the name of the first such
+/// site (its registrable domain, as shown) and that login's websites. `None` when no login
+/// outside the item lock has it, or when one of the page's own owner does, or when the page's
+/// owner has a login whose password can't be compared (behind the item lock): this page may
+/// well be where that password belongs.
+fn saved_elsewhere(
+    vault: &Vault,
+    gate: &dyn Gate,
+    origin: &Origin,
+    password: &str,
+) -> Option<(String, Vec<String>)> {
+    if password.chars().count() < SHORTEST_COMPARED {
+        return None;
+    }
+    let mut found: Option<(String, Vec<String>)> = None;
+    for id in vault.item_ids() {
+        let Ok(item) = vault.get_item(&id) else {
+            continue;
+        };
+        if item.kind != ItemKind::Login {
+            continue;
+        }
+        let pages_own = item_matches(&item.urls, origin)
+            || item
+                .urls
+                .iter()
+                .filter_map(|url| saved_host(url))
+                .any(|host| same_owner(origin.host(), &host));
+        let comparable = !(item.is_locked() || gate.guarded(vault, &item));
+        if pages_own && !comparable {
+            return None;
+        }
+        if !comparable || item.password.is_empty() || item.password != password {
+            continue;
+        }
+        if pages_own {
+            return None;
+        }
+        let Some(host) = item.urls.iter().find_map(|url| saved_host(url)) else {
+            continue;
+        };
+        let site = shown_site(&host);
+        if found.as_ref().is_none_or(|(was, _)| site < *was) {
+            found = Some((site, item.urls.clone()));
+        }
+    }
+    found
+}
+
 /// Whether a login to save is of a size a sign-in form could hold: what the extension sends
 /// is typed by a person or read from a page, never trusted for its length.
 pub(crate) fn save_fits(title: Option<&str>, username: &str, password: &Secret) -> bool {
@@ -519,6 +579,7 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
         | Request::Code { url, .. }
         | Request::Save { url, .. }
         | Request::Changed { url, .. }
+        | Request::Elsewhere { url, .. }
         | Request::Update { url, .. }
         | Request::Passkeys { url, .. }
         | Request::PasskeyGet { url, .. }
@@ -533,31 +594,69 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
     };
     match (request, origin) {
         (Request::Logins { .. }, Some(origin)) => {
-            let mut items: Vec<LoginEntry> = vault
-                .item_ids()
-                .filter_map(|id| {
-                    let item = vault.get_item(&id).ok()?;
-                    (item.kind == ItemKind::Login && item_matches(&item.urls, &origin)).then(|| {
-                        LoginEntry {
-                            id: id.to_hex(),
-                            title: item.title.clone(),
-                            username: item.username.clone(),
-                            locked: item.is_locked() || gate.locked(vault, &item),
-                            has_code: item
-                                .sealed
-                                .as_ref()
-                                .map_or(!item.totp.is_empty(), |sealed| sealed.has_totp),
-                        }
-                    })
-                })
-                .collect();
+            let mut items: Vec<LoginEntry> = Vec::new();
+            // Every login's websites (not secret, locked or not): what the page may look like.
+            let mut saved: Vec<String> = Vec::new();
+            for id in vault.item_ids() {
+                let Ok(item) = vault.get_item(&id) else {
+                    continue;
+                };
+                if item.kind != ItemKind::Login {
+                    continue;
+                }
+                if item_matches(&item.urls, &origin) {
+                    items.push(LoginEntry {
+                        id: id.to_hex(),
+                        title: item.title.clone(),
+                        username: item.username.clone(),
+                        locked: item.is_locked() || gate.locked(vault, &item),
+                        has_code: item
+                            .sealed
+                            .as_ref()
+                            .map_or(!item.totp.is_empty(), |sealed| sealed.has_totp),
+                    });
+                }
+                saved.extend(item.urls.iter().cloned());
+            }
             items.sort_by_key(|entry| (entry.title.to_lowercase(), entry.username.to_lowercase()));
+            let lookalike = if items.is_empty() {
+                lookalike(origin.host(), saved.iter().map(String::as_str))
+            } else {
+                None
+            };
             Response::Logins {
                 origin: origin.as_str().to_owned(),
                 check: gate.check(vault),
                 hello: gate.hello(vault),
                 always_asks: gate.always(),
                 items,
+                lookalike,
+            }
+            .into()
+        }
+        (Request::Elsewhere { password, .. }, Some(origin)) => {
+            if !save_fits(None, "", &password) {
+                return error(ErrorCode::BadRequest).into();
+            }
+            let page = display_host(origin.host());
+            if holds_kit_key(password.as_str()) {
+                return Response::Elsewhere {
+                    page,
+                    site: None,
+                    lookalike: false,
+                    kit: true,
+                }
+                .into();
+            }
+            let found = saved_elsewhere(vault, gate, &origin, password.as_str());
+            let looks = found.as_ref().is_some_and(|(_, urls)| {
+                lookalike(origin.host(), urls.iter().map(String::as_str)).is_some()
+            });
+            Response::Elsewhere {
+                page,
+                site: found.map(|(site, _)| site),
+                lookalike: looks,
+                kit: false,
             }
             .into()
         }
@@ -620,6 +719,9 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
             if !save_fits(None, &username, &password) {
                 return error(ErrorCode::BadRequest).into();
             }
+            if holds_kit_key(password.as_str()) {
+                return error(ErrorCode::KitKey).into();
+            }
             // The first login of this site with that username, in the order they are listed.
             let mut matches: Vec<(ItemId, ItemData)> = vault
                 .item_ids()
@@ -660,6 +762,9 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
         ) => {
             if password.as_str().is_empty() || !save_fits(None, "", &password) {
                 return error(ErrorCode::BadRequest).into();
+            }
+            if holds_kit_key(password.as_str()) {
+                return error(ErrorCode::KitKey).into();
             }
             // The login the person was offered to update, as it was then: edited since (in
             // the app, by a sync) or with another username now, it is not overwritten. Checked
@@ -855,6 +960,9 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
         ) => {
             if password.as_str().is_empty() || !save_fits(title.as_deref(), &username, &password) {
                 return error(ErrorCode::BadRequest).into();
+            }
+            if holds_kit_key(password.as_str()) || holds_kit_key(&username) {
+                return error(ErrorCode::KitKey).into();
             }
             let existing = vault.item_ids().any(|id| {
                 vault.get_item(&id).is_ok_and(|item| {
@@ -2575,6 +2683,155 @@ mod tests {
                    "password": "x", "username": "someone-else", "stamp": now["stamp"]}),
         );
         assert_eq!(elsewhere["code"], "no_match");
+    }
+
+    /// A page that looks like a saved site, with no login of its own, is named with the site it
+    /// looks like; a page with logins, or of a saved site's owner, is not.
+    #[test]
+    fn a_lookalike_page_is_told_with_the_site_it_looks_like() {
+        let (mut vault, ..) = vault();
+        let (fake, _) = ask(
+            Some(&mut vault),
+            json!({"type": "logins", "url": "https://g1thub.com/login"}),
+        );
+        assert_eq!(fake["items"], json!([]));
+        assert_eq!(
+            fake["lookalike"],
+            json!({"site": "github.com", "page": "g1thub.com"})
+        );
+        // A mixed-script name is named in its ASCII form.
+        let (mixed, _) = ask(
+            Some(&mut vault),
+            json!({"type": "logins", "url": "https://g\u{0456}thub.com/"}),
+        );
+        assert_eq!(mixed["lookalike"]["site"], "github.com");
+        assert!(
+            mixed["lookalike"]["page"]
+                .as_str()
+                .unwrap()
+                .starts_with("xn--")
+        );
+        for page in [
+            "https://github.com/login",
+            "https://gist.github.com/",
+            "https://gitlab.com/",
+            "https://example.org/",
+        ] {
+            let (reply, _) = ask(Some(&mut vault), json!({"type": "logins", "url": page}));
+            assert!(reply.get("lookalike").is_none(), "{page}: {reply}");
+        }
+    }
+
+    /// A vault password pasted or sent on a page that isn't its site is named with the site it
+    /// belongs to, and nothing more: never for the page's own logins, never for a login behind
+    /// the item lock, never for a short one.
+    #[test]
+    fn a_password_of_another_site_is_told_by_the_name_of_that_site() {
+        let (mut vault, ..) = vault();
+        vault
+            .add_item(&ItemData::login(
+                "Shop",
+                "me",
+                "1234",
+                "https://shop.example",
+            ))
+            .unwrap();
+        let elsewhere = |vault: &mut Vault, url: &str, password: &str| {
+            ask(
+                Some(vault),
+                json!({"type": "elsewhere", "url": url, "password": password}),
+            )
+            .0
+        };
+        assert_eq!(
+            elsewhere(&mut vault, "https://evil.example/login", "gh-secret"),
+            json!({"type": "elsewhere", "page": "evil.example", "site": "github.com"})
+        );
+        // On a page that looks like that site, the answer says so.
+        assert_eq!(
+            elsewhere(&mut vault, "https://g1thub.com/", "gh-secret"),
+            json!({"type": "elsewhere", "page": "g1thub.com", "site": "github.com", "lookalike": true})
+        );
+        // Its own site, or another of the same owner: nothing to tell.
+        assert_eq!(
+            elsewhere(&mut vault, "https://www.bank.example/", "bank-secret"),
+            json!({"type": "elsewhere", "page": "www.bank.example"})
+        );
+        // A login behind the item lock is never compared: neither its password on another
+        // page, nor any password on its own site (which may well be its own).
+        assert_eq!(
+            elsewhere(&mut vault, "https://evil.example/", "work-secret"),
+            json!({"type": "elsewhere", "page": "evil.example"})
+        );
+        assert_eq!(
+            elsewhere(&mut vault, "https://github.com/", "bank-secret"),
+            json!({"type": "elsewhere", "page": "github.com"})
+        );
+        // Something no login has, and a PIN-like password, tell nothing either.
+        for password in ["not-saved-anywhere", "1234"] {
+            assert_eq!(
+                elsewhere(&mut vault, "https://evil.example/", password),
+                json!({"type": "elsewhere", "page": "evil.example"})
+            );
+        }
+        // Only on https pages, and nothing while locked.
+        assert_eq!(
+            elsewhere(&mut vault, "http://evil.example/", "gh-secret"),
+            json!({"type": "error", "code": "insecure_page"})
+        );
+        let (locked, _) = ask(
+            None,
+            json!({"type": "elsewhere", "url": "https://evil.example/", "password": "gh-secret"}),
+        );
+        assert_eq!(locked, json!({"type": "error", "code": "locked"}));
+        // The answer never holds the password.
+        let reply = elsewhere(&mut vault, "https://evil.example/", "gh-secret").to_string();
+        assert!(!reply.contains("gh-secret") && !reply.contains("GitHub"));
+    }
+
+    /// The emergency kit's keys, sent by a page as a password: told as such, and never saved
+    /// or compared.
+    #[test]
+    fn the_kits_keys_sent_by_a_page_are_refused() {
+        let (mut vault, ..) = vault();
+        let key = SecretKey::generate()
+            .unwrap()
+            .to_display_string()
+            .to_string();
+        let parts = vault_core::RecoveryParts::generate().unwrap();
+        let part = parts
+            .part(vault_core::PartLabel::B)
+            .to_display_string()
+            .to_lowercase();
+        for kit in [key.as_str(), part.as_str()] {
+            let (told, _) = ask(
+                Some(&mut vault),
+                json!({"type": "elsewhere", "url": "https://evil.example/", "password": kit}),
+            );
+            assert_eq!(
+                told,
+                json!({"type": "elsewhere", "page": "evil.example", "kit": true})
+            );
+            for request in [
+                json!({"type": "save", "url": "https://evil.example/", "username": "me", "password": kit}),
+                json!({"type": "save", "url": "https://evil.example/", "username": kit, "password": "x"}),
+                json!({"type": "changed", "url": "https://github.com/", "username": "octocat", "password": kit}),
+            ] {
+                let (refused, _) = ask(Some(&mut vault), request);
+                assert_eq!(refused, json!({"type": "error", "code": "kit_key"}));
+            }
+            let github = vault
+                .item_ids()
+                .find(|id| vault.get_item(id).unwrap().title == "GitHub")
+                .unwrap()
+                .to_hex();
+            let (refused, _) = ask(
+                Some(&mut vault),
+                json!({"type": "update", "url": "https://github.com/", "id": github, "password": kit}),
+            );
+            assert_eq!(refused, json!({"type": "error", "code": "kit_key"}));
+        }
+        assert_eq!(vault.item_ids().count(), 4, "nothing was saved");
     }
 
     #[test]

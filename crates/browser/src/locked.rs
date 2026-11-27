@@ -12,10 +12,15 @@
 //! - anything else that needs the vault itself (one-time codes) is refused as locked. The
 //!   generator needs no vault: the app answers it first with
 //!   [`crate::service::answer_generator`], locked or not.
+//! - a page that looks like a saved site is told from the logins' websites
+//!   ([`crate::lookalike`]), and the emergency kit's keys are recognised without the vault
+//!   ([`crate::kit`]); whether a password is another site's can't be told while locked.
 
 use zeroize::Zeroizing;
 
 use crate::{
+    kit::holds_kit_key,
+    lookalike::{display_host, lookalike},
     origin::item_matches,
     protocol::{
         Check, CopyWhat, Credentials, ErrorCode, LoginEntry, Request, Response, Revealed, Shown,
@@ -79,6 +84,9 @@ pub fn answer_locked_save(
         || !crate::service::save_fits(title.as_deref(), &username, &password)
     {
         return Some(finish(error(ErrorCode::BadRequest), None, None));
+    }
+    if holds_kit_key(password.as_str()) || holds_kit_key(&username) {
+        return Some(finish(error(ErrorCode::KitKey), None, None));
     }
     let existing = logins
         .iter()
@@ -192,6 +200,14 @@ pub fn answer_locked(message: &[u8], logins: &[LockedLogin], gate: &mut dyn Lock
                 })
                 .collect();
             items.sort_by_key(|entry| (entry.title.to_lowercase(), entry.username.to_lowercase()));
+            let lookalike = if items.is_empty() {
+                lookalike(
+                    origin.host(),
+                    logins.iter().flat_map(|login| login.urls.iter().map(String::as_str)),
+                )
+            } else {
+                None
+            };
             finish(
                 Response::Logins {
                     origin: origin.as_str().to_owned(),
@@ -199,6 +215,7 @@ pub fn answer_locked(message: &[u8], logins: &[LockedLogin], gate: &mut dyn Lock
                     hello: true,
                     always_asks: true,
                     items,
+                    lookalike,
                 },
                 None,
                 None,
@@ -301,6 +318,21 @@ pub fn answer_locked(message: &[u8], logins: &[LockedLogin], gate: &mut dyn Lock
                 None => finish(error(ErrorCode::NoMatch), None, None),
             }
         }
+        // The kit's keys are known by their shape; another site's password needs the vault.
+        Request::Elsewhere { url, password } => match page_origin(&url) {
+            Ok(origin) if holds_kit_key(password.as_str()) => finish(
+                Response::Elsewhere {
+                    page: display_host(origin.host()),
+                    site: None,
+                    lookalike: false,
+                    kit: true,
+                },
+                None,
+                None,
+            ),
+            Ok(_) => finish(error(ErrorCode::Locked), None, None),
+            Err(response) => finish(response, None, None),
+        },
         Request::Save { .. }
         | Request::Generate { .. }
         | Request::Keep { .. }
@@ -354,6 +386,66 @@ mod tests {
     fn ask(gate: &mut Hello, request: Value) -> Value {
         let answer = answer_locked(request.to_string().as_bytes(), &logins(), gate);
         serde_json::from_slice(&answer.bytes).unwrap()
+    }
+
+    /// While locked: a lookalike page is told from the kept websites, a key of the kit is
+    /// recognised, and whether a password is another site's can't be told (nor is it saved).
+    #[test]
+    fn a_locked_app_still_tells_lookalikes_and_the_kits_keys() {
+        let mut gate = Hello {
+            verified: false,
+            asked: 0,
+        };
+        let fake = ask(
+            &mut gate,
+            json!({"type": "logins", "url": "https://g1thub.com/login"}),
+        );
+        assert_eq!(fake["items"], json!([]));
+        assert_eq!(
+            fake["lookalike"],
+            json!({"site": "github.com", "page": "g1thub.com"})
+        );
+        let own = ask(
+            &mut gate,
+            json!({"type": "logins", "url": "https://github.com/login"}),
+        );
+        assert!(own.get("lookalike").is_none());
+        let key = vault_core::SecretKey::generate()
+            .unwrap()
+            .to_display_string()
+            .to_string();
+        assert_eq!(
+            ask(
+                &mut gate,
+                json!({"type": "elsewhere", "url": "https://evil.example/", "password": key}),
+            ),
+            json!({"type": "elsewhere", "page": "evil.example", "kit": true})
+        );
+        assert_eq!(
+            ask(
+                &mut gate,
+                json!({"type": "elsewhere", "url": "https://evil.example/", "password": "kept-secret"}),
+            ),
+            json!({"type": "error", "code": "locked"})
+        );
+        let mut queued = Vec::new();
+        let refused = answer_locked_save(
+            json!({"type": "save", "url": "https://evil.example/", "username": "me", "password": key})
+                .to_string()
+                .as_bytes(),
+            &logins(),
+            &mut |login| {
+                queued.push(login);
+                true
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&refused.bytes).unwrap(),
+            json!({"type": "error", "code": "kit_key"})
+        );
+        assert!(queued.is_empty());
+        assert_eq!(gate.asked, 0, "Windows Hello is never asked for any of it");
     }
 
     #[test]
