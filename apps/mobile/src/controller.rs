@@ -199,6 +199,8 @@ mod folders;
 mod generated;
 mod health;
 mod icons;
+#[cfg(not(target_arch = "wasm32"))]
+mod passkeys;
 mod preview;
 mod settings;
 mod syncing;
@@ -242,6 +244,9 @@ mod notice {
     pub const KEY_TAKEN: i32 = 23;
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub const SYNC_KEY_RENEWED: i32 = 24;
+    /// A passkey was made for a site or app on the phone (the login's title).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub const PASSKEY_SAVED: i32 = 25;
 }
 
 /// How long a copied secret may stay on the clipboard (Settings), in seconds.

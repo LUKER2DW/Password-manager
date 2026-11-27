@@ -55,6 +55,8 @@ vault-browser = { path = "../../crates/browser" }
 vault-import = { path = "../../crates/import", default-features = false }
 # Settings → Sync → Add a device: the invite as a QR code (the desktop's).
 qrcode = { version = "0.14", default-features = false }
+# Passkeys for the phone's browsers and apps: WebAuthn's base64url.
+base64 = "0.23.1"
 # Pictures attached to an item, shown in the app (the decoders the platform crate builds).
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
 

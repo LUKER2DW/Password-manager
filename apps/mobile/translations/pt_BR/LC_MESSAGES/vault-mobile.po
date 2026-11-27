@@ -3411,3 +3411,7 @@ msgstr "Nada muda no celular: esta versão deixa os apps do Windows mais difíce
 msgctxt "Words"
 msgid "The file holds every item, attached files and passkeys included, encrypted with a password you choose here. It opens only with that password, in this app or the desktop one: whoever has both can sign in with those passkeys, so make it long."
 msgstr "O arquivo guarda todos os itens, com anexos e passkeys, criptografado com uma senha que você escolhe aqui. Ele só abre com essa senha, neste app ou no do computador: quem tiver os dois consegue entrar com essas passkeys, então use uma senha longa."
+
+msgctxt "Words"
+msgid "A passkey for “{}” was saved."
+msgstr "Uma passkey para “{}” foi salva."

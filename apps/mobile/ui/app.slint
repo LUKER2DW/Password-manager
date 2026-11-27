@@ -298,6 +298,7 @@ export global Words {
         if (code == 22) { return @tr("Version {} of the app is out. Install it in Settings, About and updates.", arg); }
         if (code == 23) { return arg == "1" ? @tr("This phone uses the renewed vault key now and syncs again. Unlock with the phone is off until you turn it on again.") : @tr("This phone uses the renewed vault key now and syncs again."); }
         if (code == 24) { return @tr("The vault key was renewed on another device. Settings, Sync asks once for the new Secret Key, from the new emergency kit."); }
+        if (code == 25) { return @tr("A passkey for “{}” was saved.", arg); }
         if (code == 40) { return @tr("Only the first {} pages are shown: the rest would take too much of the phone's memory. Save the file to see all of it.", arg); }
         if (code == 41) { return @tr("This PDF's pages are too large to show here. Save the file to see it."); }
         return "";

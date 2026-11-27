@@ -240,6 +240,27 @@ fn known_browser(package: &str) -> Option<&'static [&'static str]> {
         .map(|(_, certificates)| *certificates)
 }
 
+/// Whether `package` is a browser known here, signed with one of its release certificates.
+pub(crate) fn is_known_browser(package: &str, signers: &[[u8; 32]]) -> bool {
+    known_browser(package).is_some_and(|certificates| {
+        signers.iter().any(|signer| {
+            let hex = certificate_hex(signer);
+            certificates.contains(&hex.as_str())
+        })
+    })
+}
+
+/// Whether `package` has the name of a browser known here, whoever signed it.
+pub(crate) fn is_browser_package(package: &str) -> bool {
+    known_browser(package).is_some()
+}
+
+/// The browsers known here: package, and the SHA-256 of their release certificates (hex).
+pub(crate) fn browser_certificates() -> impl Iterator<Item = (&'static str, &'static [&'static str])>
+{
+    BROWSERS.iter().copied()
+}
+
 const CHROME: &str = "F0FD6C5B410F25CB25C3B53346C8972FAE30F8EE7411DF910480AD6B2D60DB83";
 const CHROME_BETA: &str = "DA633D34B69E63AE2103B49D53CE052FC5F7F3C53AAB94FDC2A208BDFD14249C";
 const CHROME_DEV: &str = "9044EE5FEE4BBC5E21DD44665431C4EB1F1F71A32716A0BC927BCBB39233CABF";
@@ -425,7 +446,7 @@ fn legacy_package(url: &str) -> Option<&str> {
 ///
 /// The one rule of autofill, both ways: such a login is not offered to another app, and its
 /// password isn't changed from one. Only the app itself does that, after the item's check.
-fn behind_lock(vault: &Vault, item: &ItemData) -> bool {
+pub(crate) fn behind_lock(vault: &Vault, item: &ItemData) -> bool {
     item.is_locked() || vault.guards(item)
 }
 
@@ -495,11 +516,29 @@ pub fn open_with_secret(
     to: &Recipient,
     now: i64,
 ) -> Option<Vec<Login>> {
-    let bytes = files::read(&current_vault(home)).ok()?;
+    let vault = open_locked(home, secret, now)?;
+    Some(logins_for(&vault, to))
+}
+
+/// The vault the app opened last, opened with the device secret its fingerprint unlock
+/// released (while that unlock is fresh); `None` when it doesn't open that way.
+pub(crate) fn open_locked(home: &Path, secret: &[u8], now: i64) -> Option<Vault> {
+    open_locked_file(home, secret, now).map(|(vault, _, _)| vault)
+}
+
+/// [`open_locked`], with the file's path and the bytes it was opened from, for a change to be
+/// written back only over that very file.
+pub(crate) fn open_locked_file(
+    home: &Path,
+    secret: &[u8],
+    now: i64,
+) -> Option<(Vault, PathBuf, Vec<u8>)> {
+    let path = current_vault(home);
+    let bytes = files::read(&path).ok()?;
     let id = Vault::inspect(&bytes).ok()?.id_hex;
     let unlock = bio::read(home, &id).filter(|b| b.fresh(now))?;
     let vault = Vault::open_with_device(&bytes, secret, &unlock.sealed_key).ok()?;
-    Some(logins_for(&vault, to))
+    Some((vault, path, bytes))
 }
 
 // ---- the drop box: logins saved while the vault is locked ----

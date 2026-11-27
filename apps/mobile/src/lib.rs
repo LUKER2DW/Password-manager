@@ -17,6 +17,9 @@ pub mod autofill;
 mod bio;
 mod controller;
 pub mod i18n;
+// Passkeys for the phone's browsers and apps (Android's Credential Manager).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod passkeys;
 pub mod platform;
 mod prefs;
 pub mod system;
