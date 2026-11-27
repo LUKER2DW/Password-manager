@@ -94,6 +94,10 @@ Status: alpha, like the rest of the project (loaded unpacked; not in a store yet
 - Every password comes from the app, which decides whether a page may have it: the exact site
   saved in the login, top frame only, nothing while the vault is locked. Each fill or shown
   password is announced in the app.
+- A sandboxed document (opaque origin, "null", at the site's address: a `sandbox` frame or a
+  `Content-Security-Policy: sandbox` header) is not the site: the content scripts stay
+  silent there, a fill refuses it, the worker ignores its messages, and its passkey requests
+  go to the browser.
 - A login behind the item lock (every item, by default, for new vaults) needs **Windows Hello**
   (the system's own prompt) or the item lock's PIN, typed in the extension's window, for each
   fill, show or copy. Five wrong tries lock the vault, as in the app.

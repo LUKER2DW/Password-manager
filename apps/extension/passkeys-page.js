@@ -17,6 +17,9 @@
 // while the vault is locked or in a browser that can't show the frame in pages (passkeys.js).
 
 (() => {
+  // A sandboxed document (opaque origin: a `sandbox` frame or a `CSP: sandbox` header) keeps
+  // the browser's own handler, which refuses it. Read before any of the page's scripts run.
+  if (globalThis.origin !== globalThis.location.origin) return;
   const credentials = globalThis.navigator?.credentials;
   if (!credentials || typeof credentials.get !== "function" || typeof credentials.create !== "function") return;
   const CHANNEL = "vault-passkeys";

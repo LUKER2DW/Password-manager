@@ -30,8 +30,9 @@
  */
 export function fillLogin(expectedOrigin, username, password, offerId) {
   // The tab may have moved on between the click and now: never type into another site,
-  // and never into a frame.
-  if (window.top !== window || window.location.origin !== expectedOrigin) {
+  // and never into a frame. A sandboxed document (its own origin opaque, "null", while its
+  // address still names the site) is not the site either.
+  if (window.top !== window || window.location.origin !== expectedOrigin || window.origin !== expectedOrigin) {
     return "wrong_page";
   }
 
@@ -195,7 +196,8 @@ export function fillLogin(expectedOrigin, username, password, offerId) {
  * @returns {"filled" | "none" | "wrong_page" | "choose_field" | "insecure_form"}
  */
 export function fillCode(expectedOrigin, code, offerId) {
-  if (window.top !== window || window.location.origin !== expectedOrigin) {
+  // As fillLogin: the top frame of the site itself, not a sandboxed document at its address.
+  if (window.top !== window || window.location.origin !== expectedOrigin || window.origin !== expectedOrigin) {
     return "wrong_page";
   }
   const type = (el) => (el.type || "").toLowerCase();

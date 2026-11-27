@@ -124,6 +124,8 @@ function tab() {
   return {
     id,
     page: (message) => send(message, { frameId: 0, url: tabs.get(id).url, documentId: `doc-${id}` }),
+    /** The same address, in a document the site sandboxed: the browser gives its origin as "null". */
+    sandboxed: (message) => send(message, { frameId: 0, url: tabs.get(id).url, documentId: `doc-${id}`, origin: "null" }),
     frame: (message) => send(message, { frameId: 7, url: chrome.runtime.getURL("inline.html#logins|normal|x") }),
   };
 }
@@ -150,6 +152,17 @@ test("a login picked in the card is filled into the card's own field and form on
   // A card without an offer still names one (""), which matches no field: nothing is guessed.
   await t.frame({ kind: "frame-fill", id: "item-1" });
   assert.equal(scripted.at(-1).args[3], "");
+});
+
+test("a sandboxed document at the site's address is not the site", async () => {
+  answers = { logins: LOGINS, save: { type: "saved", existing: false, queued: false } };
+  const t = tab();
+  asked.length = 0;
+  assert.equal(await t.sandboxed({ kind: "field-focused", fresh: true, rules: {} }), undefined);
+  assert.equal(await t.sandboxed({ kind: "submitted", username: "me", password: "typed-pw" }), undefined);
+  assert.equal(asked.length, 0, "the app is asked nothing");
+  const offer = await t.frame({ kind: "frame-save-info" });
+  assert.ok(!offer?.username, "nothing waits to be saved");
 });
 
 test("Save acts on the offer the card shows, never on a newer one", async () => {

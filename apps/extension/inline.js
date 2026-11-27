@@ -73,9 +73,10 @@ function genuine(event) {
 }
 
 // This card belongs right inside a page's own document. Inside a frame of the page (an
-// advert, an embedded widget) it shows nothing: such a frame is not the site in front.
+// advert, an embedded widget) it shows nothing: such a frame is not the site in front. Nor
+// in a sandboxed document, whose origin the browser lists as "null".
 const around = location.ancestorOrigins;
-const direct = !around || around.length === 1;
+const direct = !around || (around.length === 1 && around[0] !== "null");
 
 /** Tells the page how tall the frame must be: the card, its arrow and its shadow. */
 function fit() {

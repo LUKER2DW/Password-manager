@@ -10,13 +10,17 @@ import vm from "node:vm";
 const PAGE_SCRIPT = readFileSync(new URL("../passkeys-page.js", import.meta.url), "utf8");
 const ORIGIN = "https://login.example.com";
 
-/** A page with passkeys-page.js loaded; `posted` is what it sent to the content script. */
-function page() {
+/**
+ * A page with passkeys-page.js loaded; `posted` is what it sent to the content script.
+ * `documentOrigin`: the document's own origin ("null" when the site sandboxed it).
+ */
+function page({ documentOrigin = ORIGIN } = {}) {
   const listeners = [];
   const posted = [];
   const browserCalls = [];
   const win = {
     location: { origin: ORIGIN },
+    origin: documentOrigin,
     crypto: { randomUUID: (() => { let n = 0; return () => `id-${++n}`; })() },
     btoa,
     atob,
@@ -69,6 +73,16 @@ const tick = () => new Promise((done) => setImmediate(done));
 /** What postMessage hands the content script: a structured copy, here as plain data. */
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const b64u = (bytes) => Buffer.from(bytes).toString("base64url");
+
+test("a sandboxed document keeps the browser's own passkeys", async () => {
+  // `Content-Security-Policy: sandbox` at the site's address: the browser answers (and refuses
+  // the opaque origin); nothing goes to Vault, and the page doesn't wait forever.
+  const { win, posted, browserCalls } = page({ documentOrigin: "null" });
+  assert.equal(await win.navigator.credentials.get({ publicKey: { challenge: new Uint8Array([1]) } }), "from the browser");
+  assert.equal(await win.navigator.credentials.create({ publicKey: { challenge: new Uint8Array([1]) } }), "from the browser");
+  assert.deepEqual(browserCalls.map(([kind]) => kind), ["get", "create"]);
+  assert.equal(posted.length, 0);
+});
 
 test("a sign-in goes to Vault, and the page gets a credential it can read", async () => {
   const { win, posted, answer, browserCalls } = page();
@@ -418,13 +432,14 @@ class VouchingEntry {
  * a field's suggestions with "waits" and then forgets them, as one the browser stopped since.
  * `vouches`: the browser reports a frame's visibility (Firefox doesn't).
  */
-function load(tabId, url, { restarted = false, vouches = true } = {}) {
+function load(tabId, url, { restarted = false, vouches = true, documentOrigin } = {}) {
   const documentId = `doc-${nextDocument++}`;
   const origin = new URL(url).origin;
   const heard = { message: [], pagehide: [] };
   const answers = new Map();
   const win = {
     location: { origin },
+    origin: documentOrigin ?? origin,
     IntersectionObserverEntry: vouches ? VouchingEntry : class {},
     addEventListener: (type, listener) => heard[type]?.push(listener),
     postMessage: (data) => answers.set(data.id, data.answer),
@@ -530,6 +545,17 @@ const ASSERTION = {
   user_handle: "dQ",
 };
 const madeAny = () => browser.asked.some((request) => request.type === "passkey_create" || request.type === "passkey_get");
+
+test("a sandboxed document relays nothing to Vault", async () => {
+  const asked = browser.asked.length;
+  const windows = browser.windows.length;
+  const tab = openTab(PAGE_URL, { documentOrigin: "null" });
+  tab.doc.ask("1", GET);
+  for (let i = 0; i < 5; i++) await new Promise((done) => setImmediate(done));
+  assert.equal(tab.doc.answer("1"), undefined, "no relay listens there");
+  assert.equal(browser.asked.length, asked, "the app is asked nothing");
+  assert.equal(browser.windows.length, windows, "no window opens");
+});
 
 test("the worker takes only plain, bounded requests", async () => {
   const { cleaned, fromPasskeyWindow } = worker;

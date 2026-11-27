@@ -20,6 +20,9 @@
 // person has picked one.
 
 (() => {
+  // A sandboxed document (opaque origin, content.js) relays nothing: its requests stay with
+  // the browser, which refuses them.
+  if (globalThis.origin !== location.origin) return;
   const CHANNEL = "vault-passkeys";
   const origin = location.origin;
   /** This document's requests that wait for Vault's answer, by their id. */

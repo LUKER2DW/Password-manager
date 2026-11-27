@@ -74,7 +74,7 @@ class HTMLInputElement {
  * else in its form, else in one box with the page's other fields outside forms. `buttons`
  * are the page's submit buttons, `base` its base URL (a `<base>` element).
  */
-function page(fields, { origin = "https://github.com", framed = false, focused, buttons = [], base } = {}) {
+function page(fields, { origin = "https://github.com", documentOrigin, framed = false, focused, buttons = [], base } = {}) {
   const html = new Element("HTML");
   const body = new Element("BODY", html);
   const loose = new Element("DIV", body);
@@ -90,6 +90,8 @@ function page(fields, { origin = "https://github.com", framed = false, focused, 
   }
   const window = {
     location: { origin, href: `${origin}/login` },
+    // The document's own origin: the address's, unless the site sandboxed it ("null").
+    origin: documentOrigin ?? origin,
     Element,
     HTMLInputElement,
     getComputedStyle: (el) => ({ display: el.display ?? "block", visibility: el.visibility ?? "visible" }),
@@ -150,6 +152,19 @@ test("types nothing on another site or inside a frame", () => {
   inputs = page([{ name: "login" }, { type: "password" }], { framed: true });
   assert.equal(fill(), "wrong_page");
   assert.ok(inputs.every((input) => input.value === ""));
+});
+
+test("types nothing into a sandboxed document at the site's address", () => {
+  // A `Content-Security-Policy: sandbox` header, or a pop-up that inherited a sandbox: the
+  // address is the site's, the document's own origin is opaque.
+  let inputs = page([{ name: "login" }, { type: "password" }], { documentOrigin: "null" });
+  assert.equal(fill(), "wrong_page");
+  assert.ok(inputs.every((input) => input.value === "" && input.events.length === 0));
+  inputs = page([{ name: "otp", autocomplete: "one-time-code" }], { documentOrigin: "null" });
+  assert.equal(fillCode("https://github.com", "123456"), "wrong_page");
+  assert.ok(inputs.every((input) => input.value === ""));
+  inputs = page([{ name: "login" }, { type: "password" }], { documentOrigin: "https://evil.example" });
+  assert.equal(fill(), "wrong_page", "a document of another origin at this address");
 });
 
 test("skips fields that are hidden, disabled or read-only", () => {

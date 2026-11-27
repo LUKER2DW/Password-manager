@@ -273,6 +273,11 @@ async function handle(message, sender) {
   if (!tab?.id) return undefined;
   const fromFrame = typeof sender.url === "string" && sender.url.startsWith(INLINE);
   const fromPage = !fromFrame && sender.frameId === 0;
+  // The browser says which document sent it: a sandboxed one ("null") or one whose origin
+  // isn't the tab's is not the site, and gets nothing (content.js already stays silent there).
+  if (fromPage && typeof sender.origin === "string" && sender.origin !== originOf(tab.url)) {
+    return undefined;
+  }
 
   if (fromPage) {
     switch (message.kind) {

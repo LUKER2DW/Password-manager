@@ -18,6 +18,11 @@
 // button then marks.
 
 (() => {
+  // A document the site isolated in a sandbox (a `sandbox` frame, a `Content-Security-Policy:
+  // sandbox` header, or a pop-up that inherited one) has an opaque origin, "null", while its
+  // address still names the site: it is not the site, and nothing is offered, read or filled
+  // in it. The isolated world reads the document's real origin; the page can't change it.
+  if (globalThis.origin !== location.origin) return;
   const {
     isSignInField,
     isNewPasswordField,
