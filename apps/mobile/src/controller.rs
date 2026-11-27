@@ -2116,6 +2116,8 @@ impl Controller {
         self.clear_editor();
         self.show_entry();
         self.publish_vaults();
+        // What key work left on this thread's stack (unlocking, reading items) goes too.
+        vault_core::memory::clear_stack();
     }
 
     // ---- saving ----
