@@ -167,6 +167,9 @@ mod sheet {
     pub const UPDATE: i32 = 18;
     /// The vault key was renewed on another device: its new Secret Key and the master password.
     pub const TAKE_KEY: i32 = 19;
+    /// Every use asks, on a phone with no screen lock: the item lock's PIN or password, for
+    /// one use (`each_use`).
+    pub const USE_CHECK: i32 = 20;
 }
 
 /// Where the line of a scanned QR code goes (the screens' `scan-invite` purpose).
@@ -194,6 +197,8 @@ mod editor {
 }
 
 mod attachments;
+mod each_use;
+use each_use::{Ask, Use};
 mod filling;
 mod folders;
 mod generated;
@@ -247,6 +252,11 @@ mod notice {
     /// A passkey was made for a site or app on the phone (the login's title).
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub const PASSKEY_SAVED: i32 = 25;
+    /// Every use asks, and this phone has no screen lock nor an item lock with a PIN or
+    /// password to ask instead: nothing was shown or copied.
+    pub const NO_SCREEN_LOCK: i32 = 26;
+    /// The phone's check before one use didn't pass or couldn't be asked (what Android said).
+    pub const CHECK_FAILED: i32 = 27;
 }
 
 /// How long a copied secret may stay on the clipboard (Settings), in seconds.
@@ -496,6 +506,11 @@ struct State {
     show_password: bool,
     /// The card's full number and security code are on screen (asked for with the eye).
     show_card: bool,
+    /// A secure note's text is on screen (asked for, when every use asks).
+    show_note: bool,
+    /// A use of a secret waiting for the phone's check, or the item lock's in its place
+    /// (Settings → Ask for the fingerprint or screen lock every time).
+    each_use: Option<each_use::Waiting>,
     confirm_delete: bool,
     generated: Zeroizing<String>,
     /// What this app put on the clipboard, and when it takes it back.
@@ -643,6 +658,8 @@ impl Controller {
                 master_checked: false,
                 show_password: false,
                 show_card: false,
+                show_note: false,
+                each_use: None,
                 confirm_delete: false,
                 generated: Zeroizing::new(String::new()),
                 copied: None,
@@ -697,6 +714,7 @@ impl Controller {
         app.set_website_icons(prefs.website_icons);
         app.set_lock_on_leave(prefs.lock_on_leave);
         app.set_allow_capture(prefs.allow_capture);
+        app.set_ask_each_use(prefs.ask_each_use);
         app.set_leak_watch(prefs.leak_watch);
         app.set_update_source(i32::from(
             prefs.update_source.min(prefs::UPDATES_FROM_SERVER),
@@ -765,16 +783,19 @@ impl Controller {
             c.app().set_ed_card_mark(brand.map_or(0, view::brand_mark));
         });
         on!(on_close_item, |c| c.close_item());
-        on!(on_edit_item, |c| {
-            let selected = c.state.borrow().selected;
-            c.open_editor(selected);
-        });
+        // Every field of the item, the secret ones included, shows in the editor: asked first
+        // when every use asks.
+        on!(on_edit_item, |c| c.use_of_item(Use::Edit));
         on!(on_toggle_favorite, |c| c.toggle_favorite());
         on!(on_toggle_password, |c| {
-            let shown = !c.state.borrow().show_password;
-            c.state.borrow_mut().show_password = shown;
-            c.show_item();
+            if c.state.borrow().show_password {
+                c.state.borrow_mut().show_password = false;
+                c.show_item();
+            } else {
+                c.use_of_item(Use::ShowPassword);
+            }
         });
+        on!(on_show_note, |c| c.use_of_item(Use::ShowNote));
         on!(on_copy, |c, what| c.copy(what));
         on!(on_unlock_item, |c| c.unlock_item());
         on!(on_ed_toggle_password, |c| {
@@ -870,9 +891,12 @@ impl Controller {
         on!(on_check_master, |c, kind| c.check_master_then(kind));
         on!(on_ssh_passphrase, |c| c.ssh_passphrase());
         on!(on_toggle_card, |c| {
-            let shown = !c.state.borrow().show_card;
-            c.state.borrow_mut().show_card = shown;
-            c.show_item();
+            if c.state.borrow().show_card {
+                c.state.borrow_mut().show_card = false;
+                c.show_item();
+            } else {
+                c.use_of_item(Use::ShowCard);
+            }
         });
         on!(on_next_code, |c| {
             let selected = c.state.borrow().selected;
@@ -894,20 +918,25 @@ impl Controller {
             c.open_link(&website);
         });
         on!(on_open_link, |c, link| c.open_link(&link));
-        on!(on_preview_file, |c, index| c.preview_file(index));
+        on!(on_preview_file, |c, index| c
+            .use_of_item(Use::PreviewFile(index)));
+        on!(on_ask_save_file, |c, index| c
+            .use_of_item(Use::SaveFile(index)));
         on!(on_close_preview, |c| c.close_preview());
         on!(on_ed_totp_edited, |c, text| c.otp_names_into_editor(&text));
         on!(on_scan_otp, |c| c.scan_invite(scan::OTP));
         on!(on_gen_use, |c| c.generator_use());
         on!(on_gen_back, |c| c.generator_back());
         on!(on_gen_new_login, |c| c.generator_new_login());
-        on!(on_gen_history_toggled, |c| c.publish_generated());
+        on!(on_gen_history_toggled, |c| c.gen_history_toggled());
         on!(on_gen_history_copy, |c, index| c
             .copy_generated_entry(index));
         on!(on_gen_history_delete, |c, index| c
             .delete_generated_entry(index));
         on!(on_gen_history_clear, |c| c.clear_generated());
         on!(on_import_retry, |c| c.import_retry());
+        on!(on_use_checked, |c| c.use_lock_checked());
+        on!(on_ask_each_use_changed, |c, on| c.ask_each_use_changed(on));
         on!(on_sheet_opened, |c, kind| c.sheet_opened(kind));
         on!(on_sheet_closed, |c, kind| c.sheet_closed(kind));
 
@@ -1980,6 +2009,8 @@ impl Controller {
             let mut state = self.state.borrow_mut();
             state.show_password = false;
             state.show_card = false;
+            state.show_note = false;
+            state.each_use = None;
             state.master_checked = false;
             if let Some(vault) = state.vault.as_mut() {
                 vault.lock_secrets();
@@ -2003,6 +2034,8 @@ impl Controller {
         } else {
             self.publish_generated();
         }
+        // The item lock asked instead of a screen lock may be another one now.
+        self.refresh_each_use();
     }
 
     /// Items came from another device: the list, and the open item if it is still there.
@@ -2048,6 +2081,9 @@ impl Controller {
             state.editing = None;
             state.master_checked = false;
             state.show_password = false;
+            state.show_card = false;
+            state.show_note = false;
+            state.each_use = None;
             state.generated = Zeroizing::new(String::new());
             state.leaked.clear();
             state.watch_looked = None;
@@ -2138,7 +2174,7 @@ impl Controller {
             sheet::TAKE_KEY => &[field::SECRET_KEY, field::EXPORT_MASTER],
             sheet::IMPORT => &[field::IMPORT_PASSWORD],
             sheet::MASTER_PASSWORD => &[field::CURRENT, field::NEW, field::NEW_AGAIN],
-            sheet::ITEM_CHECK => &[field::ITEM_CHECK],
+            sheet::ITEM_CHECK | sheet::USE_CHECK => &[field::ITEM_CHECK],
             sheet::SSH_PASSPHRASE => &[field::SSH_PASSPHRASE],
             _ => &[],
         }
@@ -2174,6 +2210,9 @@ impl Controller {
         }
         if kind == sheet::UPDATE {
             self.update_put_off();
+        }
+        if kind == sheet::USE_CHECK {
+            self.use_check_dropped();
         }
         self.set_error(error::NONE, "");
     }
@@ -2433,6 +2472,9 @@ impl Controller {
             let mut state = self.state.borrow_mut();
             state.selected = Some(id);
             state.show_password = false;
+            state.show_card = false;
+            state.show_note = false;
+            state.each_use = None;
         }
         self.set_error(error::NONE, "");
         self.show_item();
@@ -2441,6 +2483,7 @@ impl Controller {
 
     fn show_item(&self) {
         let app = self.app();
+        let asks = self.each_use_asks();
         let state = self.state.borrow();
         let (Some(vault), Some(id)) = (state.vault.as_ref(), state.selected.as_ref()) else {
             return;
@@ -2494,8 +2537,11 @@ impl Controller {
         app.set_d_username(item.username.as_str().into());
         app.set_d_website(website.into());
         app.set_d_check(check);
-        // A note's text is the secret of a note: it waits for the check too.
-        let notes_wait = !open && item.kind == ItemKind::SecureNote;
+        // A note's text is the secret of a note: it waits for the check too, and when every
+        // use asks, it shows only once asked for ("Show the note").
+        let note_asked = open && !item.notes.is_empty() && self.note_waits(item.kind, asks);
+        app.set_d_note_waits(note_asked);
+        let notes_wait = (!open || note_asked) && item.kind == ItemKind::SecureNote;
         let notes = if notes_wait { "" } else { item.notes.as_str() };
         app.set_d_notes(notes.into());
         app.set_d_notes_styled(styled_notes(notes));
@@ -2575,6 +2621,7 @@ impl Controller {
         app.set_d_card_code(SharedString::new());
         app.set_d_has_card_code(false);
         app.set_d_card_shown(false);
+        app.set_d_note_waits(false);
         app.set_d_notes_styled(slint::StyledText::default());
         self.close_preview();
         app.set_d_files(ModelRc::default());
@@ -2591,6 +2638,8 @@ impl Controller {
             state.selected = None;
             state.show_password = false;
             state.show_card = false;
+            state.show_note = false;
+            state.each_use = None;
             state.master_checked = false;
             if let Some(vault) = state.vault.as_mut() {
                 vault.lock_secrets();
@@ -2647,12 +2696,19 @@ impl Controller {
                 |c, right| c.item_checked(right),
             );
         }
+        let right = self.open_item_lock(&typed);
+        self.item_checked(right);
+    }
+
+    /// Opens the item lock with its PIN or password; `false` when it is wrong. Items added
+    /// while it was closed are sealed under it, and the vault saved.
+    fn open_item_lock(&self, typed: &str) -> bool {
         let right = {
             let mut state = self.state.borrow_mut();
             state
                 .vault
                 .as_mut()
-                .is_some_and(|vault| vault.unlock_secrets(&typed).unwrap_or(false))
+                .is_some_and(|vault| vault.unlock_secrets(typed).unwrap_or(false))
         };
         if right {
             // Items added while the lock was closed are sealed under it now.
@@ -2668,7 +2724,7 @@ impl Controller {
                 self.save();
             }
         }
-        self.item_checked(right);
+        right
     }
 
     fn item_checked(&self, right: bool) {
@@ -2676,8 +2732,21 @@ impl Controller {
         if !right {
             return self.set_error(error::WRONG_CHECK, "");
         }
-        if self.app().get_d_check() == 1 {
-            self.state.borrow_mut().master_checked = true;
+        let shows = self.each_use_asks() != Ask::Nothing;
+        let master = self.app().get_d_check() == 1;
+        {
+            let mut state = self.state.borrow_mut();
+            if master {
+                state.master_checked = true;
+            }
+            // "Show the secrets" was asked once, with the item lock's own check: when every
+            // use asks, they show now (the password, the card's number, a note) instead of
+            // asking the phone again for the same thing. Every later use asks.
+            if shows {
+                state.show_password = true;
+                state.show_card = true;
+                state.show_note = true;
+            }
         }
         self.set_error(error::NONE, "");
         self.close_sheet(sheet::ITEM_CHECK);
@@ -2722,7 +2791,16 @@ impl Controller {
         self.notify(code, &seconds.to_string());
     }
 
+    /// The item page's copy buttons: a secret (the password, the code, the card's number or
+    /// security code) is asked for first when every use asks.
     fn copy(&self, what: i32) {
+        match what {
+            1 | 2 | 5 | 6 => self.use_of_item(Use::Copy(what)),
+            _ => self.copy_now(what),
+        }
+    }
+
+    fn copy_now(&self, what: i32) {
         // Username and website show while the item is locked; the rest goes through
         // `selected_item`, which gives nothing before the check.
         let plain = {
@@ -2882,25 +2960,6 @@ impl Controller {
             prefs.code_order.insert(order.0, order.1);
         });
         self.refresh_codes();
-    }
-
-    fn copy_code(&self, index: i32) {
-        let code = {
-            let state = self.state.borrow();
-            let Some(vault) = state.vault.as_ref() else {
-                return;
-            };
-            usize::try_from(index)
-                .ok()
-                .and_then(|index| state.code_ids.get(index))
-                .and_then(|id| vault.get_item(id).ok())
-                .filter(|item| self.check_for(vault, item) == 0)
-                .and_then(|item| Totp::parse(&item.totp).ok())
-                .map(|totp| totp.now().0)
-        };
-        if let Some(code) = code {
-            self.copy_secret(&code, notice::CODE_COPIED);
-        }
     }
 
     // ---- the editor ----
@@ -3164,6 +3223,8 @@ impl Controller {
             state.selected = Some(id);
             state.editing = Some(id);
             state.show_password = false;
+            state.show_card = false;
+            state.show_note = false;
         }
         self.close_editor();
         // A password from the generator that this login now uses leaves its history.

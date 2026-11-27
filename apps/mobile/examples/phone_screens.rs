@@ -11,7 +11,7 @@
 use std::{cell::Cell, path::PathBuf, rc::Rc, time::Duration};
 
 use slint::{
-    ComponentHandle, PhysicalSize, PlatformError, Rgb8Pixel,
+    ComponentHandle, Model, PhysicalSize, PlatformError, Rgb8Pixel,
     platform::{
         Platform, WindowAdapter, WindowEvent,
         software_renderer::{MinimalSoftwareWindow, RepaintBufferType},
@@ -340,6 +340,31 @@ fn main() {
     // The notice goes after a few seconds of real time; the other shots go without it.
     app.set_notice_code(0);
     advance(4000);
+    // Every use asks; on a phone with no screen lock, the item PIN stands in, for one use.
+    app.set_use_check(2);
+    app.set_use_what(2);
+    app.invoke_ask(20);
+    camera.shot(
+        "item-use-pin",
+        "Every use asks: the item PIN, on a phone with no screen lock",
+    );
+    app.set_confirming(0);
+    app.invoke_sheet_closed(20);
+    // A secure note, its text waiting for its button while every use asks (on a phone, the
+    // fingerprint or screen lock is asked first).
+    let note = (0..app.get_items().row_count())
+        .find(|&i| app.get_items().row_data(i).unwrap().title == "Wi-Fi at home")
+        .unwrap();
+    app.invoke_open_item(i32::try_from(note).unwrap());
+    app.set_d_note_waits(true);
+    app.set_d_notes("".into());
+    app.set_d_notes_styled(Default::default());
+    camera.shot(
+        "item-note-waits",
+        "Every use asks: a secure note shows once asked for",
+    );
+    app.invoke_close_item();
+    app.invoke_open_item(2);
     app.invoke_edit_item();
     camera.shot("editor", "Editing a login");
     app.invoke_ask(10);
@@ -439,11 +464,18 @@ fn main() {
     };
     app.set_bio_available(true);
     app.set_bio_on(true);
+    app.set_ask_each_use(true);
+    app.set_ask_each_use_state(0);
     app.set_settings_section(0);
-    tall(&mut camera, 1.6);
+    tall(&mut camera, 1.9);
     camera.shot(
         "settings-security",
-        "Security: fingerprint, locking, screenshots, clipboard",
+        "Security: fingerprint, every use asks, locking, screenshots, clipboard",
+    );
+    app.set_ask_each_use_state(1);
+    camera.shot(
+        "settings-security-no-lock",
+        "Security on a phone with no screen lock: the item PIN asks instead",
     );
     tall(&mut camera, 1.0);
     app.invoke_ask(12);

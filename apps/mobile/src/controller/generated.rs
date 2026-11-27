@@ -185,14 +185,28 @@ impl Controller {
         app.set_gen_history(ModelRc::new(VecModel::from(rows)));
     }
 
-    pub(super) fn copy_generated_entry(&self, index: i32) {
+    /// The password at `index` in the list, unless the list waits for the item lock.
+    pub(super) fn generated_at(&self, index: i32) -> Option<Zeroizing<String>> {
+        let (entries, waits) = self.shown_generated();
+        if waits {
+            return None;
+        }
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| entries.into_iter().nth(index))
+            .map(|entry| entry.password)
+    }
+
+    /// Copies the password of the list whose fingerprint is `which` (still in it, and the list
+    /// not waiting for the item lock), its check passed (`each_use`).
+    pub(super) fn copy_generated_now(&self, which: &[u8; 32]) {
         let (entries, waits) = self.shown_generated();
         if waits {
             return;
         }
-        let entry = usize::try_from(index)
-            .ok()
-            .and_then(|index| entries.into_iter().nth(index));
+        let entry = entries
+            .into_iter()
+            .find(|entry| super::fingerprint(entry.password.as_bytes()) == *which);
         if let Some(entry) = entry {
             self.copy_secret(&entry.password, notice::COPIED);
         }

@@ -4,7 +4,7 @@
 //! preview, the tests) [`NoSystem`] says none of it is there, or a test stands in.
 //!
 //! Answers that need the person (a fingerprint, a confirmation) come back later, to the
-//! controller's `biometric_*` methods.
+//! controller's `biometric_*` methods and `person_checked`.
 
 /// The words the system's own prompts show, translated by the screens (`@tr`).
 #[derive(Debug, Clone, Default)]
@@ -167,6 +167,23 @@ pub trait System {
 
     /// Deletes the hardware key of a vault's biometric unlock.
     fn forget_biometrics(&self, _vault_id: &str) {}
+
+    /// Whether the system can check that the person is there before one use of a secret (a
+    /// strong biometric or the screen lock): `None` where it has no such check at all (a
+    /// computer's window, the web preview), `Some(false)` on a phone with no screen lock set.
+    /// A phone that can't tell answers `Some(false)`: the app then asks what it can instead,
+    /// or shows nothing.
+    fn checks_person(&self) -> Option<bool> {
+        None
+    }
+
+    /// Asks the system's own check for one use of a secret (Android's prompt: a fingerprint,
+    /// a face or the screen lock). The answer comes back to `Controller::person_checked`:
+    /// `Ok` once the person passed it, else "" when cancelled, "no_lock" when the phone has no
+    /// screen lock (any more), or what went wrong.
+    fn check_person(&self, _words: &PromptWords) -> Result<(), String> {
+        Err("nothing here can check".into())
+    }
 
     /// Keeps the app's screens out of screenshots, recordings and the recent apps view.
     fn keep_off_screenshots(&self, _on: bool) {}

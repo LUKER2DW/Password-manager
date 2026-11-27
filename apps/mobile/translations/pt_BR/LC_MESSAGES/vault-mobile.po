@@ -3475,3 +3475,131 @@ msgstr "Essa pasta não pode ser usada como a extensão do navegador ({}). Ela p
 msgctxt "Messages"
 msgid "Vault didn't take the browser extension of GitHub's release {}. It keeps the one it has."
 msgstr "O Vault não aceitou a extensão do navegador da versão {} do GitHub. Ele continua com a que tem."
+
+msgctxt "Words"
+msgid "Show the card's PIN"
+msgstr "Mostrar o PIN do cartão"
+
+msgctxt "Words"
+msgid "Show the private key"
+msgstr "Mostrar a chave privada"
+
+msgctxt "Words"
+msgid "Show the password"
+msgstr "Mostrar a senha"
+
+msgctxt "Words"
+msgid "Copy the card's PIN"
+msgstr "Copiar o PIN do cartão"
+
+msgctxt "Words"
+msgid "Copy the private key"
+msgstr "Copiar a chave privada"
+
+msgctxt "Words"
+msgid "Copy the password"
+msgstr "Copiar a senha"
+
+msgctxt "Words"
+msgid "Copy the one-time code"
+msgstr "Copiar o código de uso único"
+
+msgctxt "Words"
+msgid "Show the card's number"
+msgstr "Mostrar o número do cartão"
+
+msgctxt "Words"
+msgid "Copy the card number"
+msgstr "Copiar o número do cartão"
+
+msgctxt "Words"
+msgid "Copy the security code"
+msgstr "Copiar o código de segurança"
+
+msgctxt "Words"
+msgid "Show the note"
+msgstr "Mostrar a nota"
+
+msgctxt "Words"
+msgid "Edit this item"
+msgstr "Editar este item"
+
+msgctxt "Words"
+msgid "Show the file"
+msgstr "Mostrar o arquivo"
+
+msgctxt "Words"
+msgid "Save the file"
+msgstr "Salvar o arquivo"
+
+msgctxt "Words"
+msgid "Show the generated passwords"
+msgstr "Mostrar as senhas geradas"
+
+msgctxt "Words"
+msgid "Copy a generated password"
+msgstr "Copiar uma senha gerada"
+
+msgctxt "Words"
+msgid "Confirm it's you"
+msgstr "Confirme que é você"
+
+msgctxt "Words"
+msgid "Nothing was shown or copied: this phone has no screen lock to ask. Set one in Android's settings, or turn off “Ask for the fingerprint or screen lock every time” in Settings, Security."
+msgstr "Nada foi mostrado nem copiado: este celular não tem bloqueio de tela para pedir. Configure um nas configurações do Android, ou desative “Pedir a digital ou o bloqueio de tela toda vez” em Configurações, Segurança."
+
+msgctxt "Words"
+msgid "Nothing was shown or copied: the phone's check didn't pass ({})."
+msgstr "Nada foi mostrado nem copiado: a verificação do celular não passou ({})."
+
+msgctxt "PhoneWindow"
+msgid "Each password"
+msgstr "Cada senha"
+
+msgctxt "PhoneWindow"
+msgid "Off: a password, a code or a card shows and copies with a tap while the vault is open."
+msgstr "Desligado: uma senha, um código ou um cartão aparece e é copiado com um toque enquanto o cofre está aberto."
+
+msgctxt "PhoneWindow"
+msgid "Before a password, a one-time code, a card's number or code, a secure note or a file shows or is copied, and before an item opens in the editor, the phone asks for your fingerprint, face or screen lock. Each time: nothing is remembered in between."
+msgstr "Antes que uma senha, um código de uso único, o número ou o código de um cartão, uma nota segura ou um arquivo apareça ou seja copiado, e antes que um item abra no editor, o celular pede sua digital, rosto ou bloqueio de tela. Toda vez: nada fica lembrado de um uso para o outro."
+
+msgctxt "PhoneWindow"
+msgid "This phone has no screen lock, so the item PIN is asked each time instead. Set a screen lock in Android's settings to use the fingerprint."
+msgstr "Este celular não tem bloqueio de tela, então o PIN do item é pedido toda vez no lugar dele. Configure um bloqueio de tela nas configurações do Android para usar a digital."
+
+msgctxt "PhoneWindow"
+msgid "This phone has no screen lock, so the item password is asked each time instead. Set a screen lock in Android's settings to use the fingerprint."
+msgstr "Este celular não tem bloqueio de tela, então a senha do item é pedida toda vez no lugar dele. Configure um bloqueio de tela nas configurações do Android para usar a digital."
+
+msgctxt "PhoneWindow"
+msgid "This phone has no screen lock, so nothing can ask for you: passwords, codes and cards don't show or copy until you set one in Android's settings, or turn this off."
+msgstr "Este celular não tem bloqueio de tela, então nada pode pedir por você: senhas, códigos e cartões não aparecem nem são copiados até você configurar um nas configurações do Android, ou desativar isto."
+
+msgctxt "PhoneWindow"
+msgid "Nothing on this device can ask for a fingerprint or a screen lock, so nothing is asked here."
+msgstr "Nada neste aparelho pode pedir uma digital ou um bloqueio de tela, então nada é pedido aqui."
+
+msgctxt "PhoneWindow"
+msgid "Ask for the fingerprint or screen lock every time"
+msgstr "Pedir a digital ou o bloqueio de tela toda vez"
+
+msgctxt "PhoneWindow"
+msgid "Before each password shows or is copied"
+msgstr "Antes de cada senha aparecer ou ser copiada"
+
+msgctxt "PhoneWindow"
+msgid "Show the note"
+msgstr "Mostrar a nota"
+
+msgctxt "PhoneWindow"
+msgid "This phone has no screen lock, so the item PIN is asked each time instead."
+msgstr "Este celular não tem bloqueio de tela, então o PIN do item é pedido toda vez no lugar dele."
+
+msgctxt "PhoneWindow"
+msgid "This phone has no screen lock, so the item password is asked each time instead."
+msgstr "Este celular não tem bloqueio de tela, então a senha do item é pedida toda vez no lugar dele."
+
+msgctxt "PhoneWindow"
+msgid "Confirm"
+msgstr "Confirmar"

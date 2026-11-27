@@ -110,8 +110,9 @@ fn pdf_title(name: &str, shown: usize, total: u32) -> String {
 }
 
 impl Controller {
-    /// View on one of the open item's files.
-    pub(super) fn preview_file(&self, index: i32) {
+    /// View on one of the open item's files, its check passed when every use asks
+    /// (`each_use`).
+    pub(super) fn preview_file_now(&self, index: i32) {
         let Some(item) = self.selected_item() else {
             return;
         };

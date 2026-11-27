@@ -158,6 +158,9 @@ impl Controller {
             let mut state = self.state.borrow_mut();
             state.selected = Some(id);
             state.show_password = false;
+            state.show_card = false;
+            state.show_note = false;
+            state.each_use = None;
         }
         self.set_error(super::error::NONE, "");
         self.show_item();

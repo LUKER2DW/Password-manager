@@ -28,6 +28,11 @@ pub struct Prefs {
     pub lock_on_leave: bool,
     /// Screenshots, screen recordings and the recent apps view may show the app.
     pub allow_capture: bool,
+    /// Every time a password, a one-time code, a card's number or code, a secure note or an
+    /// attached file is shown or copied (or an item opened for editing), the phone's own check
+    /// asks first: a fingerprint, a face or the screen lock (`System::check_person`), with
+    /// nothing remembered between two uses. On until turned off.
+    pub ask_each_use: bool,
     /// The app's language: "" follows the phone, else a catalogue's tag ("en", "pt-BR").
     pub language: String,
     /// The vaults this phone keeps, each a file next to this one, in the order they came.
@@ -101,6 +106,7 @@ impl Default for Prefs {
             generator: Generator::default(),
             lock_on_leave: false,
             allow_capture: false,
+            ask_each_use: true,
             language: String::new(),
             vaults: Vec::new(),
             current: String::new(),
@@ -227,6 +233,10 @@ mod tests {
         std::fs::write(&path, br#"{"website_icons": true}"#).unwrap();
         let loaded = Prefs::load(&path);
         assert!(loaded.website_icons && loaded.backdrop && loaded.dark_theme);
+        assert!(
+            loaded.ask_each_use,
+            "a phone that never chose asks for the fingerprint or screen lock every time"
+        );
         assert_eq!(
             loaded.update_source, UPDATES_FROM_GITHUB,
             "a phone that never chose takes its updates from GitHub"

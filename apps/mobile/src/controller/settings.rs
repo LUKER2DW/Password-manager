@@ -128,11 +128,12 @@ impl Controller {
         }
     }
 
-    /// The app is on screen again: Android's settings may have changed (autofill), and a
-    /// locked vault offers the fingerprint at once (not when the app comes back from one of
-    /// its own system screens, a picker or a settings page).
+    /// The app is on screen again: Android's settings may have changed (autofill, a screen
+    /// lock set or removed), and a locked vault offers the fingerprint at once (not when the
+    /// app comes back from one of its own system screens, a picker or a settings page).
     pub fn came_back(&self, ask_fingerprint: bool) {
         self.refresh_autofill();
+        self.refresh_each_use();
         if self.app().get_screen() == Screen::Unlock {
             self.offer_biometrics(ask_fingerprint);
         }
@@ -795,6 +796,7 @@ impl Controller {
         let prefs = self.state.borrow().prefs.clone();
         app.set_lock_on_leave(prefs.lock_on_leave);
         app.set_allow_capture(prefs.allow_capture);
+        self.refresh_each_use();
     }
 
     /// The unlock screen: whether the fingerprint can open this vault now, or waits for the

@@ -3306,3 +3306,319 @@ fn a_key_renewed_on_the_computer_is_taken_on_the_phone() {
     pc.merge(&phone_copy, &mut vault_core::sync::SeenRevisions::new())
         .unwrap();
 }
+
+/// A phone that checks the person before each use of a secret, or (`screen_lock` off) one
+/// with no screen lock; what each prompt said it was for. The test gives the answer
+/// (`Controller::person_checked`).
+#[derive(Default)]
+struct CheckingSystem {
+    screen_lock: Cell<bool>,
+    asked: RefCell<Vec<String>>,
+}
+
+impl CheckingSystem {
+    fn with_screen_lock(on: bool) -> Rc<Self> {
+        let system = Rc::new(Self::default());
+        system.screen_lock.set(on);
+        system
+    }
+
+    fn asked(&self) -> usize {
+        self.asked.borrow().len()
+    }
+}
+
+impl System for CheckingSystem {
+    fn checks_person(&self) -> Option<bool> {
+        Some(self.screen_lock.get())
+    }
+
+    fn check_person(&self, words: &PromptWords) -> Result<(), String> {
+        assert!(!words.title.is_empty() && !words.cancel.is_empty());
+        self.asked.borrow_mut().push(words.title.clone());
+        Ok(())
+    }
+}
+
+const ITEM_PIN: &str = "4821";
+
+/// A login with a one-time code, a card, a secure note, and a login behind a PIN item lock
+/// that covers it alone.
+fn each_use_vault(vault: &mut Vault, _: &SecretKey) {
+    let mut mail = ItemData::login("Mail", "me", "mail-test-password", "https://mail.example");
+    mail.totp = "JBSWY3DPEHPK3PXP".into();
+    vault.add_item(&mail).unwrap();
+    let mut visa = ItemData::new(ItemKind::Card, "Visa");
+    visa.custom_fields.push(vault_core::CustomField {
+        name: vault_core::card::NUMBER.into(),
+        value: "4111111111111111".into(),
+        sensitive: true,
+    });
+    vault.add_item(&visa).unwrap();
+    let mut note = ItemData::new(ItemKind::SecureNote, "Wifi");
+    note.notes = "router test note".into();
+    vault.add_item(&note).unwrap();
+    vault
+        .set_item_guard(false, GuardCheck::Pin, Some(ITEM_PIN), None)
+        .unwrap();
+    let mut sealed = ItemData::login("Sealed", "me", "sealed-test-password", "sealed.example");
+    sealed.reprompt = true;
+    vault.add_item(&sealed).unwrap();
+}
+
+#[test]
+fn every_use_of_a_secret_asks_the_phone_each_time() {
+    let phone = Phone::open(each_use_vault);
+    let (app, controller) = (&phone.app, &phone.controller);
+    let system = CheckingSystem::with_screen_lock(true);
+    controller.set_system(system.clone());
+    // On by default, and Settings says the phone asks.
+    assert!(app.get_ask_each_use());
+    assert_eq!(app.get_ask_each_use_state(), 0);
+
+    // The eye on the password asks, and shows only once the phone said yes.
+    phone.open_item("Mail");
+    app.invoke_toggle_password();
+    assert_eq!(system.asked(), 1);
+    assert_eq!(system.asked.borrow()[0], "Show the password");
+    assert_eq!(app.get_d_password(), "", "nothing before the answer");
+    controller.person_checked(Ok(()));
+    assert_eq!(app.get_d_password(), "mail-test-password");
+    // Hidden again without asking; shown again only after asking again: no grace period.
+    app.invoke_toggle_password();
+    assert_eq!(app.get_d_password(), "");
+    assert_eq!(system.asked(), 1);
+    app.invoke_toggle_password();
+    assert_eq!(system.asked(), 2);
+    controller.person_checked(Err(String::new()));
+    assert_eq!(app.get_d_password(), "", "cancelled: nothing shows");
+    // An answer nobody waits for (or a second one) does nothing.
+    controller.person_checked(Ok(()));
+    assert_eq!(app.get_d_password(), "");
+
+    // Copying the password and the code: each copy asks, a refusal copies nothing.
+    app.set_notice_code(0);
+    app.invoke_copy(1);
+    assert_eq!((system.asked(), app.get_notice_code()), (3, 0));
+    controller.person_checked(Ok(()));
+    assert_eq!(app.get_notice_code(), 1, "password copied");
+    app.set_notice_code(0);
+    app.invoke_copy(1);
+    assert_eq!(system.asked(), 4);
+    controller.person_checked(Err("Too many attempts".into()));
+    assert_eq!(
+        app.get_notice_code(),
+        27,
+        "refused: nothing copied, and said why"
+    );
+    assert_eq!(app.get_notice_arg(), "Too many attempts");
+    app.set_notice_code(0);
+    app.invoke_copy(2);
+    assert_eq!(system.asked.borrow()[4], "Copy the one-time code");
+    controller.person_checked(Ok(()));
+    assert_eq!(app.get_notice_code(), 5, "code copied");
+    // The username is no secret: nothing asked.
+    app.set_notice_code(0);
+    app.invoke_copy(0);
+    assert_eq!((system.asked(), app.get_notice_code()), (5, 2));
+
+    // The editor shows every field: it opens only after the phone said yes.
+    app.invoke_edit_item();
+    assert_eq!(system.asked(), 6);
+    assert_eq!(app.get_page(), Page::Item);
+    controller.person_checked(Ok(()));
+    assert_eq!(app.get_page(), Page::Editor);
+    app.invoke_cancel_edit();
+
+    // An answer that comes once the item was left shows nothing on the next one.
+    app.invoke_toggle_password();
+    assert_eq!(system.asked(), 7);
+    app.invoke_close_item();
+    phone.open_item("Mail");
+    controller.person_checked(Ok(()));
+    assert_eq!(app.get_d_password(), "");
+    app.invoke_close_item();
+
+    // The Codes page asks too.
+    app.set_place(Place::Codes);
+    controller.set_system(system.clone());
+    app.set_notice_code(0);
+    app.invoke_copy_code(0);
+    assert_eq!((system.asked(), app.get_notice_code()), (8, 0));
+    controller.person_checked(Ok(()));
+    assert_eq!(app.get_notice_code(), 5);
+    app.set_place(Place::Items);
+
+    // A card's number and code: shown and copied only after asking.
+    phone.open_item("Visa");
+    assert!(!app.get_d_card().contains("4111 1111"), "masked");
+    app.invoke_toggle_card();
+    assert_eq!(system.asked(), 9);
+    assert!(!app.get_d_card_shown());
+    controller.person_checked(Ok(()));
+    assert!(app.get_d_card_shown());
+    assert!(app.get_d_card().contains("4111 1111"));
+    app.set_notice_code(0);
+    app.invoke_copy(5);
+    assert_eq!((system.asked(), app.get_notice_code()), (10, 0));
+    controller.person_checked(Ok(()));
+    assert_eq!(app.get_notice_code(), 7);
+    app.invoke_close_item();
+
+    // A secure note's text waits for its button.
+    phone.open_item("Wifi");
+    assert!(app.get_d_note_waits());
+    assert_eq!(app.get_d_notes(), "");
+    app.invoke_show_note();
+    assert_eq!(system.asked(), 11);
+    controller.person_checked(Ok(()));
+    assert!(!app.get_d_note_waits());
+    assert_eq!(app.get_d_notes(), "router test note");
+    app.invoke_close_item();
+
+    // Behind the item lock: "Show the secrets" asks its PIN (and not the phone) and shows
+    // them; each later use asks the phone, once.
+    phone.open_item("Sealed");
+    assert_eq!(app.get_d_check(), 2);
+    app.invoke_ask(13);
+    type_secret(app, 2, ITEM_PIN);
+    app.invoke_confirmed(13);
+    assert_eq!(app.get_d_check(), 0, "{}", app.get_error_detail());
+    assert_eq!(app.get_d_password(), "sealed-test-password");
+    assert_eq!(system.asked(), 11, "one check for that action");
+    app.set_notice_code(0);
+    app.invoke_copy(1);
+    assert_eq!(system.asked(), 12);
+    assert_eq!(app.get_confirming(), 0, "the PIN isn't asked again");
+    controller.person_checked(Ok(()));
+    assert_eq!(app.get_notice_code(), 1);
+    app.invoke_close_item();
+
+    // Turned off: nothing more is asked, and the phone remembers it.
+    app.invoke_ask_each_use_changed(false);
+    phone.open_item("Mail");
+    app.invoke_toggle_password();
+    assert_eq!(app.get_d_password(), "mail-test-password");
+    app.set_notice_code(0);
+    app.invoke_copy(1);
+    assert_eq!(app.get_notice_code(), 1);
+    assert_eq!(system.asked(), 12);
+    app.invoke_close_item();
+    phone.open_item("Wifi");
+    assert!(!app.get_d_note_waits());
+    assert_eq!(app.get_d_notes(), "router test note");
+    app.invoke_close_item();
+    assert!(!crate::prefs::Prefs::load(&crate::prefs::path_for(&phone.path)).ask_each_use);
+}
+
+#[test]
+fn a_phone_without_a_screen_lock_asks_the_item_pin_each_time() {
+    let phone = Phone::open(each_use_vault);
+    let (app, controller) = (&phone.app, &phone.controller);
+    let system = CheckingSystem::with_screen_lock(false);
+    controller.set_system(system.clone());
+    assert_eq!(
+        app.get_ask_each_use_state(),
+        1,
+        "Settings says the item PIN asks"
+    );
+
+    // A login outside the lock: its PIN is asked in the sheet, for this use only.
+    phone.open_item("Mail");
+    app.invoke_toggle_password();
+    assert_eq!(app.get_confirming(), 20);
+    assert_eq!(system.asked(), 0, "Android can't ask");
+    type_secret(app, 2, "0000");
+    app.invoke_confirmed(20);
+    assert_eq!(app.get_error_code(), 7);
+    assert_eq!(app.get_confirming(), 20, "the sheet stays");
+    assert_eq!(app.get_d_password(), "");
+    type_secret(app, 2, ITEM_PIN);
+    app.invoke_confirmed(20);
+    assert_eq!(app.get_confirming(), 0);
+    assert_eq!(app.get_d_password(), "mail-test-password");
+    assert_eq!(length(app, 2), 0, "the PIN left its field");
+    // Each copy asks it again; cancelled, nothing is copied.
+    app.set_notice_code(0);
+    app.invoke_copy(1);
+    assert_eq!(app.get_confirming(), 20);
+    app.set_confirming(0);
+    app.invoke_sheet_closed(20);
+    assert_eq!(app.get_notice_code(), 0);
+    app.invoke_copy(1);
+    type_secret(app, 2, ITEM_PIN);
+    app.invoke_confirmed(20);
+    assert_eq!(app.get_notice_code(), 1);
+    app.invoke_close_item();
+
+    // The PIN opened the item lock only for those uses: the sealed login is still locked.
+    phone.open_item("Sealed");
+    assert_eq!(app.get_d_check(), 2);
+    // "Show the secrets" asks the PIN once and shows them; a copy asks it once more.
+    app.invoke_ask(13);
+    type_secret(app, 2, ITEM_PIN);
+    app.invoke_confirmed(13);
+    assert_eq!(app.get_d_password(), "sealed-test-password");
+    app.set_notice_code(0);
+    app.invoke_copy(1);
+    assert_eq!(app.get_confirming(), 20, "one PIN for the copy, not two");
+    type_secret(app, 2, ITEM_PIN);
+    app.invoke_confirmed(20);
+    assert_eq!(app.get_notice_code(), 1);
+    assert_eq!(app.get_d_check(), 0, "still open for this visit");
+    app.invoke_close_item();
+
+    // Off: nothing is asked.
+    app.invoke_ask_each_use_changed(false);
+    phone.open_item("Mail");
+    app.invoke_toggle_password();
+    assert_eq!(app.get_confirming(), 0);
+    assert_eq!(app.get_d_password(), "mail-test-password");
+    assert_eq!(system.asked(), 0);
+}
+
+#[test]
+fn a_phone_without_a_screen_lock_or_an_item_pin_shows_nothing() {
+    let phone = Phone::open(|vault, _| {
+        vault
+            .add_item(&ItemData::login(
+                "Mail",
+                "me",
+                "mail-test-password",
+                "https://mail.example",
+            ))
+            .unwrap();
+    });
+    let (app, controller) = (&phone.app, &phone.controller);
+    let system = CheckingSystem::with_screen_lock(false);
+    controller.set_system(system.clone());
+    assert_eq!(
+        app.get_ask_each_use_state(),
+        3,
+        "Settings says nothing can ask"
+    );
+    phone.open_item("Mail");
+    app.invoke_toggle_password();
+    assert_eq!(app.get_d_password(), "");
+    assert_eq!(app.get_confirming(), 0);
+    assert_eq!(app.get_notice_code(), 26, "said why, and how to change it");
+    app.set_notice_code(0);
+    app.invoke_copy(1);
+    assert_eq!(app.get_notice_code(), 26);
+    app.invoke_edit_item();
+    assert_eq!(app.get_page(), Page::Item, "the editor stays shut too");
+    // A screen lock set in Android's settings meanwhile: the phone asks from now on.
+    system.screen_lock.set(true);
+    controller.came_back(false);
+    assert_eq!(app.get_ask_each_use_state(), 0);
+    app.invoke_toggle_password();
+    assert_eq!(system.asked(), 1);
+    controller.person_checked(Ok(()));
+    assert_eq!(app.get_d_password(), "mail-test-password");
+    // The screen lock removed while the prompt was coming: nothing shows.
+    app.invoke_toggle_password();
+    app.invoke_toggle_password();
+    controller.person_checked(Err("no_lock".into()));
+    assert_eq!(app.get_d_password(), "");
+    assert_eq!(app.get_notice_code(), 26);
+}
