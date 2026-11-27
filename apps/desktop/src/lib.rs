@@ -14,6 +14,12 @@ mod view;
 /// The Slint screens (generated code, in a crate of its own to keep rebuilds short).
 pub use vault_desktop_ui as ui;
 
+/// Every block of Rust's heap is wiped before it is freed (`vault_platform::wiping_alloc`).
+/// Declared here rather than in `main.rs` so the tests and the screenshots run with it too.
+#[global_allocator]
+static ALLOCATOR: vault_platform::wiping_alloc::WipingAllocator =
+    vault_platform::wiping_alloc::WipingAllocator;
+
 use slint::ComponentHandle;
 
 /// Generates the hand-drawn details and hands them to the UI.
