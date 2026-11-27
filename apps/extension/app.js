@@ -1,9 +1,9 @@
 // Talking to the desktop app: one question, one answer, through the native host.
 //
 // Used by the extension's window and by its background worker. Every question except the
-// first "connect" is signed with the connection key (see link.js).
+// first "connect" is sealed with the connection key, and so is every answer (see link.js).
 
-import { loadKey, sign } from "./link.js";
+import { loadKey, opened, seal } from "./link.js";
 
 const HOST = "vault.desktop.browser_host";
 
@@ -19,17 +19,22 @@ export async function send(message) {
 }
 
 /**
- * One signed question to the desktop app. A refusal as "not paired" is tried once more with a
- * fresh counter before it is believed: the extension then really is unknown to the app (it
- * was disconnected there, or another vault is open), and the caller offers to connect again.
+ * One sealed question to the desktop app, and its answer once opened (link.js `opened`: an
+ * answer a program between the browser and the app changed or made up is `bad_answer`). A
+ * refusal as "not paired" is tried once more with a fresh counter before it is believed: the
+ * extension then really is unknown to the app (it was disconnected there, or another vault is
+ * open), and the caller offers to connect again. An app older than sealed questions answers
+ * "not understood" (`bad_request`): the window says to update it.
  */
 export async function ask(request) {
   const key = await loadKey();
   if (!key) return { type: "error", code: "not_paired" };
-  const reply = await send(await sign(key, request));
+  let sent = await seal(key, request);
+  let reply = await opened(key, sent, await send(sent.message));
   if (reply.code !== "not_paired") return reply;
   await new Promise((done) => setTimeout(done, 120));
-  return send(await sign(key, request));
+  sent = await seal(key, request);
+  return opened(key, sent, await send(sent.message));
 }
 
 /** The origin of an address, or "" when it has none worth comparing. */

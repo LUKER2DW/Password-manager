@@ -103,7 +103,7 @@
     "message": "Continue in the app"
   },
   "pairWaitText": {
-    "message": "The password manager asks for the code below, then your master password: type both there. This window carries on by itself once you connect."
+    "message": "The password manager shows a code too. Connect there with your master password only if it is this same code. This window carries on by itself once you connect."
   },
   "pairRestart": {
     "message": "Start over"
@@ -259,6 +259,18 @@
   },
   "updateChangedSince": {
     "message": "Not updated: this login was changed in Vault since. Nothing was replaced."
+  },
+  "badAnswerTitle": {
+    "message": "Answer ignored"
+  },
+  "badAnswerText": {
+    "message": "An answer reached the browser changed on the way from Vault, so nothing in it was used. If you didn't install something that connects to browsers, check this computer, then turn the extension setting in Vault off and on again."
+  },
+  "oldAppTitle": {
+    "message": "Update Vault"
+  },
+  "oldAppText": {
+    "message": "The Vault app on this computer is older than this extension and didn't understand it. In Vault, open Settings, About, and choose Check for updates, then try again."
   },
   "changedSinceTitle": {
     "message": "Not updated"

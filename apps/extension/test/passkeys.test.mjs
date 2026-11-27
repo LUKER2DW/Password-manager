@@ -7,6 +7,8 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
 
+import { openRequest, sealed } from "./sealed.mjs";
+
 const PAGE_SCRIPT = readFileSync(new URL("../passkeys-page.js", import.meta.url), "utf8");
 const ORIGIN = "https://login.example.com";
 
@@ -82,6 +84,23 @@ test("a sandboxed document keeps the browser's own passkeys", async () => {
   assert.equal(await win.navigator.credentials.create({ publicKey: { challenge: new Uint8Array([1]) } }), "from the browser");
   assert.deepEqual(browserCalls.map(([kind]) => kind), ["get", "create"]);
   assert.equal(posted.length, 0);
+});
+
+test("what the site asks about verifying the person goes along with its request", () => {
+  const { win, posted } = page();
+  win.navigator.credentials.get({ publicKey: { challenge: new Uint8Array([1]), userVerification: "required" } });
+  win.navigator.credentials.create({
+    publicKey: {
+      challenge: new Uint8Array([1]),
+      rp: { id: "example.com", name: "Example" },
+      user: { id: new Uint8Array([5]), name: "me", displayName: "Me" },
+      authenticatorSelection: { userVerification: "discouraged" },
+    },
+  });
+  win.navigator.credentials.get({ publicKey: { challenge: new Uint8Array([2]) } });
+  assert.equal(posted[0].request.userVerification, "required");
+  assert.equal(posted[1].request.userVerification, "discouraged");
+  assert.equal(posted[2].request.userVerification, undefined, "not given: the worker reads preferred");
 });
 
 test("a sign-in goes to Vault, and the page gets a credential it can read", async () => {
@@ -337,12 +356,13 @@ let nextWindow = 100;
 globalThis.chrome = {
   runtime: {
     getURL: (path) => `chrome-extension://vault/${path.replace(/^\//, "")}`,
-    // The app: the signed request's body, answered from `browser.answers` by its type.
+    // The app: the sealed request opened, answered from `browser.answers` by its type, sealed
+    // to the request as the app does.
     sendNativeMessage: async (_host, envelope) => {
-      const request = JSON.parse(envelope.body);
+      const request = openRequest(envelope);
       browser.asked.push(request);
       const answer = browser.answers[request.type];
-      return typeof answer === "function" ? answer(request) : (answer ?? { type: "error", code: "bad_request" });
+      return sealed(envelope, typeof answer === "function" ? await answer(request) : (answer ?? { type: "error", code: "bad_request" }));
     },
   },
   windows: {
@@ -564,7 +584,12 @@ test("the worker takes only plain, bounded requests", async () => {
     rpId: "example.com",
     challenge: "AQ",
     allow: ["a", "b"],
+    userVerification: "preferred",
   });
+  // What the site asks about verifying the person: kept when known, "preferred" otherwise.
+  for (const [asked, kept] of [["required", "required"], ["discouraged", "discouraged"], ["sometimes", "preferred"], [7, "preferred"]]) {
+    assert.equal(cleaned({ kind: "get", challenge: "AQ", userVerification: asked }).userVerification, kept);
+  }
   assert.equal(cleaned({ kind: "get", challenge: "" }), null);
   assert.equal(cleaned({ kind: "get", challenge: "x".repeat(1401) }), null);
   assert.equal(cleaned({ kind: "sign", challenge: "AQ" }), null);
@@ -578,6 +603,7 @@ test("the worker takes only plain, bounded requests", async () => {
   });
   assert.deepEqual(made.algorithms, [-7, -257]);
   assert.equal(made.rpId, "");
+  assert.equal(made.userVerification, "preferred");
   assert.equal(cleaned({ kind: "get", challenge: "AQ", conditional: true }).conditional, true);
   assert.equal(cleaned({ kind: "get", challenge: "AQ", conditional: "yes" }).conditional, undefined);
   assert.equal(cleaned({ ...made, kind: "create", conditional: true }).conditional, undefined);
@@ -798,6 +824,8 @@ test("a field's suggestions wait in the page until a passkey is picked under a f
   assert.equal(signed.url, PAGE_URL, "for the tab's own address");
   assert.equal(signed.challenge, "AQ");
   assert.equal(signed.hello, false);
+  // What the site asked about verifying the person goes to the app (nothing: "preferred").
+  assert.equal(signed.user_verification, "preferred");
   await until(() => tab.doc.answer("r1"), "the page is answered");
   assert.equal(tab.doc.answer("r1").assertion.signature, ASSERTION.signature);
   assert.equal(tab.doc.waiting(), undefined);

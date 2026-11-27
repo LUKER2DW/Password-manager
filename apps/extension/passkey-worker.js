@@ -52,14 +52,19 @@ const text = (value, max) => (typeof value === "string" && value.length <= max ?
 const ids = (value) =>
   Array.isArray(value) ? value.filter((id) => typeof id === "string" && id.length <= 1400).slice(0, 64) : [];
 
+/** WebAuthn's `userVerification`, with anything missing or unknown read as "preferred". */
+const VERIFICATION = ["required", "preferred", "discouraged"];
+const verification = (value) => (VERIFICATION.includes(value) ? value : "preferred");
+
 /** The request as plain, bounded data, or `null` when it isn't one. */
 export function cleaned(request) {
   if (!request || typeof request !== "object") return null;
   const rpId = text(request.rpId ?? "", 253);
   const challenge = text(request.challenge, 1400);
   if (rpId === null || !challenge) return null;
+  const userVerification = verification(request.userVerification);
   if (request.kind === "get") {
-    const get = { kind: "get", rpId, challenge, allow: ids(request.allow) };
+    const get = { kind: "get", rpId, challenge, allow: ids(request.allow), userVerification };
     return request.conditional === true ? { ...get, conditional: true } : get;
   }
   if (request.kind !== "create") return null;
@@ -77,6 +82,7 @@ export function cleaned(request) {
     challenge,
     algorithms: Array.isArray(request.algorithms) ? request.algorithms.filter(Number.isSafeInteger).slice(0, 16) : [],
     exclude: ids(request.exclude),
+    userVerification,
   };
 }
 
@@ -279,7 +285,10 @@ export async function passkeyFromFrame(tab, message) {
     id: entry.id,
     credential: entry.credential,
     challenge: wait.asked.challenge,
-    hello: entry.locked && Boolean(listed.hello),
+    user_verification: wait.asked.userVerification,
+    // Windows Hello at once for a locked login, and for any login when the site wants the
+    // person verified (picking in the frame shows presence only).
+    hello: (entry.locked || wait.asked.userVerification !== "discouraged") && Boolean(listed.hello),
   });
   if (outcome.done) return { done: true };
   const typed = outcome.code === "item_locked" || outcome.code === "wrong_check";
@@ -490,7 +499,9 @@ async function work(token, wait, request) {
   let ended;
   if (reply.code === "wrong_site") ended = { error: "SecurityError" };
   else if (making && reply.code === "exists") ended = { error: "InvalidStateError" };
-  else if (making && reply.code === "unsupported") ended = { fallback: true };
+  // No ES256 for a new one, or a check the site requires and the app has no way to make: the
+  // browser's own handler takes the request.
+  else if (reply.code === "unsupported") ended = { fallback: true };
   // Ended meanwhile, or its window closed: nobody is left to choose again. (A field's
   // suggestions need no window: the person may pick again under the field.)
   else if (wait.settled || (wait.windowId === undefined && !wait.asked.conditional)) ended = { error: "NotAllowedError" };
@@ -547,6 +558,7 @@ export async function passkeyFromWindow(message, sender) {
         id: entry.id,
         credential: entry.credential,
         challenge: wait.asked.challenge,
+        user_verification: wait.asked.userVerification,
         check: typed(message.check),
         hello: message.hello === true,
       });
@@ -564,6 +576,7 @@ export async function passkeyFromWindow(message, sender) {
         challenge: asked.challenge,
         exclude: asked.exclude,
         algorithms: asked.algorithms,
+        user_verification: asked.userVerification,
         check: typed(message.check),
         hello: message.hello === true,
       });

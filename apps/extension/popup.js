@@ -5,9 +5,9 @@
 // while they asked to see it; copying is done by the app itself, so a copied password never
 // reaches the browser.
 //
-// What it does keep is a connection key, made when the person connects it to the app and
-// allowed there. Every request is signed with it; the browser holds it as a key object that
-// scripts (this one included) can use but not read.
+// What it does keep is a connection key, agreed with the app when the person connects it and
+// allowed there. Every request and every answer is sealed with keys derived from it; the
+// browser holds it as a key object that scripts (this one included) can use but not read.
 
 import {
   ask,
@@ -20,7 +20,7 @@ import {
   vaultSaves,
 } from "./app.js";
 import { fillCode, fillLogin } from "./fill.js";
-import { dropKey, loadKey, saveKey, startWaiting, stopWaiting, waitingCode } from "./link.js";
+import { agree, dropKey, loadKey, saveKey, startWaiting, stopWaiting, waitingCode } from "./link.js";
 
 const t = (key, ...parts) => chrome.i18n.getMessage(key, parts) || key;
 const $ = (id) => document.getElementById(id);
@@ -80,6 +80,14 @@ function explain(code) {
       return say(t("changedSinceTitle"), t("changedSinceText"), { ...connected, isError: true });
     case "not_paired":
       return connect();
+    case "bad_answer":
+      // An answer that didn't come from the app as it was: something between the browser and
+      // the app changed it, and it was ignored.
+      return say(t("badAnswerTitle"), t("badAnswerText"), { ...connected, isError: true });
+    case "bad_request":
+      // The app didn't understand: it is older than this extension (sealed requests, the key
+      // agreement).
+      return say(t("oldAppTitle"), t("oldAppText"), { isError: true });
     default:
       return say(t("failed"), "", { isError: true });
   }
@@ -113,13 +121,17 @@ async function offerPairing() {
   button.onclick = async () => {
     button.disabled = true;
     await dropKey();
-    const reply = await send({ type: "pair" });
-    if (reply.type !== "pairing" || typeof reply.key !== "string") {
-      return explain(reply.code === "not_paired" ? "failed" : reply.code);
+    // The key and the code are kept before the app comes forward (which may close this
+    // window); a connection the app then refuses leaves neither behind.
+    const agreed = await agree(send, async (key, code) => {
+      await saveKey(key);
+      await startWaiting(code);
+    });
+    if (agreed.error) {
+      await dropKey();
+      return explain(agreed.error === "not_paired" ? "failed" : agreed.error);
     }
-    await saveKey(reply.key);
-    await startWaiting(reply.code);
-    waitForApp(reply.code);
+    waitForApp(agreed.code);
   };
   button.focus();
 }

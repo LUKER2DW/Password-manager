@@ -9,10 +9,11 @@ Status: alpha, like the rest of the project (loaded unpacked; not in a store yet
 
 ## What it does
 
-- **Connect once.** The first time you open it, it offers *Connect* and shows a six-digit
-  code. The app comes forward and asks you to type that code, then your master password
-  (both typed in the app, never in the browser).
-  The extension then holds a connection key (never a password) and signs every request.
+- **Connect once.** The first time you open it, it offers *Connect* and shows an
+  eight-character code. The app comes forward with the same code: if the two match, type your
+  master password there (in the app, never in the browser).
+  The extension then holds a connection key (never a password), agreed with the app without
+  sending it, and seals every request with it; the app seals its answers the same way.
 - **Under a sign-in field**, a small card with an arrow pointing at the field lists the
   usernames saved for that exact site (same scheme, host and port; https only), with the
   site's icon and the password as dots. Pick one and it is filled; *Manage passwords…* opens
@@ -219,7 +220,7 @@ What differs in Firefox:
 | `passkey-worker.js` | The worker's side of passkeys: asks the app, opens the passkey window, answers the page |
 | `passkey.html`, `passkey.css`, `passkey.js` | The passkey window: the site, its passkeys or the one to make, the item lock's check |
 | `app.js` | Native messaging calls, and the login waiting to be saved |
-| `link.js` | The connection key (a non-extractable browser key) and the signature on each request |
+| `link.js` | The connection key (agreed with the app by ECDH, kept as a non-extractable browser key), each request sealed with it, and each answer opened, sealed by the app to its request |
 | `fill.js` | The function that types a login into the page (top frame, same origin) |
 | `generator.js` | Reads a field's password rules for the app's generator |
 | `tokens.css` | Colours and shared pieces (the desktop app's tokens) |

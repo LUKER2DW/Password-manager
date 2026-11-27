@@ -7,6 +7,8 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
 
+import { openRequest, sealed } from "./sealed.mjs";
+
 // ---- the stand-ins, in place before the worker loads ----
 
 const hmacKey = await crypto.subtle.importKey("raw", new Uint8Array(32), { name: "HMAC", hash: "SHA-256" }, false, [
@@ -57,12 +59,13 @@ globalThis.chrome = {
     onInstalled: ignored,
     onStartup: ignored,
     onMessage: { addListener: (listener) => (onMessage = listener) },
-    // The app: the signed request's body, answered from `answers` by its type.
+    // The app: the sealed request opened, answered from `answers` by its type, sealed to the
+    // request as the app does.
     sendNativeMessage: async (_host, envelope) => {
-      const request = JSON.parse(envelope.body);
+      const request = openRequest(envelope);
       asked.push(request);
       const answer = answers[request.type];
-      return typeof answer === "function" ? answer(request) : (answer ?? { type: "error", code: "bad_request" });
+      return sealed(envelope, typeof answer === "function" ? await answer(request) : (answer ?? { type: "error", code: "bad_request" }));
     },
   },
   tabs: {

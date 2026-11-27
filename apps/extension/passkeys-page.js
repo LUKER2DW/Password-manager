@@ -184,6 +184,11 @@
     const challenge = b64u(key?.challenge);
     if (!key || !challenge) return browser.get(options);
     const request = { kind: "get", rpId: text(key.rpId, 253), challenge, allow: ids(key.allowCredentials) };
+    // Whether the site wants the person verified (the app says "verified" only after Windows
+    // Hello or the item lock's PIN in this very request). Not given: the worker reads
+    // "preferred", as WebAuthn does.
+    const verify = text(key.userVerification, 16);
+    if (verify) request.userVerification = verify;
     // The suggestions of a field: answered only when the person picks a passkey under one.
     if (options.mediation === "conditional") request.conditional = true;
     const answer = await ask(request, options.signal);
@@ -209,20 +214,21 @@
     } catch {
       return browser.create(options);
     }
-    const answer = await ask(
-      {
-        kind: "create",
-        rpId: text(key.rp?.id, 253),
-        rpName: text(key.rp?.name, 256),
-        userId,
-        userName: text(key.user?.name, 256),
-        displayName: text(key.user?.displayName, 256),
-        challenge,
-        algorithms,
-        exclude: ids(key.excludeCredentials),
-      },
-      options.signal,
-    );
+    const making = {
+      kind: "create",
+      rpId: text(key.rp?.id, 253),
+      rpName: text(key.rp?.name, 256),
+      userId,
+      userName: text(key.user?.name, 256),
+      displayName: text(key.user?.displayName, 256),
+      challenge,
+      algorithms,
+      exclude: ids(key.excludeCredentials),
+    };
+    // As for a sign-in: what the site asks about verifying the person, when it says.
+    const verify = text(key.authenticatorSelection?.userVerification, 16);
+    if (verify) making.userVerification = verify;
+    const answer = await ask(making, options.signal);
     if (answer.attestation) {
       const extensions = key.extensions?.credProps ? { credProps: { rk: true } } : {};
       return attestation(answer.attestation, extensions);
