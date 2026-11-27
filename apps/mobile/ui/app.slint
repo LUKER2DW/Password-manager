@@ -1443,16 +1443,24 @@ component PlaceTab inherits Rectangle {
 component Filter inherits Rectangle {
     in property <string> text;
     in property <bool> star;
+    // Shown as this glyph instead of its text (which stays its accessible name).
+    in property <string> glyph;
     in property <bool> active;
     callback clicked;
     height: 36px;
-    horizontal-stretch: root.star ? 3 : max(4, root.text.character-count);
+    horizontal-stretch: root.star || root.glyph != "" ? 3 : max(4, root.text.character-count);
     min-width: 0px;
     border-radius: 18px;
     background: root.active ? Theme.selected : transparent;
     accessible-role: button;
     accessible-label: root.text;
-    if !root.star: Text {
+    if root.glyph != "": Glyph {
+        width: 18px;
+        height: 18px;
+        name: root.glyph;
+        tint: root.active ? Theme.ink : Theme.graphite;
+    }
+    if !root.star && root.glyph == "": Text {
         x: 2px;
         width: parent.width - 4px;
         text: root.text;
@@ -1781,9 +1789,9 @@ export component PhoneWindow inherits Window {
     in property <[ItemRow]> items;
     in property <int> total;
     in-out property <string> search;
-    in-out property <int> filter;       // 0 all, 1 favourites, 2 logins, 3 cards, 4 notes
+    in-out property <int> filter;       // 0 all, 1 favourites, 2 logins, 3 cards, 4 notes, 5 SSH, 6 passkeys
     in-out property <int> folder-filter: -1;  // one folder of `folders`, or -1 every item
-    property <[string]> filter-names: [@tr("All"), @tr("Favourites"), @tr("Logins"), @tr("Cards"), @tr("Notes"), @tr("SSH")];
+    property <[string]> filter-names: [@tr("All"), @tr("Favourites"), @tr("Logins"), @tr("Cards"), @tr("Notes"), @tr("SSH"), @tr("Passkeys")];
     callback search-changed(string);
     callback filter-changed(int);
     callback open-item(int);
@@ -3005,6 +3013,7 @@ export component PhoneWindow inherits Window {
                                     for name[index] in root.filter-names: Filter {
                                         text: name;
                                         star: index == 1;
+                                        glyph: index == 6 ? "fingerprint" : "";
                                         active: root.filter == index;
                                         clicked => {
                                             root.filter = index;

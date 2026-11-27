@@ -2339,6 +2339,7 @@ impl Controller {
                     3 => item.kind == ItemKind::Card,
                     4 => item.kind == ItemKind::SecureNote,
                     5 => item.kind == ItemKind::SshKey,
+                    6 => item.passkeys > 0,
                     _ => true,
                 };
                 let text = format!("{} {} {}", item.title, item.username, item.url).to_lowercase();

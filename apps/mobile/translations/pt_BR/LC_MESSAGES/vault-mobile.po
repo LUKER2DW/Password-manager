@@ -3415,3 +3415,7 @@ msgstr "O arquivo guarda todos os itens, com anexos e passkeys, criptografado co
 msgctxt "Words"
 msgid "A passkey for “{}” was saved."
 msgstr "Uma passkey para “{}” foi salva."
+
+msgctxt "PhoneWindow"
+msgid "Passkeys"
+msgstr "Passkeys"
