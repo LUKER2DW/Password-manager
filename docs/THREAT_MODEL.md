@@ -271,6 +271,17 @@ On top of that:
   until shown, the last 50).
 - **Tray mode** keeps an unlocked vault in memory while the window is hidden; the idle lock
   still applies, and the tray menu locks at once, also while a background job holds the vault.
+- **Starting at sign-in** (off by default) is one value in this user's `Run` key, listed in
+  Task Manager's Startup apps; the app starts locked, and nothing is unlocked by itself. When
+  it starts hidden, its window is still made at once and kept out of screen captures before
+  it is ever shown. A program running as the same user could point that value at another
+  program, as it could replace the app itself or its shortcut; the setting adds no access it
+  didn't have. The next time the app runs it points the value back at itself and says which
+  program it found there.
+- **One running copy**: the app started again shows the running copy's window and ends (a
+  named event in the sign-in session). Same-user malware could take that name first and keep
+  the app from opening, which it could also do by ending the app; nothing crosses the event
+  but "show yourself".
 - **Background jobs** (unlock, password hashing, export, a check of the item lock): each
   result is bound to the session and the vault file it was started for. Locking, or choosing
   another vault, drops it and wipes its keys, so a late result never reopens a vault or writes

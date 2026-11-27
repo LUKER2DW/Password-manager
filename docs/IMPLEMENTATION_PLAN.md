@@ -198,6 +198,11 @@ Rules:
   offers to import passwords, or to skip
 - ✅ Tray mode: closing the window keeps the app in the notification area (nothing drawn,
   timers stopped), with Open, Lock and Quit
+- ✅ Starting at sign-in (Settings → Appearance, off by default): one value in the user's
+  `Run` key, what Task Manager's Startup apps shows and turns off (`autostart.rs`), started
+  in the notification area unless the person wants the window; the entry follows a moved or
+  newer copy of the app. One running copy: starting the app again brings its window to the
+  front (`single_instance.rs`)
 - ✅ `.vault` files show the app's icon and open in it (double-click, "Open with"): the
   release app registers the file type for this user at start (`file_types.rs`); ⬜ a second
   copy started by a double-click hands the file to the one already running; ⬜ `.vaultx`
