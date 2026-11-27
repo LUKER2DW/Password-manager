@@ -30,6 +30,8 @@ fn main() -> anyhow::Result<()> {
         vault_platform::process::protect_memory();
     }
     vault_platform::process::apply_mitigations();
+    // The vault key and the item guard key stay encrypted between uses (CryptProtectMemory).
+    vault_platform::secure_memory::install_key_shield();
     // Started by a browser as the browser extension's native host (Chrome and Edge give the
     // extension's origin, Firefox the host's manifest and the extension's id): relay its
     // messages to the app that holds the pipe, show nothing.

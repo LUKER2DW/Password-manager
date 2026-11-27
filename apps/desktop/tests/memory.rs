@@ -1,13 +1,14 @@
 //! The memory test (Windows): a running copy of the app opens a vault, shows a guarded item's
-//! secrets and locks; its whole memory is read from outside before and after the lock, and
-//! after it nothing of the vault's secrets may be left.
+//! secrets and locks; its whole memory is read from outside before and after the lock. After
+//! it nothing of the vault's secrets may be left; before it, the vault key and the guard key
+//! may not be found either (they are kept encrypted between uses, `vault_core::memory`).
 //!
 //! The copy is this test again, as a process of its own (`CHILD` set), started like the app
-//! (the release build's process protection on) and driven through the window's own callbacks
-//! with Slint's testing backend. This process keeps the handle Windows gave it when it started
-//! the copy, which still reads its memory after the copy closed itself to other programs
-//! (`vault_platform::process::protect_memory`), and searches it with `VirtualQueryEx` and
-//! `ReadProcessMemory`: no dump file, nothing written to disk.
+//! (the release build's process protection and the key shield on) and driven through the
+//! window's own callbacks with Slint's testing backend. This process keeps the handle Windows
+//! gave it when it started the copy, which still reads its memory after the copy closed itself
+//! to other programs (`vault_platform::process::protect_memory`), and searches it with
+//! `VirtualQueryEx` and `ReadProcessMemory`: no dump file, nothing written to disk.
 //!
 //! What is looked for: the master password, the Secret Key (its bytes and its text), the
 //! vault key, the item guard key, and the item's password, one-time code secret (text and
@@ -70,19 +71,6 @@ const PIECE: usize = 16;
 const MASTER_FIELD: i32 = 0;
 const ITEM_LOCK_FIELD: i32 = 11;
 
-const STACK: &str = "the UI thread's stack";
-/// What may still be found after the lock, and where. Nothing else may.
-///
-/// Copies of the keys on the UI thread's stack, left by the key work of the unlock and of
-/// reading the item (a key moved by value, a hash's state): the app doesn't clear its stack
-/// at the lock yet (M10 S11b). Everything the heap held is wiped
-/// (`vault_platform::wiping_alloc`).
-const ALLOWED: &[(&str, &str)] = &[
-    ("Secret Key", STACK),
-    ("vault key", STACK),
-    ("guard key", STACK),
-];
-
 #[test]
 fn secrets_leave_memory_when_the_vault_locks() {
     if std::env::var_os(CHILD).is_some() {
@@ -99,6 +87,7 @@ fn play_the_app() {
     vault_platform::process::restrict_dll_search();
     assert!(vault_platform::process::protect_memory());
     vault_platform::process::apply_mitigations();
+    assert!(vault_platform::secure_memory::install_key_shield());
 
     let told = read_message();
     let text = std::str::from_utf8(&told).unwrap();
@@ -345,6 +334,7 @@ fn look_into_the_app() {
         "found in the app's memory", "open", "locked"
     );
     let mut left = Vec::new();
+    let mut open_keys = Vec::new();
     for (index, value) in wanted.iter().enumerate() {
         let name = format!("{} ({})", value.secret, value.form);
         println!(
@@ -353,22 +343,17 @@ fn look_into_the_app() {
             locked[index].len()
         );
         for &at in &locked[index] {
-            let on_stack = stack.contains(&at);
-            let place = if on_stack {
-                STACK
+            let place = if stack.contains(&at) {
+                "the UI thread's stack"
             } else {
                 "the heap or other memory"
             };
-            let allowed = ALLOWED
-                .iter()
-                .find(|(secret, place)| *secret == value.secret && on_stack == (*place == STACK));
-            match allowed {
-                Some(_) => println!("    after the lock at {at:#x}: {place} (allowed for now)"),
-                None => {
-                    println!("    after the lock at {at:#x}: {place}");
-                    left.push((name.clone(), place));
-                }
-            }
+            println!("    after the lock at {at:#x}: {place}");
+            left.push((name.clone(), place));
+        }
+        // The keys are encrypted between uses (the key shield), even while the vault is open.
+        if matches!(value.secret, "vault key" | "guard key") && !open[index].is_empty() {
+            open_keys.push(name.clone());
         }
     }
     assert!(ended.success(), "the app's copy did what it was asked");
@@ -380,6 +365,10 @@ fn look_into_the_app() {
         "the shown password is found while the vault is open (else the search proves nothing)"
     );
     assert!(left.is_empty(), "left in memory after the lock: {left:?}");
+    assert!(
+        open_keys.is_empty(),
+        "in the clear while the vault is open: {open_keys:?}"
+    );
 }
 
 /// Searches the whole memory of the process behind `process` for every piece of each wanted

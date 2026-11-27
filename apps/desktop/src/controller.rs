@@ -2748,6 +2748,8 @@ impl Controller {
         app.set_search_text(SharedString::new());
         app.set_panel(Panel::Detail);
         self.show_screen(Screen::Unlock);
+        // What key work left on this thread's stack (unlocking, reading items) goes too.
+        vault_core::memory::clear_stack();
     }
 
     fn touch_activity(&self) {
