@@ -633,8 +633,9 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   copy (THREAT_MODEL, ARCHITECTURE).
 - ✅ S8. Releases: the Gradle wrapper's download checked against its pinned SHA-256
   (`distributionSha256Sum`); the `android-release` environment (the APK's signing key) needs
-  the maintainer's approval for each run, admins included, and only `main` may use it, so no
-  push alone signs and publishes an APK the phones take within the hour.
+  the maintainer's approval for each run, admins included, only `main` may use it, and only a
+  run that publishes asks for it (the others build with a key made for them), so no push
+  alone signs and publishes an APK the phones take within the hour.
 - ✅ S9. Revealed passwords, codes and the Secret Key kept out of the accessibility tree: on
   the desktop each such text names what it is instead of its value (item page, notes,
   recovery codes, generator, authenticator, kit); the headless test walks the whole tree for

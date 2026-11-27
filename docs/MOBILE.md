@@ -351,8 +351,9 @@ The key's place and password may be given in the repository's `.env` instead (gi
 
 **Releases on GitHub.** `.github/workflows/release.yml` builds the same APK on GitHub from
 `main` whenever an app or what it is built from changes, together with the desktop app, the
-server and the browser extension, signs it with the release key and checks it came out signed
-with the release certificate alone (its SHA-256 is written in the workflow). When the version
+server and the browser extension, checks its manifest (`check-manifest.ps1`) and, in a run that
+publishes, signs it with the release key and checks it came out signed with the release
+certificate alone (its SHA-256 is written in the workflow). When the version
 every app carries has no release yet, it publishes `v<version>`: the notes are that version's
 section of `CHANGELOG.md`, and every file has a provenance attestation. To release, bump the
 version in each app (the workflow's comment lists the files), add the notes shown in About and
@@ -360,8 +361,10 @@ write the changelog section. The phones find the new APK by themselves within th
 GitHub or, when they take updates from it, on a sync server that follows the releases
 (`--app-updates`, docs/SERVER.md).
 The key and its password are secrets of the `android-release` environment
-(`ANDROID_SIGNING_STORE`, the `.p12` in base64; `ANDROID_SIGNING_PASSWORD`), handed only to jobs
-running for `main`. GitHub keeps them write-only: they are not a backup of the key.
+(`ANDROID_SIGNING_STORE`, the `.p12` in base64; `ANDROID_SIGNING_PASSWORD`), handed only to a
+run for `main` that publishes, and only once the maintainer approved it (the environment's
+required reviewer, admins included); any other run builds the same APK with a key made for
+it. GitHub keeps them write-only: they are not a backup of the key.
 
 What is in this first build (M7.1):
 - **Secret fields take the system keyboard, asked for a password** (no learning, no
