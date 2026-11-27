@@ -10,8 +10,11 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+serde_json = "1.0"
+vault-browser = { path = "../crates/browser" }
 vault-core = { path = "../crates/core" }
 vault-import = { path = "../crates/import" }
+vault-platform = { path = "../crates/platform" }
 vault-sync-wire = { path = "../crates/sync-wire" }
 
 [[bin]]
@@ -31,6 +34,55 @@ bench = false
 [[bin]]
 name = "invite_link"
 path = "fuzz_targets/invite_link.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sync_copy"
+path = "fuzz_targets/sync_copy.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sync_requests"
+path = "fuzz_targets/sync_requests.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sync_answers"
+path = "fuzz_targets/sync_answers.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "browser_link"
+path = "fuzz_targets/browser_link.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "extension_zip"
+path = "fuzz_targets/extension_zip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "otpauth"
+path = "fuzz_targets/otpauth.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "part_picture"
+path = "fuzz_targets/part_picture.rs"
 test = false
 doc = false
 bench = false

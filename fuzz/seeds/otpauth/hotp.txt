@@ -1,0 +1,1 @@
+otpauth://hotp/Example:me?secret=GEZDGNBVGY3TQOJQ&counter=7&issuer=Example

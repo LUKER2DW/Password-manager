@@ -1,0 +1,4 @@
+<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">
+<d:response><d:href>/dav/0123456789abcdef0123456789abcdef/devices/</d:href></d:response>
+<d:response><d:href>/dav/0123456789abcdef0123456789abcdef/devices/abababababababababababababababab.vault</d:href><d:propstat><d:prop><d:getetag>"e1"</d:getetag></d:prop></d:propstat></d:response>
+</d:multistatus>

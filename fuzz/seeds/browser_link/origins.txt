@@ -1,0 +1,2 @@
+https://login.example.com:8443/signin?next=1
+https://*.example.com

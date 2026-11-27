@@ -1,0 +1,87 @@
+# Fuzzing (fuzz/README.md): every target for five minutes each day, and on demand. A target
+# that panics, crashes, runs out of memory or takes too long on one input fails its job, and the
+# input that did it is kept as an artifact, to be turned into a regression test. Each run starts
+# from the seeds in fuzz/seeds/ (and, for the vault file targets, the committed test vaults).
+# Actions are pinned to a full commit (the tag in the comment); every job reads the repository
+# only.
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "43 2 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # cargo-fuzz itself, built from crates.io at this exact version.
+  CARGO_FUZZ_VERSION: 0.13.2
+  SECONDS_PER_TARGET: 300
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - vault_file
+          - sync_copy
+          - sync_requests
+          - sync_answers
+          - invite_link
+          - import
+          - browser_link
+          - extension_zip
+          - otpauth
+          - part_picture
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # libFuzzer's instrumentation needs a nightly compiler; rust-toolchain.toml keeps
+      # everything else on stable.
+      - name: Toolchain
+        run: rustup toolchain install nightly --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: fuzz
+          key: ${{ matrix.target }}
+      - name: cargo-fuzz
+        run: cargo install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
+      # Debug assertions on: an overflow is a finding too.
+      - name: Build
+        working-directory: fuzz
+        run: cargo +nightly fuzz build --debug-assertions "$TARGET"
+      - name: Fuzz
+        working-directory: fuzz
+        run: |
+          mkdir -p "corpus/$TARGET" "seeds/$TARGET"
+          case "$TARGET" in
+            vault_file | sync_copy) fixtures=../crates/core/tests/fixtures ;;
+            *) fixtures= ;;
+          esac
+          # shellcheck disable=SC2086 # no fixtures folder is no argument
+          cargo +nightly fuzz run --debug-assertions "$TARGET" \
+            "corpus/$TARGET" "seeds/$TARGET" $fixtures -- \
+            -max_total_time="$SECONDS_PER_TARGET" -timeout=30 -rss_limit_mb=2560
+      - name: Keep what it found
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-${{ matrix.target }}-findings
+          path: fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore
+          retention-days: 30

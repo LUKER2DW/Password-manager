@@ -1,0 +1,1 @@
+vaultsync:1?server=https://vault.example.ts.net&vault=0123456789abcdef0123456789abcdef&invite=cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd
