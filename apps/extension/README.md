@@ -5,7 +5,8 @@ no passwords and does no cryptography of its own: it asks the app on the same co
 browser starts the desktop app's own program (`vault-desktop.exe`) as its native messaging
 host, which relays each message to the app's window over a pipe and shows nothing itself.
 
-Status: alpha, like the rest of the project (loaded unpacked; not in a store yet). Test with a test vault.
+Status: alpha, like the rest of the project (added from the desktop app and loaded unpacked;
+not in a store yet). Test with a test vault.
 
 ## What it does
 
@@ -167,19 +168,69 @@ covers `example.com` and every site under it. A name anyone can register under (
 above such names (`*.nom.br`, where each `name.nom.br` is one), and an entry never reaches past
 one below it (`*.amazonaws.com` doesn't cover `x.s3.amazonaws.com`, someone else's).
 
-## Install (development)
+## Install
 
-1. Build the app (`cargo build --release -p vault-desktop`), or take `vault-desktop.exe` from a
-   release.
-2. Run the app with a test vault and turn on **Settings → Browser extension**. This writes the
-   host's manifests (pointing at this `vault-desktop.exe`; one for Chrome and Edge, one for
-   Firefox) under the app's data folder and points Chrome, Edge and Firefox at them (one
-   registry value each, for your Windows user). Turning it off removes them.
-3. Open `chrome://extensions` (or `edge://extensions`), turn on *Developer mode*, choose
-   *Load unpacked* and pick this folder (`apps/extension`). Pin the extension to the toolbar. After an
-   update of this folder, click the reload arrow on the extension's card.
-4. Click the extension and choose *Connect*. In the app, type your master password and choose
+The desktop app writes the extension into a folder of its own,
+`%LOCALAPPDATA%\vault\browser-extension`, which the browser loads. Where the files come from:
+
+- **By default, the newest GitHub release** of the project: its `vault-extension-<version>.zip`,
+  downloaded when the app looks for its own updates (Settings → About, every hour and on
+  *Check for updates*), taken only when its SHA-256 is the one GitHub's release list gives for
+  it, and unpacked strictly (no name outside the folder, no links, size limits). The zip is
+  kept next to the folder.
+- **The copy built into the app** (`apps/desktop/build.rs`: what the release's zip holds, that
+  is this folder without `test/`, `package.json` and this README), whenever it is newer than
+  the release kept, or nothing was downloaded yet, or there is no network.
+- **A folder on this computer instead** (*Use a folder on this computer instead…*, for someone
+  who changes the extension): one with a `manifest.json` at its top, read with the same rules;
+  the app copies it into its own folder and follows the changes made to it. *Use the extension
+  from GitHub* goes back to the default. The card says which source is in use, and its version.
+
+1. Run the app (a release's `vault-desktop.exe`, or `cargo run --release -p vault-desktop`)
+   with a test vault and turn on **Settings → Browser extension**. This writes the host's
+   manifests (pointing at this `vault-desktop.exe`; one for Chrome and Edge, one for Firefox)
+   under the app's data folder and points Chrome, Edge and Firefox at them (one registry value
+   each, for your Windows user). Turning it off removes them.
+2. On the same page, **Add to a browser** offers the browsers installed (Chrome, Edge, Brave,
+   Opera, Opera GX, Vivaldi, Firefox), each with its icon, your default one first. *Add to …*
+   writes the folder, copies its path, starts that browser on its extensions page
+   (`chrome://extensions`, `edge://extensions`…, Firefox's
+   `about:debugging#/runtime/this-firefox`) and shows the steps: turn on *Developer mode*,
+   choose *Load unpacked* and paste the path. Pin the extension to the toolbar. *Open the
+   folder* shows it in Explorer.
+3. Click the extension and choose *Connect*. In the app, type your master password and choose
    *Connect*. Done.
+
+Why by hand: Chrome and Edge add an extension from outside their stores only when the person
+loads it (or a company's policy forces it); `--load-extension` is ignored by branded Chrome
+since version 137; and the registry entries that install an extension
+(`Software\Google\Chrome\Extensions\<id>`) only work for one hosted on the Chrome Web
+Store. Firefox keeps only add-ons signed by Mozilla. Sources:
+<https://developer.chrome.com/docs/extensions/how-to/distribute/install-extensions> (on
+Windows the registry's `update_url` must be the Web Store's),
+<https://groups.google.com/a/chromium.org/g/chromium-extensions/c/1-g8EFx2BBY>
+(`--load-extension` removed from branded builds),
+<https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/>.
+Publishing in the stores is the next step (docs/IMPLEMENTATION_PLAN.md, F12).
+
+**Updates, with no step of yours.** Each new version of the app brings the extension's: when
+it starts, before its browser link answers anything, the app writes the extension in use
+(the newest of the release kept and the copy built in) into the folder; when it takes a newer
+release, it writes that. Every five minutes while the link runs, a file that differs is put
+back (another program changed it; the app says so). The app names the version in use in its
+answers to `status` and `logins` (`extension_version`), so the extension notices a new one at
+its next request (a sign-in field, its window), and also asks `status` when its worker
+starts, at most every ten minutes. When that version is newer it reloads itself
+(`chrome.runtime.reload()`), which reads the folder again (`update.js`). It tries once per
+version, and waits while a login waits to be saved or the extension's window or the passkey
+window is open: `chrome.storage.local.extensionUpdate` is then `{ version, manual: false }`,
+and the window's `{ kind: "apply-update" }` reloads it. A copy loaded from anywhere else (this
+folder, the release's zip) stays as it is: after one reload it is marked
+`{ version, manual: true }`, to be updated by hand. Pages already open keep the old content
+script until they are reloaded.
+
+For development, *Load unpacked* this folder (`apps/extension`) instead, and click the reload
+arrow on the extension's card after a change.
 
 If the extension says the app isn't answering: the app must be running (the window may be
 closed to the notification area) with the browser extension turned on. After moving or
@@ -197,10 +248,11 @@ The same folder runs in Firefox 153 or later (desktop). Firefox reads `backgroun
 (an event page) where Chrome reads `background.service_worker`, and ignores `key`,
 `minimum_chrome_version` and the `favicon` permission (with a warning on `about:debugging`).
 
-1. Steps 1 and 2 above: the app's setting points Firefox at the host too.
-2. Open `about:debugging#/runtime/this-firefox`, choose *Load Temporary Add-on…* and pick
-   `manifest.json` in this folder (or the release's zip). It stays until Firefox closes; a
-   copy that stays must be signed by Mozilla (see the release notes).
+1. Step 1 above: the app's setting points Firefox at the host too.
+2. Add to a browser → Firefox opens `about:debugging#/runtime/this-firefox`: choose *Load
+   Temporary Add-on…* and pick `manifest.json` in the app's folder (its path is copied). It
+   stays until Firefox closes; a copy that stays must be signed by Mozilla. A temporary add-on
+   reloads from its folder too, so it takes the app's new versions while it is loaded.
 3. In `about:addons`, open the extension's *Permissions* and check that *Access your data for
    all websites* is on (the content scripts need it on https pages).
 4. Click the extension's button and choose *Connect*, as above.
@@ -237,12 +289,13 @@ What differs in Firefox:
 | `passkey-worker.js` | The worker's side of passkeys: asks the app, opens the passkey window, answers the page |
 | `passkey.html`, `passkey.css`, `passkey.js` | The passkey window: the site, its passkeys or the one to make, the item lock's check |
 | `app.js` | Native messaging calls, and the login waiting to be saved |
+| `update.js` | Keeps the extension as new as the app: reloads itself from the app's folder when the app carries a newer version, or says to update it by hand |
 | `link.js` | The connection key (agreed with the app by ECDH, kept as a non-extractable browser key), each request sealed with it, and each answer opened, sealed by the app to its request |
 | `fill.js` | The function that types a login into the page (top frame, same origin) |
 | `generator.js` | Reads a field's password rules for the app's generator |
 | `tokens.css` | Colours and shared pieces (the desktop app's tokens) |
 | `_locales/en/messages.json` | Every text shown |
-| `test/*.test.mjs` | Tests: `node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs` |
+| `test/*.test.mjs` | Tests: `node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs` |
 | `test/preview.html`, `test/preview-app.js` | Visual review of the window and the frames with fixed test data (a stand-in for the app through an import map) |
 | `test/pages/clickjacking.html` | Manual test page that tries to steal a fill |
 

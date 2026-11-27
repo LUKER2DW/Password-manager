@@ -707,6 +707,25 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
 - ⬜ F10. Credential Exchange Format (CXF) import and export.
 - ⬜ F11. Auto-type into programs outside the browser.
 - ⬜ F12. Distribution: the extension in the stores, an installer, the desktop updating itself.
+  Done: the desktop app writes the extension into a folder of its own
+  (`vault_platform::extension_folder`): by default the newest GitHub release's zip, taken with
+  the app's own updates when its SHA-256 is the one the release list gives and read strictly
+  (`vault_platform::extension_source`), or the copy built into the exe (`build.rs`) when that is
+  newer or nothing was downloaded; or a folder of the person's instead. Settings → Browser
+  extension → Add to a browser offers the installed browsers with their icons (the default one
+  first), starts the chosen one on its extensions page with the folder's path copied, and shows
+  the steps (Developer mode and Load unpacked; Firefox: a temporary add-on), and says which
+  source is in use. The folder is written again when a new version of the app starts and when
+  a newer release is taken, and checked while the browser link runs (a file another program
+  changed is put back, notice 97; one it can't put right on two checks in a row, notice 98; a
+  release that doesn't check out, notice 99); the answers to `status` and `logins` name the
+  version in use, and an extension loaded from that folder reloads itself into it at its next
+  request (`apps/extension/update.js`, once per version; it waits while a save or a window is
+  open).
+  Still to do (owner): publishing on the Chrome Web Store, Edge Add-ons and addons.mozilla.org
+  (no browser lets a program add an off-store extension by itself on a normal Windows
+  computer, and Firefox keeps only signed add-ons past a restart), then the store's own
+  updates; an installer; the desktop app replacing itself.
 - ⬜ F13. Sharing and emergency access (a written design first, `docs/spec/SHARING.md`).
 - ⬜ F14. Passkey provider for Windows 11.
 - ⬜ F15. Linux, macOS, and the CLI level with the apps.

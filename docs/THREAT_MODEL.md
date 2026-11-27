@@ -245,6 +245,40 @@ On top of that:
   the passkey in the window. Since the background worker may be stopped while a page waits,
   the document tells it the request again when a field is focused; a request named that way
   but that the document doesn't hold is never answered (the document is asked first).
+- **The extension's folder** (Settings → Browser extension → Add to a browser): the desktop app
+  writes the extension's files into `<app dir>/browser-extension`, which the person loads in the
+  browser (Developer mode and Load unpacked; in Firefox a temporary add-on). No browser lets a
+  program add an extension from outside its store by itself on a normal Windows computer, which
+  is why the person does it. An extension loaded that way runs whatever the folder holds, read
+  again at each browser start and each reload, so a program that rewrites it would run its code
+  inside the browser, with the extension's access to every https page. What the app does: it
+  makes the folder itself, writes each file whole (a new file renamed into place) and never
+  through a link (a link or junction in the folder's place, or a file's, is removed, never
+  followed), removes anything that isn't one of its files, and while the browser link runs
+  compares the folder with its own copy (when the link starts and every five minutes): what
+  differs is put back, and when the folder already held this version it says so in a notice
+  (another program changed the extension's code). A read-only mark set on a changed file doesn't
+  keep it there, and a folder the app can't put right on two checks in a row (a file held open,
+  say) is said too. Where the files come from: by default the newest GitHub release's
+  `vault-extension-<version>.zip`, downloaded with the app's own updates (the same release list,
+  over HTTPS; nothing else is sent) and taken only when its SHA-256 is the one that list gives
+  for it, which catches a download changed on the way or a file swapped on GitHub's storage, but
+  not a release made by whoever controls the project's GitHub account (the same trust as the
+  apps' updates, until the stores sign the extension). The zip is read strictly: nothing named
+  outside the folder, no links, no ZIP64 or encryption, every entry's size and CRC checked, a
+  few megabytes at most. The copy built into the app is used when it is newer or nothing was
+  downloaded. The person may choose a folder of theirs instead: it is read with the same rules,
+  and the app follows the changes made to it, so whatever writes into that folder writes the
+  extension, as when it is loaded unpacked from there. The extension updates itself from the
+  app's folder only when the app says, in its sealed answers (`status`, `logins`), that it has a
+  newer version in use, and then only by reloading that folder: the extension itself downloads
+  nothing. What this doesn't cover: a program running as the same Windows user can rewrite the
+  folder between two checks (the browser may load that code meanwhile, and keeps running it
+  until it reloads the extension: the notice says to restart the browser), change the browser or
+  its profile, or load an extension of its own; that program could already do all of this to any
+  extension and any browser. A copy loaded from anywhere else (the project's folder, the
+  release's zip) is not watched. Unpacked extensions get none of the stores' review or signature
+  checks; the extension in the stores (F12) will.
 - **Firefox**: the same extension and host. Firefox doesn't report whether
   a frame in a page is covered (no IntersectionObserver v2), so there the extension draws
   nothing inside pages (no card under fields, no save card): filling and saving happen in the

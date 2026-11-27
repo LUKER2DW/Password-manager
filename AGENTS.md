@@ -100,8 +100,12 @@ Everything that touches the operating system: Secret Key in the credential store
 screen-capture blocking (`screen.rs`), locked memory for typed secrets (`secure_buffer.rs`),
 the leak check and the leak watch's sealed memory (`leak_check.rs`),
 Windows Hello quick unlock (`quick_unlock.rs`), DPAPI (`dpapi.rs`), keyfiles on disk
-(`keyfile.rs`), the person's language (`locale.rs`), installed browsers (`browsers.rs`), the
-extension's local pipe and host registration (`browser_link.rs`), the emergency kit PDF
+(`keyfile.rs`), the person's language (`locale.rs`), installed browsers and the default one (`browsers.rs`), the
+extension's local pipe and host registration (`browser_link.rs`), the extension's own folder
+that the browser loads it from, kept as the app wrote it (`extension_folder.rs`), where its
+files come from: a GitHub release's zip read strictly, a folder of the person's, or the copy
+built into the app (`extension_source.rs`), the
+emergency kit PDF
 (`kit_pdf.rs`, with a QR code for each key), a recovery part hidden in a picture (`part_picture.rs`), opt-in website icons
 fetched directly from each site with a sealed cache (`website_icons.rs`), the `.vault` file
 type for this user on Windows (icon, opens in the app; `file_types.rs`), starting at sign-in
@@ -151,12 +155,13 @@ ECDH), the sealing of each request and the opening of each answer, and
 `fill.js` the function that types a login into a page, `content.js` + `fields.js` the
 content script (sign-in fields, submitted forms), `inline.html`/`inline.js` the frame shown
 under a field, `background.js` the worker between them and the app, `generator.js` the
-reading of a site's password rules, `app.js` the native messaging calls. Passkeys:
+reading of a site's password rules, `app.js` the native messaging calls, `update.js` the
+extension reloading itself into the newer version the app wrote into its folder. Passkeys:
 `passkeys-page.js` (in the page's own world, in front of `navigator.credentials`), `passkeys.js`
 (the relay), `passkey-worker.js` (the worker's side) and `passkey.html`/`passkey.js` (the window
 where the person chooses). See
 [apps/extension/README.md](apps/extension/README.md). Tests: `cargo test -p vault-browser` and
-`node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs`.
+`node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs`.
 
 Rules for this part: UI in a page only as the extension's own frame (`inline.html`), never as
 page DOM, and every click there goes through the visibility check; no new permission without
@@ -174,6 +179,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/folders.rs` | Folder dialog (create, settings, picture preview, delete) and reordering |
 | `src/controller/protection.rs` | Keyfile (unlock, set, remove) and the item lock (PIN, password or master password before secrets show) |
 | `src/controller/browser.rs` | The browser extension's link: listens on the pipe, answers from the open vault |
+| `src/controller/extension.rs` | The extension: its files built into the app (`build.rs`), a newer release's taken when the app looks for updates, or the person's folder; Settings → Browser extension → Add to a browser; the folder kept as written while the link runs; the version the `status` and `logins` answers name |
 | `src/controller/generated.rs` | History of generated passwords (sealed per vault on this computer) |
 | `src/controller/drop_box.rs` | Logins the browser saved while the vault was locked, added at the next unlock |
 | `src/controller/syncing.rs` | Sync through a folder, the server or WebDAV: Settings → Sync (join, add a device with a QR code, remove one), rounds at unlock, after saves, every 5 minutes, on the server's news and on demand (the target read and written off the UI thread) |
@@ -297,7 +303,7 @@ cargo run -p vault-mobile                                  # the phone app in a 
 cargo run -p vault-mobile --example phone_screens -- target/phone-screens   # its screens as PNGs
 cargo run -p vault-cli -- --help                           # the `vault` command
 cargo run -p vault-server -- serve                         # a sync server (docs/SERVER.md)
-node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs
+node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs
 ```
 
 The APK and the browser build have their own scripts, `apps/mobile-android/build.ps1` and
@@ -340,7 +346,10 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
    (sealed copies only), the apps' updates (GitHub's release list, one anonymous request:
    looked at by the desktop and the phone every hour while they run and on the **Check for
    updates** button, a setting on by default so a fix reaches everyone; the phone may take
-   them from its sync server instead; `vault_platform::updates`) and a sync server following
+   them from its sync server instead; `vault_platform::updates`), with the desktop app taking
+   the browser extension's zip of that release when it is newer than the extension it has
+   (unless the person chose a folder of theirs), checked against the SHA-256 the release list
+   gives (`vault_platform::extension_source`), and a sync server following
    the releases (`--app-updates`, its owner's choice; `apps/server/src/updates.rs`). Nothing is sent to a
    third-party service for icons. Links handed to the OS to open are `http(s)` only
    (`vault_platform::browsers::web_link`). The browser extension's link is local only (a
