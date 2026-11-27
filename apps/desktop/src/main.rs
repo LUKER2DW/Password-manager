@@ -84,6 +84,20 @@ fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Windows locking the session, switching user, signing out or going to sleep locks the
+    // vault (Settings → Security). The watching thread waits for the lock, up to a second and
+    // a half, before Windows hears back: a suspend is given about two seconds.
+    vault_platform::session_watch::watch(|_| {
+        let (done, locked) = std::sync::mpsc::channel();
+        let asked = slint::invoke_from_event_loop(move || {
+            Controller::windows_session_ended();
+            let _ = done.send(());
+        });
+        if asked.is_ok() {
+            let _ = locked.recv_timeout(Duration::from_millis(1500));
+        }
+    });
+
     // .vault files show this app's icon and open in it (for this user, pointing at this
     // program), and a start at sign-in starts this copy (a moved app, a newer one downloaded).
     // A development build leaves both to the installed app, and so does a run on a test vault

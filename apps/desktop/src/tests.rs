@@ -951,6 +951,20 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_detail_history_count(), 0);
     assert_eq!(app.get_notice_code(), 24);
 
+    // ---- locking with Windows (on by default) ----
+    app.invoke_open_settings();
+    assert!(app.get_lock_with_windows());
+    app.set_lock_with_windows(false);
+    app.invoke_settings_changed();
+    Controller::windows_session_ended();
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "turned off: Windows locking leaves the vault open"
+    );
+    app.set_lock_with_windows(true);
+    app.invoke_settings_changed();
+
     // ---- starting at sign-in (Windows keeps it; these tests keep it in memory) ----
     app.invoke_open_settings();
     assert!(!app.get_start_at_sign_in());
@@ -1184,8 +1198,8 @@ fn whole_app_flow_headless() {
     app.invoke_hide_kit();
     assert_eq!(app.get_kit_part_c(), "");
 
-    // ---- lock and unlock ----
-    app.invoke_lock();
+    // ---- lock (here: Windows locked the session) and unlock ----
+    Controller::windows_session_ended();
     assert_eq!(app.get_screen(), Screen::Unlock);
     assert_eq!(app.get_items().row_count(), 0);
     assert_eq!(

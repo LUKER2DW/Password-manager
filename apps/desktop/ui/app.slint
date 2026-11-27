@@ -642,6 +642,7 @@ export component AppWindow inherits Window {
     in-out property <bool> website-icons;
     in-out property <bool> leak-watch;
     in-out property <bool> close-to-tray: true;
+    in-out property <bool> lock-with-windows: true;
     in-out property <bool> start-at-sign-in;
     in-out property <bool> start-in-tray: true;
     in-out property <bool> browser-locked-fill: true;
@@ -1088,6 +1089,7 @@ export component AppWindow inherits Window {
                 check-updates => { root.check-updates(); }
                 open-release => { root.open-release(); }
                 auto-lock-minutes <=> root.auto-lock-minutes;
+                lock-with-windows <=> root.lock-with-windows;
                 clipboard-seconds <=> root.clipboard-seconds;
                 website-icons <=> root.website-icons;
                 leak-watch <=> root.leak-watch;

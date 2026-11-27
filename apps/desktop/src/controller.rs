@@ -2468,6 +2468,21 @@ impl Controller {
         ))
     }
 
+    /// Windows locked the session, switched user, is signing out or suspending: the vault
+    /// locks (Settings → Security, on by default). Also while a job holds it, as the tray's
+    /// Lock does.
+    pub fn windows_session_ended() {
+        if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
+            let lock = {
+                let state = controller.state.borrow();
+                state.settings.lock_with_windows && state.vault_open
+            };
+            if lock {
+                controller.lock();
+            }
+        }
+    }
+
     /// The start at sign-in pointed at `before` and now starts this copy: a moved or newer
     /// copy of the app, or another program put there, so the person is told which.
     pub fn sign_in_start_moved(before: &str) {
@@ -4422,6 +4437,7 @@ impl Controller {
         let app = self.app();
         let settings = self.state.borrow().settings.clone();
         app.set_auto_lock_minutes(settings.auto_lock_minutes as i32);
+        app.set_lock_with_windows(settings.lock_with_windows);
         app.set_clipboard_seconds(settings.clipboard_clear_seconds as i32);
         app.set_website_icons(settings.website_icons);
         app.set_leak_watch(settings.leak_watch);
@@ -5119,6 +5135,7 @@ impl Controller {
         let app = self.app();
         let settings = device::Settings {
             auto_lock_minutes: u32::try_from(app.get_auto_lock_minutes().clamp(1, 60)).unwrap_or(5),
+            lock_with_windows: app.get_lock_with_windows(),
             clipboard_clear_seconds: u32::try_from(app.get_clipboard_seconds().clamp(5, 120))
                 .unwrap_or(20),
             dark_theme: app.global::<Theme>().get_dark(),

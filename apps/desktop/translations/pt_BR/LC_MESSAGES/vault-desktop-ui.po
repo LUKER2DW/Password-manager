@@ -2907,6 +2907,10 @@ msgid "Clear copied secrets after"
 msgstr "Limpar segredos copiados após"
 
 msgctxt "SettingsPage"
+msgid "Also lock when Windows locks, sleeps or switches user"
+msgstr "Bloquear também quando o Windows bloquear, suspender ou trocar de usuário"
+
+msgctxt "SettingsPage"
 msgid "s"
 msgstr "s"
 

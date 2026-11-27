@@ -2157,6 +2157,7 @@ export component SettingsPage inherits Rectangle {
     // older kit, 2 recovery parts.
     in property <int> vault-recovery;
     in-out property <int> auto-lock-minutes;
+    in-out property <bool> lock-with-windows;
     in-out property <int> clipboard-seconds;
     in-out property <bool> website-icons;
     in-out property <bool> leak-watch;
@@ -2309,6 +2310,11 @@ export component SettingsPage inherits Rectangle {
                             minimum: 1;
                             maximum: 60;
                             changed => { root.settings-changed(); }
+                        }
+                        Check {
+                            text: @tr("Also lock when Windows locks, sleeps or switches user");
+                            checked <=> root.lock-with-windows;
+                            toggled => { root.settings-changed(); }
                         }
                         Stepper {
                             label: @tr("Clear copied secrets after");
