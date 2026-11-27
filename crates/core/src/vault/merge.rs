@@ -4,14 +4,13 @@ use std::collections::BTreeMap;
 
 use sha2::{Digest, Sha256};
 
-use zeroize::Zeroizing;
-
 use super::{Vault, secrets_aad};
 use crate::{
     Error, Folder, FolderId, GuardCheck, ItemData, ItemGuard, ItemId, Result, aead,
     format::{self, ItemRecord},
     guard::GuardSlot,
     item::PasswordChange,
+    memory::ShieldedKey,
     padding,
     sync::{DeviceId, Gone, MergeReport, SeenRevisions, guard_key_id, record_digest},
 };
@@ -37,8 +36,8 @@ pub(crate) struct IncomingGuard {
     key_id: [u8; 8],
     /// The device whose copy brought it.
     writer: DeviceId,
-    /// Its key, once opened here.
-    pub(crate) key: Option<Zeroizing<aead::Key>>,
+    /// Its key, once opened here (encrypted between uses, as the guard key is).
+    pub(crate) key: Option<ShieldedKey>,
 }
 
 /// Which of two item locks is newer: the revision, then the bytes (so every device picks the
@@ -80,7 +79,7 @@ impl Vault {
             return Ok(false);
         };
         if let Some(incoming) = self.incoming_guard.as_mut() {
-            incoming.key = Some(key);
+            incoming.key = Some(ShieldedKey::new(key));
         }
         Ok(true)
     }
@@ -151,7 +150,7 @@ impl Vault {
         }
         let their_id = theirs.sync.guard_key_id;
         let our_id = match &self.guard_key {
-            Some(key) => guard_key_id(key.as_ref()),
+            Some(key) => guard_key_id(key.open().as_ref()),
             None => self.sync.guard_key_id,
         };
         if our_id == their_id {
@@ -163,7 +162,7 @@ impl Vault {
             for record in &theirs.items {
                 if let Some(sealed) = &self.open_visible(record)?.sealed {
                     let aad = secrets_aad(&self.header.vault_id, &record.id);
-                    return Ok(aead::open(key, &sealed.ciphertext, &aad).is_ok());
+                    return Ok(aead::open(&key.open(), &sealed.ciphertext, &aad).is_ok());
                 }
             }
         }
@@ -403,7 +402,7 @@ impl Vault {
                 incoming.revision == theirs.sync.guard_revision && incoming.guard == theirs.guard
             })
             .and_then(|incoming| incoming.key.clone());
-        let key_id = |key: &Zeroizing<aead::Key>| guard_key_id(key.as_ref());
+        let key_id = |key: &ShieldedKey| guard_key_id(key.open().as_ref());
         let same_key = self.same_guard_key(theirs)?
             || (opened.is_some()
                 && opened.as_ref().map(key_id) == self.guard_key.as_ref().map(key_id));
@@ -442,7 +441,7 @@ impl Vault {
         // The key's id when the other copy doesn't say it (see `same_guard_key`).
         self.sync.guard_key_id = match (&self.guard.key, theirs.sync.guard_key_id, &key) {
             (None, _, _) => NO_KEY_ID,
-            (Some(_), NO_KEY_ID, Some(key)) => guard_key_id(key.as_ref()),
+            (Some(_), NO_KEY_ID, Some(key)) => guard_key_id(key.open().as_ref()),
             (Some(_), NO_KEY_ID, None) if same_key => self.sync.guard_key_id,
             (Some(_), named, _) => named,
         };

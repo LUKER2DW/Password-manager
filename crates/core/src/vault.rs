@@ -17,6 +17,7 @@ use crate::{
         ItemDataV9, ItemSecrets, PasswordChange, SealedSecrets,
     },
     keys::{self, Keyfile, VaultKey},
+    memory::ShieldedKey,
     padding,
     sync::{DeviceId, Gone, SyncDevice, SyncState, guard_key_id, record_digest},
 };
@@ -103,8 +104,9 @@ pub struct Vault {
     folders: Vec<Folder>,
     settings: VaultSettings,
     guard: ItemGuard,
-    /// The item guard key, while guarded secrets are open (see [`Vault::unlock_secrets`]).
-    guard_key: Option<Zeroizing<aead::Key>>,
+    /// The item guard key, while guarded secrets are open (see [`Vault::unlock_secrets`]);
+    /// encrypted between uses when the program installed a key shield (`memory.rs`).
+    guard_key: Option<ShieldedKey>,
     /// What sync needs (format v7).
     sync: SyncState,
     /// A newer item lock with another key, from another device's copy, that this copy can't
@@ -339,7 +341,11 @@ impl Vault {
     /// `device_secret`, which only the device's secure hardware can produce again.
     pub fn seal_for_device(&self, device_secret: &[u8]) -> Result<Vec<u8>> {
         let kek = keys::device_kek(device_secret, &self.header.vault_id)?;
-        aead::seal(&kek, self.vault_key.as_bytes(), &device_aad(&self.header)?)
+        aead::seal(
+            &kek,
+            self.vault_key.open().as_slice(),
+            &device_aad(&self.header)?,
+        )
     }
 
     fn from_parsed(parsed: format::ParsedFile<'_>, vault_key: VaultKey) -> Result<Self> {
@@ -547,7 +553,7 @@ impl Vault {
             (None, None)
         } else {
             let guard_key = match &self.guard_key {
-                Some(key) => key.clone(),
+                Some(key) => key.open(),
                 None => crate::random::secret_array::<{ aead::KEY_LEN }>()?,
             };
             let check_slot = match (secret, &self.guard.key) {
@@ -571,7 +577,7 @@ impl Vault {
                     check: check_slot,
                     master,
                 }),
-                Some(guard_key),
+                Some(ShieldedKey::new(guard_key)),
             )
         };
 
@@ -685,7 +691,7 @@ impl Vault {
         if self.sync.guard_key_id == [0; 8] {
             self.sync.guard_key_id = guard_key_id(key.as_ref());
         }
-        self.guard_key = Some(key);
+        self.guard_key = Some(ShieldedKey::new(key));
     }
 
     /// Wraps the item guard key for this device, so that the device's user verification
@@ -694,7 +700,7 @@ impl Vault {
     ///
     /// It is bound to the current PIN or password: setting a new one revokes it.
     pub fn seal_guard_for_device(&self, device_secret: &[u8]) -> Result<Vec<u8>> {
-        let key = self.guard_key.as_ref().ok_or(Error::SecretsLocked)?;
+        let key = self.guard_key.as_ref().ok_or(Error::SecretsLocked)?.open();
         let kek = keys::guard_device_kek(device_secret, &self.header.vault_id)?;
         aead::seal(&kek, key.as_ref(), &self.guard_device_aad()?)
     }
@@ -737,7 +743,7 @@ impl Vault {
         self.sync.guard_key_id = self
             .guard_key
             .as_ref()
-            .map_or([0; 8], |key| guard_key_id(key.as_ref()));
+            .map_or([0; 8], |key| guard_key_id(key.open().as_ref()));
     }
 
     /// Closes guarded secrets again: the guard key leaves memory.
@@ -989,8 +995,8 @@ impl Vault {
         &self,
     ) -> (Zeroizing<aead::Key>, Option<Zeroizing<aead::Key>>) {
         (
-            Zeroizing::new(*self.vault_key.as_bytes()),
-            self.guard_key.clone(),
+            self.vault_key.open(),
+            self.guard_key.as_ref().map(ShieldedKey::open),
         )
     }
 
@@ -1332,7 +1338,7 @@ impl Vault {
             slots.master = match &self.guard_key {
                 Some(key) => Some(WrappedGuardKey::wrap(
                     new_password,
-                    key,
+                    &key.open(),
                     &self.header.vault_id,
                     GuardSlot::Master,
                 )?),
@@ -1388,7 +1394,11 @@ impl Vault {
         let aad = |role| parts_aad(&vault_id, &kit_id, role);
 
         let kek = keys::parts_kek(parts.all(), &vault_id, &kit_id);
-        let vault_key = aead::seal(&kek, self.vault_key.as_bytes(), &aad(part_role::VAULT_KEY))?;
+        let vault_key = aead::seal(
+            &kek,
+            self.vault_key.open().as_slice(),
+            &aad(part_role::VAULT_KEY),
+        )?;
         let mut pairs: [Vec<u8>; 3] = Default::default();
         let [a, b, c] = parts.all();
         for (index, (x, y)) in [(a, b), (a, c), (b, c)].into_iter().enumerate() {
@@ -1454,7 +1464,7 @@ impl Vault {
         let slot = self.header.slot(kind).ok_or(Error::NoMatchingSlot)?;
         let kek = keys::password_kek(password, secret_key, keyfile, &self.header.kdf, &vault_id)?;
         let opened = aead::open(&kek, &slot.wrapped_vault_key, &slot_aad(&vault_id, kind))?;
-        if opened.as_slice() != self.vault_key.as_bytes().as_slice() {
+        if opened.as_slice() != self.vault_key.open().as_slice() {
             return Err(Error::DecryptionFailed);
         }
 
@@ -1505,7 +1515,7 @@ impl Vault {
         if renewed.header.vault_id != self.header.vault_id {
             return Err(Error::OtherVault);
         }
-        if renewed.vault_key.as_bytes() == self.vault_key.as_bytes() {
+        if renewed.vault_key.open() == self.vault_key.open() {
             return Ok(None);
         }
         let vault_id = self.header.vault_id;
@@ -1654,7 +1664,7 @@ impl Vault {
     fn wrap_vault_key(&self, kek: &aead::Key, kind: SlotKind) -> Result<KeySlot> {
         let wrapped = aead::seal(
             kek,
-            self.vault_key.as_bytes(),
+            self.vault_key.open().as_slice(),
             &slot_aad(&self.header.vault_id, kind),
         )?;
         Ok(KeySlot {
@@ -1669,13 +1679,13 @@ impl Vault {
         if data.is_locked() || !(self.guard.encrypts() && self.guards(data)) {
             return self.seal_item(id, revision, data);
         }
-        let key = self.guard_key.as_ref().ok_or(Error::SecretsLocked)?;
+        let key = self.guard_key.as_ref().ok_or(Error::SecretsLocked)?.open();
         let summary = ItemSummary::from_data(id, data);
         let mut outer = data.clone();
         let secrets = outer.take_secrets();
         let encoded = format::encode_secret(&secrets)?;
         let padded = padding::pad(&encoded, padding::item_bucket)?;
-        let ciphertext = aead::seal(key, &padded, &secrets_aad(&self.header.vault_id, &id))?;
+        let ciphertext = aead::seal(&key, &padded, &secrets_aad(&self.header.vault_id, &id))?;
         outer.sealed = Some(SealedSecrets {
             ciphertext,
             has_password: summary.has_password,
@@ -1710,7 +1720,7 @@ impl Vault {
         let mut item: ItemData = format::decode_exact(padding::unpad(&padded)?)?;
         if let (Some(key), Some(sealed)) = (&self.guard_key, &item.sealed) {
             let padded = aead::open(
-                key,
+                &key.open(),
                 &sealed.ciphertext,
                 &secrets_aad(&self.header.vault_id, &record.id),
             )?;

@@ -34,6 +34,7 @@ pub mod drop_box;
 pub mod generator;
 pub mod health;
 pub mod locked_fill;
+pub mod memory;
 pub mod passkey;
 pub mod sealed_export;
 pub mod ssh;

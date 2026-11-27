@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
-use crate::{Error, PasswordKdf, Result, aead, encoding, random};
+use crate::{Error, PasswordKdf, Result, aead, encoding, memory::ShieldedKey, random};
 
 const SECRET_KEY_LEN: usize = 16;
 const RECOVERY_KEY_LEN: usize = 32;
@@ -528,12 +528,13 @@ pub(crate) fn device_kek(
     Ok(hkdf32(device_secret, vault_id, &[b"vault-v0/kek/device"]))
 }
 
-/// The random key that protects the vault contents. Never leaves the process unwrapped.
-pub(crate) struct VaultKey(Zeroizing<aead::Key>);
+/// The random key that protects the vault contents. Never leaves the process unwrapped, and
+/// stays encrypted between uses when the program installed a key shield (`memory.rs`).
+pub(crate) struct VaultKey(ShieldedKey);
 
 impl VaultKey {
     pub(crate) fn generate() -> Result<Self> {
-        random::secret_array().map(Self)
+        random::secret_array().map(|key| Self(ShieldedKey::new(key)))
     }
 
     pub(crate) fn from_slice(bytes: &[u8]) -> Result<Self> {
@@ -542,11 +543,12 @@ impl VaultKey {
             return Err(Error::Malformed);
         }
         key.copy_from_slice(bytes);
-        Ok(Self(key))
+        Ok(Self(ShieldedKey::new(key)))
     }
 
-    pub(crate) fn as_bytes(&self) -> &aead::Key {
-        &self.0
+    /// The key itself, in a copy wiped when dropped: for the moment it is used.
+    pub(crate) fn open(&self) -> Zeroizing<aead::Key> {
+        self.0.open()
     }
 
     /// A second copy, to open another copy of the same vault with (sync).
@@ -556,7 +558,11 @@ impl VaultKey {
 
     /// Purpose-bound subkey: HKDF(vault_key, salt = vault_id, info = "vault-v0/subkey/" ‖ purpose).
     pub(crate) fn subkey(&self, purpose: &[u8], vault_id: &[u8; 16]) -> Zeroizing<aead::Key> {
-        hkdf32(self.0.as_ref(), vault_id, &[b"vault-v0/subkey/", purpose])
+        hkdf32(
+            self.open().as_ref(),
+            vault_id,
+            &[b"vault-v0/subkey/", purpose],
+        )
     }
 }
 

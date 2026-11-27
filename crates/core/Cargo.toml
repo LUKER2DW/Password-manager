@@ -44,8 +44,9 @@ p256 = { version = "0.14", default-features = false, features = ["ecdsa", "pkcs8
 ecdsa = { version = "0.17", default-features = false, features = ["der"] }
 scrypt = { version = "0.12.0", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
-sha1 = "0.11"  # TOTP only (RFC 6238 default); never used for anything security-critical beyond HMAC
-sha2 = "0.11"
+sha1 = { version = "0.11", features = ["zeroize"] }  # TOTP only (RFC 6238 default); never used for anything security-critical beyond HMAC
+# `zeroize`: the hash state inside HMAC and HKDF is wiped too.
+sha2 = { version = "0.11", features = ["zeroize"] }
 subtle = "2.6"
 thiserror = "2.0"
 unicode-normalization = "0.1"
