@@ -1413,7 +1413,7 @@ impl Vault {
         )?;
         let secret_key = aead::seal(
             &keys::parts_secret_key_key(pair_key.as_ref(), &vault_id, &kit_id),
-            secret_key.as_bytes(),
+            secret_key.open().as_slice(),
             &aad(part_role::SECRET_KEY),
         )?;
         self.header.slots.retain(|s| s.kind != SlotKind::Recovery);
@@ -1568,7 +1568,7 @@ impl Vault {
         )?;
         aead::seal(
             &keys::parts_secret_key_key(&pair_key, vault_id, &slot.kit_id),
-            secret_key.as_bytes(),
+            secret_key.open().as_slice(),
             &parts_aad(vault_id, &slot.kit_id, part_role::SECRET_KEY),
         )
         .map(Some)

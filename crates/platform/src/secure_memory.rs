@@ -238,29 +238,49 @@ mod shield {
         CryptUnprotectMemory,
     };
 
-    /// `CryptProtectMemory` takes whole blocks: a key is two.
-    const _: () = assert!(32 % CRYPTPROTECTMEMORY_BLOCK_SIZE as usize == 0);
+    /// `CryptProtectMemory` takes whole blocks: the keys are one or two (16 or 32 bytes).
+    const BLOCK: usize = CRYPTPROTECTMEMORY_BLOCK_SIZE as usize;
+
+    /// The length to hand Windows: whole blocks only.
+    fn blocks(key: &[u8]) -> Option<u32> {
+        (!key.is_empty() && key.len().is_multiple_of(BLOCK))
+            .then(|| u32::try_from(key.len()).ok())
+            .flatten()
+    }
 
     /// `CryptProtectMemory` with a key the system keeps for this process.
     #[derive(Debug)]
     struct ProcessKeyShield;
 
     impl KeyShield for ProcessKeyShield {
-        fn shield(&self, key: &mut [u8; 32]) -> bool {
-            // SAFETY: `key` is 32 writable bytes, a whole number of blocks, encrypted in place.
+        fn shield(&self, key: &mut [u8]) -> bool {
+            let Some(length) = blocks(key) else {
+                return false;
+            };
+            // SAFETY: `key` is `length` writable bytes, a whole number of blocks, encrypted in
+            // place.
             #[allow(unsafe_code)]
             unsafe {
-                CryptProtectMemory(key.as_mut_ptr().cast(), 32, CRYPTPROTECTMEMORY_SAME_PROCESS)
-                    != 0
+                CryptProtectMemory(
+                    key.as_mut_ptr().cast(),
+                    length,
+                    CRYPTPROTECTMEMORY_SAME_PROCESS,
+                ) != 0
             }
         }
 
-        fn unshield(&self, key: &mut [u8; 32]) -> bool {
+        fn unshield(&self, key: &mut [u8]) -> bool {
+            let Some(length) = blocks(key) else {
+                return false;
+            };
             // SAFETY: as in `shield`, decrypted in place.
             #[allow(unsafe_code)]
             unsafe {
-                CryptUnprotectMemory(key.as_mut_ptr().cast(), 32, CRYPTPROTECTMEMORY_SAME_PROCESS)
-                    != 0
+                CryptUnprotectMemory(
+                    key.as_mut_ptr().cast(),
+                    length,
+                    CRYPTPROTECTMEMORY_SAME_PROCESS,
+                ) != 0
             }
         }
     }
@@ -282,9 +302,9 @@ mod shield {
     }
 
     #[cfg(test)]
-    pub(super) fn round_trip(key: &mut [u8; 32]) -> (bool, [u8; 32]) {
+    pub(super) fn round_trip(key: &mut [u8]) -> (bool, Vec<u8>) {
         let shielded = SHIELD.shield(key);
-        let seen = *key;
+        let seen = key.to_vec();
         (shielded && SHIELD.unshield(key), seen)
     }
 }
@@ -373,12 +393,17 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn the_shield_encrypts_and_gives_back() {
-        let original: [u8; 32] = std::array::from_fn(|i| i as u8);
-        let mut key = original;
-        let (back, seen) = shield::round_trip(&mut key);
-        assert!(back);
-        assert_ne!(seen, original, "encrypted while shielded");
-        assert_eq!(key, original);
+        for length in [16, 32] {
+            let original: Vec<u8> = (0..length).map(|i| i as u8).collect();
+            let mut key = original.clone();
+            let (back, seen) = shield::round_trip(&mut key);
+            assert!(back);
+            assert_ne!(seen, original, "encrypted while shielded");
+            assert_eq!(key, original);
+        }
+        // Not whole blocks: refused, the bytes left as they were.
+        let mut odd = [3u8; 15];
+        assert_eq!(shield::round_trip(&mut odd), (false, vec![3u8; 15]));
         assert!(install_key_shield());
         assert!(vault_core::memory::key_shield_installed());
         assert!(install_key_shield(), "a second call says it is installed");

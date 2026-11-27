@@ -1,10 +1,13 @@
-//! Keys in memory: the vault key and the item guard key kept encrypted between uses, and the
-//! stack cleared where key work ran.
+//! Keys in memory: the keys a vault keeps while it is open kept encrypted between uses, and
+//! the stack cleared where key work ran.
 //!
-//! Those two keys stay in memory for as long as a vault (or its guarded secrets) is open. A
-//! program can hand the core a [`KeyShield`] once, at start ([`install_key_shield`]): from
-//! then on both are kept encrypted by it, and opened into a copy that is wiped when dropped
-//! only for the moment one is used. On Windows the desktop app and the CLI install one that
+//! The vault key, the item guard key, and the Secret Key and keyfile the vault was opened
+//! with stay in memory for as long as it is open (the app needs the last two again to check
+//! the master password, rewrite a key slot or show the kit). A program can hand the core a
+//! [`KeyShield`] once, at start ([`install_key_shield`]): from then on each of them (and a
+//! Recovery Key of an older kit while it is used) is kept encrypted by it, from the moment it
+//! is made or read, and opened into a copy that is wiped when dropped only for the moment it
+//! is used. On Windows the desktop app and the CLI install one that
 //! encrypts with a key the system holds for this process (`CryptProtectMemory`), so a dump of
 //! the process's memory, the pagefile or a crash report holds only the encrypted form.
 //! Without one (the phone, the browser build, most tests) the keys are kept as they are, and
@@ -19,16 +22,17 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::aead;
 
-/// Encrypts a 32-byte key in place and decrypts it back, with a key the program keeps out of
-/// the process's ordinary memory (on Windows, one the system holds for this process).
+/// Encrypts a key in place and decrypts it back, with a key the program keeps out of the
+/// process's ordinary memory (on Windows, one the system holds for this process).
 ///
+/// Keys are a whole number of 16-byte blocks: 16 bytes (the Secret Key) or 32 (the others).
 /// The encrypted form may be copied and decrypted anywhere in the same process: it must not
 /// depend on the address it is at. Both are called from any thread.
 pub trait KeyShield: Send + Sync {
     /// Encrypts `key` in place. `false` if it couldn't: the key must then be left as it was.
-    fn shield(&self, key: &mut [u8; 32]) -> bool;
+    fn shield(&self, key: &mut [u8]) -> bool;
     /// Decrypts in place what [`shield`](Self::shield) encrypted. `false` if it couldn't.
-    fn unshield(&self, key: &mut [u8; 32]) -> bool;
+    fn unshield(&self, key: &mut [u8]) -> bool;
 }
 
 static SHIELD: OnceLock<&'static dyn KeyShield> = OnceLock::new();
@@ -62,20 +66,31 @@ pub fn clear_stack() {
     std::hint::black_box(&mut area);
 }
 
-/// A 32-byte key kept encrypted by the installed [`KeyShield`], if there is one.
-pub(crate) struct ShieldedKey {
-    bytes: Zeroizing<aead::Key>,
+/// An `N`-byte key kept encrypted by the installed [`KeyShield`], if there is one. `N` is a
+/// whole number of 16-byte blocks (checked when the type is used).
+pub(crate) struct Shielded<const N: usize> {
+    bytes: Zeroizing<[u8; N]>,
     /// The shield that encrypted `bytes`, kept so the same one always opens it; none when
     /// `bytes` is the key itself.
     shield: Option<&'static dyn KeyShield>,
 }
 
-impl ShieldedKey {
-    pub(crate) fn new(mut key: Zeroizing<aead::Key>) -> Self {
+/// A 32-byte key: the vault key, the guard key, a keyfile's digest.
+pub(crate) type ShieldedKey = Shielded<{ aead::KEY_LEN }>;
+
+impl<const N: usize> Shielded<N> {
+    const WHOLE_BLOCKS: () = assert!(
+        N > 0 && N.is_multiple_of(16),
+        "the shield takes 16-byte blocks"
+    );
+
+    /// Takes `key` in and encrypts it there (the caller's own copy is wiped with it).
+    pub(crate) fn new(mut key: Zeroizing<[u8; N]>) -> Self {
+        let () = Self::WHOLE_BLOCKS;
         let shield = SHIELD
             .get()
             .copied()
-            .filter(|shield| shield.shield(&mut key));
+            .filter(|shield| shield.shield(key.as_mut_slice()));
         Self { bytes: key, shield }
     }
 
@@ -84,11 +99,11 @@ impl ShieldedKey {
     /// # Panics
     /// When the shield can't decrypt what it encrypted, which it never should: going on with
     /// a wrong key could seal the vault under it.
-    pub(crate) fn open(&self) -> Zeroizing<aead::Key> {
+    pub(crate) fn open(&self) -> Zeroizing<[u8; N]> {
         let mut key = self.bytes.clone();
         if let Some(shield) = self.shield {
             assert!(
-                shield.unshield(&mut key),
+                shield.unshield(key.as_mut_slice()),
                 "the key shield could not decrypt a key"
             );
         }
@@ -96,7 +111,7 @@ impl ShieldedKey {
     }
 }
 
-impl Clone for ShieldedKey {
+impl<const N: usize> Clone for Shielded<N> {
     /// A copy of the encrypted form: the key itself never leaves its shield for it.
     fn clone(&self) -> Self {
         Self {
@@ -106,9 +121,9 @@ impl Clone for ShieldedKey {
     }
 }
 
-impl fmt::Debug for ShieldedKey {
+impl<const N: usize> fmt::Debug for Shielded<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("ShieldedKey(<redacted>)")
+        f.write_str("Shielded(<redacted>)")
     }
 }
 
@@ -123,7 +138,9 @@ mod tests {
         assert!(key.shield.is_none() && !key_shield_installed());
         assert_eq!(*key.open(), [5u8; 32]);
         assert_eq!(*key.clone().open(), [5u8; 32]);
-        assert_eq!(format!("{key:?}"), "ShieldedKey(<redacted>)");
+        assert_eq!(format!("{key:?}"), "Shielded(<redacted>)");
+        let short = Shielded::<16>::new(Zeroizing::new([7u8; 16]));
+        assert_eq!(*short.open(), [7u8; 16]);
         clear_stack();
     }
 }

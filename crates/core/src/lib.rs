@@ -62,7 +62,7 @@ pub use vault::{FormerKey, RenewedKey, Unlock, Vault, VaultInfo, VaultSnapshot};
 pub mod memory_test {
     use zeroize::Zeroizing;
 
-    use crate::{SecretKey, Vault};
+    use crate::{Keyfile, SecretKey, Vault};
 
     /// The vault key.
     pub fn vault_key(vault: &Vault) -> Zeroizing<[u8; 32]> {
@@ -76,7 +76,12 @@ pub mod memory_test {
 
     /// The Secret Key's 16 bytes.
     pub fn secret_key(key: &SecretKey) -> Zeroizing<[u8; 16]> {
-        Zeroizing::new(*key.as_bytes())
+        key.open()
+    }
+
+    /// A keyfile's digest, the 32 bytes the vault's key slot is derived from.
+    pub fn keyfile(key: &Keyfile) -> Zeroizing<[u8; 32]> {
+        key.open()
     }
 }
 

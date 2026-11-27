@@ -8,7 +8,11 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
-use crate::{Error, PasswordKdf, Result, aead, encoding, memory::ShieldedKey, random};
+use crate::{
+    Error, PasswordKdf, Result, aead, encoding,
+    memory::{Shielded, ShieldedKey},
+    random,
+};
 
 const SECRET_KEY_LEN: usize = 16;
 const RECOVERY_KEY_LEN: usize = 32;
@@ -21,39 +25,41 @@ const RECOVERY_KEY_GROUP: usize = 6;
 const CHECKSUM_CHARS: usize = 2;
 
 /// 128-bit Secret Key, combined with the master password to derive the vault's
-/// key-encryption key. Without it, the master password alone cannot open the vault.
-pub struct SecretKey(Zeroizing<[u8; SECRET_KEY_LEN]>);
+/// key-encryption key. Without it, the master password alone cannot open the vault. Kept
+/// encrypted between uses when the program installed a key shield (`memory.rs`).
+pub struct SecretKey(Shielded<SECRET_KEY_LEN>);
 
 /// 256-bit Recovery Key printed in emergency kits made before format v8. Opens the vault on
 /// its own. New kits use [`RecoveryParts`] instead.
-pub struct RecoveryKey(Zeroizing<[u8; RECOVERY_KEY_LEN]>);
+pub struct RecoveryKey(Shielded<RECOVERY_KEY_LEN>);
 
 macro_rules! user_key_impl {
     ($ty:ident, $len:expr, $prefix:expr, $group:expr) => {
         impl $ty {
             /// Generates a new random key.
             pub fn generate() -> Result<Self> {
-                random::secret_array::<$len>().map(Self)
+                random::secret_array::<$len>().map(|key| Self(Shielded::new(key)))
             }
 
             /// Parses the printed form. Case-insensitive; spaces and dashes are ignored.
             pub fn parse(text: &str) -> Result<Self> {
-                parse_user_key::<$len>(text, $prefix).map(Self)
+                parse_user_key::<$len>(text, $prefix).map(|key| Self(Shielded::new(key)))
             }
 
             /// The printable form, e.g. for the emergency kit. Wiped on drop.
             pub fn to_display_string(&self) -> Zeroizing<String> {
-                format_user_key(self.0.as_ref(), $prefix, $group)
+                format_user_key(self.0.open().as_ref(), $prefix, $group)
             }
 
             #[cfg(test)]
             #[allow(dead_code, reason = "not every key type needs it in tests")]
             pub(crate) fn from_bytes(bytes: [u8; $len]) -> Self {
-                Self(Zeroizing::new(bytes))
+                Self(Shielded::new(Zeroizing::new(bytes)))
             }
 
-            pub(crate) fn as_bytes(&self) -> &[u8; $len] {
-                &self.0
+            /// The key itself, in a copy wiped when dropped: for the moment it is used.
+            pub(crate) fn open(&self) -> Zeroizing<[u8; $len]> {
+                self.0.open()
             }
         }
 
@@ -65,7 +71,7 @@ macro_rules! user_key_impl {
 
         impl PartialEq for $ty {
             fn eq(&self, other: &Self) -> bool {
-                self.0.as_slice().ct_eq(other.0.as_slice()).into()
+                self.open().as_slice().ct_eq(other.open().as_slice()).into()
             }
         }
 
@@ -96,13 +102,19 @@ impl RecoveryKey {
 }
 
 impl SecretKey {
+    /// A second copy, for work on a thread of its own: of the shielded form when the key is
+    /// shielded, never through its printed text.
+    pub fn duplicate(&self) -> Self {
+        Self(self.0.clone())
+    }
+
     pub(crate) fn from_slice(bytes: &[u8]) -> Result<Self> {
         let mut key = Zeroizing::new([0u8; SECRET_KEY_LEN]);
         if bytes.len() != SECRET_KEY_LEN {
             return Err(Error::Malformed);
         }
         key.copy_from_slice(bytes);
-        Ok(Self(key))
+        Ok(Self(Shielded::new(key)))
     }
 }
 
@@ -271,6 +283,15 @@ pub(crate) fn ordered_pair<'a>(
 
 /// Top 10 bits of SHA-256("vault-v0/key-checksum" ‖ prefix ‖ key).
 fn checksum(prefix: &str, key: &[u8]) -> u16 {
+    let sum = hash_checksum(prefix, key);
+    // The hash's last block, the key's bytes in it, stays on the stack below here.
+    crate::memory::clear_stack();
+    sum
+}
+
+/// [`checksum`]'s hash, in a frame of its own below the one that clears the stack.
+#[inline(never)]
+fn hash_checksum(prefix: &str, key: &[u8]) -> u16 {
     let digest = Sha256::new()
         .chain_update(b"vault-v0/key-checksum")
         .chain_update(prefix.as_bytes())
@@ -338,9 +359,10 @@ fn hkdf32(ikm: &[u8], salt: &[u8], info: &[&[u8]]) -> Zeroizing<aead::Key> {
 /// A keyfile: an optional third factor next to the master password and the Secret Key. Any
 /// file works; what counts is a SHA-256 of its exact bytes, so the file must never change.
 /// Kept apart from the vault (a USB stick), it means a stolen vault file, password and Secret
-/// Key still open nothing.
+/// Key still open nothing. The digest is kept encrypted between uses when the program installed
+/// a key shield (`memory.rs`).
 #[derive(Clone)]
-pub struct Keyfile(Zeroizing<[u8; 32]>);
+pub struct Keyfile(ShieldedKey);
 
 impl Keyfile {
     /// Largest file accepted (1 MiB): a keyfile is a key, not a document.
@@ -353,10 +375,10 @@ impl Keyfile {
         if !(Self::MIN_LEN..=Self::MAX_LEN).contains(&bytes.len()) {
             return Err(Error::InvalidKeyFormat);
         }
-        let mut hasher = Sha256::new();
-        hasher.update(b"vault-v0/keyfile");
-        hasher.update(bytes);
-        Ok(Self(Zeroizing::new(hasher.finalize().into())))
+        let digest = keyfile_digest(bytes);
+        // The hash's last block, a piece of the file in it, stays on the stack below here.
+        crate::memory::clear_stack();
+        Ok(Self(ShieldedKey::new(digest)))
     }
 
     /// A new keyfile: the key and the bytes to write to the file (a line of text holding 256
@@ -374,9 +396,21 @@ impl Keyfile {
         Ok((Self::from_bytes(&bytes)?, bytes))
     }
 
-    pub(crate) fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
+    /// The digest itself, in a copy wiped when dropped: for the moment it is used.
+    pub(crate) fn open(&self) -> Zeroizing<[u8; 32]> {
+        self.0.open()
     }
+}
+
+/// The keyfile's digest, in a frame of its own below the one that clears the stack.
+#[inline(never)]
+fn keyfile_digest(bytes: &[u8]) -> Zeroizing<[u8; 32]> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"vault-v0/keyfile");
+    hasher.update(bytes);
+    let mut digest = Zeroizing::new([0u8; 32]);
+    hasher.finalize_into((&mut *digest).into());
+    digest
 }
 
 impl std::fmt::Debug for Keyfile {
@@ -397,22 +431,21 @@ pub(crate) fn password_kek(
     let password_key = kdf.derive(password)?;
     let mut ikm = Zeroizing::new([0u8; 32 + SECRET_KEY_LEN + 32]);
     ikm[..32].copy_from_slice(password_key.as_ref());
-    ikm[32..32 + SECRET_KEY_LEN].copy_from_slice(secret_key.as_bytes());
-    match keyfile {
-        None => Ok(hkdf32(
+    ikm[32..32 + SECRET_KEY_LEN].copy_from_slice(secret_key.open().as_ref());
+    let kek = match keyfile {
+        None => hkdf32(
             &ikm[..32 + SECRET_KEY_LEN],
             vault_id,
             &[b"vault-v0/kek/password"],
-        )),
+        ),
         Some(keyfile) => {
-            ikm[32 + SECRET_KEY_LEN..].copy_from_slice(keyfile.as_bytes());
-            Ok(hkdf32(
-                ikm.as_ref(),
-                vault_id,
-                &[b"vault-v0/kek/password+keyfile"],
-            ))
+            ikm[32 + SECRET_KEY_LEN..].copy_from_slice(keyfile.open().as_ref());
+            hkdf32(ikm.as_ref(), vault_id, &[b"vault-v0/kek/password+keyfile"])
         }
-    }
+    };
+    // The hashes below here held the Secret Key and the keyfile's digest in their blocks.
+    crate::memory::clear_stack();
+    Ok(kek)
 }
 
 /// KEK for the recovery slot. No Argon2: the Recovery Key already has 256 bits of entropy.
@@ -421,7 +454,7 @@ pub(crate) fn recovery_kek(
     vault_id: &[u8; 16],
 ) -> Zeroizing<aead::Key> {
     hkdf32(
-        recovery_key.as_bytes(),
+        recovery_key.open().as_ref(),
         vault_id,
         &[b"vault-v0/kek/recovery"],
     )
