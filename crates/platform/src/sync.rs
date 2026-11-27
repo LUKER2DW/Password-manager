@@ -762,11 +762,13 @@ pub fn take_renewed_key(
 }
 
 /// Folds every fetched copy into `vault`. Runs where the vault is (the UI thread), and is
-/// quick: no file or network access.
+/// quick: no file or network access. A copy is taken only from the device it is listed under
+/// (`Vault::merge_from`): a place that hands one device's copy over as another's gets it
+/// refused, so what is said of each device is its own.
 pub fn merge_all(vault: &mut Vault, fetched: &Fetched, seen: &mut SeenRevisions) -> Round {
     let mut round = Round::default();
     for (device, bytes) in &fetched.copies {
-        match vault.merge(bytes, seen) {
+        match vault.merge_from(*device, bytes, seen) {
             Ok(report) => round.reports.push(report),
             Err(vault_core::Error::RemovedHere) => round.removed_here = true,
             Err(err) => round.refused.push((*device, err)),
@@ -1448,6 +1450,7 @@ mod tests {
             vault
         };
         let (mut a, mut b) = (open(&bytes), open(&bytes));
+        let (a_id, b_id) = (a.device(), b.device());
         let vault_id = a.id_hex();
         let reading_of = |device: DeviceId, copy: Vec<u8>| Reading {
             main: Ok(Fetched {
@@ -1467,7 +1470,7 @@ mod tests {
 
         // B can't read it, and doesn't know that header: maybe renewed there.
         let mut state_b = crate::DeviceState::default();
-        let reading = reading_of(device(1), a_copy.clone());
+        let reading = reading_of(a_id, a_copy.clone());
         let round = merge_reading(&mut b, &reading, &mut SeenRevisions::new());
         let mismatch = key_mismatch(&vault_id, &reading, &round, &state_b);
         assert!(mismatch.behind.is_empty());
@@ -1501,10 +1504,10 @@ mod tests {
         assert!(round.refused.is_empty(), "{:?}", round.refused);
 
         // A, which renewed, sees B's copy from before as waiting for B, not as news.
-        let reading = reading_of(device(2), b_old_copy);
+        let reading = reading_of(b_id, b_old_copy);
         let round = merge_reading(&mut a, &reading, &mut SeenRevisions::new());
         let mismatch = key_mismatch(&vault_id, &reading, &round, &state_a);
-        assert_eq!(mismatch.behind, [device(2)]);
+        assert_eq!(mismatch.behind, [b_id]);
         assert!(mismatch.renewed.is_empty());
     }
 }
