@@ -15,7 +15,7 @@ use crate::{
     protocol::{
         Assertion, Attestation, Check, CopyWhat, Credentials, ErrorCode, GeneratedPassword,
         LoginEntry, OneTimeCode, PasskeyEntry, Request, Response, Revealed, Secret, Symbols,
-        VaultEntry,
+        UserVerification, VaultEntry,
     },
 };
 
@@ -378,6 +378,34 @@ fn open_gate(
     }
 }
 
+/// Verifies the person for this one request, as a site's passkey request asks
+/// (`userVerification`): Windows Hello when asked for, else the item lock's PIN or password
+/// typed in the extension's window, the lock opened and closed again at once. Answers whether
+/// they were verified. `Discouraged`, or `Preferred` with no way to verify here, answers
+/// `false` without asking; `Required` with no way is refused (`Unsupported`: the browser's
+/// own handler takes the request). Nothing given yet: the item lock's answer, so the
+/// extension's window asks.
+fn verify_for(
+    vault: &mut Vault,
+    gate: &mut dyn Gate,
+    wants: UserVerification,
+    check: Option<Secret>,
+    hello: bool,
+) -> Result<bool, Response> {
+    if wants == UserVerification::Discouraged {
+        return Ok(false);
+    }
+    if !(gate.hello(vault) || gate.check(vault) != Check::App) {
+        return match wants {
+            UserVerification::Required => Err(error(ErrorCode::Unsupported)),
+            _ => Ok(false),
+        };
+    }
+    open_gate(vault, gate, check, hello)?;
+    gate.close(vault);
+    Ok(true)
+}
+
 /// Reads login `id` with its secrets, opening the item lock for this one read when it is
 /// locked. `belongs` says whether the caller may have this login at all; an id that fails it
 /// looks exactly like one that does not exist, and no PIN is ever tried for it.
@@ -389,19 +417,32 @@ fn read_login(
     hello: bool,
     belongs: impl Fn(&ItemData) -> bool,
 ) -> Result<ItemData, Response> {
-    with_login(vault, gate, id, check, hello, belongs, |_, _, item| item)
+    with_login(
+        vault,
+        gate,
+        id,
+        check,
+        hello,
+        None,
+        belongs,
+        |_, _, item, _| item,
+    )
 }
 
 /// Runs `act` on login `id` with its secrets readable, opening the item lock first when it
-/// covers the login (and closing it again right after `act`).
+/// covers the login (and closing it again right after `act`). `act` also hears whether the
+/// person was verified for this request: the lock opened for it, or, for a login outside the
+/// lock, the check `verify` asks for ([`verify_for`]).
+#[allow(clippy::too_many_arguments)]
 fn with_login<R>(
     vault: &mut Vault,
     gate: &mut dyn Gate,
     id: &str,
     check: Option<Secret>,
     hello: bool,
+    verify: Option<UserVerification>,
     belongs: impl Fn(&ItemData) -> bool,
-    act: impl FnOnce(&mut Vault, &ItemId, ItemData) -> R,
+    act: impl FnOnce(&mut Vault, &ItemId, ItemData, bool) -> R,
 ) -> Result<R, Response> {
     let id = ItemId::from_hex(id).ok_or_else(|| error(ErrorCode::NoMatch))?;
     let read = |vault: &Vault| {
@@ -412,14 +453,19 @@ fn with_login<R>(
     };
     let item = read(vault).ok_or_else(|| error(ErrorCode::NoMatch))?;
     if !(item.is_locked() || gate.locked(vault, &item)) {
-        return Ok(act(vault, &id, item));
+        let verified = match verify {
+            Some(wants) => verify_for(vault, gate, wants, check, hello)?,
+            None => false,
+        };
+        return Ok(act(vault, &id, item, verified));
     }
     let kind = gate.check(vault);
     open_gate(vault, gate, check, hello)?;
-    // Read once while open, then closed again: only this login was decrypted.
+    // Read once while open, then closed again: only this login was decrypted. Opened for this
+    // request: the person was verified.
     let done = read(vault)
         .filter(|item| !item.is_locked())
-        .map(|item| act(vault, &id, item));
+        .map(|item| act(vault, &id, item, true));
     gate.close(vault);
     done.ok_or_else(|| item_locked(kind))
 }
@@ -622,8 +668,9 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 &id,
                 check,
                 hello,
+                None,
                 |item| item_matches(&item.urls, &origin),
-                |vault, id, mut item| {
+                |vault, id, mut item, _| {
                     if item.password == password.as_str() {
                         return Ok((item.title.clone(), false));
                     }
@@ -840,6 +887,7 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 challenge,
                 check,
                 hello,
+                user_verification,
                 ..
             },
             Some(origin),
@@ -860,10 +908,11 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 &id,
                 check,
                 hello,
+                Some(user_verification),
                 |item| item.passkeys.iter().any(ours),
-                |_, _, item| {
+                |_, _, item, verified| {
                     let passkey = item.passkeys.iter().find(|p| ours(p))?;
-                    let data = passkey.authenticator_data(false).ok()?;
+                    let data = passkey.authenticator_data(false, verified).ok()?;
                     let hash: [u8; 32] = Sha256::digest(&client_data).into();
                     let signature = passkey.sign(&data, &hash).ok()?;
                     Some((
@@ -899,6 +948,7 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 algorithms,
                 check,
                 hello,
+                user_verification,
                 ..
             },
             Some(origin),
@@ -914,6 +964,7 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 challenge,
                 exclude,
                 algorithms,
+                user_verification,
             },
             check,
             hello,
@@ -956,9 +1007,15 @@ fn client_data(kind: &str, challenge: &str, origin: &Origin) -> Option<Vec<u8>> 
     .ok()
 }
 
-/// What the page hands the site for a passkey just made.
-fn attestation_for(passkey: &Passkey, client_data: &[u8], origin: &Origin) -> Option<Attestation> {
-    let data = passkey.authenticator_data(true).ok()?;
+/// What the page hands the site for a passkey just made; `verified`: the person was verified
+/// for this request.
+fn attestation_for(
+    passkey: &Passkey,
+    client_data: &[u8],
+    origin: &Origin,
+    verified: bool,
+) -> Option<Attestation> {
+    let data = passkey.authenticator_data(true, verified).ok()?;
     Some(Attestation {
         origin: origin.as_str().to_owned(),
         credential: URL_SAFE_NO_PAD.encode(&passkey.credential_id),
@@ -980,6 +1037,7 @@ struct NewPasskey {
     challenge: String,
     exclude: Vec<String>,
     algorithms: Vec<i64>,
+    user_verification: UserVerification,
 }
 
 /// Makes a passkey and keeps it in the login for that page and username (a new login when
@@ -1040,7 +1098,12 @@ fn create_passkey(
     let Ok(passkey) = Passkey::new(&rp_id, &user_handle, user_name, display_name) else {
         return error(ErrorCode::BadRequest).into();
     };
-    let Some(mut attestation) = attestation_for(&passkey, &client_data, origin) else {
+    // Both answers made before anything is kept; which one goes depends on whether the person
+    // is verified on the way.
+    let (Some(plain), Some(checked)) = (
+        attestation_for(&passkey, &client_data, origin, false),
+        attestation_for(&passkey, &client_data, origin, true),
+    ) else {
         return error(ErrorCode::BadRequest).into();
     };
     // A passkey of the same site and account is replaced, as a security key does: the answer
@@ -1053,8 +1116,9 @@ fn create_passkey(
             &id.to_hex(),
             check,
             hello,
+            Some(new.user_verification),
             |_| true,
-            |vault, id, mut item| {
+            |vault, id, mut item, verified| {
                 let before = item.passkeys.len();
                 item.passkeys.retain(|p| {
                     !(p.rp_id == passkey.rp_id && p.user_handle == passkey.user_handle)
@@ -1068,23 +1132,24 @@ fn create_passkey(
                 vault
                     .update_item(id, &item)
                     .ok()
-                    .map(|()| (item.title.clone(), replaced))
+                    .map(|()| (item.title.clone(), replaced, verified))
             },
         ),
-        None => {
+        None => verify_for(vault, gate, new.user_verification, check, hello).map(|verified| {
             let host = origin.host();
             let title = host.strip_prefix("www.").unwrap_or(host);
             let mut item = ItemData::login(title, user_name, "", origin.as_str());
             item.passkeys.push(passkey.clone());
             // Like a login saved from a page: the item lock seals it the next time it opens.
-            Ok(vault
+            vault
                 .add_item(&item)
                 .ok()
-                .map(|_| (item.title.clone(), false)))
-        }
+                .map(|_| (item.title.clone(), false, verified))
+        }),
     };
     match kept {
-        Ok(Some((title, replaced))) => {
+        Ok(Some((title, replaced, verified))) => {
+            let mut attestation = if verified { checked } else { plain };
             attestation.replaced = replaced;
             Outcome {
                 passkey_saved: Some(title),
@@ -1268,6 +1333,8 @@ mod tests {
             "display_name": "Me",
             "challenge": challenge,
             "algorithms": [-8, -7, -257],
+            // Verified for the request (the site asks for it by default).
+            "check": "4821",
         });
         let (made, answer) = passkey_answer(&mut vault, &mut gate, create.clone());
         assert_eq!(made["type"], "attestation", "{made}");
@@ -1347,6 +1414,7 @@ mod tests {
                 "id": entry["id"],
                 "credential": made["credential"],
                 "challenge": challenge,
+                "check": "4821",
             })
         };
         let (signed, answer) = passkey_answer(
@@ -1411,6 +1479,96 @@ mod tests {
             logins[0].passkeys[0].credential_id,
             unb64(&remade["credential"])
         );
+    }
+
+    /// "User verified" only after a check in that very request (Windows Hello, the item lock's
+    /// PIN or password), as the site asks: never because the vault happens to be open.
+    #[test]
+    fn verified_only_after_a_check_in_that_request() {
+        let (mut vault, _, _) = vault();
+        let challenge = URL_SAFE_NO_PAD.encode([5u8; 32]);
+        let verified = |answer: &Value| unb64(&answer["authenticator_data"])[32] & 0x04 != 0;
+        // Made where the site discourages a check: nothing asked, not verified.
+        let mut gate = TestGate::new(Check::Pin);
+        let (made, _) = passkey_answer(
+            &mut vault,
+            &mut gate,
+            json!({
+                "type": "passkey_create",
+                "url": "https://shop.example/account",
+                "user_id": URL_SAFE_NO_PAD.encode(b"buyer"),
+                "user_name": "buyer",
+                "challenge": challenge,
+                "user_verification": "discouraged",
+            }),
+        );
+        assert_eq!(made["type"], "attestation", "{made}");
+        assert!(!verified(&made));
+        assert_eq!(gate.closed, 0, "nothing was opened");
+        let (listed, _) = passkey_answer(
+            &mut vault,
+            &mut gate,
+            json!({"type": "passkeys", "url": "https://shop.example/"}),
+        );
+        let id = listed["items"][0]["id"].clone();
+        let get = |extra: Value| {
+            let mut request = json!({
+                "type": "passkey_get",
+                "url": "https://shop.example/",
+                "id": id,
+                "credential": made["credential"],
+                "challenge": challenge,
+            });
+            for (key, value) in extra.as_object().unwrap() {
+                request[key.as_str()] = value.clone();
+            }
+            request
+        };
+        // Preferred (also when missing or unknown) with a PIN to check: asked first.
+        for asked in [
+            json!({}),
+            json!({"user_verification": "preferred"}),
+            json!({"user_verification": "sometimes"}),
+        ] {
+            let (reply, _) = passkey_answer(&mut vault, &mut gate, get(asked.clone()));
+            assert_eq!(reply["code"], "item_locked", "{asked}: {reply}");
+        }
+        let (signed, _) = passkey_answer(&mut vault, &mut gate, get(json!({"check": "4821"})));
+        assert_eq!(signed["type"], "assertion", "{signed}");
+        assert!(verified(&signed));
+        assert!(!gate.open, "closed again");
+        // Required, with a wrong PIN: refused, the try counted.
+        let (reply, _) = passkey_answer(
+            &mut vault,
+            &mut gate,
+            get(json!({"user_verification": "required", "check": "0000"})),
+        );
+        assert_eq!(reply["code"], "wrong_check");
+        // Discouraged: signed at once, not verified.
+        let (signed, _) = passkey_answer(
+            &mut vault,
+            &mut gate,
+            get(json!({"user_verification": "discouraged"})),
+        );
+        assert_eq!(signed["type"], "assertion", "{signed}");
+        assert!(!verified(&signed));
+        // Windows Hello, asked for: verified by it.
+        let mut hello = TestGate::new(Check::App);
+        hello.hello = true;
+        let (signed, _) = passkey_answer(&mut vault, &mut hello, get(json!({"hello": true})));
+        assert!(verified(&signed), "{signed}");
+        // No way to verify here (only the master password, no Windows Hello): preferred signs
+        // as not verified, required leaves the request to the browser.
+        let mut none = TestGate::new(Check::App);
+        let (signed, _) = passkey_answer(&mut vault, &mut none, get(json!({})));
+        assert_eq!(signed["type"], "assertion", "{signed}");
+        assert!(!verified(&signed));
+        let (reply, _) = passkey_answer(
+            &mut vault,
+            &mut none,
+            get(json!({"user_verification": "required"})),
+        );
+        assert_eq!(reply["code"], "unsupported");
     }
 
     #[test]

@@ -145,6 +145,9 @@ pub enum Request {
         check: Option<Secret>,
         #[serde(default)]
         hello: bool,
+        /// What the site asked about verifying the person (WebAuthn's `userVerification`).
+        #[serde(default)]
+        user_verification: UserVerification,
     },
     /// Makes a passkey for the site `rp_id` and the account `user_id` (base64url) named
     /// `user_name`, for the page at `url`, and keeps it in the login saved for that page with
@@ -168,6 +171,10 @@ pub enum Request {
         check: Option<Secret>,
         #[serde(default)]
         hello: bool,
+        /// What the site asked about verifying the person (its `authenticatorSelection`'s
+        /// `userVerification`).
+        #[serde(default)]
+        user_verification: UserVerification,
     },
     /// Replaces the password of login `id`, saved for `url`'s origin, with `password`. The old
     /// one goes into the item's password history. A locked login is opened first, as for a
@@ -237,6 +244,23 @@ impl std::fmt::Debug for Secret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Secret(<redacted>)")
     }
+}
+
+/// What a site asks about verifying the person for a passkey (WebAuthn's `userVerification`).
+/// The answer says "verified" only after Windows Hello or the item lock's PIN or password in
+/// that very request. Missing or unknown: `Preferred`, as WebAuthn reads it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UserVerification {
+    /// Verify, or don't answer at all (the browser's own handler takes the request).
+    Required,
+    /// Don't ask: answer as not verified.
+    Discouraged,
+    /// Verify when there is a way to; otherwise answer as not verified. (Last: serde's
+    /// `other` catches every unknown value here.)
+    #[default]
+    #[serde(other)]
+    Preferred,
 }
 
 /// What opens the logins behind the item lock, as far as the extension is concerned.

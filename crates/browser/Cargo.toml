@@ -17,10 +17,16 @@ workspace = true
 [dependencies]
 vault-core = { path = "../core" }
 vault-platform = { path = "../platform" }
+# The extension's requests and the app's answers are sealed with AES-256-GCM, the AEAD the
+# browser's WebCrypto offers (pairing.rs, CRYPTO.md §3.9).
+aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
 # Passkeys: WebAuthn's ids, challenges and answers travel as base64url.
 base64 = "0.23"
 getrandom = "0.4"
+hkdf = "0.13"
 hmac = "0.13"
+# The connection key is agreed with ECDH P-256 (pairing.rs).
+p256 = { version = "0.14", default-features = false, features = ["ecdh"] }
 # The Public Suffix List, compiled in (no network): a `*.` entry may not cover a whole
 # registry such as `*.co.uk`.
 psl = "2.1"
