@@ -7,6 +7,10 @@
 //! `WM_POWERBROADCAST` (with `RegisterSuspendResumeNotification`, which also covers Modern
 //! Standby) for sleep. The callback runs on that thread before the message is answered, so the
 //! app can lock before Windows suspends: Windows gives a suspend about two seconds.
+//!
+//! Started at sign-in, the app may come up before Windows' session service answers
+//! (`RPC_S_INVALID_BINDING`): the registration is then tried again every two seconds, for up
+//! to ten minutes, until it takes.
 
 /// What Windows told.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,14 +26,19 @@ pub enum SessionEvent {
 }
 
 /// Starts hearing these for the rest of the process; `on_event` runs on the watching thread.
-/// Answers whether it started (once per process: a second call answers `false`).
+/// Answers whether it started (once per process: a second call answers `false`); the session's
+/// part may sign up a little later (see the module's notes).
 pub fn watch(on_event: impl Fn(SessionEvent) + Send + Sync + 'static) -> bool {
     imp::watch(Box::new(on_event))
 }
 
 #[cfg(windows)]
 mod imp {
-    use std::sync::{OnceLock, mpsc};
+    use std::sync::{
+        OnceLock,
+        atomic::{AtomicU32, Ordering},
+        mpsc,
+    };
 
     use windows_sys::Win32::{
         Foundation::{HWND, LPARAM, LRESULT, WPARAM},
@@ -40,9 +49,10 @@ mod imp {
         },
         UI::WindowsAndMessaging::{
             CreateWindowExW, DEVICE_NOTIFY_WINDOW_HANDLE, DefWindowProcW, DispatchMessageW,
-            GetMessageW, MSG, PBT_APMSUSPEND, RegisterClassExW, TranslateMessage,
-            WM_POWERBROADCAST, WM_WTSSESSION_CHANGE, WNDCLASSEXW, WS_OVERLAPPED,
-            WTS_CONSOLE_DISCONNECT, WTS_REMOTE_DISCONNECT, WTS_SESSION_LOCK, WTS_SESSION_LOGOFF,
+            GetMessageW, KillTimer, MSG, PBT_APMSUSPEND, RegisterClassExW, SetTimer,
+            TranslateMessage, WM_POWERBROADCAST, WM_TIMER, WM_WTSSESSION_CHANGE, WNDCLASSEXW,
+            WS_OVERLAPPED, WTS_CONSOLE_DISCONNECT, WTS_REMOTE_DISCONNECT, WTS_SESSION_LOCK,
+            WTS_SESSION_LOGOFF,
         },
     };
 
@@ -52,6 +62,22 @@ mod imp {
 
     /// The one handler of this process.
     static HANDLER: OnceLock<Handler> = OnceLock::new();
+
+    /// The timer that tries the session's registration again, every two seconds, at most this
+    /// many times (ten minutes).
+    const RETRY: usize = 1;
+    const RETRY_EVERY_MS: u32 = 2000;
+    const RETRIES: u32 = 300;
+    static RETRIED: AtomicU32 = AtomicU32::new(0);
+
+    /// Signs `window` up for the session's changes; answers whether Windows took it.
+    fn register_session(window: HWND) -> bool {
+        // SAFETY: `window` is this module's own window, alive for the life of the process.
+        #[allow(unsafe_code)]
+        unsafe {
+            WTSRegisterSessionNotification(window, NOTIFY_FOR_THIS_SESSION) != 0
+        }
+    }
 
     /// The hidden window's class (and title), one per process: nothing else ever finds it by
     /// a fixed name, and a test reaches only its own.
@@ -127,10 +153,13 @@ mod imp {
                 let _ = started.send(false);
                 return;
             }
-            let session = WTSRegisterSessionNotification(window, NOTIFY_FOR_THIS_SESSION) != 0;
             // Kept for the life of the process, like the window.
             let _ = RegisterSuspendResumeNotification(window, DEVICE_NOTIFY_WINDOW_HANDLE);
-            let _ = started.send(session);
+            if !register_session(window) {
+                // Too early after sign-in: tried again from the timer (window_proc).
+                SetTimer(window, RETRY, RETRY_EVERY_MS, None);
+            }
+            let _ = started.send(true);
             let mut message: MSG = std::mem::zeroed();
             while GetMessageW(&raw mut message, std::ptr::null_mut(), 0, 0) > 0 {
                 TranslateMessage(&raw const message);
@@ -156,6 +185,17 @@ mod imp {
         if message == WM_POWERBROADCAST {
             return 1;
         }
+        if message == WM_TIMER && wparam == RETRY {
+            let tries = RETRIED.fetch_add(1, Ordering::Relaxed) + 1;
+            if register_session(window) || tries >= RETRIES {
+                // SAFETY: the timer is this window's own.
+                #[allow(unsafe_code)]
+                unsafe {
+                    KillTimer(window, RETRY);
+                }
+            }
+            return 0;
+        }
         // SAFETY: the arguments are the ones Windows passed for this window.
         #[allow(unsafe_code)]
         unsafe {
@@ -180,8 +220,8 @@ mod tests {
 
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         FindWindowW, PBT_APMRESUMEAUTOMATIC, PBT_APMSUSPEND, SendMessageW, WM_POWERBROADCAST,
-        WM_WTSSESSION_CHANGE, WTS_CONSOLE_CONNECT, WTS_CONSOLE_DISCONNECT, WTS_REMOTE_DISCONNECT,
-        WTS_SESSION_LOCK, WTS_SESSION_LOGOFF, WTS_SESSION_UNLOCK,
+        WM_TIMER, WM_WTSSESSION_CHANGE, WTS_CONSOLE_CONNECT, WTS_CONSOLE_DISCONNECT,
+        WTS_REMOTE_DISCONNECT, WTS_SESSION_LOCK, WTS_SESSION_LOGOFF, WTS_SESSION_UNLOCK,
     };
 
     use super::*;
@@ -236,6 +276,8 @@ mod tests {
         let answer = unsafe {
             let window = FindWindowW(class.as_ptr(), std::ptr::null());
             assert!(!window.is_null(), "the hidden window exists");
+            // The retry timer's tick (as when sign-in was too early) signs up and stops.
+            assert_eq!(SendMessageW(window, WM_TIMER, 1, 0), 0);
             SendMessageW(window, WM_WTSSESSION_CHANGE, WTS_SESSION_LOCK as usize, 0);
             SendMessageW(window, WM_POWERBROADCAST, PBT_APMSUSPEND as usize, 0)
         };
