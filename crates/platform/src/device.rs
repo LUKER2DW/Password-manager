@@ -172,6 +172,10 @@ pub struct Settings {
     pub browser_passkeys: bool,
     /// A notice in the app for every login the extension fills. On by default.
     pub browser_fill_notices: bool,
+    /// Every password, one-time code or passkey the browser extension uses asks for Windows
+    /// Hello or the item lock's PIN or password first, in that very request, not only the
+    /// logins behind the item lock. On by default.
+    pub browser_always_asks: bool,
     /// The drawn texture behind the open vault. On by default.
     pub backdrop: bool,
     /// Look for a newer version on GitHub by itself, every hour while the app runs (one
@@ -198,6 +202,7 @@ impl Default for Settings {
             browser_saves: true,
             browser_passkeys: true,
             browser_fill_notices: true,
+            browser_always_asks: true,
             backdrop: true,
             update_checks: true,
         }
