@@ -877,7 +877,7 @@ mod tests {
             (&kept.user_name, &kept.display_name, kept.created_at)
         );
         assert_eq!(copy.public_key().unwrap(), kept.public_key().unwrap());
-        let data = copy.authenticator_data(false).unwrap();
+        let data = copy.authenticator_data(false, true).unwrap();
         let signature = copy.sign(&data, &[7; 32]).unwrap();
         let mut message = data.clone();
         message.extend_from_slice(&[7; 32]);
