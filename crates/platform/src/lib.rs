@@ -22,6 +22,7 @@ pub mod leak_check;
 pub mod locale;
 pub mod part_picture;
 pub mod paths;
+pub mod process;
 pub mod quick_unlock;
 #[cfg(windows)]
 mod registry;
