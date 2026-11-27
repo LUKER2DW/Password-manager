@@ -3309,6 +3309,14 @@ msgid "Windows didn't take the change to starting at sign-in ({}). The check sho
 msgstr "O Windows não aceitou a mudança na abertura ao entrar ({}). A caixa mostra o que o Windows vai fazer."
 
 msgctxt "Messages"
+msgid "That folder is copied to the cloud by {}: the kit's keys would leave this computer. Choose a folder on this computer or a USB drive, or print the kit. Nothing was saved."
+msgstr "Essa pasta é copiada para a nuvem pelo {}: as chaves do kit sairiam deste computador. Escolha uma pasta deste computador ou um pendrive, ou imprima o kit. Nada foi salvo."
+
+msgctxt "Messages"
+msgid "That folder already holds part {}. Keep each recovery part in a different place: two of them bring back the Secret Key, three open the vault. Nothing was saved."
+msgstr "Essa pasta já tem a parte {}. Guarde cada parte de recuperação num lugar diferente: duas delas trazem de volta a chave secreta, três abrem o cofre. Nada foi salvo."
+
+msgctxt "Messages"
 msgid "The vault key was renewed: the old kit, the old Secret Key and older copies of the file no longer open it. Print the new kit now. Windows Hello is off until you turn it on again."
 msgstr "A chave do cofre foi renovada: o kit antigo, a chave secreta antiga e as cópias mais antigas do arquivo não abrem mais o cofre. Imprima o novo kit agora. O Windows Hello fica desligado até você ligar de novo."
 
@@ -3404,6 +3412,14 @@ msgctxt "Messages"
 msgid "Windows now starts this copy of Vault when you sign in, instead of {}."
 msgstr "Agora o Windows abre esta cópia do Vault quando você entra, em vez de {}."
 
+msgctxt "Messages"
+msgid "{} recovery parts saved, each in a file of its own. Keep them in different places."
+msgstr "{} partes de recuperação salvas, cada uma num arquivo próprio. Guarde-as em lugares diferentes."
+
+msgctxt "Messages"
+msgid "Another program changed how the browser reaches Vault. Vault put it back and ignored that request. If you didn't install something like that, check this computer."
+msgstr "Outro programa mudou o caminho do navegador até o Vault. O Vault desfez a mudança e ignorou aquele pedido. Se você não instalou nada assim, verifique este computador."
+
 msgctxt "PhoneWindow"
 msgid "Opens again: 0.4.2 and 0.4.3 closed as soon as they started. Updates come from the project's releases on GitHub, or from your server if you choose it, and are looked for every hour while a vault is open, so a fix reaches you the same day."
 msgstr "Abre de novo: a 0.4.2 e a 0.4.3 fechavam assim que começavam. As atualizações vêm das versões publicadas do projeto no GitHub, ou do seu servidor se você escolher, e são procuradas a cada hora enquanto um cofre está aberto, então uma correção chega no mesmo dia."
@@ -3431,3 +3447,7 @@ msgstr "Passkeys"
 msgctxt "PhoneWindow"
 msgid "Your vault's passkeys in the phone's browsers and apps (Android 14 and later: turn Vault on in the phone's settings, under passwords and accounts), a filter for every item with a passkey, and the protected export now keeps attached files and passkeys."
 msgstr "As passkeys do seu cofre nos navegadores e apps do celular (Android 14 em diante: ative o Vault nas configurações do celular, em senhas e contas), um filtro para todo item com passkey, e a exportação protegida agora leva anexos e passkeys."
+
+msgctxt "Messages"
+msgid "Another request to connect came while this one waited, so this is a new code. Connect only if the extension shows this same code; if it doesn't, refuse."
+msgstr "Outro pedido de conexão chegou enquanto este esperava, por isso este é um código novo. Conecte somente se a extensão mostrar este mesmo código; se não mostrar, recuse."

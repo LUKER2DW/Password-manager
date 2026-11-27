@@ -340,7 +340,9 @@ fn assertion_of(
     sent_hash: Option<&[u8]>,
 ) -> Option<Zeroizing<String>> {
     let (client, hash) = client_data(caller, "webauthn.get", &request.challenge, sent_hash)?;
-    let data = passkey.authenticator_data(false).ok()?;
+    // Verified for this request: the activity asks for the fingerprint or the phone's lock
+    // before any passkey answers.
+    let data = passkey.authenticator_data(false, true).ok()?;
     let signature = passkey.sign(&data, &hash).ok()?;
     let id = base64(&passkey.credential_id);
     let answer = json!({
@@ -454,8 +456,9 @@ pub fn create(
     }
     let passkey = Passkey::new(&site, &user_handle, user_name, display_name)
         .map_err(|_| Refusal::BadRequest)?;
+    // Verified for this request, as a sign-in is (the fingerprint or the phone's lock first).
     let data = passkey
-        .authenticator_data(true)
+        .authenticator_data(true, true)
         .map_err(|_| Refusal::BadRequest)?;
     let public_key = passkey.spki().map_err(|_| Refusal::BadRequest)?;
     let title = match target {
