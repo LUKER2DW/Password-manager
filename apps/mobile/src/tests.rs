@@ -3622,3 +3622,206 @@ fn a_phone_without_a_screen_lock_or_an_item_pin_shows_nothing() {
     assert_eq!(app.get_d_password(), "");
     assert_eq!(app.get_notice_code(), 26);
 }
+
+/// A login with a time-based code, one with a counter-based code, and one with a code behind a
+/// PIN item lock that covers it alone.
+fn codes_vault(vault: &mut Vault, _: &SecretKey) {
+    let mut mail = ItemData::login("Mail", "me", "mail-test-password", "https://mail.example");
+    mail.totp = "JBSWY3DPEHPK3PXP".into();
+    vault.add_item(&mail).unwrap();
+    let mut bank = ItemData::login("Bank", "me", "bank-test-password", "https://bank.example");
+    bank.totp = "otpauth://hotp/Bank:me?secret=GEZDGNBVGY3TQOJQ&counter=0".into();
+    vault.add_item(&bank).unwrap();
+    vault
+        .set_item_guard(false, GuardCheck::Pin, Some(ITEM_PIN), None)
+        .unwrap();
+    let mut sealed = ItemData::login("Sealed", "me", "sealed-test-password", "sealed.example");
+    sealed.totp = "GEZDGNBVGY3TQOJQ".into();
+    sealed.reprompt = true;
+    vault.add_item(&sealed).unwrap();
+}
+
+/// The code `secret` gives now, as the screens group it (six digits: "123 456").
+fn code_now(secret: &str) -> String {
+    let digits = vault_core::totp::Totp::parse(secret).unwrap().now().0;
+    format!("{} {}", &digits[..3], &digits[3..])
+}
+
+fn code_row(app: &PhoneWindow, title: &str) -> crate::ui::CodeRow {
+    let codes = app.get_codes();
+    (0..codes.row_count())
+        .map(|i| codes.row_data(i).unwrap())
+        .find(|row| row.title == title)
+        .unwrap()
+}
+
+fn code_index(app: &PhoneWindow, title: &str) -> i32 {
+    let codes = app.get_codes();
+    let index = (0..codes.row_count())
+        .find(|&i| codes.row_data(i).unwrap().title == title)
+        .unwrap();
+    i32::try_from(index).unwrap()
+}
+
+#[test]
+fn one_time_codes_show_after_the_phone_asks_until_they_run_out() {
+    const DOTS: &str = "••• •••";
+    let phone = Phone::open(codes_vault);
+    let (app, controller) = (&phone.app, &phone.controller);
+    let system = CheckingSystem::with_screen_lock(true);
+    controller.set_system(system.clone());
+
+    // The item page: dots and an eye, no countdown, until the phone said yes.
+    phone.open_item("Mail");
+    assert!(app.get_d_has_code() && app.get_d_code_eye() && app.get_d_code_hidden());
+    assert_eq!(app.get_d_code(), DOTS);
+    app.invoke_toggle_code();
+    assert_eq!(system.asked(), 1);
+    assert_eq!(system.asked.borrow()[0], "Show the one-time code");
+    assert!(app.get_d_code_hidden(), "nothing before the answer");
+    controller.person_checked(Ok(()));
+    assert!(!app.get_d_code_hidden());
+    assert_eq!(app.get_d_code(), code_now("JBSWY3DPEHPK3PXP"));
+    // Once that code runs out, dots again; nothing asks by itself, the eye asks again.
+    controller.codes_run_out();
+    assert!(app.get_d_code_hidden());
+    assert_eq!(app.get_d_code(), DOTS);
+    assert_eq!(system.asked(), 1);
+    app.invoke_toggle_code();
+    assert_eq!(system.asked(), 2);
+    controller.person_checked(Ok(()));
+    assert!(!app.get_d_code_hidden());
+    // Hidden with the eye: never asked.
+    app.invoke_toggle_code();
+    assert!(app.get_d_code_hidden());
+    assert_eq!(system.asked(), 2);
+    // A refusal shows nothing.
+    app.invoke_toggle_code();
+    controller.person_checked(Err(String::new()));
+    assert!(app.get_d_code_hidden());
+    app.invoke_toggle_code();
+    controller.person_checked(Err("Too many attempts".into()));
+    assert!(app.get_d_code_hidden());
+    assert_eq!(app.get_notice_code(), 27);
+    // Leaving the item hides it.
+    app.invoke_toggle_code();
+    controller.person_checked(Ok(()));
+    assert!(!app.get_d_code_hidden());
+    app.invoke_close_item();
+    phone.open_item("Mail");
+    assert!(app.get_d_code_hidden());
+    assert_eq!(system.asked(), 5);
+    app.invoke_close_item();
+
+    // A counter-based code runs out with Next: the new one is dots again.
+    phone.open_item("Bank");
+    app.invoke_toggle_code();
+    controller.person_checked(Ok(()));
+    let first = app.get_d_code();
+    assert_ne!(first, DOTS);
+    app.invoke_next_code();
+    assert!(app.get_d_code_hidden());
+    assert_eq!(app.get_d_code(), DOTS);
+    app.invoke_toggle_code();
+    controller.person_checked(Ok(()));
+    assert_ne!(app.get_d_code(), first, "the next code");
+    app.invoke_close_item();
+
+    // The Codes page: every row dots with an eye; showing one asks for that one only.
+    app.set_place(Place::Codes);
+    let mail = code_row(app, "Mail");
+    assert!(mail.hidden && mail.eye);
+    assert_eq!(mail.code, DOTS);
+    assert!(code_row(app, "Bank").hidden);
+    assert_eq!(
+        code_row(app, "Sealed").code,
+        "",
+        "behind the item lock: as before"
+    );
+    app.invoke_toggle_code_at(code_index(app, "Mail"));
+    assert_eq!(system.asked(), 8);
+    assert!(code_row(app, "Mail").hidden);
+    controller.person_checked(Ok(()));
+    let mail = code_row(app, "Mail");
+    assert!(!mail.hidden);
+    assert_eq!(mail.code, code_now("JBSWY3DPEHPK3PXP"));
+    assert!(code_row(app, "Bank").hidden, "that one only");
+    // A refusal on a row shows nothing; a shown row hides with its eye, unasked.
+    app.invoke_toggle_code_at(code_index(app, "Bank"));
+    controller.person_checked(Err(String::new()));
+    assert!(code_row(app, "Bank").hidden);
+    app.invoke_toggle_code_at(code_index(app, "Mail"));
+    assert!(code_row(app, "Mail").hidden);
+    assert_eq!(system.asked(), 9);
+    // Shown again, then its code runs out: dots.
+    app.invoke_toggle_code_at(code_index(app, "Mail"));
+    controller.person_checked(Ok(()));
+    assert!(!code_row(app, "Mail").hidden);
+    controller.codes_run_out();
+    assert!(code_row(app, "Mail").hidden);
+    // Copying asks as before, shown or not.
+    app.set_notice_code(0);
+    app.invoke_copy_code(code_index(app, "Mail"));
+    assert_eq!((system.asked(), app.get_notice_code()), (11, 0));
+    controller.person_checked(Ok(()));
+    assert_eq!(app.get_notice_code(), 5);
+    // Locking hides every code.
+    app.invoke_toggle_code_at(code_index(app, "Mail"));
+    controller.person_checked(Ok(()));
+    assert!(!code_row(app, "Mail").hidden);
+    app.invoke_lock_now();
+    phone.unlock(PASSWORD);
+    app.set_place(Place::Codes);
+    assert!(code_row(app, "Mail").hidden);
+    app.set_place(Place::Items);
+
+    // Behind the item lock: "Show the secrets" asks its PIN once and shows the code too.
+    let asked = system.asked();
+    phone.open_item("Sealed");
+    assert_eq!(app.get_d_check(), 2);
+    app.invoke_ask(13);
+    type_secret(app, 2, ITEM_PIN);
+    app.invoke_confirmed(13);
+    assert!(!app.get_d_code_hidden());
+    assert_eq!(app.get_d_code(), code_now("GEZDGNBVGY3TQOJQ"));
+    assert_eq!(system.asked(), asked, "the phone isn't asked as well");
+    app.invoke_close_item();
+
+    // Off: codes show as before, with no eye.
+    app.invoke_ask_each_use_changed(false);
+    phone.open_item("Mail");
+    assert!(!app.get_d_code_hidden() && !app.get_d_code_eye());
+    assert_eq!(app.get_d_code(), code_now("JBSWY3DPEHPK3PXP"));
+    app.invoke_close_item();
+    app.set_place(Place::Codes);
+    let mail = code_row(app, "Mail");
+    assert!(!mail.hidden && !mail.eye);
+    assert_eq!(mail.code, code_now("JBSWY3DPEHPK3PXP"));
+    assert_eq!(system.asked(), asked);
+}
+
+#[test]
+fn a_code_on_a_phone_without_a_screen_lock_asks_the_item_pin() {
+    let phone = Phone::open(codes_vault);
+    let (app, controller) = (&phone.app, &phone.controller);
+    let system = CheckingSystem::with_screen_lock(false);
+    controller.set_system(system.clone());
+    phone.open_item("Mail");
+    assert!(app.get_d_code_hidden());
+    app.invoke_toggle_code();
+    assert_eq!(app.get_confirming(), 20);
+    assert_eq!(system.asked(), 0);
+    type_secret(app, 2, ITEM_PIN);
+    app.invoke_confirmed(20);
+    assert_eq!(app.get_confirming(), 0);
+    assert!(!app.get_d_code_hidden());
+    assert_eq!(app.get_d_code(), code_now("JBSWY3DPEHPK3PXP"));
+    app.invoke_close_item();
+    // The Codes page asks it per row too; cancelled, nothing shows.
+    app.set_place(Place::Codes);
+    app.invoke_toggle_code_at(code_index(app, "Mail"));
+    assert_eq!(app.get_confirming(), 20);
+    app.set_confirming(0);
+    app.invoke_sheet_closed(20);
+    assert!(code_row(app, "Mail").hidden);
+}

@@ -18,7 +18,7 @@ use slint::{
     },
 };
 use vault_mobile::{
-    Controller,
+    Controller, NoSystem, PromptWords, System,
     ui::{PhoneWindow, Place, Secrets, Theme},
 };
 
@@ -28,6 +28,20 @@ const PASSWORD: &str = "phone demo passphrase";
 
 thread_local! {
     static CLOCK: Cell<Duration> = const { Cell::new(Duration::ZERO) };
+}
+
+/// A phone with a screen lock, for the shots of every use asking: its check passes when the
+/// example answers for it (`Controller::person_checked`).
+struct AskingPhone;
+
+impl System for AskingPhone {
+    fn checks_person(&self) -> Option<bool> {
+        Some(true)
+    }
+
+    fn check_person(&self, _: &PromptWords) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 struct OffscreenPlatform {
@@ -364,6 +378,31 @@ fn main() {
         "Every use asks: a secure note shows once asked for",
     );
     app.invoke_close_item();
+    // On a phone with a screen lock: a one-time code is dots until its eye, and shown only
+    // until it runs out.
+    controller.set_system(Rc::new(AskingPhone));
+    app.invoke_open_item(2);
+    camera.shot(
+        "item-code-hidden",
+        "Every use asks: the one-time code waits for its eye",
+    );
+    app.invoke_toggle_code();
+    controller.person_checked(Ok(()));
+    camera.shot(
+        "item-code-shown",
+        "After the fingerprint: shown until that code runs out",
+    );
+    app.invoke_close_item();
+    app.set_place(Place::Codes);
+    camera.shot("codes-hidden", "Codes: each one dots, with its own eye");
+    app.invoke_toggle_code_at(0);
+    controller.person_checked(Ok(()));
+    camera.shot(
+        "codes-one-shown",
+        "Codes: the one asked for, shown until it runs out",
+    );
+    app.set_place(Place::Items);
+    controller.set_system(Rc::new(NoSystem));
     app.invoke_open_item(2);
     app.invoke_edit_item();
     camera.shot("editor", "Editing a login");

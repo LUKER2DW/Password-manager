@@ -511,6 +511,13 @@ struct State {
     /// A use of a secret waiting for the phone's check, or the item lock's in its place
     /// (Settings → Ask for the fingerprint or screen lock every time).
     each_use: Option<each_use::Waiting>,
+    /// Whether the system can check the person, as last asked (`System::checks_person`:
+    /// asked again when the app comes back to the screen).
+    person_check: Option<bool>,
+    /// One-time codes shown after their check while every use asks: the item, and which code
+    /// (its time step, or a counter-based code's counter). Dots again once it isn't the
+    /// current one.
+    codes_shown: Vec<(ItemId, u64)>,
     confirm_delete: bool,
     generated: Zeroizing<String>,
     /// What this app put on the clipboard, and when it takes it back.
@@ -660,6 +667,8 @@ impl Controller {
                 show_card: false,
                 show_note: false,
                 each_use: None,
+                person_check: None,
+                codes_shown: Vec::new(),
                 confirm_delete: false,
                 generated: Zeroizing::new(String::new()),
                 copied: None,
@@ -796,6 +805,8 @@ impl Controller {
             }
         });
         on!(on_show_note, |c| c.use_of_item(Use::ShowNote));
+        on!(on_toggle_code, |c| c.toggle_code());
+        on!(on_toggle_code_at, |c, index| c.toggle_code_at(index));
         on!(on_copy, |c, what| c.copy(what));
         on!(on_unlock_item, |c| c.unlock_item());
         on!(on_ed_toggle_password, |c| {
@@ -2011,6 +2022,7 @@ impl Controller {
             state.show_card = false;
             state.show_note = false;
             state.each_use = None;
+            state.codes_shown.clear();
             state.master_checked = false;
             if let Some(vault) = state.vault.as_mut() {
                 vault.lock_secrets();
@@ -2084,6 +2096,7 @@ impl Controller {
             state.show_card = false;
             state.show_note = false;
             state.each_use = None;
+            state.codes_shown.clear();
             state.generated = Zeroizing::new(String::new());
             state.leaked.clear();
             state.watch_looked = None;
@@ -2589,15 +2602,22 @@ impl Controller {
         });
         let parsed = open.then(|| Totp::parse(&item.totp).ok()).flatten();
         app.set_d_counter_based(parsed.as_ref().is_some_and(Totp::is_counter_based));
-        let code = parsed.map(|totp| (totp.now(), totp.period()));
+        // Every use asks: the code is dots until its eye, and only until it runs out.
+        let hide = asks != Ask::Nothing;
+        let code = parsed.map(|totp| self.code_now(*id, &totp, hide));
         app.set_d_has_code(code.is_some());
+        app.set_d_code_eye(hide);
         match code {
-            Some(((digits, left), period)) => {
-                app.set_d_code(grouped(&digits).into());
-                app.set_d_code_left(i32::try_from(left).unwrap_or(0));
-                app.set_d_code_period(i32::try_from(period).unwrap_or(30));
+            Some(code) => {
+                app.set_d_code(code.text.into());
+                app.set_d_code_hidden(code.hidden);
+                app.set_d_code_left(i32::try_from(code.left).unwrap_or(0));
+                app.set_d_code_period(i32::try_from(code.period).unwrap_or(30));
             }
-            None => app.set_d_code(SharedString::new()),
+            None => {
+                app.set_d_code(SharedString::new());
+                app.set_d_code_hidden(false);
+            }
         }
     }
 
@@ -2637,7 +2657,8 @@ impl Controller {
     fn close_item(&self) {
         {
             let mut state = self.state.borrow_mut();
-            state.selected = None;
+            let left = state.selected.take();
+            state.codes_shown.retain(|(id, _)| Some(*id) != left);
             state.show_password = false;
             state.show_card = false;
             state.show_note = false;
@@ -2749,6 +2770,10 @@ impl Controller {
                 state.show_card = true;
                 state.show_note = true;
             }
+        }
+        let selected = self.state.borrow().selected;
+        if shows && let Some(id) = selected {
+            self.mark_code_shown(id);
         }
         self.set_error(error::NONE, "");
         self.close_sheet(sheet::ITEM_CHECK);
@@ -2870,6 +2895,7 @@ impl Controller {
     // ---- codes ----
 
     fn refresh_codes(&self) {
+        let hide = self.each_use_asks() != Ask::Nothing;
         let (rows, ids) = {
             let state = self.state.borrow();
             let Some(vault) = state.vault.as_ref() else {
@@ -2898,14 +2924,15 @@ impl Controller {
                 let Ok(item) = vault.get_item(&summary.id) else {
                     continue;
                 };
-                // Behind the item lock: the row says so instead of showing digits.
+                // Behind the item lock: the row says so instead of showing digits. Every use
+                // asking: dots until its eye.
                 let code = (self.check_for(vault, &item) == 0)
                     .then(|| Totp::parse(&item.totp).ok())
                     .flatten()
-                    .map(|totp| (totp.now(), totp.period()));
-                let (digits, left, period) = match code {
-                    Some(((digits, left), period)) => (grouped(&digits), left, period),
-                    None => (String::new(), 0, 30),
+                    .map(|totp| self.code_now(summary.id, &totp, hide));
+                let (digits, left, period, hidden) = match code {
+                    Some(code) => (code.text, code.left, code.period, code.hidden),
+                    None => (String::new(), 0, 30, false),
                 };
                 let (icon, has_icon) = self.picture(&summary.url, &summary.icon_url);
                 let (glyph, glyph_color, glyph_bg) = icons::look_of(&summary.icon_url);
@@ -2919,6 +2946,8 @@ impl Controller {
                     title: summary.title.as_str().into(),
                     account: summary.username.as_str().into(),
                     code: digits.into(),
+                    hidden,
+                    eye: hide,
                     left: i32::try_from(left).unwrap_or(0),
                     period: i32::try_from(period).unwrap_or(30),
                     initial: initial(&summary.title),
@@ -3561,6 +3590,7 @@ impl Controller {
         if app.get_screen() != Screen::Vault {
             return;
         }
+        self.forget_spent_codes();
         if app.get_page() == Page::Item && app.get_d_has_code() {
             self.show_item();
         } else if app.get_page() == Page::None && app.get_place() == Place::Codes {
@@ -3574,6 +3604,7 @@ impl Controller {
     /// itself is rebuilt by `refresh_codes`, after any change to the items.
     fn tick_codes(&self) {
         let codes = self.app().get_codes();
+        let hide = self.each_use_asks() != Ask::Nothing;
         let state = self.state.borrow();
         let Some(vault) = state.vault.as_ref() else {
             return;
@@ -3589,17 +3620,24 @@ impl Controller {
             let code = (self.check_for(vault, &item) == 0)
                 .then(|| Totp::parse(&item.totp).ok())
                 .flatten()
-                .map(|totp| (totp.now(), totp.period()));
-            let (digits, left, period) = match code {
-                Some(((digits, left), period)) => (grouped(&digits), left, period),
-                None => (String::new(), 0, 30),
+                .map(|totp| self.code_now(*id, &totp, hide));
+            let (digits, left, period, hidden) = match code {
+                Some(code) => (code.text, code.left, code.period, code.hidden),
+                None => (String::new(), 0, 30, false),
             };
             let left = i32::try_from(left).unwrap_or(0);
             let period = i32::try_from(period).unwrap_or(30);
-            if row.code != digits.as_str() || row.left != left || row.period != period {
+            if row.code != digits.as_str()
+                || row.left != left
+                || row.period != period
+                || row.hidden != hidden
+                || row.eye != hide
+            {
                 row.code = digits.into();
                 row.left = left;
                 row.period = period;
+                row.hidden = hidden;
+                row.eye = hide;
                 codes.set_row_data(i, row);
             }
         }

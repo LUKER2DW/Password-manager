@@ -1,9 +1,10 @@
 //! Settings → Security → "Ask for the fingerprint or screen lock every time" (on by default):
 //! each use of a secret asks the phone's own check first, in that very action, and nothing is
 //! remembered between two uses. A use is showing or copying a password (a card's PIN, an SSH
-//! private key), copying a one-time code, showing or copying a card's number or security
-//! code, showing a secure note, viewing or saving an attached file, opening an item in the
-//! editor (which shows every field), and showing or copying the generator's history.
+//! private key), showing or copying a one-time code (shown only until that code runs out),
+//! showing or copying a card's number or security code, showing a secure note, viewing or
+//! saving an attached file, opening an item in the editor (which shows every field), and
+//! showing or copying the generator's history.
 //!
 //! The check is Android's prompt (a strong biometric or the screen lock, `System::check_person`).
 //! A phone with no screen lock can't ask it: the item lock's PIN or password is asked instead,
@@ -15,11 +16,11 @@
 //! the visit. With this setting it also shows them (the password, the card's number), so that
 //! one action never asks twice: every later use asks the phone again.
 
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 use vault_core::{GuardCheck, ItemId, ItemKind, Vault, totp::Totp};
 
-use super::{Controller, error, field, fingerprint, notice, sheet};
-use crate::{system::PromptWords, ui::Words};
+use super::{Controller, error, field, fingerprint, grouped, notice, sheet};
+use crate::{system::PromptWords, ui::Words, view};
 
 /// One use of a secret that asks first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +31,10 @@ pub(super) enum Use {
     ShowCard,
     /// A secure note's text.
     ShowNote,
+    /// The open item's one-time code, and one on the Codes page: shown until that code runs
+    /// out (the next time step, or a counter-based code's next one).
+    ShowCode,
+    ShowCodeOf(ItemId),
     /// The item page's copy buttons (`copy`'s `what`: 1 password, 2 code, 5 card number,
     /// 6 security code).
     Copy(i32),
@@ -52,7 +57,7 @@ impl Use {
     fn on_item_page(self) -> bool {
         !matches!(
             self,
-            Self::CopyCode(_) | Self::ShowGenerated | Self::CopyGenerated(_)
+            Self::CopyCode(_) | Self::ShowCodeOf(_) | Self::ShowGenerated | Self::CopyGenerated(_)
         )
     }
 
@@ -71,6 +76,7 @@ impl Use {
             Self::SaveFile(_) => 10,
             Self::ShowGenerated => 11,
             Self::CopyGenerated(_) => 12,
+            Self::ShowCode | Self::ShowCodeOf(_) => 13,
             Self::Copy(_) => 0,
         }
     }
@@ -104,6 +110,36 @@ mod state {
     pub const NOT_HERE: i32 = 4;
 }
 
+/// An item's one-time code as the screens show it now.
+pub(super) struct CodeNow {
+    /// Its digits, grouped, or as many dots while it waits for its eye.
+    pub(super) text: String,
+    /// Seconds it has left (0 for a counter-based code, which stays until the next one).
+    pub(super) left: u64,
+    pub(super) period: u64,
+    pub(super) hidden: bool,
+}
+
+/// Which code of `totp` is the current one at `now` (Unix seconds): its time step, or the
+/// counter of a counter-based code.
+fn which_code(totp: &Totp, now: u64) -> u64 {
+    totp.counter().unwrap_or(now / totp.period().max(1))
+}
+
+fn now() -> u64 {
+    u64::try_from(view::now_unix()).unwrap_or(0)
+}
+
+/// A code's place, kept: `digits` dots grouped as the digits are.
+fn dots(digits: usize) -> String {
+    let dots = "•".repeat(digits);
+    if digits < 6 {
+        return dots;
+    }
+    let half = digits.div_ceil(2);
+    format!("{} {}", "•".repeat(half), "•".repeat(digits - half))
+}
+
 /// A use waiting for its check: what it is, the item open then, and the session it was asked
 /// in (a vault locked or opened since makes it nothing).
 #[derive(Debug, Clone, Copy)]
@@ -133,23 +169,28 @@ impl Controller {
         if !self.state.borrow().prefs.ask_each_use {
             return Ask::Nothing;
         }
-        match self.system().checks_person() {
+        let state = self.state.borrow();
+        match state.person_check {
             None => Ask::Nothing,
             Some(true) => Ask::Phone,
-            Some(false) => {
-                let state = self.state.borrow();
-                match state.vault.as_ref().and_then(typed_check) {
-                    Some(check) => Ask::ItemLock(check),
-                    None => Ask::Refused,
-                }
-            }
+            Some(false) => match state.vault.as_ref().and_then(typed_check) {
+                Some(check) => Ask::ItemLock(check),
+                None => Ask::Refused,
+            },
         }
     }
 
-    /// Settings → Security: the switch, and what it does on this phone now.
+    /// Asks the system again whether it can check the person (a screen lock set or removed
+    /// meanwhile), and shows what follows: Settings → Security (the switch, and what it does on
+    /// this phone now), the codes (dots or not).
     pub(super) fn refresh_each_use(&self) {
-        let on = self.state.borrow().prefs.ask_each_use;
-        let shown = match self.system().checks_person() {
+        let check = self.system().checks_person();
+        let on = {
+            let mut state = self.state.borrow_mut();
+            state.person_check = check;
+            state.prefs.ask_each_use
+        };
+        let shown = match check {
             None => state::NOT_HERE,
             Some(true) => state::PHONE,
             Some(false) => {
@@ -164,6 +205,9 @@ impl Controller {
         let app = self.app();
         app.set_ask_each_use(on);
         app.set_ask_each_use_state(shown);
+        if self.state.borrow().vault.is_some() {
+            self.refresh_codes();
+        }
     }
 
     pub(super) fn ask_each_use_changed(&self, on: bool) {
@@ -348,6 +392,13 @@ impl Controller {
                 self.state.borrow_mut().show_note = true;
                 self.show_item();
             }
+            Use::ShowCode => {
+                let selected = self.state.borrow().selected;
+                if let Some(id) = selected {
+                    self.show_code_now(id);
+                }
+            }
+            Use::ShowCodeOf(id) => self.show_code_now(id),
             Use::Copy(what) => self.copy_now(what),
             Use::CopyCode(id) => self.copy_code_now(id),
             Use::Edit => {
@@ -409,6 +460,144 @@ impl Controller {
         if let Some(code) = code {
             self.copy_secret(&code, notice::CODE_COPIED);
         }
+    }
+
+    // ---- one-time codes ----
+
+    /// `totp`'s code now, for the item `id`: its digits, or dots when codes `hide` (every use
+    /// asks) and this one wasn't asked for since it came.
+    pub(super) fn code_now(&self, id: ItemId, totp: &Totp, hide: bool) -> CodeNow {
+        let now = now();
+        let which = which_code(totp, now);
+        let period = totp.period().max(1);
+        let left = if totp.is_counter_based() {
+            0
+        } else {
+            period - now % period
+        };
+        let hidden = hide && !self.state.borrow().codes_shown.contains(&(id, which));
+        let text = if hidden {
+            dots(usize::try_from(totp.digits()).unwrap_or(6))
+        } else {
+            grouped(&totp.code_for(which))
+        };
+        CodeNow {
+            text,
+            left,
+            period,
+            hidden,
+        }
+    }
+
+    /// The item's current code counts as asked for, until it runs out (nothing while the item
+    /// waits for the item lock, or has no code).
+    pub(super) fn mark_code_shown(&self, id: ItemId) {
+        let mut state = self.state.borrow_mut();
+        let which = state
+            .vault
+            .as_ref()
+            .and_then(|vault| vault.get_item(&id).ok())
+            .filter(|item| !item.is_locked())
+            .and_then(|item| Totp::parse(&item.totp).ok())
+            .map(|totp| which_code(&totp, now()));
+        if let Some(which) = which
+            && !state.codes_shown.contains(&(id, which))
+        {
+            state.codes_shown.push((id, which));
+        }
+    }
+
+    /// Shows the item's current code, its check passed: on its page and on the Codes page.
+    fn show_code_now(&self, id: ItemId) {
+        self.mark_code_shown(id);
+        self.show_codes_again(id);
+    }
+
+    /// The item page (when `id` is open) and the Codes page, drawn again.
+    fn show_codes_again(&self, id: ItemId) {
+        if self.state.borrow().selected == Some(id) {
+            self.show_item();
+        }
+        self.refresh_codes();
+    }
+
+    /// Codes shown after their check go back to dots once a newer code is the current one
+    /// (the time step passed, or a counter-based code moved on). Never asked again by itself.
+    pub(super) fn forget_spent_codes(&self) {
+        let now = now();
+        let mut state = self.state.borrow_mut();
+        if state.codes_shown.is_empty() {
+            return;
+        }
+        let state = &mut *state;
+        let vault = state.vault.as_ref();
+        state.codes_shown.retain(|(id, which)| {
+            vault
+                .and_then(|vault| vault.get_item(id).ok())
+                .and_then(|item| Totp::parse(&item.totp).ok())
+                .is_some_and(|totp| which_code(&totp, now) == *which)
+        });
+    }
+
+    /// The item page's eye on the code: shown (asked first) or hidden (never asked).
+    pub(super) fn toggle_code(&self) {
+        let Some(id) = self.state.borrow().selected else {
+            return;
+        };
+        if self.app().get_d_code_hidden() {
+            self.use_of_item(Use::ShowCode);
+        } else {
+            self.hide_code(id);
+        }
+    }
+
+    /// A Codes page row's eye: that code only.
+    pub(super) fn toggle_code_at(&self, index: i32) {
+        let row = usize::try_from(index).ok();
+        let id = row.and_then(|row| self.state.borrow().code_ids.get(row).copied());
+        let (Some(row), Some(id)) = (row, id) else {
+            return;
+        };
+        let hidden = self.app().get_codes().row_data(row).map(|row| row.hidden);
+        match hidden {
+            Some(true) => {
+                let open = {
+                    let state = self.state.borrow();
+                    state.vault.as_ref().is_some_and(|vault| {
+                        vault
+                            .get_item(&id)
+                            .is_ok_and(|item| self.check_for(vault, &item) == 0)
+                    })
+                };
+                if open {
+                    self.ask_first(Use::ShowCodeOf(id));
+                }
+            }
+            Some(false) => self.hide_code(id),
+            None => {}
+        }
+    }
+
+    fn hide_code(&self, id: ItemId) {
+        self.state
+            .borrow_mut()
+            .codes_shown
+            .retain(|(shown, _)| *shown != id);
+        self.show_codes_again(id);
+    }
+
+    /// The tests: every code shown counts as one that ran out (as once its time step passed),
+    /// and the screens are drawn again as each second does.
+    #[cfg(test)]
+    pub(crate) fn codes_run_out(&self) {
+        for (_, which) in &mut self.state.borrow_mut().codes_shown {
+            *which = which.wrapping_sub(1);
+        }
+        self.forget_spent_codes();
+        if self.state.borrow().selected.is_some() {
+            self.show_item();
+        }
+        self.refresh_codes();
     }
 
     /// The generator's history, shown (the screens flipped `gen-history-shown` already) or

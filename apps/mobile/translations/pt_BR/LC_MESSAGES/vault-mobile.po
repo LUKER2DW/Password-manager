@@ -3603,3 +3603,7 @@ msgstr "Este celular não tem bloqueio de tela, então a senha do item é pedida
 msgctxt "PhoneWindow"
 msgid "Confirm"
 msgstr "Confirmar"
+
+msgctxt "Words"
+msgid "Show the one-time code"
+msgstr "Mostrar o código de uso único"

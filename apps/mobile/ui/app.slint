@@ -127,7 +127,9 @@ export struct CodeRow {
     counter: bool,      // counter-based: a new code on Next, not with the time
     title: string,
     account: string,
-    code: string,       // "" while the item is locked
+    code: string,       // "" while the item is locked; dots while it waits for its eye
+    hidden: bool,       // every use asks: dots until the eye, and again once the code runs out
+    eye: bool,          // every use asks: the row has an eye to show or hide its code
     left: int,
     period: int,
     initial: string,
@@ -279,6 +281,7 @@ export global Words {
         if (what == 10) { return @tr("Save the file"); }
         if (what == 11) { return @tr("Show the generated passwords"); }
         if (what == 12) { return @tr("Copy a generated password"); }
+        if (what == 13) { return @tr("Show the one-time code"); }
         return @tr("Confirm it's you");
     }
     // What the health page says under a login: the worst first.
@@ -1845,6 +1848,11 @@ export component PhoneWindow inherits Window {
     in property <int> d-code-left;
     in property <int> d-code-period;
     in property <bool> d-has-code;
+    // Every use asks: the code is dots until its eye (`d-code-eye`), and again once it runs out.
+    in property <bool> d-code-hidden;
+    in property <bool> d-code-eye;
+    callback toggle-code();
+    callback toggle-code-at(int);
     // The item lock stands in front of this item's secrets: 0 no, 1 master password, 2 PIN,
     // 3 item password.
     in property <int> d-check;
@@ -3476,11 +3484,11 @@ export component PhoneWindow inherits Window {
                                                             font-size: row.code != "" ? Theme.headline : Theme.body;
                                                             color: row.code == "" ? Theme.graphite
                                                                 : root.code-flash == index ? Theme.good
-                                                                : row.left <= 5 && !row.counter ? Theme.seal : Theme.ink;
+                                                                : row.left <= 5 && !row.counter && !row.hidden ? Theme.seal : Theme.ink;
                                                             letter-spacing: row.code != "" && root.code-flash != index ? 1px : 0px;
                                                         }
                                                     }
-                                                    if row.code != "" && !row.counter: HorizontalLayout {
+                                                    if row.code != "" && !row.counter && !row.hidden: HorizontalLayout {
                                                         spacing: 8px;
                                                         Text {
                                                             text: @tr("{}s", row.left);
@@ -3498,6 +3506,11 @@ export component PhoneWindow inherits Window {
                                                     if row.code != "" && row.counter: VerticalLayout {
                                                         alignment: center;
                                                         QuietButton { text: @tr("Next"); icon: "refresh"; clicked => { root.next-code-at(index); } }
+                                                    }
+                                                    // Every use asks: this code only, until it runs out.
+                                                    if row.code != "" && row.eye: VerticalLayout {
+                                                        alignment: center;
+                                                        EyeButton { open: !row.hidden; clicked => { root.toggle-code-at(index); } }
                                                     }
                                                 }
                                                 Rule {
@@ -5572,15 +5585,19 @@ export component PhoneWindow inherits Window {
                                         vertical-alignment: center;
                                         horizontal-stretch: 1;
                                     }
-                                    if !root.d-counter-based: Text {
+                                    if !root.d-counter-based && !root.d-code-hidden: Text {
                                         text: @tr("{}s", root.d-code-left);
                                         font-size: Theme.body;
                                         color: root.d-code-left <= 5 ? Theme.seal : Theme.graphite;
                                         vertical-alignment: center;
                                     }
-                                    if !root.d-counter-based: VerticalLayout {
+                                    if !root.d-counter-based && !root.d-code-hidden: VerticalLayout {
                                         alignment: center;
                                         Countdown { size: 26px; left: root.d-code-left; period: root.d-code-period; }
+                                    }
+                                    if root.d-code-eye: VerticalLayout {
+                                        alignment: center;
+                                        EyeButton { open: !root.d-code-hidden; clicked => { root.toggle-code(); } }
                                     }
                                     if root.d-counter-based: VerticalLayout {
                                         alignment: center;
