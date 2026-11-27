@@ -2,9 +2,9 @@
 //! desktop app, and its answers come back on standard output. The host understands none of
 //! them and keeps nothing.
 //!
-//! The host is the desktop app's own executable: a browser starts `vault-desktop.exe` with the
-//! extension's origin as its first argument, and the app then runs [`run`] instead of opening
-//! a window.
+//! The host is the desktop app's own executable: a browser starts `vault-desktop.exe` with
+//! arguments that name the extension ([`is_our_extension`]), and the app then runs [`run`]
+//! instead of opening a window.
 
 use std::{
     io::{Read, Write},
@@ -16,9 +16,21 @@ use vault_platform::browser_link::{self, read_frame, write_frame};
 /// Sent in place of the app's answer when the app can't be reached.
 pub const NOT_RUNNING: &[u8] = br#"{"type":"error","code":"not_running"}"#;
 
-/// Whether `caller` (the first argument a browser gives the host) is our extension.
-pub fn is_our_extension(caller: Option<&str>) -> bool {
-    caller == Some(vault_platform::browser_link::extension_origin().as_str())
+/// Whether the arguments a browser started the host with (`args`, after the program's own
+/// path) name our extension. Chrome and Edge give its origin first (then a window handle);
+/// Firefox gives the path of the host's manifest, then the extension's add-on id.
+///
+/// This only tells a browser's start from a person's (a vault file to open): anyone may start
+/// the program with these arguments, and the app answers only the extension paired with it.
+pub fn is_our_extension<S: AsRef<str>>(args: &[S]) -> bool {
+    match args {
+        [first, ..] if first.as_ref() == browser_link::extension_origin() => true,
+        [manifest, id, ..] => {
+            id.as_ref() == browser_link::GECKO_ID
+                && manifest.as_ref().to_ascii_lowercase().ends_with(".json")
+        }
+        _ => false,
+    }
 }
 
 /// The native host's whole run, for the browser that started `app` (this executable) as the
@@ -60,13 +72,54 @@ mod tests {
     #[test]
     fn only_our_extension_may_start_the_host() {
         let ours = vault_platform::browser_link::extension_origin();
-        assert!(is_our_extension(Some(&ours)));
-        assert!(!is_our_extension(None));
-        assert!(!is_our_extension(Some(
+        assert!(is_our_extension(&[ours.as_str()]));
+        assert!(is_our_extension(&[ours.as_str(), "--parent-window=0"]));
+        assert!(!is_our_extension::<&str>(&[]));
+        assert!(!is_our_extension(&[
             "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"
-        )));
-        assert!(!is_our_extension(Some(ours.trim_end_matches('/'))));
-        assert!(!is_our_extension(Some("--parent-window=0")));
+        ]));
+        assert!(!is_our_extension(&[ours.trim_end_matches('/')]));
+        assert!(!is_our_extension(&["--parent-window=0"]));
+        // A vault file opened from Explorer is no browser.
+        assert!(!is_our_extension(&[r"C:\Vaults\test.vault"]));
+    }
+
+    #[test]
+    fn firefox_starts_the_host_with_its_manifest_and_our_add_on_id() {
+        let manifest = r"C:\Users\Test User\AppData\Roaming\vault\browser\vault.desktop.browser_host.firefox.json";
+        let id = vault_platform::browser_link::GECKO_ID;
+        assert!(is_our_extension(&[manifest, id]));
+        assert!(!is_our_extension(&[manifest]));
+        assert!(!is_our_extension(&[
+            manifest,
+            "{00000000-0000-0000-0000-000000000000}"
+        ]));
+        assert!(!is_our_extension(&[manifest, id.to_uppercase().as_str()]));
+        assert!(!is_our_extension(&[r"C:\Vaults\test.vault", id]));
+        assert!(!is_our_extension(&[id, manifest]));
+    }
+
+    #[test]
+    fn the_ids_the_host_accepts_are_the_extensions_own() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../../apps/extension/manifest.json")).unwrap();
+        assert_eq!(
+            manifest["browser_specific_settings"]["gecko"]["id"],
+            vault_platform::browser_link::GECKO_ID
+        );
+        // Chrome's id: the first 16 bytes of the SHA-256 of the manifest's public key, one
+        // letter a-p per half-byte.
+        use base64::Engine;
+        use sha2::Digest;
+        let key = base64::engine::general_purpose::STANDARD
+            .decode(manifest["key"].as_str().unwrap())
+            .unwrap();
+        let id: String = sha2::Sha256::digest(&key)[..16]
+            .iter()
+            .flat_map(|byte| [byte >> 4, byte & 15])
+            .map(|half| char::from(b'a' + half))
+            .collect();
+        assert_eq!(id, vault_platform::browser_link::EXTENSION_ID);
     }
 
     #[test]

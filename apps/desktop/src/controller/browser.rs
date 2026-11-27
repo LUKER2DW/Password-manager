@@ -111,8 +111,8 @@ fn pairing_path_locked(vault_id: &str) -> Option<PathBuf> {
 type HelloInputs = (Arc<dyn DeviceVerifier>, String);
 
 impl Controller {
-    /// Turns the link on or off: tells Chrome and Edge where the native host is (or removes
-    /// that), and starts or stops listening.
+    /// Turns the link on or off: tells Chrome, Edge and Firefox where the native host is (or
+    /// removes that), and starts or stops listening.
     pub(super) fn apply_browser_link(&self, on: bool) {
         if self.state.borrow().runner == Runner::Inline {
             return; // headless tests never touch the registry or open pipes
@@ -154,7 +154,7 @@ impl Controller {
                 });
                 return;
             };
-            // Only the copy of the app that holds the pipe points Chrome and Edge at its host.
+            // Only the copy of the app that holds the pipe points the browsers at its host.
             // Registered before the pipe was ours, a second copy elsewhere (that then failed
             // to bind) would leave the browsers talking to its host, which this pipe refuses.
             if let Err(err) = browser_link::register_host(&host) {
