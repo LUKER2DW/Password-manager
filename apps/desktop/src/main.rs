@@ -1,8 +1,10 @@
 //! Desktop app entry point.
 //!
 //! A `.vault` file given as the first argument (a double-click in Explorer, "Open with") is
-//! the vault the app opens. Set `VAULT_ALLOW_CAPTURE=1` to allow screenshots of the window
-//! (design reviews only).
+//! the vault the app opens. `--at-sign-in` is Windows starting it at sign-in (Settings →
+//! Appearance): it then waits in the notification area when the person chose so. Started
+//! again without a file while it runs, it brings the running copy's window to the front.
+//! Set `VAULT_ALLOW_CAPTURE=1` to allow screenshots of the window (design reviews only).
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -11,10 +13,13 @@ use std::{path::PathBuf, time::Duration};
 use slint::ComponentHandle;
 use vault_desktop::{
     apply_sketches,
-    controller::{Controller, Runner},
+    controller::{Controller, Runner, TrayAction},
     ui::{AppWindow, Messages},
 };
-use vault_platform::file_types;
+use vault_platform::{
+    autostart, file_types,
+    single_instance::{self, Claim},
+};
 
 fn main() -> anyhow::Result<()> {
     // Started by a browser as the browser extension's native host (Chrome and Edge give the
@@ -33,13 +38,24 @@ fn main() -> anyhow::Result<()> {
             Err(anyhow::anyhow!("the browser link ended with an error"))
         };
     }
-    let app = AppWindow::new()?;
-    apply_sketches(&app);
     let opened = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
         .filter(|path| file_types::is_vault_file(path) && path.is_file())
         .and_then(|path| std::path::absolute(path).ok());
+    let at_sign_in = autostart::is_sign_in_start(std::env::args_os().skip(1));
+    // One copy of the app: started again, it shows the running copy's window and ends. A file
+    // to open, or a test vault in VAULT_FILE, still gets a window of its own.
+    let alone = opened.is_none() && std::env::var_os("VAULT_FILE").is_none();
+    let instance = match alone.then(vault_platform::paths::app_dir) {
+        Some(Ok(app_dir)) => match single_instance::claim(&app_dir) {
+            Claim::Running => return Ok(()),
+            Claim::First(instance) => Some(instance),
+        },
+        _ => None,
+    };
+    let app = AppWindow::new()?;
+    apply_sketches(&app);
     // A file opened from Explorer wins, then VAULT_FILE, then the vault used last on this
     // computer, if it is still there.
     let path = if let Some(path) = opened {
@@ -62,14 +78,29 @@ fn main() -> anyhow::Result<()> {
         vault_platform::quick_unlock::system_verifier(),
     )?;
 
+    if let Some(instance) = instance {
+        instance.when_called(|| {
+            let _ = slint::invoke_from_event_loop(|| Controller::tray_action(TrayAction::Open));
+        });
+    }
+
     // .vault files show this app's icon and open in it (for this user, pointing at this
-    // program). A development build leaves the registration to the installed app.
+    // program), and a start at sign-in starts this copy (a moved app, a newer one downloaded).
+    // A development build leaves both to the installed app, and so does a run on a test vault
+    // or app folder (VAULT_FILE, VAULT_HOME) for the start at sign-in.
     if !cfg!(debug_assertions)
         && let Ok(exe) = std::env::current_exe()
     {
         let type_name = app.global::<Messages>().get_vault_file_type();
+        let follow =
+            std::env::var_os("VAULT_FILE").is_none() && std::env::var_os("VAULT_HOME").is_none();
         std::thread::spawn(move || {
             let _ = file_types::register_vault_files(&exe, &type_name);
+            if follow && let Ok(Some(before)) = autostart::follow(&exe) {
+                let _ = slint::invoke_from_event_loop(move || {
+                    Controller::sign_in_start_moved(&before);
+                });
+            }
         });
     }
 
@@ -113,7 +144,15 @@ fn main() -> anyhow::Result<()> {
         slint::CloseRequestResponse::HideWindow
     });
 
-    app.show()?;
+    if at_sign_in && in_tray && controller.starts_in_tray() {
+        // Started by Windows at sign-in: only the icon next to the clock. The window is made
+        // all the same, hidden, so it is kept out of screen captures (above) before it is
+        // ever shown.
+        app.show()?;
+        app.hide()?;
+    } else {
+        app.show()?;
+    }
     slint::run_event_loop_until_quit()?;
     drop(tray);
     Ok(())

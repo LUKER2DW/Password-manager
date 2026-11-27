@@ -951,6 +951,41 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_detail_history_count(), 0);
     assert_eq!(app.get_notice_code(), 24);
 
+    // ---- starting at sign-in (Windows keeps it; these tests keep it in memory) ----
+    app.invoke_open_settings();
+    assert!(!app.get_start_at_sign_in());
+    assert!(
+        app.get_start_in_tray(),
+        "waits in the notification area by default"
+    );
+    app.invoke_start_at_sign_in_changed(true);
+    assert!(app.get_start_at_sign_in());
+    assert_eq!(app.get_error_code(), 0);
+    assert!(controller.starts_in_tray());
+    app.set_start_in_tray(false);
+    app.invoke_settings_changed();
+    assert!(!controller.starts_in_tray());
+    assert!(
+        !vault_platform::DeviceState::load()
+            .unwrap()
+            .settings
+            .start_in_tray
+    );
+    app.invoke_open_settings();
+    assert!(
+        app.get_start_at_sign_in(),
+        "still on when Settings opens again"
+    );
+    assert!(!app.get_start_in_tray());
+    app.set_start_in_tray(true);
+    app.invoke_settings_changed();
+    app.invoke_start_at_sign_in_changed(false);
+    assert!(!app.get_start_at_sign_in());
+    // The entry started another program file (an older copy, or not Vault at all): said so.
+    Controller::sign_in_start_moved(r"C:\Old\vault-desktop.exe");
+    assert_eq!(app.get_notice_code(), 90);
+    assert_eq!(app.get_notice_arg(), r"C:\Old\vault-desktop.exe");
+
     // ---- vault settings ----
     app.invoke_open_settings();
     assert_eq!(app.get_history_limit(), 10);

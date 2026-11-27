@@ -3305,6 +3305,10 @@ msgid "This computer couldn't keep the new Secret Key ({}), and the vault file n
 msgstr "Este computador não conseguiu guardar a nova chave secreta ({}), e o arquivo do cofre agora abre só com ela: mantenha o novo kit de emergência à mão, ele é pedido no próximo desbloqueio."
 
 msgctxt "Messages"
+msgid "Windows didn't take the change to starting at sign-in ({}). The check shows what Windows will do."
+msgstr "O Windows não aceitou a mudança na abertura ao entrar ({}). A caixa mostra o que o Windows vai fazer."
+
+msgctxt "Messages"
 msgid "The vault key was renewed: the old kit, the old Secret Key and older copies of the file no longer open it. Print the new kit now. Windows Hello is off until you turn it on again."
 msgstr "A chave do cofre foi renovada: o kit antigo, a chave secreta antiga e as cópias mais antigas do arquivo não abrem mais o cofre. Imprima o novo kit agora. O Windows Hello fica desligado até você ligar de novo."
 
@@ -3395,6 +3399,10 @@ msgstr "Ainda não há atualização no seu servidor do cofre. Ele as busca sozi
 msgctxt "Messages"
 msgid "Version {} of Vault is out: Settings → About → Updates opens its page."
 msgstr "Saiu a versão {} do Vault: Configurações → Sobre → Atualizações abre a página dela."
+
+msgctxt "Messages"
+msgid "Windows now starts this copy of Vault when you sign in, instead of {}."
+msgstr "Agora o Windows abre esta cópia do Vault quando você entra, em vez de {}."
 
 msgctxt "PhoneWindow"
 msgid "Opens again: 0.4.2 and 0.4.3 closed as soon as they started. Updates come from the project's releases on GitHub, or from your server if you choose it, and are looked for every hour while a vault is open, so a fix reaches you the same day."

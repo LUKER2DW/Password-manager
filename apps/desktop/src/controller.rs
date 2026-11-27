@@ -176,6 +176,8 @@ mod error {
     pub const KEY_NOT_TAKEN: i32 = 61;
     pub const KEY_NOT_KEPT: i32 = 62;
     pub const KEY_ONLY_KIT: i32 = 63;
+    /// Windows didn't take the start at sign-in (Settings → Appearance), on or off.
+    pub const SIGN_IN_START: i32 = 64;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -272,6 +274,9 @@ mod notice {
     /// A newer version of the app is out (GitHub's newest release; the argument is its
     /// version).
     pub const UPDATE_OUT: i32 = 89;
+    /// The start at sign-in started another program file and now starts this copy (the
+    /// argument is that program).
+    pub const SIGN_IN_START_MOVED: i32 = 90;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -562,6 +567,8 @@ struct State {
     generated_shown: Option<usize>,
     /// Wrong tries at a guarded item since the last right one.
     guard_attempts: u32,
+    /// Headless tests: the start at sign-in, kept here instead of in the registry.
+    sign_in_start: bool,
 }
 
 #[derive(Default)]
@@ -719,6 +726,7 @@ impl Controller {
                 editor_generated: None,
                 generated_shown: None,
                 guard_attempts: 0,
+                sign_in_start: false,
             }),
             timers: Timers::default(),
             lengths: Rc::new(VecModel::from(vec![0; field::COUNT])),
@@ -1063,6 +1071,8 @@ impl Controller {
         on!(on_use_generated, |c| c.use_generated());
 
         on!(on_settings_changed, |c| c.save_settings());
+        on!(on_start_at_sign_in_changed, |c, on| c
+            .set_start_at_sign_in(on));
         on!(on_ed_url_changed, |c| c.editor_site_icon());
         on!(on_open_settings_dialog, |c, kind| c
             .open_settings_dialog(kind));
@@ -2458,6 +2468,14 @@ impl Controller {
         ))
     }
 
+    /// The start at sign-in pointed at `before` and now starts this copy: a moved or newer
+    /// copy of the app, or another program put there, so the person is told which.
+    pub fn sign_in_start_moved(before: &str) {
+        if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
+            controller.notify(notice::SIGN_IN_START_MOVED, before);
+        }
+    }
+
     /// What the notification area icon's menu asks for.
     pub fn tray_action(action: TrayAction) {
         let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) else {
@@ -2489,6 +2507,40 @@ impl Controller {
         self.timers.auth.stop();
         self.conceal();
         true
+    }
+
+    /// Whether a start at sign-in waits in the notification area (Settings → Appearance).
+    pub fn starts_in_tray(&self) -> bool {
+        self.state.borrow().settings.start_in_tray
+    }
+
+    /// Whether Windows starts the app at sign-in. Windows keeps that (`autostart.rs`), so an
+    /// entry turned off in Task Manager shows as off; headless tests keep it in memory.
+    fn starts_at_sign_in(&self) -> bool {
+        let state = self.state.borrow();
+        if state.runner == Runner::Inline {
+            state.sign_in_start
+        } else {
+            vault_platform::autostart::is_on()
+        }
+    }
+
+    /// Settings → Appearance → "Open when I sign in to Windows". The check then shows what
+    /// Windows will do, also when it refused.
+    fn set_start_at_sign_in(&self, on: bool) {
+        let done = if self.state.borrow().runner == Runner::Inline {
+            self.state.borrow_mut().sign_in_start = on;
+            Ok(())
+        } else {
+            std::env::current_exe()
+                .map_err(anyhow::Error::from)
+                .and_then(|exe| vault_platform::autostart::set(&exe, on))
+        };
+        match done {
+            Ok(()) => self.set_error(error::NONE, ""),
+            Err(err) => self.set_error(error::SIGN_IN_START, &err.to_string()),
+        }
+        self.app().set_start_at_sign_in(self.starts_at_sign_in());
     }
 
     /// Shows the window again, as it was.
@@ -4375,6 +4427,8 @@ impl Controller {
         app.set_leak_watch(settings.leak_watch);
         app.set_update_checks(settings.update_checks);
         app.set_close_to_tray(settings.close_to_tray);
+        app.set_start_in_tray(settings.start_in_tray);
+        app.set_start_at_sign_in(self.starts_at_sign_in());
         app.set_browser_locked_fill(settings.browser_locked_fill);
         app.set_browser_extension(settings.browser_extension);
         app.set_browser_saves(settings.browser_saves);
@@ -5073,6 +5127,7 @@ impl Controller {
             update_checks: app.get_update_checks(),
             browser_extension: app.get_browser_extension(),
             close_to_tray: app.get_close_to_tray(),
+            start_in_tray: app.get_start_in_tray(),
             browser_locked_fill: app.get_browser_locked_fill(),
             generator: self.state.borrow().settings.generator.clone(),
             language: self.state.borrow().settings.language.clone(),

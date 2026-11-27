@@ -642,6 +642,8 @@ export component AppWindow inherits Window {
     in-out property <bool> website-icons;
     in-out property <bool> leak-watch;
     in-out property <bool> close-to-tray: true;
+    in-out property <bool> start-at-sign-in;
+    in-out property <bool> start-in-tray: true;
     in-out property <bool> browser-locked-fill: true;
     in property <[GeneratedRow]> gen-history;
     in property <bool> gen-history-locked;
@@ -659,6 +661,7 @@ export component AppWindow inherits Window {
     in property <int> vault-recovery;
     callback vault-settings-changed();
     callback settings-changed();
+    callback start-at-sign-in-changed(bool);
     callback appearance-changed(bool);
     // 0 follows Windows, then src/i18n.rs → LANGUAGES in order.
     in-out property <int> language;
@@ -1089,6 +1092,8 @@ export component AppWindow inherits Window {
                 website-icons <=> root.website-icons;
                 leak-watch <=> root.leak-watch;
                 close-to-tray <=> root.close-to-tray;
+                start-at-sign-in <=> root.start-at-sign-in;
+                start-in-tray <=> root.start-in-tray;
                 backdrop-on <=> root.backdrop-on;
                 browser-locked-fill <=> root.browser-locked-fill;
                 browser-extension <=> root.browser-extension;
@@ -1132,6 +1137,7 @@ export component AppWindow inherits Window {
                 quick-unlock-on <=> root.quick-unlock-on;
                 quick-unlock-toggled(on) => { root.quick-unlock-toggled(on); }
                 settings-changed => { root.settings-changed(); }
+                start-at-sign-in-changed(on) => { root.start-at-sign-in-changed(on); }
                 appearance-changed(dark) => { root.appearance-changed(dark); }
                 language <=> root.language;
                 language-changed(choice) => { root.language-changed(choice); }

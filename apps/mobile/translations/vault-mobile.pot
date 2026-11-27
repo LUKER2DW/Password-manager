@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: vault-mobile VERSION\n"
-"POT-Creation-Date: 2026-11-27 02:16+0000\n"
+"POT-Creation-Date: 2026-11-27 02:51+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -3597,135 +3597,142 @@ msgstr ""
 
 #: ../desktop/ui/model.slint:225
 msgctxt "Messages"
-msgid "Give the item a title."
+msgid ""
+"Windows didn't take the change to starting at sign-in ({}). The check shows "
+"what Windows will do."
 msgstr ""
 
 #: ../desktop/ui/model.slint:226
+msgctxt "Messages"
+msgid "Give the item a title."
+msgstr ""
+
+#: ../desktop/ui/model.slint:227
 msgctxt "Messages"
 msgid ""
 "The one-time code secret isn't valid. Paste the otpauth:// link or the key "
 "shown by the website."
 msgstr ""
 
-#: ../desktop/ui/model.slint:227
+#: ../desktop/ui/model.slint:228
 msgctxt "Messages"
 msgid "The current master password is wrong."
 msgstr ""
 
-#: ../desktop/ui/model.slint:228
+#: ../desktop/ui/model.slint:229
 msgctxt "Messages"
 msgid "The clipboard isn't available right now. Try again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:229
+#: ../desktop/ui/model.slint:230
 msgctxt "Messages"
 msgid "That file couldn't be imported: {}"
 msgstr ""
 
-#: ../desktop/ui/model.slint:230
+#: ../desktop/ui/model.slint:231
 msgctxt "Messages"
 msgid ""
 "That card number has a typo: check the digits (12 to 19, as printed on the "
 "card)."
 msgstr ""
 
-#: ../desktop/ui/model.slint:231
+#: ../desktop/ui/model.slint:232
 msgctxt "Messages"
 msgid "Write the expiry date as MM/YY, for example 08/29."
 msgstr ""
 
-#: ../desktop/ui/model.slint:232
+#: ../desktop/ui/model.slint:233
 msgctxt "Messages"
 msgid ""
 "The security code is the 3 digits on the back (4 on the front for American "
 "Express)."
 msgstr ""
 
-#: ../desktop/ui/model.slint:233
+#: ../desktop/ui/model.slint:234
 msgctxt "Messages"
 msgid "A PIN is 4 to 12 digits, the one your bank gave you."
 msgstr ""
 
-#: ../desktop/ui/model.slint:234
+#: ../desktop/ui/model.slint:235
 msgctxt "Messages"
 msgid ""
 "That word list couldn't be used: it needs at least 500 different words, one "
 "per line. {}"
 msgstr ""
 
-#: ../desktop/ui/model.slint:235
+#: ../desktop/ui/model.slint:236
 msgctxt "Messages"
 msgid ""
 "The leak check couldn't reach the service: {}. Nothing was sent except the "
 "first five characters of each password's fingerprint."
 msgstr ""
 
-#: ../desktop/ui/model.slint:236
+#: ../desktop/ui/model.slint:237
 msgctxt "Messages"
 msgid "A vault name has at most 60 characters."
 msgstr ""
 
-#: ../desktop/ui/model.slint:237
+#: ../desktop/ui/model.slint:238
 msgctxt "Messages"
 msgid ""
 "Type a website (example.com) or a link to a picture (https://example.com/"
 "logo.png)."
 msgstr ""
 
-#: ../desktop/ui/model.slint:238
+#: ../desktop/ui/model.slint:239
 msgctxt "Messages"
 msgid "Type a folder name."
 msgstr ""
 
-#: ../desktop/ui/model.slint:239
+#: ../desktop/ui/model.slint:240
 msgctxt "Messages"
 msgid ""
 "This vault also needs its keyfile. Choose the file (plug in the drive it is "
 "on first)."
 msgstr ""
 
-#: ../desktop/ui/model.slint:240
+#: ../desktop/ui/model.slint:241
 msgctxt "Messages"
 msgid "That file can't be used as a keyfile: {}"
 msgstr ""
 
-#: ../desktop/ui/model.slint:241
+#: ../desktop/ui/model.slint:242
 msgctxt "Messages"
 msgid ""
 "That master password and keyfile don't open this vault. Check Caps Lock, and "
 "that it is the right file."
 msgstr ""
 
-#: ../desktop/ui/model.slint:242
+#: ../desktop/ui/model.slint:243
 msgctxt "Messages"
 msgid "That isn't it. One more wrong try locks the vault."
 msgstr ""
 
-#: ../desktop/ui/model.slint:242
+#: ../desktop/ui/model.slint:243
 msgctxt "Messages"
 msgid "That isn't it. {} tries left before the vault locks."
 msgstr ""
 
-#: ../desktop/ui/model.slint:243
+#: ../desktop/ui/model.slint:244
 msgctxt "Messages"
 msgid "A PIN has 4 to 8 digits; an item password at least 6 characters."
 msgstr ""
 
-#: ../desktop/ui/model.slint:244
+#: ../desktop/ui/model.slint:245
 msgctxt "Messages"
 msgid ""
 "Paste the setup key the site shows for its authenticator app (often under "
 "“Can't scan it?”), or an otpauth:// link."
 msgstr ""
 
-#: ../desktop/ui/model.slint:245
+#: ../desktop/ui/model.slint:246
 msgctxt "Messages"
 msgid ""
 "Filling while the vault is locked uses Windows Hello: turn it on in Settings "
 "→ Item lock first (with a PIN or another password)."
 msgstr ""
 
-#: ../desktop/ui/model.slint:246
+#: ../desktop/ui/model.slint:247
 msgctxt "Messages"
 msgid ""
 "Windows Hello no longer opens the item lock on this computer (its PIN or "
@@ -3733,21 +3740,21 @@ msgid ""
 "Settings → Item lock."
 msgstr ""
 
-#: ../desktop/ui/model.slint:247
+#: ../desktop/ui/model.slint:248
 msgctxt "Messages"
 msgid ""
 "Vault couldn't find its own program file, which the browsers start for the "
 "extension, so the extension can't be connected."
 msgstr ""
 
-#: ../desktop/ui/model.slint:248
+#: ../desktop/ui/model.slint:249
 msgctxt "Messages"
 msgid ""
 "That isn't the code the extension shows. Look at the extension's window and "
 "type its six digits."
 msgstr ""
 
-#: ../desktop/ui/model.slint:249
+#: ../desktop/ui/model.slint:250
 msgctxt "Messages"
 msgid ""
 "The browser extension can't reach this window: its channel is already in "
@@ -3755,14 +3762,14 @@ msgid ""
 "window, then turn the extension setting off and on again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:250
+#: ../desktop/ui/model.slint:251
 msgctxt "Messages"
 msgid ""
 "Locked secrets are in the way. Open the item lock first: type its PIN or "
 "password on a locked item or on the Authenticator page, then try again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:252
+#: ../desktop/ui/model.slint:253
 msgctxt "Messages"
 msgid ""
 "The vault file was changed outside this window (another window or program). "
@@ -3770,26 +3777,26 @@ msgid ""
 "then make it again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:253
+#: ../desktop/ui/model.slint:254
 msgctxt "Messages"
 msgid "Windows Hello couldn't open the vault ({}). Use your master password."
 msgstr ""
 
-#: ../desktop/ui/model.slint:254
+#: ../desktop/ui/model.slint:255
 msgctxt "Messages"
 msgid ""
 "The master password changed, so Windows Hello was turned off on this "
 "computer. Unlock with the master password, then turn it on again in Settings."
 msgstr ""
 
-#: ../desktop/ui/model.slint:255
+#: ../desktop/ui/model.slint:256
 msgctxt "Messages"
 msgid ""
 "It's been {} days: type your master password this time, so you keep "
 "remembering it. Windows Hello works again right after."
 msgstr ""
 
-#: ../desktop/ui/model.slint:256
+#: ../desktop/ui/model.slint:257
 msgctxt "Messages"
 msgid ""
 "Windows Hello was reset on this computer, so this vault's key is gone. "
@@ -3797,497 +3804,497 @@ msgid ""
 "Settings."
 msgstr ""
 
-#: ../desktop/ui/model.slint:257
+#: ../desktop/ui/model.slint:258
 msgctxt "Messages"
 msgid ""
 "Windows Hello isn't set up on this computer. Set it up in Windows Settings → "
 "Accounts → Sign-in options, or use your master password."
 msgstr ""
 
-#: ../desktop/ui/model.slint:258
+#: ../desktop/ui/model.slint:259
 msgctxt "Messages"
 msgid "Something went wrong: {}"
 msgstr ""
 
-#: ../desktop/ui/model.slint:263
+#: ../desktop/ui/model.slint:264
 msgctxt "Messages"
 msgid "Cracked almost instantly"
 msgstr ""
 
-#: ../desktop/ui/model.slint:264
+#: ../desktop/ui/model.slint:265
 msgctxt "Messages"
 msgid "About {n} second to crack"
 msgid_plural "About {n} seconds to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:265
+#: ../desktop/ui/model.slint:266
 msgctxt "Messages"
 msgid "About {n} minute to crack"
 msgid_plural "About {n} minutes to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:266
+#: ../desktop/ui/model.slint:267
 msgctxt "Messages"
 msgid "About {n} hour to crack"
 msgid_plural "About {n} hours to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:267
+#: ../desktop/ui/model.slint:268
 msgctxt "Messages"
 msgid "About {n} day to crack"
 msgid_plural "About {n} days to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:268
+#: ../desktop/ui/model.slint:269
 msgctxt "Messages"
 msgid "About {n} year to crack"
 msgid_plural "About {n} years to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:269
+#: ../desktop/ui/model.slint:270
 msgctxt "Messages"
 msgid "About {n} thousand years to crack"
 msgid_plural "About {n} thousand years to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:270
+#: ../desktop/ui/model.slint:271
 msgctxt "Messages"
 msgid "About {n} million years to crack"
 msgid_plural "About {n} million years to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:271
+#: ../desktop/ui/model.slint:272
 msgctxt "Messages"
 msgid "About {n} billion years to crack"
 msgid_plural "About {n} billion years to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:273
+#: ../desktop/ui/model.slint:274
 msgctxt "Messages"
 msgid "About as long to crack as the universe has existed"
 msgstr ""
 
-#: ../desktop/ui/model.slint:274
+#: ../desktop/ui/model.slint:275
 msgctxt "Messages"
 msgid "About {} times the age of the universe to crack"
 msgstr ""
 
-#: ../desktop/ui/model.slint:275
+#: ../desktop/ui/model.slint:276
 msgctxt "Messages"
 msgid "About {} thousand times the age of the universe to crack"
 msgstr ""
 
-#: ../desktop/ui/model.slint:276
+#: ../desktop/ui/model.slint:277
 msgctxt "Messages"
 msgid "About {} million times the age of the universe to crack"
 msgstr ""
 
-#: ../desktop/ui/model.slint:277
+#: ../desktop/ui/model.slint:278
 msgctxt "Messages"
 msgid "About {} billion times the age of the universe to crack"
 msgstr ""
 
-#: ../desktop/ui/model.slint:278
+#: ../desktop/ui/model.slint:279
 msgctxt "Messages"
 msgid "About {} trillion times the age of the universe to crack"
 msgstr ""
 
-#: ../desktop/ui/model.slint:279
+#: ../desktop/ui/model.slint:280
 msgctxt "Messages"
 msgid "About a 1 followed by {} zeros times the age of the universe to crack"
 msgstr ""
 
-#: ../desktop/ui/model.slint:284
+#: ../desktop/ui/model.slint:285
 msgctxt "Messages"
 msgid "Faster than you can read this."
 msgstr ""
 
-#: ../desktop/ui/model.slint:285
+#: ../desktop/ui/model.slint:286
 msgctxt "Messages"
 msgid "Gone before you finish this sentence."
 msgstr ""
 
-#: ../desktop/ui/model.slint:286
+#: ../desktop/ui/model.slint:287
 msgctxt "Messages"
 msgid "About one coffee break."
 msgstr ""
 
-#: ../desktop/ui/model.slint:287
+#: ../desktop/ui/model.slint:288
 msgctxt "Messages"
 msgid "Done before the end of a workday."
 msgstr ""
 
-#: ../desktop/ui/model.slint:288
+#: ../desktop/ui/model.slint:289
 msgctxt "Messages"
 msgid "About as long as a holiday. Not great."
 msgstr ""
 
-#: ../desktop/ui/model.slint:289
+#: ../desktop/ui/model.slint:290
 msgctxt "Messages"
 msgid "Years of guessing — but a determined attacker can wait."
 msgstr ""
 
-#: ../desktop/ui/model.slint:290
+#: ../desktop/ui/model.slint:291
 msgctxt "Messages"
 msgid "If they'd started when the first iPhone came out, they'd still be at it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:291
+#: ../desktop/ui/model.slint:292
 msgctxt "Messages"
 msgid "If they'd started when the Web went public, they'd still be at it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:292
+#: ../desktop/ui/model.slint:293
 msgctxt "Messages"
 msgid "If they'd started at the first Moon landing, they'd still be at it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:293
+#: ../desktop/ui/model.slint:294
 msgctxt "Messages"
 msgid "If they'd started with the first steam engines, they'd still be at it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:294
+#: ../desktop/ui/model.slint:295
 msgctxt "Messages"
 msgid ""
 "If they'd started when Gutenberg printed his first page, they'd still be at "
 "it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:295
+#: ../desktop/ui/model.slint:296
 msgctxt "Messages"
 msgid ""
 "If they'd started when the Vikings reached America, they'd still be at it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:296
+#: ../desktop/ui/model.slint:297
 msgctxt "Messages"
 msgid "If they'd started while Julius Caesar ruled Rome, they'd still be at it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:297
+#: ../desktop/ui/model.slint:298
 msgctxt "Messages"
 msgid ""
 "If they'd started while the pyramids were being built, they'd still be at it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:298
+#: ../desktop/ui/model.slint:299
 msgctxt "Messages"
 msgid "If they'd started with the very first farmers, they'd still be at it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:299
+#: ../desktop/ui/model.slint:300
 msgctxt "Messages"
 msgid "If they'd started with the first humans, they'd still be at it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:300
+#: ../desktop/ui/model.slint:301
 msgctxt "Messages"
 msgid "If they'd started when the dinosaurs died out, they'd still be at it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:301
+#: ../desktop/ui/model.slint:302
 msgctxt "Messages"
 msgid "If they'd started when the Earth formed, they'd still be at it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:302
+#: ../desktop/ui/model.slint:303
 msgctxt "Messages"
 msgid "The universe is only 13.8 billion years old."
 msgstr ""
 
-#: ../desktop/ui/model.slint:303
+#: ../desktop/ui/model.slint:304
 msgctxt "Messages"
 msgid "The last stars in the sky would burn out before it's found."
 msgstr ""
 
-#: ../desktop/ui/model.slint:304
+#: ../desktop/ui/model.slint:305
 msgctxt "Messages"
 msgid ""
 "Even with computers a billion times faster, it would outlast the universe."
 msgstr ""
 
-#: ../desktop/ui/model.slint:305
+#: ../desktop/ui/model.slint:306
 msgctxt "Messages"
 msgid "There are more possible passwords like it than atoms in the whole Earth."
 msgstr ""
 
-#: ../desktop/ui/model.slint:306
+#: ../desktop/ui/model.slint:307
 msgctxt "Messages"
 msgid ""
 "There are more possible passwords like it than atoms in the observable "
 "universe."
 msgstr ""
 
-#: ../desktop/ui/model.slint:311
+#: ../desktop/ui/model.slint:312
 msgctxt "Messages"
 msgid "Password copied. The clipboard clears in {} seconds."
 msgstr ""
 
-#: ../desktop/ui/model.slint:312
+#: ../desktop/ui/model.slint:313
 msgctxt "Messages"
 msgid "Username copied."
 msgstr ""
 
-#: ../desktop/ui/model.slint:313
+#: ../desktop/ui/model.slint:314
 msgctxt "Messages"
 msgid "Code copied. The clipboard clears in {} seconds."
 msgstr ""
 
-#: ../desktop/ui/model.slint:314
+#: ../desktop/ui/model.slint:315
 msgctxt "Messages"
 msgid "Clipboard cleared."
 msgstr ""
 
-#: ../desktop/ui/model.slint:315
+#: ../desktop/ui/model.slint:316
 msgctxt "Messages"
 msgid "Saved."
 msgstr ""
 
-#: ../desktop/ui/model.slint:316
+#: ../desktop/ui/model.slint:317
 msgctxt "Messages"
 msgid "Deleted {}."
 msgstr ""
 
-#: ../desktop/ui/model.slint:317
+#: ../desktop/ui/model.slint:318
 msgctxt "Messages"
 msgid "Master password changed."
 msgstr ""
 
-#: ../desktop/ui/model.slint:318
+#: ../desktop/ui/model.slint:319
 msgctxt "Messages"
 msgid ""
 "New recovery parts issued. The old ones no longer work: print the new kit "
 "now."
 msgstr ""
 
-#: ../desktop/ui/model.slint:319
+#: ../desktop/ui/model.slint:320
 msgctxt "Messages"
 msgid ""
 "Part C is hidden in {}. It was read back to check. Keep that file as it is: "
 "a resized or converted copy loses the part."
 msgstr ""
 
-#: ../desktop/ui/model.slint:320
+#: ../desktop/ui/model.slint:321
 msgctxt "Messages"
 msgid "Part {} read from the picture."
 msgstr ""
 
-#: ../desktop/ui/model.slint:321
+#: ../desktop/ui/model.slint:322
 msgctxt "Messages"
 msgid ""
 "The main sync server isn't answering ({}). The vault keeps syncing through "
 "the backup server."
 msgstr ""
 
-#: ../desktop/ui/model.slint:322
+#: ../desktop/ui/model.slint:323
 msgctxt "Messages"
 msgid "The main sync server answers again and has caught up."
 msgstr ""
 
-#: ../desktop/ui/model.slint:323
+#: ../desktop/ui/model.slint:324
 msgctxt "Messages"
 msgid ""
 "The backup sync server isn't answering ({}). The vault keeps syncing through "
 "the main one."
 msgstr ""
 
-#: ../desktop/ui/model.slint:324
+#: ../desktop/ui/model.slint:325
 msgctxt "Messages"
 msgid "The backup sync server answers again and has caught up."
 msgstr ""
 
-#: ../desktop/ui/model.slint:325
+#: ../desktop/ui/model.slint:326
 msgctxt "Messages"
 msgid ""
 "This computer joined the backup server. The vault syncs through both from "
 "now on."
 msgstr ""
 
-#: ../desktop/ui/model.slint:326
+#: ../desktop/ui/model.slint:327
 msgctxt "Messages"
 msgid "The new address answers with this vault: it is the one used from now on."
 msgstr ""
 
-#: ../desktop/ui/model.slint:327
+#: ../desktop/ui/model.slint:328
 msgctxt "Messages"
 msgid "A passkey for “{}” was saved from the browser."
 msgstr ""
 
-#: ../desktop/ui/model.slint:328
+#: ../desktop/ui/model.slint:329
 msgctxt "Messages"
 msgid "Signed in with the passkey of “{}” in the browser."
 msgstr ""
 
-#: ../desktop/ui/model.slint:329
+#: ../desktop/ui/model.slint:330
 msgctxt "Messages"
 msgid ""
 "{} of your passwords turned up in a data breach since the last check. See "
 "Password health and change them where you use them."
 msgstr ""
 
-#: ../desktop/ui/model.slint:330
+#: ../desktop/ui/model.slint:331
 msgctxt "Messages"
 msgid "Settings saved."
 msgstr ""
 
-#: ../desktop/ui/model.slint:331
+#: ../desktop/ui/model.slint:332
 msgctxt "Messages"
 msgid "Copied. The clipboard clears in {} seconds."
 msgstr ""
 
-#: ../desktop/ui/model.slint:332
+#: ../desktop/ui/model.slint:333
 msgctxt "Messages"
 msgid "Generated password copied. The clipboard clears in {} seconds."
 msgstr ""
 
-#: ../desktop/ui/model.slint:333
+#: ../desktop/ui/model.slint:334
 msgctxt "Messages"
 msgid ""
 "Windows Hello is on. Next time, unlock with your face, fingerprint or PIN."
 msgstr ""
 
-#: ../desktop/ui/model.slint:334
+#: ../desktop/ui/model.slint:335
 msgctxt "Messages"
 msgid "Windows Hello is off for this vault."
 msgstr ""
 
-#: ../desktop/ui/model.slint:335
+#: ../desktop/ui/model.slint:336
 msgctxt "Messages"
 msgid "Windows Hello wasn't turned on: {}."
 msgstr ""
 
-#: ../desktop/ui/model.slint:336
+#: ../desktop/ui/model.slint:337
 msgctxt "Messages"
 msgid ""
 "Master password changed. Windows Hello was turned off; turn it on again "
 "below."
 msgstr ""
 
-#: ../desktop/ui/model.slint:337
+#: ../desktop/ui/model.slint:338
 msgctxt "Messages"
 msgid "Kit opened for printing. The file is wiped when the vault locks."
 msgstr ""
 
-#: ../desktop/ui/model.slint:338
+#: ../desktop/ui/model.slint:339
 msgctxt "Messages"
 msgid "Imported {} items."
 msgstr ""
 
-#: ../desktop/ui/model.slint:339
+#: ../desktop/ui/model.slint:340
 msgctxt "Messages"
 msgid ""
 "Backup confirmed: {}. It was read back, matches the vault file and opens "
 "with this vault's key."
 msgstr ""
 
-#: ../desktop/ui/model.slint:340
+#: ../desktop/ui/model.slint:341
 msgctxt "Messages"
 msgid ""
 "Exported to {}. It isn't encrypted: delete it once it's imported elsewhere."
 msgstr ""
 
-#: ../desktop/ui/model.slint:341
+#: ../desktop/ui/model.slint:342
 msgctxt "Messages"
 msgid "The export file was overwritten and deleted."
 msgstr ""
 
-#: ../desktop/ui/model.slint:342
+#: ../desktop/ui/model.slint:343
 msgctxt "Messages"
 msgid ""
 "Not saved: the vault file was changed outside this window. Lock and unlock "
 "to load the newest version."
 msgstr ""
 
-#: ../desktop/ui/model.slint:342
+#: ../desktop/ui/model.slint:343
 msgctxt "Messages"
 msgid "Not saved: {}"
 msgstr ""
 
-#: ../desktop/ui/model.slint:343
+#: ../desktop/ui/model.slint:344
 msgctxt "Messages"
 msgid ""
 "Recovery code copied. Mark it as used once you've signed in. The clipboard "
 "clears in {} seconds."
 msgstr ""
 
-#: ../desktop/ui/model.slint:344
+#: ../desktop/ui/model.slint:345
 msgctxt "Messages"
 msgid "Kit saved to {}. Keep the file private, or delete it once printed."
 msgstr ""
 
-#: ../desktop/ui/model.slint:345
+#: ../desktop/ui/model.slint:346
 msgctxt "Messages"
 msgid "Password history cleared."
 msgstr ""
 
-#: ../desktop/ui/model.slint:346
+#: ../desktop/ui/model.slint:347
 msgctxt "Messages"
 msgid "Old password copied. The clipboard clears in {} seconds."
 msgstr ""
 
-#: ../desktop/ui/model.slint:347
+#: ../desktop/ui/model.slint:348
 msgctxt "Messages"
 msgid "Vault settings saved."
 msgstr ""
 
-#: ../desktop/ui/model.slint:348
+#: ../desktop/ui/model.slint:349
 msgctxt "Messages"
 msgid "Word list added: {}."
 msgstr ""
 
-#: ../desktop/ui/model.slint:349
+#: ../desktop/ui/model.slint:350
 msgctxt "Messages"
 msgid "Leak check done: none of your passwords is in a known breach."
 msgstr ""
 
-#: ../desktop/ui/model.slint:349
+#: ../desktop/ui/model.slint:350
 msgctxt "Messages"
 msgid "Leak check done: {} found in known breaches. Change them first."
 msgstr ""
 
-#: ../desktop/ui/model.slint:350
+#: ../desktop/ui/model.slint:351
 msgctxt "Messages"
 msgid "Opened {}. Export the passwords as CSV there, then choose the file here."
 msgstr ""
 
-#: ../desktop/ui/model.slint:351
+#: ../desktop/ui/model.slint:352
 msgctxt "Messages"
 msgid ""
 "Unlock protection changed. Unlocking now takes about {} s on this computer."
 msgstr ""
 
-#: ../desktop/ui/model.slint:352
+#: ../desktop/ui/model.slint:353
 msgctxt "Messages"
 msgid ""
 "Unlock protection changed (about {} s per unlock here). Windows Hello was "
 "turned off: turn it on again in Settings."
 msgstr ""
 
-#: ../desktop/ui/model.slint:353
+#: ../desktop/ui/model.slint:354
 msgctxt "Messages"
 msgid "Folder deleted. Its items are still in All items."
 msgstr ""
 
-#: ../desktop/ui/model.slint:354
+#: ../desktop/ui/model.slint:355
 msgctxt "Messages"
 msgid "Website copied."
 msgstr ""
 
-#: ../desktop/ui/model.slint:355
+#: ../desktop/ui/model.slint:356
 msgctxt "Messages"
 msgid "Couldn't open {} in a browser."
 msgstr ""
 
-#: ../desktop/ui/model.slint:356
+#: ../desktop/ui/model.slint:357
 msgctxt "Messages"
 msgid ""
 "Keyfile set: the vault now needs {} together with your master password. Keep "
@@ -4295,77 +4302,77 @@ msgid ""
 "on again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:357
+#: ../desktop/ui/model.slint:358
 msgctxt "Messages"
 msgid ""
 "The vault no longer needs a keyfile. Windows Hello, if it was on, is off "
 "until you turn it on again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:358
+#: ../desktop/ui/model.slint:359
 msgctxt "Messages"
 msgid "Item lock saved."
 msgstr ""
 
-#: ../desktop/ui/model.slint:359
+#: ../desktop/ui/model.slint:360
 msgctxt "Messages"
 msgid ""
 "Too many wrong tries: the vault locked itself. Unlock it with your master "
 "password."
 msgstr ""
 
-#: ../desktop/ui/model.slint:360
+#: ../desktop/ui/model.slint:361
 msgctxt "Messages"
 msgid "Secrets locked again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:361
+#: ../desktop/ui/model.slint:362
 msgctxt "Messages"
 msgid "“{}” was handed to the browser extension."
 msgstr ""
 
-#: ../desktop/ui/model.slint:362
+#: ../desktop/ui/model.slint:363
 msgctxt "Messages"
 msgid "Browser extension connected."
 msgstr ""
 
-#: ../desktop/ui/model.slint:363
+#: ../desktop/ui/model.slint:364
 msgctxt "Messages"
 msgid "Browser extension disconnected. It has to ask again to connect."
 msgstr ""
 
-#: ../desktop/ui/model.slint:364
+#: ../desktop/ui/model.slint:365
 msgctxt "Messages"
 msgid "Saved “{}” from the browser."
 msgstr ""
 
-#: ../desktop/ui/model.slint:365
+#: ../desktop/ui/model.slint:366
 msgctxt "Messages"
 msgid "History of generated passwords cleared."
 msgstr ""
 
-#: ../desktop/ui/model.slint:366
+#: ../desktop/ui/model.slint:367
 msgctxt "Messages"
 msgid ""
 "A login saved from the browser while the vault was locked is in your vault "
 "now."
 msgstr ""
 
-#: ../desktop/ui/model.slint:366
+#: ../desktop/ui/model.slint:367
 msgctxt "Messages"
 msgid ""
 "{} logins saved from the browser while the vault was locked are in your "
 "vault now."
 msgstr ""
 
-#: ../desktop/ui/model.slint:367
+#: ../desktop/ui/model.slint:368
 msgctxt "Messages"
 msgid ""
 "The browser extension can now fill with Windows Hello while the vault is "
 "locked."
 msgstr ""
 
-#: ../desktop/ui/model.slint:368
+#: ../desktop/ui/model.slint:369
 msgctxt "Messages"
 msgid ""
 "This computer's record of the newest version of each vault couldn't be read, "
@@ -4374,7 +4381,7 @@ msgid ""
 "opened here."
 msgstr ""
 
-#: ../desktop/ui/model.slint:369
+#: ../desktop/ui/model.slint:370
 msgctxt "Messages"
 msgid ""
 "Leak check: one locked login wasn't checked, because the item lock keeps its "
@@ -4382,7 +4389,7 @@ msgid ""
 "lock, then check again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:369
+#: ../desktop/ui/model.slint:370
 msgctxt "Messages"
 msgid ""
 "Leak check: {} locked logins weren't checked, because the item lock keeps "
@@ -4390,26 +4397,26 @@ msgid ""
 "item lock, then check again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:370
+#: ../desktop/ui/model.slint:371
 msgctxt "Messages"
 msgid ""
 "Leak check done: {} found in known breaches. Change them first. Locked "
 "logins weren't checked: open the item lock, then check again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:371
+#: ../desktop/ui/model.slint:372
 msgctxt "Messages"
 msgid "Synced: {} changes came from your other devices."
 msgstr ""
 
-#: ../desktop/ui/model.slint:372
+#: ../desktop/ui/model.slint:373
 msgctxt "Messages"
 msgid ""
 "{} items were changed here and on another device. The newer version was "
 "kept, and the other password is in each item's history."
 msgstr ""
 
-#: ../desktop/ui/model.slint:373
+#: ../desktop/ui/model.slint:374
 msgctxt "Messages"
 msgid ""
 "{} items were changed here and on another device, behind the item lock. Open "
@@ -4417,26 +4424,26 @@ msgid ""
 "version."
 msgstr ""
 
-#: ../desktop/ui/model.slint:374
+#: ../desktop/ui/model.slint:375
 msgctxt "Messages"
 msgid ""
 "The master password, keyfile or Recovery Key was changed on another device. "
 "Use that one the next time you unlock."
 msgstr ""
 
-#: ../desktop/ui/model.slint:375
+#: ../desktop/ui/model.slint:376
 msgctxt "Messages"
 msgid ""
 "A copy in the sync folder was not used: {}. It may be an older copy put "
 "back, or come from a device that was removed."
 msgstr ""
 
-#: ../desktop/ui/model.slint:376
+#: ../desktop/ui/model.slint:377
 msgctxt "Messages"
 msgid "This computer joined the server. The vault syncs through it from now on."
 msgstr ""
 
-#: ../desktop/ui/model.slint:377
+#: ../desktop/ui/model.slint:378
 msgctxt "Messages"
 msgid ""
 "{} was removed. Every device refuses its copies from its next sync; it keeps "
@@ -4444,28 +4451,28 @@ msgid ""
 "Secret Key."
 msgstr ""
 
-#: ../desktop/ui/model.slint:378
+#: ../desktop/ui/model.slint:379
 msgctxt "Messages"
 msgid ""
 "This computer was removed from the vault on another device, so it no longer "
 "syncs."
 msgstr ""
 
-#: ../desktop/ui/model.slint:379
+#: ../desktop/ui/model.slint:380
 msgctxt "Messages"
 msgid ""
 "Updated the password of “{}” from the browser. The old one is in its "
 "history."
 msgstr ""
 
-#: ../desktop/ui/model.slint:380
+#: ../desktop/ui/model.slint:381
 msgctxt "Messages"
 msgid ""
 "This computer couldn't record the vault's newest version ({}), so an older "
 "copy put in its place may not be noticed."
 msgstr ""
 
-#: ../desktop/ui/model.slint:381
+#: ../desktop/ui/model.slint:382
 msgctxt "Messages"
 msgid ""
 "The item lock was changed on another device. A locked item, or Settings → "
@@ -4473,14 +4480,14 @@ msgid ""
 "lock, and some changes from that device wait."
 msgstr ""
 
-#: ../desktop/ui/model.slint:382
+#: ../desktop/ui/model.slint:383
 msgctxt "Messages"
 msgid ""
 "The item lock changed on another device is in use here now. Locked items "
 "closed again: they open with its PIN or password."
 msgstr ""
 
-#: ../desktop/ui/model.slint:383
+#: ../desktop/ui/model.slint:384
 msgctxt "Messages"
 msgid ""
 "The vault locked before the item lock was saved, so it was not changed. "
@@ -4488,7 +4495,7 @@ msgid ""
 "item lock is saved again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:384
+#: ../desktop/ui/model.slint:385
 msgctxt "Messages"
 msgid ""
 "Filling while the vault is locked needs setting up again after this update: "
@@ -4496,7 +4503,7 @@ msgid ""
 "Settings → Browser extension."
 msgstr ""
 
-#: ../desktop/ui/model.slint:385
+#: ../desktop/ui/model.slint:386
 msgctxt "Messages"
 msgid ""
 "A login saved from the browser while the vault was locked waits for the item "
@@ -4504,7 +4511,7 @@ msgid ""
 "to add its new password."
 msgstr ""
 
-#: ../desktop/ui/model.slint:385
+#: ../desktop/ui/model.slint:386
 msgctxt "Messages"
 msgid ""
 "{} logins saved from the browser while the vault was locked wait for the "
@@ -4512,7 +4519,7 @@ msgid ""
 "item lock to add their new passwords."
 msgstr ""
 
-#: ../desktop/ui/model.slint:386
+#: ../desktop/ui/model.slint:387
 msgctxt "Messages"
 msgid ""
 "The vault key was renewed: the old kit, the old Secret Key and older copies "
@@ -4520,38 +4527,43 @@ msgid ""
 "until you turn it on again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:386
+#: ../desktop/ui/model.slint:387
 msgctxt "Messages"
 msgid ""
 "The vault key was renewed: the old kit, the old Secret Key and older copies "
 "of the file no longer open it. Print the new kit now."
 msgstr ""
 
-#: ../desktop/ui/model.slint:387
+#: ../desktop/ui/model.slint:388
 msgctxt "Messages"
 msgid ""
 "This computer uses the renewed vault key now and syncs again. Windows Hello "
 "is off until you turn it on again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:387
+#: ../desktop/ui/model.slint:388
 msgctxt "Messages"
 msgid "This computer uses the renewed vault key now and syncs again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:388
+#: ../desktop/ui/model.slint:389
 msgctxt "Messages"
 msgid ""
 "The vault key was renewed on another device. Settings → Sync asks once for "
 "the new Secret Key, from the new emergency kit."
 msgstr ""
 
-#: ../desktop/ui/model.slint:389
+#: ../desktop/ui/model.slint:390
 msgctxt "Messages"
 msgid "Version {} of Vault is out: Settings → About → Updates opens its page."
 msgstr ""
 
-#: ../desktop/ui/model.slint:390
+#: ../desktop/ui/model.slint:391
+msgctxt "Messages"
+msgid "Windows now starts this copy of Vault when you sign in, instead of {}."
+msgstr ""
+
+#: ../desktop/ui/model.slint:392
 msgctxt "Messages"
 msgid ""
 "The vault key was renewed, but the vault locked before the new kit showed. "
@@ -4559,111 +4571,111 @@ msgid ""
 "shown again."
 msgstr ""
 
-#: ../desktop/ui/model.slint:400
+#: ../desktop/ui/model.slint:402
 msgctxt "Messages"
 msgid "{n} attached file"
 msgid_plural "{n} attached files"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:401
+#: ../desktop/ui/model.slint:403
 msgctxt "Messages"
 msgid "{n} passkey"
 msgid_plural "{n} passkeys"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:402
+#: ../desktop/ui/model.slint:404
 msgctxt "Messages"
 msgid "{n} earlier password"
 msgid_plural "{n} earlier passwords"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:403
+#: ../desktop/ui/model.slint:405
 msgctxt "Messages"
 msgid "{n} website after an item's first"
 msgid_plural "{n} websites after an item's first"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:404
+#: ../desktop/ui/model.slint:406
 msgctxt "Messages"
 msgid "the dates of the items"
 msgstr ""
 
-#: ../desktop/ui/model.slint:408
+#: ../desktop/ui/model.slint:410
 msgctxt "Messages"
 msgid "{n} hidden field not marked hidden"
 msgid_plural "{n} hidden fields not marked hidden"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:409
+#: ../desktop/ui/model.slint:411
 msgctxt "Messages"
 msgid "{n} list of recovery codes as text"
 msgid_plural "{n} lists of recovery codes as text"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:410
+#: ../desktop/ui/model.slint:412
 msgctxt "Messages"
 msgid "{n} item as another kind"
 msgid_plural "{n} items as another kind"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:414
+#: ../desktop/ui/model.slint:416
 msgctxt "Messages"
 msgid "{n} password"
 msgid_plural "{n} passwords"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:415
+#: ../desktop/ui/model.slint:417
 msgctxt "Messages"
 msgid "{n} one-time code secret"
 msgid_plural "{n} one-time code secrets"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:416
+#: ../desktop/ui/model.slint:418
 msgctxt "Messages"
 msgid "{n} hidden field"
 msgid_plural "{n} hidden fields"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:417
+#: ../desktop/ui/model.slint:419
 msgctxt "Messages"
 msgid "{n} recovery code"
 msgid_plural "{n} recovery codes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:418
+#: ../desktop/ui/model.slint:420
 msgctxt "Messages"
 msgid "the notes of {n} item"
 msgid_plural "the notes of {n} items"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:425
+#: ../desktop/ui/model.slint:427
 msgctxt "Messages"
 msgid "Not in this file: {}."
 msgstr ""
 
-#: ../desktop/ui/model.slint:426
+#: ../desktop/ui/model.slint:428
 msgctxt "Messages"
 msgid "In another form: {}."
 msgstr ""
 
-#: ../desktop/ui/model.slint:427
+#: ../desktop/ui/model.slint:429
 msgctxt "Messages"
 msgid "Readable by anyone with this file: {}."
 msgstr ""
 
-#: ../desktop/ui/model.slint:429
+#: ../desktop/ui/model.slint:431
 msgctxt "Messages"
 msgid ""
 "Don't open this file in a spreadsheet: {n} password or code secret starts "
@@ -4674,7 +4686,7 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:434
+#: ../desktop/ui/model.slint:436
 msgctxt "Messages"
 msgid ""
 "The item lock was changed on another device. To move the locked items to it, "
@@ -4682,7 +4694,7 @@ msgid ""
 "now (either one first)."
 msgstr ""
 
-#: ../desktop/ui/model.slint:435
+#: ../desktop/ui/model.slint:437
 msgctxt "Messages"
 msgid ""
 "The item lock was changed on another device. To move the locked items to it, "
@@ -4690,80 +4702,80 @@ msgid ""
 "until now (either one first)."
 msgstr ""
 
-#: ../desktop/ui/model.slint:436
+#: ../desktop/ui/model.slint:438
 msgctxt "Messages"
 msgid ""
 "The item lock was turned off, or changed to the master password, on another "
 "device. Open the item lock here once and the locked items follow it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:442
+#: ../desktop/ui/model.slint:444
 msgctxt "Messages"
 msgid "today"
 msgstr ""
 
-#: ../desktop/ui/model.slint:443
+#: ../desktop/ui/model.slint:445
 msgctxt "Messages"
 msgid "{n} day ago"
 msgid_plural "{n} days ago"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:444
+#: ../desktop/ui/model.slint:446
 msgctxt "Messages"
 msgid "{n} month ago"
 msgid_plural "{n} months ago"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:445
+#: ../desktop/ui/model.slint:447
 msgctxt "Messages"
 msgid "{n} year ago"
 msgid_plural "{n} years ago"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:450
+#: ../desktop/ui/model.slint:452
 msgctxt "Messages"
 msgid "Keyboard patterns like qwerty are among the first guesses."
 msgstr ""
 
-#: ../desktop/ui/model.slint:451
+#: ../desktop/ui/model.slint:453
 msgctxt "Messages"
 msgid "Repeats like aaa or abcabc are easy to guess."
 msgstr ""
 
-#: ../desktop/ui/model.slint:452
+#: ../desktop/ui/model.slint:454
 msgctxt "Messages"
 msgid "This is one of the most used passwords."
 msgstr ""
 
-#: ../desktop/ui/model.slint:453
+#: ../desktop/ui/model.slint:455
 msgctxt "Messages"
 msgid "This is a common password with small changes."
 msgstr ""
 
-#: ../desktop/ui/model.slint:454
+#: ../desktop/ui/model.slint:456
 msgctxt "Messages"
 msgid "Sequences like abc or 1234 are easy to guess."
 msgstr ""
 
-#: ../desktop/ui/model.slint:455
+#: ../desktop/ui/model.slint:457
 msgctxt "Messages"
 msgid "Dates and years are easy to guess."
 msgstr ""
 
-#: ../desktop/ui/model.slint:456
+#: ../desktop/ui/model.slint:458
 msgctxt "Messages"
 msgid "A single word is easy to guess."
 msgstr ""
 
-#: ../desktop/ui/model.slint:457
+#: ../desktop/ui/model.slint:459
 msgctxt "Messages"
 msgid "Names and surnames are easy to guess."
 msgstr ""
 
-#: ../desktop/ui/model.slint:458
+#: ../desktop/ui/model.slint:460
 msgctxt "Messages"
 msgid "Too short and predictable."
 msgstr ""

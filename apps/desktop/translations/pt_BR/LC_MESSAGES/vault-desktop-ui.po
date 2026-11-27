@@ -2311,6 +2311,10 @@ msgid "This computer couldn't keep the new Secret Key ({}), and the vault file n
 msgstr "Este computador não conseguiu guardar a nova chave secreta ({}), e agora o arquivo do cofre só abre com ela: tenha o novo kit de emergência à mão, pois ele será pedido no próximo desbloqueio."
 
 msgctxt "Messages"
+msgid "Windows didn't take the change to starting at sign-in ({}). The check shows what Windows will do."
+msgstr "O Windows não aceitou a mudança na abertura ao entrar ({}). A caixa mostra o que o Windows vai fazer."
+
+msgctxt "Messages"
 msgid "The vault key was renewed: the old kit, the old Secret Key and older copies of the file no longer open it. Print the new kit now. Windows Hello is off until you turn it on again."
 msgstr "A chave do cofre foi renovada: o kit antigo, a chave secreta antiga e as cópias antigas do arquivo não o abrem mais. Imprima o novo kit agora. O Windows Hello fica desativado até você ativá-lo de novo."
 
@@ -3401,12 +3405,24 @@ msgid "The drawn texture behind the vault"
 msgstr "A textura desenhada atrás do cofre"
 
 msgctxt "SettingsPage"
-msgid "The window"
-msgstr "A janela"
+msgid "Starting and closing"
+msgstr "Abrir e fechar"
 
 msgctxt "SettingsPage"
-msgid "What closing it does."
-msgstr "O que acontece ao fechar."
+msgid "When the app starts, and what closing the window does."
+msgstr "Quando o app abre, e o que acontece ao fechar a janela."
+
+msgctxt "SettingsPage"
+msgid "Open when I sign in to Windows"
+msgstr "Abrir quando eu entrar no Windows"
+
+msgctxt "SettingsPage"
+msgid "Windows starts the app when you sign in, locked: nothing opens by itself, and the browser extension can reach it from the start. It shows in Task Manager's Startup apps, where it can be turned off too."
+msgstr "O Windows abre o app quando você entra, bloqueado: nada é desbloqueado sozinho, e a extensão do navegador já o encontra desde o início. Ele aparece em Aplicativos de inicialização, no Gerenciador de Tarefas, onde também pode ser desligado."
+
+msgctxt "SettingsPage"
+msgid "Start in the notification area, without opening the window"
+msgstr "Começar na área de notificação, sem abrir a janela"
 
 msgctxt "SettingsPage"
 msgid "Keep running in the notification area when the window is closed"
@@ -4435,6 +4451,10 @@ msgstr "Não foi possível procurar atualizações: {}"
 msgctxt "Messages"
 msgid "Version {} of Vault is out: Settings → About → Updates opens its page."
 msgstr "Saiu a versão {} do Vault: Configurações → Sobre → Atualizações abre a página dela."
+
+msgctxt "Messages"
+msgid "Windows now starts this copy of Vault when you sign in, instead of {}."
+msgstr "Agora o Windows abre esta cópia do Vault quando você entra, em vez de {}."
 
 msgctxt "SettingsPage"
 msgid "Asks GitHub, where the project's releases are, every hour while the app runs and when you press the button. Nothing about your vault is sent."

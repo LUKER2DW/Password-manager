@@ -610,7 +610,10 @@ fn main() {
     );
     app.set_browser_extension(false);
     app.set_settings_section(4);
+    // Starting at sign-in on, so its second check shows too.
+    app.set_start_at_sign_in(true);
     camera.shot("settings-appearance", "Settings → Appearance");
+    app.set_start_at_sign_in(false);
     app.set_settings_section(5);
     // Check for updates found a newer version (what the person sees after pressing it).
     app.set_update_version("0.5.0".into());
