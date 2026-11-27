@@ -53,6 +53,8 @@ pub enum Error {
     SyncFork,
     #[error("the device that wrote this copy was removed from this vault")]
     DeviceRemoved,
+    #[error("this copy was found under the name of a device that didn't write it")]
+    WrongWriter,
     #[error("this device was removed from the vault on another device")]
     RemovedHere,
     #[error("the file was changed by someone else since it was read: nothing was written")]

@@ -225,6 +225,32 @@ impl Vault {
     /// the copy says this device was removed, [`Error::SecretsLocked`] when taking the other copy's item lock needs
     /// this one's open first.
     pub fn merge(&mut self, other: &[u8], seen: &mut SeenRevisions) -> Result<MergeReport> {
+        self.merge_copy(other, None, seen)
+    }
+
+    /// [`Vault::merge`] for a copy found on a sync place under the name of device `listed` (its
+    /// file name, or the device a server lists it for). A place can't make a copy, but it can
+    /// hand one device's copy over as another's, or this device's own as someone else's: such
+    /// a copy is refused with [`Error::WrongWriter`] before anything of it is used (SYNC.md
+    /// §4.1), so what is said of each device and what is kept of it are its own.
+    ///
+    /// # Errors
+    /// As [`Vault::merge`], and [`Error::WrongWriter`].
+    pub fn merge_from(
+        &mut self,
+        listed: DeviceId,
+        other: &[u8],
+        seen: &mut SeenRevisions,
+    ) -> Result<MergeReport> {
+        self.merge_copy(other, Some(listed), seen)
+    }
+
+    fn merge_copy(
+        &mut self,
+        other: &[u8],
+        listed: Option<DeviceId>,
+        seen: &mut SeenRevisions,
+    ) -> Result<MergeReport> {
         let parsed = format::parse(other)?;
         if parsed.header.vault_id != self.header.vault_id {
             return Err(Error::OtherVault);
@@ -236,6 +262,9 @@ impl Vault {
         let writer = theirs.sync.writer;
         if writer.is_none() {
             return Err(Error::Malformed);
+        }
+        if listed.is_some_and(|listed| listed != writer) {
+            return Err(Error::WrongWriter);
         }
         if writer == self.sync.writer {
             // This device's own copy, back from the target.
