@@ -1,5 +1,6 @@
 # Releases. Every push to main that changes an app builds all of them from that commit:
-#  - the phone app's APK, signed with the release key;
+#  - the phone app's APK, signed with the release key when the run publishes (else with a key
+#    made for that run, so the build is still tried end to end);
 #  - the desktop app for Windows (vault-desktop.exe, one file: it is also the browser
 #    extension's native host) and the `vault` command;
 #  - the sync server for Linux (x64, arm64) and Windows;
@@ -14,8 +15,9 @@
 # push to main. The phones and the desktop app find it by themselves within the hour.
 #
 # The release key lives only in the secrets of the `android-release` environment, which GitHub
-# hands to jobs running for main alone (the environment's branch policy): a pull request, or a
-# run from another branch, never sees it.
+# hands to jobs running for main alone (the environment's branch policy), and only once the
+# maintainer approved that run (its required reviewer, admins included): a pull request, a run
+# from another branch, or a push alone never sees it. Only a run that publishes asks for it.
 #   ANDROID_SIGNING_STORE     the key (release.p12: PKCS#12, alias "vault"), in base64
 #   ANDROID_SIGNING_PASSWORD  its password
 # The APK must come out signed with the certificate named below, or nothing is published: a key
@@ -106,11 +108,13 @@ jobs:
           echo "Version $version; published by this run: $publish"
 
   apk:
-    name: Phone app (signed APK)
+    name: Phone app (APK)
     needs: version
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    environment: android-release
+    # The signing key only for a run that publishes, which then waits for the maintainer's
+    # approval; any other run goes without the environment, its secrets and the wait.
+    environment: ${{ needs.version.outputs.publish == 'true' && 'android-release' || '' }}
     permissions:
       contents: read
     steps:
@@ -152,20 +156,30 @@ jobs:
           -Library target/android-libs/arm64-v8a/libvault_mobile_android.so
           -Ndk "$env:ANDROID_SDK_ROOT/ndk/$env:NDK_VERSION"
 
-      - name: APK, signed with the release key
+      - name: APK, signed with the release key when publishing
         env:
+          PUBLISH: ${{ needs.version.outputs.publish }}
           SIGNING_STORE: ${{ secrets.ANDROID_SIGNING_STORE }}
           VAULT_SIGNING_PASSWORD: ${{ secrets.ANDROID_SIGNING_PASSWORD }}
         run: |
-          if [ -z "$SIGNING_STORE" ] || [ -z "$VAULT_SIGNING_PASSWORD" ]; then
-            echo "::error::The android-release environment has no signing key"
-            exit 1
-          fi
-          export VAULT_SIGNING_STORE="$RUNNER_TEMP/release.p12"
-          trap 'rm -f "$VAULT_SIGNING_STORE"' EXIT
-          (umask 077 && printf '%s' "$SIGNING_STORE" | base64 -d > "$VAULT_SIGNING_STORE")
           export ANDROID_HOME="$ANDROID_SDK_ROOT"
           export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME_17_X64}"
+          if [ "$PUBLISH" = true ]; then
+            if [ -z "$SIGNING_STORE" ] || [ -z "$VAULT_SIGNING_PASSWORD" ]; then
+              echo "::error::The android-release environment has no signing key"
+              exit 1
+            fi
+            export VAULT_SIGNING_STORE="$RUNNER_TEMP/release.p12"
+            trap 'rm -f "$VAULT_SIGNING_STORE"' EXIT
+            (umask 077 && printf '%s' "$SIGNING_STORE" | base64 -d > "$VAULT_SIGNING_STORE")
+          else
+            # build.gradle's trial signing, with a key made for this run alone.
+            unset VAULT_SIGNING_PASSWORD
+            mkdir -p "$HOME/.android"
+            "$JAVA_HOME/bin/keytool" -genkeypair -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -alias androiddebugkey -keypass android -keyalg RSA \
+              -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US" > /dev/null
+          fi
           cd apps/mobile-android
           ./gradlew --no-daemon --quiet assembleRelease
 
@@ -175,9 +189,11 @@ jobs:
       - name: The manifest
         run: |
           export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME_17_X64}"
-          pwsh apps/mobile-android/check-manifest.ps1 -Sdk "$ANDROID_SDK_ROOT"             -Apk target/gradle/vault-mobile-android/outputs/apk/release/vault-mobile-android-release.apk
+          pwsh apps/mobile-android/check-manifest.ps1 -Sdk "$ANDROID_SDK_ROOT" \
+            -Apk target/gradle/vault-mobile-android/outputs/apk/release/vault-mobile-android-release.apk
 
       - name: Check the signature
+        if: needs.version.outputs.publish == 'true'
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
@@ -195,6 +211,7 @@ jobs:
           cp "$apk" "out/vault-mobile-android-$VERSION.apk"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: needs.version.outputs.publish == 'true'
         with:
           name: apk
           path: out/
