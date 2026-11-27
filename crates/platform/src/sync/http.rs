@@ -19,8 +19,29 @@ use ureq::{
     },
 };
 
-/// The longest a request may take; a long-poll waits up to a minute of it.
-const TIMEOUT: Duration = Duration::from_secs(90);
+/// The longest a request may take, all of it (connecting, sending, the answer's head and its
+/// whole body): a server that answers slowly or never stops can't hold a round for longer.
+/// A long-poll waits up to a minute of it.
+pub(super) const TIMEOUT: Duration = Duration::from_secs(90);
+
+/// The longest connecting may take, within [`TIMEOUT`].
+pub(super) const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
+#[cfg(test)]
+thread_local! {
+    /// A shorter [`TIMEOUT`] for the clients made on this thread: the tests of a server that
+    /// never finishes answering see it hold in seconds.
+    pub(super) static TEST_TIMEOUT: std::cell::Cell<Option<Duration>> =
+        const { std::cell::Cell::new(None) };
+}
+
+fn timeout() -> Duration {
+    #[cfg(test)]
+    if let Some(timeout) = TEST_TIMEOUT.with(std::cell::Cell::get) {
+        return timeout;
+    }
+    TIMEOUT
+}
 
 /// The most a server's certificate authority may weigh.
 const MAX_AUTHORITY_BYTES: usize = 16 * 1024;
@@ -247,8 +268,8 @@ fn client(base: &str, sends: Sends, tls: TlsConfig) -> ureq::Agent {
     let secure = base.strip_prefix("https://");
     let here = secure.is_some_and(|rest| loopback(rest.split('/').next().unwrap_or_default()));
     let mut config = ureq::Agent::config_builder()
-        .timeout_global(Some(TIMEOUT))
-        .timeout_connect(Some(Duration::from_secs(15)))
+        .timeout_global(Some(timeout()))
+        .timeout_connect(Some(CONNECT_TIMEOUT))
         .max_redirects(0)
         .http_status_as_error(false)
         .allow_non_standard_methods(sends == Sends::Password)

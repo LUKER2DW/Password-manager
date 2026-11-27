@@ -5,6 +5,8 @@
 //! they change here. Targets: a folder (here), our own server ([`server`]) and WebDAV
 //! ([`webdav`]).
 
+#[cfg(test)]
+mod hostile;
 mod http;
 pub mod server;
 pub mod webdav;
