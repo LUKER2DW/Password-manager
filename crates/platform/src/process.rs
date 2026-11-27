@@ -425,6 +425,11 @@ mod tests {
             return;
         }
 
+        // What is checked is another program of the same user. One that holds SeDebugPrivilege
+        // turned on (an administrator's debugger; CI's runner hands it to every step) passes
+        // any process's access list, which the threat model leaves out: turned off here first.
+        turn_off_debug_privilege();
+
         let (_, tests) = module_path!().split_once("::").unwrap();
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .arg("--exact")
@@ -513,5 +518,55 @@ mod tests {
             "threads left open: {open_threads:?}"
         );
         assert!(ended.success());
+    }
+
+    /// Turns SeDebugPrivilege off in this test process's token, if it holds it at all.
+    fn turn_off_debug_privilege() {
+        use windows_sys::Win32::{
+            Foundation::{CloseHandle, GetLastError, HANDLE, LUID},
+            Security::{
+                AdjustTokenPrivileges, LUID_AND_ATTRIBUTES, LookupPrivilegeValueW,
+                TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES,
+            },
+            System::Threading::{GetCurrentProcess, OpenProcessToken},
+        };
+        let name: Vec<u16> = "SeDebugPrivilege\0".encode_utf16().collect();
+        // SAFETY: the token handle is a valid out-pointer and is closed once; the name is
+        // NUL-terminated; `privileges` holds the one entry its count says, and no previous
+        // state is asked for.
+        #[allow(unsafe_code)]
+        unsafe {
+            let mut token: HANDLE = std::ptr::null_mut();
+            assert_ne!(
+                OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &raw mut token),
+                0,
+                "this process's token"
+            );
+            let mut luid = LUID {
+                LowPart: 0,
+                HighPart: 0,
+            };
+            if LookupPrivilegeValueW(std::ptr::null(), name.as_ptr(), &raw mut luid) != 0 {
+                let privileges = TOKEN_PRIVILEGES {
+                    PrivilegeCount: 1,
+                    // No attribute: the privilege off (it stays in the token, unused).
+                    Privileges: [LUID_AND_ATTRIBUTES {
+                        Luid: luid,
+                        Attributes: 0,
+                    }],
+                };
+                let changed = AdjustTokenPrivileges(
+                    token,
+                    0,
+                    &raw const privileges,
+                    0,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                );
+                // ERROR_NOT_ALL_ASSIGNED (a token without it) is fine: nothing to turn off.
+                assert_ne!(changed, 0, "AdjustTokenPrivileges: {}", GetLastError());
+            }
+            CloseHandle(token);
+        }
     }
 }
