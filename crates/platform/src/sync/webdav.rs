@@ -170,8 +170,10 @@ fn check(response: &mut Response<ureq::Body>) -> Result<()> {
 }
 
 /// The copies in a PROPFIND answer: each `<response>` whose `<href>` ends in
-/// `<32 hex>.vault`, with its ETag.
-fn parse_listing(xml: &[u8]) -> Result<Vec<Listed>> {
+/// `<32 hex>.vault`, with its ETag. Only the name is taken from an `<href>`: a copy is always
+/// read from this vault's own folder, whatever folder or host the listing names. Public for
+/// the fuzz target (`fuzz/fuzz_targets/sync_answers.rs`).
+pub fn parse_listing(xml: &[u8]) -> Result<Vec<Listed>> {
     let mut reader = Reader::from_reader(xml);
     reader.config_mut().trim_text(true);
     let mut buf = Vec::new();
