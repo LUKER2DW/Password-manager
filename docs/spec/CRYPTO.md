@@ -16,6 +16,7 @@
 | Constant-time comparison | — | `subtle` |
 | Sealing to a public key (browser drop box only, §3.5) | libsodium sealed box: X25519 + XSalsa20-Poly1305, nonce = BLAKE2b(eph_pk ‖ pk) | `crypto_box` |
 | The browser extension's link only (§3.9) | ECDH P-256 to agree on its key; AES-256-GCM to seal its messages (the AEAD the browser's WebCrypto offers: XChaCha20-Poly1305 isn't there, and written in JavaScript it would be home-made) | `p256`, `aes-gcm` |
+| Keeping the Secret Key on Windows only (§2.2.1) | RSA-2048 OAEP with SHA-256, the private key in the TPM | Windows NCrypt, Microsoft Platform Crypto Provider |
 
 All labels below are ASCII byte strings and are used verbatim (no terminator).
 
@@ -49,6 +50,64 @@ part in the vault's own keys.
 - Checksum: the top 10 bits of `SHA-256("vault-v0/key-checksum" ‖ "S0" ‖ key_bytes)`.
 - Parsing is case-insensitive, ignores spaces and dashes, and accepts Crockford aliases
   (`O`→`0`, `I`/`L`→`1`).
+
+### 2.2.1 Keeping the Secret Key on a device
+
+Each device that knows the Secret Key keeps it in the OS credential store, never in the vault
+file (`vault_platform::secret_store`): on Android in SharedPreferences encrypted under an
+Android Keystore key; on Windows in Credential Manager, which is DPAPI underneath. DPAPI
+answers any program of the same user, and a copy of the user's profile opens elsewhere with
+the user's Windows password. So where the computer has a TPM the Windows device keeps the
+Secret Key under a key that never leaves the chip:
+
+```
+device_key  = RSA-2048 key pair made in the TPM through NCrypt's "Microsoft Platform Crypto
+              Provider": a user key (no machine-key flag), named
+              "vault-secret-key-" ‖ vault_id_hex, usage decrypt only, export policy none,
+              no UI policy (it never prompts)
+KEK_kept    = 32 random bytes, new each time the Secret Key is kept
+label       = "vault-v0/secret-key-at-rest" ‖ 0x00
+wrapped_kek = RSA-OAEP(device_key, KEK_kept, hash and MGF1: SHA-256, label)
+sealed      = seal(KEK_kept, secret_key (16 bytes), "vault-v0/secret-key-at-rest" ‖ vault_id_hex)
+kept        = 0x01 ‖ wrapped_kek (256 bytes) ‖ sealed
+```
+
+- `vault_id_hex` is the vault id in lowercase hex, as the credential store names the vault.
+- The label is short and ends with a zero byte because a TPM takes only zero-terminated OAEP
+  labels, of at most its largest digest's size (`TPM2B_DATA`: 34 bytes on a TPM with SHA-256
+  only; a 48-byte label was refused with `TPM_RC_SIZE` on the firmware TPM this was measured
+  on). The vault is named by the device key (one per vault) and by `sealed`'s associated data.
+- `kept` is stored base64 (standard alphabet, padded) as the entry `secret-key-tpm:<vault id>`.
+  Encrypting uses only the public half (NCrypt does it in software); unwrapping is
+  `NCryptDecrypt` in the TPM with the same label, silent. A version other than `0x01`, a
+  `kept` too short, an unwrapped key that isn't 32 bytes or a `sealed` that doesn't open is an
+  error (fail closed), and nothing is deleted for it.
+- Keeping it: seal, wrap, write, then read the entry back and open it through the TPM; only
+  when that gives the same Secret Key does it count as kept. The device key is made the first
+  time (1.4–5 s on the firmware TPM it was measured on; unwrapping takes about 65 ms) and
+  reused after; one that still encrypts but no longer decrypts is made anew once.
+- The plain form (the `S0-` text, entry `secret-key:<vault id>`) is written only where there
+  is no TPM, or the TPM can't make or use the key; Settings says it is weaker. A plain key kept
+  before is moved after the vault opens with it: `kept` is written and read back as above, and
+  only then is the plain entry deleted. A plain entry that holds another key is deleted before
+  a new one is kept, so no moment leaves two different keys.
+- Both entries found: the same key in both is that key (the plain one goes at the next
+  unlock); two different keys are a conflict (an older app, which doesn't know the TPM form,
+  kept one beside it), and the Secret Key is asked for. A `kept` the TPM can't open because the
+  key is gone (the TPM cleared, reset by a firmware update or replaced, or turned off) leaves
+  the plain one, if any, else asks for the Secret Key from the emergency kit. Once it opens the
+  vault it is kept again, under a new device key.
+- Entries are written with `CRED_PERSIST_LOCAL_MACHINE`, so they don't travel with a domain's
+  roaming profile. Forgetting the Secret Key deletes both entries and the device key.
+
+What this changes and what it doesn't:
+
+- A copy of the disk, of the user's profile or of Credential Manager (with DPAPI's master keys
+  and the user's password) no longer carries the Secret Key: the private key exists only as a
+  blob the TPM's storage key encrypts, which opens in that chip only, and can't be exported.
+- Malware running as the same Windows user while the computer is on can still ask the TPM to
+  decrypt, without a prompt, as it could ask DPAPI. The gain is against taking the files away,
+  not against code that runs here.
 
 ### 2.3 Recovery Key (256 bits, kits made before format v8)
 - 32 random bytes, optional, printed in the emergency kit. Opens the vault on its own, so the kit
@@ -640,6 +699,7 @@ Deriving a fresh `K_enc` per message also removes any risk from random-nonce col
 | Guard key (§3.2) | `KEK_guard` | `"vault-v0/guard-key" ‖ vault_id ‖ slot (0x01 check, 0x02 master)` |
 | Item secrets (§3.2) | `guard_key` | `"vault-v0/item-secrets" ‖ vault_id ‖ item_id` |
 | Device unlock (§3.1) | `KEK_device` | `"vault-v0/device" ‖ vault_id ‖ SHA-256(password slot)` |
+| Secret Key kept on Windows (§2.2.1) | `KEK_kept` | `"vault-v0/secret-key-at-rest" ‖ vault_id_hex` |
 | Device-local data (e.g. icon cache) | `subkey("local/" ‖ purpose)` | `"vault-v0/local" ‖ vault_id ‖ purpose` |
 | Browser link request (§3.9) | `K_req` | `"vault-browser/request" ‖ counter (u64 LE)` |
 | Browser link answer (§3.9) | `K_ans` | `"vault-browser/answer" ‖ counter (u64 LE) ‖ request nonce` |
