@@ -325,6 +325,24 @@ On top of that:
   and a clock moved back counts as too long ago); guesses are rate-limited by the phone's secure hardware, but a 4-digit
   PIN is weaker than a master password. It is the person's choice in Settings, Security, and
   the master password always works.
+- **Every use asks on the phone** (Settings, Security, "Ask for the fingerprint or screen lock
+  every time", on by default): while the vault is open, each password shown or copied, each
+  one-time code copied, a card's number or security code, a secure note, an attached file, the
+  editor (which shows every field) and the generator's history ask Android's own prompt (a
+  strong fingerprint or face, or the screen lock) in that action, with nothing remembered
+  between two uses. What it protects: someone who picks up the unlocked phone, or is handed it
+  with the app open, sees titles, usernames and sites, and gets no password, card or note
+  without passing the phone's check once for each; a cancelled or failed check shows and
+  copies nothing. A phone with no screen lock asks the item lock's PIN or password instead
+  (for that use only); with neither, nothing shows. What it doesn't: anyone who knows the
+  phone's PIN or pattern passes it (it is the same check as unlocking the phone; guesses are
+  rate-limited by Android); the one-time codes on screen stay visible, and a secret already
+  shown stays on screen until hidden or the item is left, as one copied stays on the
+  clipboard until it is cleared; the item lock's own PIN still guards the items it covers (the
+  phone's check never opens it); malware with root or a debugger reads the open vault's
+  memory, which this prompt doesn't change. It is the system's prompt, not a Keystore key: the
+  secrets are already decrypted in the open vault, so a key would release nothing the app
+  needs, and the prompt's answer comes from Android, which another app can't forge.
 - **Passkeys on the phone** (Android 14+, once the person turns Vault on as a passkey
   provider in the phone's settings): Android's Credential Manager asks the app, and the app
   answers only after a fingerprint or the phone's lock. A web page's origin counts only when

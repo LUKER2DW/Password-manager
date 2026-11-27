@@ -692,6 +692,14 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   "Show the keys for 15 seconds"; the actions grouped (print; keep a copy in a file; change
   the keys), each with a line saying what it does; the pairing code shown one character per
   box.
+- ✅ S31. The phone asks every time: by default every password, one-time code, card number or
+  security code, secure note, attached file, the editor and the generator's history asks
+  Android's own prompt (fingerprint, face or screen lock) in that action, with no grace
+  period (Settings → Security, "Ask for the fingerprint or screen lock every time";
+  `System::check_person`, `controller/each_use.rs`). A phone with no screen lock asks the item
+  lock's PIN or password instead, or shows nothing, and Settings says so; the item lock asks
+  once per action, never twice. Headless tests: on by default, each use asks again, a refusal
+  shows and copies nothing, off asks nothing, no screen lock with and without an item PIN.
 
 **Features** (F2, F7 and F8 change the file format: one format version for the three)
 - ⬜ F1. Lock options: ask for the master password at every start of the app.

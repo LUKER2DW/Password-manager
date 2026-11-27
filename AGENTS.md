@@ -218,7 +218,9 @@ look right in both apps' screenshots. The controller's submodules are `syncing.r
 the phone, updates from the server), `settings.rs` (vaults on the phone, fingerprint unlock,
 import, "Check this password"), `filling.rs` (autofill from the open vault),
 `attachments.rs` (files and SSH keys), `preview.rs` (previews of attached pictures, text and
-PDFs), `icons.rs` (website icons and the preset `glyph:` icons), `folders.rs`, `health.rs`
+PDFs), `icons.rs` (website icons and the preset `glyph:` icons), `each_use.rs` (every use of a
+secret asks the phone's check first: a fingerprint, a face or the screen lock, else the item
+lock's PIN), `folders.rs`, `health.rs`
 (password health), `generated.rs` (the generator's sealed history) and `passkeys.rs` (passkeys
 for other apps from the open vault). `prefs.rs` is the
 phone's own settings file, `bio.rs` a vault's fingerprint unlock file, `autofill.rs` which
