@@ -7717,6 +7717,7 @@ dependencies = [
 name = "vault-desktop"
 version = "0.4.7"
 dependencies = [
+ "aho-corasick",
  "anyhow",
  "embed-resource",
  "hmac 0.13.0",
@@ -7739,6 +7740,7 @@ dependencies = [
  "vault-import",
  "vault-platform",
  "vault-sync-wire",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 

@@ -67,3 +67,16 @@ serde_json = "1.0"
 hmac = "0.13"
 i-slint-backend-testing = "1.18"
 tempfile = "3.27"
+# The memory test (tests/memory.rs): the keys it looks for, and many patterns searched at once
+# in another process's memory.
+vault-core = { path = "../../crates/core", features = ["memory-test"] }
+aho-corasick = "1.1"
+
+# The memory test reads another process's memory.
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+] }
