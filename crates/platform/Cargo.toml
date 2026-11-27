@@ -16,6 +16,11 @@ missing_debug_implementations = "warn"
 all = { level = "warn", priority = -1 }
 undocumented_unsafe_blocks = "warn"
 
+# `test-chip`: `secret_store::MemoryChip`, a stand-in for the TPM that the apps' tests and
+# screenshots use, so they make no keys in the real chip.
+[features]
+test-chip = []
+
 [dependencies]
 vault-core = { path = "../core" }
 # The browser extension's zip from a GitHub release (extension_source.rs): deflate and its
@@ -50,6 +55,9 @@ raw-window-handle = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 zeroize = "1.9"
+# The OS credential store's entries (each OS's store under it: `keyring` below on computers,
+# the Android Keystore's on a phone).
+keyring-core = "1"
 
 # The clipboard: arboard on computers; on Android the system's ClipboardManager over JNI.
 [target.'cfg(not(target_os = "android"))'.dependencies]
@@ -62,7 +70,6 @@ keyring = "4"
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "1"
 jni = "0.21"
-keyring-core = "1"
 ndk-context = "0.1"
 
 [target.'cfg(windows)'.dependencies]

@@ -35,6 +35,8 @@ pub mod secure_memory;
 pub mod session_watch;
 pub mod single_instance;
 pub mod sync;
+#[cfg(windows)]
+pub mod tpm;
 pub mod updates;
 pub mod website_icons;
 pub mod wiping_alloc;
