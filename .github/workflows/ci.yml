@@ -78,7 +78,7 @@ jobs:
           apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs
           apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs
           apps/extension/test/popup.test.mjs
-          apps/extension/test/update.test.mjs
+          apps/extension/test/update.test.mjs apps/extension/test/kit.test.mjs
 
   linux-libraries:
     name: Core and protocol on Linux
