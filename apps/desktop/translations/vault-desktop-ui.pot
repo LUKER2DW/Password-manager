@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: vault-desktop-ui VERSION\n"
-"POT-Creation-Date: 2026-11-26 17:55+0000\n"
+"POT-Creation-Date: 2026-11-27 00:03+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -851,9 +851,10 @@ msgstr ""
 #: ui/dialogs.slint:787
 msgctxt "ExportDialog"
 msgid ""
-"Every item in one file, encrypted with a password you choose here. Import "
-"reads it back, here or on another computer; without that password nobody "
-"can, you included."
+"Every item in one file, attached files and passkeys included, encrypted with "
+"a password you choose here. Whoever has the file and that password can sign "
+"in with those passkeys, so make it long. Import reads it back, here or on "
+"another computer; without that password nobody can, you included."
 msgstr ""
 
 #: ui/dialogs.slint:788
@@ -5079,9 +5080,9 @@ msgstr ""
 #: ui/pages.slint:3773
 msgctxt "TransferPage"
 msgid ""
-"Every item in one file, encrypted with a password you choose for it. Import "
-"reads it back, here or on another computer. Without that password nobody "
-"can, you included."
+"Every item in one file, attached files and passkeys included, encrypted with "
+"a password you choose for it. Import reads it back, here or on another "
+"computer. Without that password nobody can, you included."
 msgstr ""
 
 #: ui/pages.slint:3775

@@ -784,7 +784,7 @@ export component ExportDialog inherits Modal {
     }
     Text {
         text: root.format == 3
-            ? @tr("Every item in one file, encrypted with a password you choose here. Import reads it back, here or on another computer; without that password nobody can, you included.")
+            ? @tr("Every item in one file, attached files and passkeys included, encrypted with a password you choose here. Whoever has the file and that password can sign in with those passkeys, so make it long. Import reads it back, here or on another computer; without that password nobody can, you included.")
             : @tr("The file holds the passwords in plain text: anyone or any program that gets it reads them, and malware looks for exactly these files. Use it only to move to another password manager, then delete it.");
         font-size: Theme.body;
         color: Theme.graphite;

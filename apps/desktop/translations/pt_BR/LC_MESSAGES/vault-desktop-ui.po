@@ -2223,10 +2223,6 @@ msgid "Save the address"
 msgstr "Salvar o endereço"
 
 msgctxt "ExportDialog"
-msgid "Every item in one file, encrypted with a password you choose here. Import reads it back, here or on another computer; without that password nobody can, you included."
-msgstr "Todos os itens em um só arquivo, criptografado com uma senha que você escolhe aqui. A importação lê o arquivo de volta, aqui ou em outro computador; sem essa senha, ninguém consegue, nem você."
-
-msgctxt "ExportDialog"
 msgid "The file holds the passwords in plain text: anyone or any program that gets it reads them, and malware looks for exactly these files. Use it only to move to another password manager, then delete it."
 msgstr "O arquivo guarda as senhas em texto puro: quem ou qualquer programa que tiver acesso a ele pode lê-las, e programas maliciosos procuram justamente esse tipo de arquivo. Use-o só para passar para outro gerenciador de senhas e, depois, apague-o."
 
@@ -3755,10 +3751,6 @@ msgid "Keep a copy on a USB drive or another disk. It stays encrypted."
 msgstr "Guarde uma cópia em um pendrive ou em outro disco. Ela continua criptografada."
 
 msgctxt "TransferPage"
-msgid "Every item in one file, encrypted with a password you choose for it. Import reads it back, here or on another computer. Without that password nobody can, you included."
-msgstr "Todos os itens em um arquivo, criptografado com uma senha que você escolhe para ele. A opção Importar o lê de volta, aqui ou em outro computador. Sem essa senha ninguém consegue, nem você."
-
-msgctxt "TransferPage"
 msgid "Keeps folders, cards and extra fields. Most password managers can read it."
 msgstr "Mantém pastas, cartões e campos extras. A maioria dos gerenciadores de senhas consegue lê-lo."
 
@@ -4459,3 +4451,11 @@ msgstr "Pergunta ao GitHub, onde ficam as versões publicadas do projeto, a cada
 msgctxt "SettingsPage"
 msgid "Look for updates by itself"
 msgstr "Procurar atualizações sozinho"
+
+msgctxt "ExportDialog"
+msgid "Every item in one file, attached files and passkeys included, encrypted with a password you choose here. Whoever has the file and that password can sign in with those passkeys, so make it long. Import reads it back, here or on another computer; without that password nobody can, you included."
+msgstr "Todos os itens em um só arquivo, com anexos e passkeys, criptografado com uma senha que você escolhe aqui. Quem tiver o arquivo e essa senha consegue entrar com essas passkeys, então use uma senha longa. A importação lê o arquivo de volta, aqui ou em outro computador; sem essa senha, ninguém consegue, nem você."
+
+msgctxt "TransferPage"
+msgid "Every item in one file, attached files and passkeys included, encrypted with a password you choose for it. Import reads it back, here or on another computer. Without that password nobody can, you included."
+msgstr "Todos os itens em um arquivo, com anexos e passkeys, criptografado com uma senha que você escolhe para ele. A opção Importar o lê de volta, aqui ou em outro computador. Sem essa senha ninguém consegue, nem você."

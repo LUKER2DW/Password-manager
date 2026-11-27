@@ -3770,7 +3770,7 @@ export component TransferPage inherits Rectangle {
                 text: root.export-format == 0
                     ? @tr("Keep a copy on a USB drive or another disk. It stays encrypted.")
                     : root.export-format == 3
-                        ? @tr("Every item in one file, encrypted with a password you choose for it. Import reads it back, here or on another computer. Without that password nobody can, you included.")
+                        ? @tr("Every item in one file, attached files and passkeys included, encrypted with a password you choose for it. Import reads it back, here or on another computer. Without that password nobody can, you included.")
                     : root.export-format == 1
                         ? @tr("Keeps folders, cards and extra fields. Most password managers can read it.")
                         : @tr("Logins and notes only, one per row. Any program can read it.");

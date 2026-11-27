@@ -2159,17 +2159,13 @@ fn an_export_says_first_what_it_leaves_out_and_what_anyone_could_read() {
             .to_string()
     };
 
-    // Protected by a password: what no export carries. Nothing is readable.
+    // Protected by a password: every item whole, attached file and passkey included, and
+    // nothing readable.
     app.set_export_format(3);
     app.invoke_export_ask();
     assert!(app.get_export_asking() && app.get_error_code() == 0);
-    let sealed = ExportCounts {
-        attachments: 1,
-        passkeys: 1,
-        ..ExportCounts::default()
-    };
-    assert_eq!(app.get_export_counts(), sealed);
-    assert_eq!(notes(), "Not in this file: 1 attached file, 1 passkey.");
+    assert_eq!(app.get_export_counts(), ExportCounts::default());
+    assert_eq!(notes(), "");
     // Cancelled: what was typed goes.
     type_into(&app, 5, PASSWORD);
     type_into(&app, 6, "a long password for the file");
@@ -2177,17 +2173,20 @@ fn an_export_says_first_what_it_leaves_out_and_what_anyone_could_read() {
     assert!(!app.get_export_asking());
     assert_eq!((length(&app, 5), length(&app, 6)), (0, 0));
 
-    // JSON: the earlier password stays behind too, and everything else is in the clear.
+    // JSON: the attached file, the passkey and the earlier password stay behind, and
+    // everything else is in the clear.
     app.set_export_format(1);
     app.invoke_export_ask();
     let json = ExportCounts {
+        attachments: 1,
+        passkeys: 1,
         earlier_passwords: 1,
         passwords: 2,
         otp_secrets: 1,
         hidden_fields: 2,
         recovery_codes: 2,
         notes: 1,
-        ..sealed.clone()
+        ..ExportCounts::default()
     };
     assert_eq!(app.get_export_counts(), json);
     assert_eq!(
@@ -2317,35 +2316,30 @@ fn an_export_of_locked_items_is_counted_before_it_is_made() {
         type_into(&app, 7, "a long password for the file");
         app.invoke_export_plain();
         let exported = path.with_extension("export.vaultx");
-        assert!(!exported.exists());
-        assert!(app.get_export_asking());
         if !master_opens {
             // No copy of the lock's key under the master password: it stays in the way.
+            assert!(!exported.exists());
+            assert!(app.get_export_asking());
             assert_eq!(app.get_error_code(), 37);
             assert!(!app.get_export_recounted());
             app.invoke_export_cancel();
             continue;
         }
-        // The master password opened the items to count them: shown, then confirmed again.
+        // The master password opened the items for the export. The file keeps every item
+        // whole, so it holds nothing the dialog didn't say: it is made at once, and the item
+        // lock closes again.
         assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
-        assert!(app.get_export_recounted());
-        let counts = app.get_export_counts();
-        assert_eq!((counts.attachments, counts.passkeys), (1, 1));
+        assert!(exported.exists() && !app.get_export_asking());
+        assert!(!app.get_export_recounted());
         assert!(!app.get_secrets_open());
         app.invoke_select_category(0);
         app.invoke_select(0);
         assert!(app.get_detail_locked(), "for the export only");
-        app.invoke_open_transfer();
-        type_into(&app, 5, PASSWORD);
-        app.invoke_export_plain();
-        assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
-        assert!(exported.exists() && !app.get_export_asking());
 
         // A protected export refused for its password closes the item lock again too.
+        app.invoke_open_transfer();
         app.invoke_export_ask();
         type_into(&app, 5, PASSWORD);
-        app.invoke_export_plain();
-        assert!(app.get_export_recounted());
         app.invoke_export_plain();
         assert_eq!(app.get_error_code(), 5, "no password for the file");
         app.invoke_export_cancel();
