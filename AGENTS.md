@@ -146,7 +146,7 @@ app, `pairing.rs` is the connection key and the proof on every request, `service
 from an open vault (with the item lock as a `Gate`), `host.rs` is the native host's relay
 between the browser and the app's pipe, run by the desktop app's own executable when a browser
 starts it with the extension's origin (`apps/desktop/src/main.rs`). In `apps/extension/`,
-`popup.js` is the extension's window, `link.js` its connection key (agreed with the app by
+`popup.js` is the extension's window (its views and their rules in `popup/`), `link.js` its connection key (agreed with the app by
 ECDH), the sealing of each request and the opening of each answer, and
 `fill.js` the function that types a login into a page, `content.js` + `fields.js` the
 content script (sign-in fields, submitted forms), `inline.html`/`inline.js` the frame shown
@@ -156,7 +156,7 @@ reading of a site's password rules, `app.js` the native messaging calls. Passkey
 (the relay), `passkey-worker.js` (the worker's side) and `passkey.html`/`passkey.js` (the window
 where the person chooses). See
 [apps/extension/README.md](apps/extension/README.md). Tests: `cargo test -p vault-browser` and
-`node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs`.
+`node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs`.
 
 Rules for this part: UI in a page only as the extension's own frame (`inline.html`), never as
 page DOM, and every click there goes through the visibility check; no new permission without
@@ -297,7 +297,7 @@ cargo run -p vault-mobile                                  # the phone app in a 
 cargo run -p vault-mobile --example phone_screens -- target/phone-screens   # its screens as PNGs
 cargo run -p vault-cli -- --help                           # the `vault` command
 cargo run -p vault-server -- serve                         # a sync server (docs/SERVER.md)
-node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs
+node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs
 ```
 
 The APK and the browser build have their own scripts, `apps/mobile-android/build.ps1` and
