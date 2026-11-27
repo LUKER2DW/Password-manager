@@ -208,7 +208,8 @@ jobs:
         run: rustup show active-toolchain
       - name: Build
         run: cargo build --release --locked -p vault-desktop -p vault-cli -p vault-server
-      # ASLR, DEP and Control Flow Guard (.cargo/config.toml) in every exe, or nothing ships.
+      # ASLR, DEP, Control Flow Guard and DLLs from System32 only (.cargo/config.toml) in every
+      # exe, or nothing ships.
       - name: Protections
         shell: pwsh
         run: >-
@@ -354,7 +355,7 @@ jobs:
           cat >> "$notes" << EOF
 
           ### Downloads
-          - **Desktop (Windows x64):** \`vault-desktop.exe\`, one file: run it. It is also what the browser extension talks to. Not signed for Windows yet, so SmartScreen may ask first (More info → Run anyway).
+          - **Desktop (Windows x64):** \`vault-desktop.exe\`, one file: run it. It is also what the browser extension talks to. It needs the Microsoft Visual C++ runtime (\`vc_redist.x64.exe\`), which most computers already have; a copy of its DLL beside the exe is ignored, on purpose. Not signed for Windows yet, so SmartScreen may ask first (More info → Run anyway).
           - **Phone (Android, 64-bit ARM):** \`vault-mobile-android-$VERSION.apk\`, signed with the release certificate (SHA-256 \`$RELEASE_CERTIFICATE\`). Phones find it by themselves within the hour (Settings → About and updates), from GitHub or from a sync server that follows the releases.
           - **Browser extension (Chrome, Edge, Firefox):** \`vault-extension-$VERSION.zip\`. Turn the link on in the desktop app first (Settings → Browser extension). Chrome and Edge: unzip it, open \`chrome://extensions\`, turn on Developer mode, choose *Load unpacked*. Firefox 153+: open \`about:debugging#/runtime/this-firefox\`, choose *Load Temporary Add-on…* and pick the zip (it stays until Firefox closes; not signed by Mozilla yet).
           - **Sync server:** the image \`$image:$VERSION\` (amd64, arm64), or the program \`vault-server-linux-x64\`, \`vault-server-linux-arm64\`, \`vault-server-windows-x64.exe\`. With \`--app-updates $GITHUB_REPOSITORY\` (as in \`apps/server/compose.yaml\`) it hands each new phone app to your phones by itself.

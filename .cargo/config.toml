@@ -7,6 +7,13 @@
 # compiled here (ring, SQLite: the cc crate passes it on as /guard:cf); the standard library and
 # Skia come precompiled without it. Every Windows build has it, so the tests run under it too;
 # the release checks the published exes for it (apps/desktop/check-exe.ps1).
+#
+# /DEPENDENTLOADFLAG:0x800 (LOAD_LIBRARY_SEARCH_SYSTEM32): the DLLs a program imports are looked
+# for in System32 only, never next to it. The desktop app is one exe people run from Downloads,
+# where a DLL named like one it imports (dwmapi.dll, VCRUNTIME140.dll…) would otherwise load into
+# the vault. DLLs loaded later by name are kept to System32 at start (vault_platform::process).
+# The C runtime stays a DLL: a static one (+crt-static) would need Skia built from source, as no
+# static-runtime Skia is published.
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
-rustflags = ["-Ccontrol-flow-guard"]
+rustflags = ["-Ccontrol-flow-guard", "-Clink-arg=/DEPENDENTLOADFLAG:0x800"]

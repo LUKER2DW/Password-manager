@@ -1,5 +1,7 @@
 # Checks that Windows programs carry the exploit protections the build turns on: ASLR with a
-# high-entropy address space, DEP, and Control Flow Guard (.cargo/config.toml). The release runs
+# high-entropy address space, DEP, Control Flow Guard, and DLLs they import looked for in
+# System32 only, never next to the exe (DependentLoadFlags, /DEPENDENTLOADFLAG:0x800: an exe run
+# from Downloads ignores a DLL dropped there) (.cargo/config.toml). The release runs
 # it on every exe before publishing (.github/workflows/release.yml), so a build that lost one
 # (a RUSTFLAGS that replaced the config's flags, a changed linker) never ships.
 #
@@ -18,6 +20,8 @@ $guardCf = 0x4000
 # IMAGE_LOAD_CONFIG_DIRECTORY64.GuardFlags
 $cfInstrumented = 0x00000100
 $cfFunctionTablePresent = 0x00000400
+# IMAGE_LOAD_CONFIG_DIRECTORY64.DependentLoadFlags: LOAD_LIBRARY_SEARCH_SYSTEM32
+$searchSystem32 = 0x0800
 
 function Get-FileOffset([byte[]]$Bytes, [int]$SectionTable, [int]$Sections, [uint32]$Rva) {
     for ($i = 0; $i -lt $Sections; $i++) {
@@ -64,6 +68,8 @@ foreach ($path in $Exe) {
         if ($configSize -lt 148) {
             $missing += "Control Flow Guard's fields in the load configuration"
         } else {
+            $loadFlags = [BitConverter]::ToUInt16($bytes, $config + 78)
+            if (-not ($loadFlags -band $searchSystem32)) { $missing += "imported DLLs looked for in System32 only (DependentLoadFlags)" }
             $functions = [BitConverter]::ToUInt64($bytes, $config + 136)
             $guardFlags = [BitConverter]::ToUInt32($bytes, $config + 144)
             if (-not ($guardFlags -band $cfInstrumented)) { $missing += "calls checked by Control Flow Guard (CF_INSTRUMENTED)" }
@@ -77,7 +83,7 @@ foreach ($path in $Exe) {
         Write-Host "${name}: lacks $($missing -join ', ')"
         $failed = $true
     } else {
-        Write-Host "${name}: ASLR (high entropy), DEP, Control Flow Guard ($functions functions may be called indirectly)"
+        Write-Host "${name}: ASLR (high entropy), DEP, Control Flow Guard ($functions functions may be called indirectly), DLLs from System32"
     }
 }
 if ($failed) { throw "A program lacks a protection the build should give it." }
