@@ -593,6 +593,60 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   tests run under it; the release checks ASLR, DEP and the guard in each exe
   (`apps/desktop/check-exe.ps1`). ⬜ Authenticode signing of the exes.
 
+### M10 — Second review: hardening first, then features ⬜
+
+From a review of how other password managers work and how they were attacked (November
+2026). Done in this order: every security item before the features; each one with its tests,
+committed by area. Items marked (owner) need the maintainer's own accounts or keys.
+
+**Security**
+- ⬜ S1. Lock when Windows locks the session, sleeps or hibernates, or the session is
+  disconnected (THREAT_MODEL promises it; only the idle timer exists).
+- ⬜ S2. DLL loading: static C runtime, `/DEPENDENTLOADFLAG:0x800` and
+  `SetDefaultDllDirectories(System32)` at start, so a DLL dropped next to an exe run from
+  Downloads isn't loaded; `check-exe.ps1` checks it.
+- ⬜ S3. Process hardening: a process DACL other programs of the same user can't read or
+  write memory through (with an OWNER RIGHTS entry), the mitigation policies that don't break
+  GPU drivers, crash dumps left out; also in the native-host mode and the CLI.
+- ⬜ S4. Emergency kit: the saved PDF holds the Secret Key; recovery parts only in files of
+  their own, on request, with a warning for folders a cloud backs up.
+- ⬜ S5. Extension: nothing filled, saved or signed in a sandboxed (opaque-origin) document.
+- ⬜ S6. Passkeys: "user verified" only after Windows Hello, the PIN or a fingerprint in that
+  operation; a site asking for `required` gets the check.
+- ⬜ S7. The docs say only what the code does (memory and hibernation, builds, revealed text).
+- ⬜ S8. Releases: a required reviewer on the `android-release` environment (owner), CODEOWNERS
+  for the workflows, the Gradle wrapper's checksum pinned.
+- ⬜ S9. Revealed passwords, codes and the Secret Key kept out of the accessibility tree.
+- ⬜ S10. The browser host's registration checked at start and before the link opens; the
+  app's answers authenticated to the extension.
+- ⬜ S11. Keys in memory: vault key, guard key and subkeys in locked, encrypted pages; a
+  global allocator that zeroes what it frees.
+- ⬜ S12. The Secret Key on Windows wrapped by a non-exportable TPM key (DPAPI as fallback).
+- ⬜ S13. Android: overlays hidden and obscured touches refused on secret screens, task
+  affinity, data extraction rules.
+- ⬜ S14. Tests: memory searched for secrets after a lock, a hostile sync target and server,
+  more fuzz targets run on a schedule.
+- ⬜ S15. Authenticode signing and a release manifest signed with an offline key that the
+  updaters check (owner).
+
+**Features** (F2, F7 and F8 change the file format: one format version for the three)
+- ⬜ F1. Lock options: ask for the master password at every start of the app.
+- ⬜ F2. Trash: deleted items kept 30 days and restorable, through sync.
+- ⬜ F3. Health without the network: two-factor available, saved without HTTPS, passkey
+  available, card expiring.
+- ⬜ F4. Username generator: plus-addressed email, a domain's catch-all, random words.
+- ⬜ F5. Cards and addresses filled in the browser (payment fields in another site's frame).
+- ⬜ F6. Unlock with a hardware key (challenge-response, or FIDO2 `hmac-secret`).
+- ⬜ F7. Identity items (name, address, documents) and item templates.
+- ⬜ F8. Tags and an expiry date on items.
+- ⬜ F9. SSH agent, with approval for each use.
+- ⬜ F10. Credential Exchange Format (CXF) import and export.
+- ⬜ F11. Auto-type into programs outside the browser.
+- ⬜ F12. Distribution: the extension in the stores, an installer, the desktop updating itself.
+- ⬜ F13. Sharing and emergency access (a written design first, `docs/spec/SHARING.md`).
+- ⬜ F14. Passkey provider for Windows 11.
+- ⬜ F15. Linux, macOS, and the CLI level with the apps.
+
 ## Engineering practices
 
 - Tests: unit + known-answer vectors + property tests (`proptest`) + fuzzing (`cargo-fuzz`).
