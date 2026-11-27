@@ -14,8 +14,8 @@ use crate::{
     origin::{Origin, PageProblem, item_matches, passkey_site},
     protocol::{
         Assertion, Attestation, Check, CopyWhat, Credentials, ErrorCode, GeneratedPassword,
-        LoginEntry, OneTimeCode, PasskeyEntry, Request, Response, Revealed, Secret, Symbols,
-        UserVerification, VaultEntry,
+        LoginEntry, OneTimeCode, PasskeyEntry, Request, Response, Revealed, Secret, Shown,
+        ShownCode, Symbols, UserVerification, VaultEntry,
     },
 };
 
@@ -38,6 +38,8 @@ pub struct Answer {
     pub passkey_saved: Option<String>,
     /// The title of the login whose passkey just signed in to a site.
     pub passkey_used: Option<String>,
+    /// The extension asked to lock the vault: the app locks it.
+    pub lock: bool,
 }
 
 /// A generated password that was used, and the site it was made for ("" when none).
@@ -83,6 +85,11 @@ pub trait Gate {
     fn open(&mut self, vault: &mut Vault, secret: &str) -> Opened;
     /// Called after a login opened by [`Gate::open`] was read: lock again what that opened.
     fn close(&mut self, vault: &mut Vault);
+    /// Whether every password, code or passkey asks for the person, each time (then
+    /// [`Gate::locked`] is true for every login).
+    fn always(&self) -> bool {
+        false
+    }
     /// How long the app keeps a copied secret on the clipboard.
     fn clipboard_seconds(&self) -> u32 {
         30
@@ -172,6 +179,7 @@ fn finish(outcome: Outcome) -> Answer {
         kept: outcome.kept,
         passkey_saved: outcome.passkey_saved,
         passkey_used: outcome.passkey_used,
+        lock: outcome.lock,
     }
 }
 
@@ -276,6 +284,7 @@ struct Outcome {
     kept: Option<Kept>,
     passkey_saved: Option<String>,
     passkey_used: Option<String>,
+    lock: bool,
 }
 
 impl From<Response> for Outcome {
@@ -289,6 +298,7 @@ impl From<Response> for Outcome {
             kept: None,
             passkey_saved: None,
             passkey_used: None,
+            lock: false,
         }
     }
 }
@@ -487,6 +497,13 @@ pub(crate) fn save_fits(title: Option<&str>, username: &str, password: &Secret) 
 }
 
 fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> Outcome {
+    // The app locks the vault on this answer's `lock`.
+    if matches!(request, Request::Lock {}) {
+        return Outcome {
+            lock: true,
+            ..Response::LockedNow {}.into()
+        };
+    }
     if matches!(request, Request::Status {}) {
         return Response::Status {
             locked: vault.is_none(),
@@ -538,6 +555,7 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 origin: origin.as_str().to_owned(),
                 check: gate.check(vault),
                 hello: gate.hello(vault),
+                always_asks: gate.always(),
                 items,
             }
             .into()
@@ -716,20 +734,60 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
             Response::Vault {
                 check: gate.check(vault),
                 hello: gate.hello(vault),
+                always_asks: gate.always(),
                 items,
             }
             .into()
         }
-        (Request::Reveal { id, check, hello }, _) => {
-            match read_login(vault, gate, &id, check, hello, |_| true) {
-                Ok(item) => Outcome {
-                    filled: Some(item.title.clone()),
-                    ..Response::Reveal(Revealed {
-                        password: item.password.clone(),
+        (
+            Request::Reveal {
+                id,
+                check,
+                hello,
+                what: Shown::Password,
+            },
+            _,
+        ) => match read_login(vault, gate, &id, check, hello, |_| true) {
+            Ok(item) => Outcome {
+                filled: Some(item.title.clone()),
+                ..Response::Reveal(Revealed {
+                    password: item.password.clone(),
+                })
+                .into()
+            },
+            Err(response) => response.into(),
+        },
+        // Only a login that has a code: any other looks like one that does not exist, and no
+        // PIN is tried for it.
+        (
+            Request::Reveal {
+                id,
+                check,
+                hello,
+                what: Shown::Code,
+            },
+            _,
+        ) => {
+            let has_code = |item: &ItemData| {
+                item.sealed
+                    .as_ref()
+                    .map_or(!item.totp.is_empty(), |sealed| sealed.has_totp)
+            };
+            let item = match read_login(vault, gate, &id, check, hello, has_code) {
+                Ok(item) => item,
+                Err(response) => return response.into(),
+            };
+            match Totp::parse(&item.totp) {
+                Ok(totp) => {
+                    let (code, left) = totp.now();
+                    Response::CodeShown(ShownCode {
+                        code: code.to_string(),
+                        period: totp.period(),
+                        left,
                     })
                     .into()
-                },
-                Err(response) => response.into(),
+                }
+                Err(_) => error(ErrorCode::NoMatch).into(),
             }
         }
         (
@@ -1204,6 +1262,8 @@ mod tests {
         tries: u32,
         closed: u32,
         hello: bool,
+        /// Every use asks (Settings → Browser extension).
+        always: bool,
         held: Vec<(String, Zeroizing<String>, String)>,
     }
 
@@ -1215,6 +1275,7 @@ mod tests {
                 tries: 0,
                 closed: 0,
                 hello: false,
+                always: false,
                 held: Vec::new(),
             }
         }
@@ -1225,7 +1286,10 @@ mod tests {
             self.kind
         }
         fn locked(&self, _vault: &Vault, item: &ItemData) -> bool {
-            item.reprompt && !self.open
+            (self.always || item.reprompt) && !self.open
+        }
+        fn always(&self) -> bool {
+            self.always
         }
         fn hello(&self, _vault: &Vault) -> bool {
             self.hello
@@ -1278,6 +1342,116 @@ mod tests {
 
     fn ask(vault: Option<&mut Vault>, request: Value) -> (Value, Option<String>) {
         ask_with(vault, &mut TestGate::new(Check::App), request)
+    }
+
+    /// Every use asking: each password, fill, copy and code asks in its own request, a right
+    /// PIN opens that one request only, and what isn't a secret asks nothing.
+    #[test]
+    fn every_use_asks_when_the_app_says_so() {
+        let (mut vault, github, _) = vault();
+        let mut gate = TestGate::new(Check::Pin);
+        gate.always = true;
+        let (listed, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "logins", "url": "https://github.com/login"}),
+        );
+        assert_eq!(listed["always_asks"], true);
+        let items = listed["items"].as_array().unwrap();
+        assert!(!items.is_empty() && items.iter().all(|item| item["locked"] == true));
+        let (whole, _) = ask_with(Some(&mut vault), &mut gate, json!({"type": "vault"}));
+        assert_eq!(whole["always_asks"], true);
+
+        let reveal = json!({"type": "reveal", "id": github});
+        let (asked, filled) = ask_with(Some(&mut vault), &mut gate, reveal.clone());
+        assert_eq!(
+            (asked["code"].as_str(), asked["check"].as_str()),
+            (Some("item_locked"), Some("pin"))
+        );
+        assert_eq!(filled, None);
+        let (shown, filled) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "reveal", "id": github, "check": "4821"}),
+        );
+        assert_eq!(shown["password"], "gh-secret");
+        assert_eq!(filled.as_deref(), Some("GitHub"));
+        assert!(!gate.open, "closed again after that one request");
+        let (again, _) = ask_with(Some(&mut vault), &mut gate, reveal);
+        assert_eq!(again["code"], "item_locked", "the next use asks again");
+        for request in [
+            json!({"type": "fill", "url": "https://github.com/login", "id": github}),
+            json!({"type": "copy", "id": github, "what": "password"}),
+        ] {
+            let (answer, _) = ask_with(Some(&mut vault), &mut gate, request);
+            assert_eq!(answer["code"], "item_locked", "{answer}");
+        }
+        // A username is no secret.
+        let (copied, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "copy", "id": github, "what": "username"}),
+        );
+        assert_eq!(copied["type"], "copied");
+        // Off: a login outside the item lock asks nothing.
+        gate.always = false;
+        let (shown, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "reveal", "id": github}),
+        );
+        assert_eq!(shown["password"], "gh-secret");
+    }
+
+    #[test]
+    fn a_one_time_code_is_shown_with_the_time_it_has_left() {
+        let (mut vault, github, _) = vault();
+        let mut mail = ItemData::login("Mail", "me", "mail-secret", "https://mail.example");
+        mail.totp = "otpauth://totp/Mail:me?secret=JBSWY3DPEHPK3PXP&issuer=Mail".into();
+        let id = vault.add_item(&mail).unwrap().to_hex();
+        let (shown, filled) = ask(
+            Some(&mut vault),
+            json!({"type": "reveal", "id": id, "what": "code"}),
+        );
+        assert_eq!(shown["type"], "code_shown", "{shown}");
+        let code = shown["code"].as_str().unwrap();
+        assert!(
+            code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()),
+            "{code}"
+        );
+        assert_eq!(shown["period"], 30);
+        let left = shown["left"].as_u64().unwrap();
+        assert!((1..=30).contains(&left), "{left}");
+        assert_eq!(filled, None, "a code is not a password handed out");
+        // A login without a code looks like none at all.
+        let (none, _) = ask(
+            Some(&mut vault),
+            json!({"type": "reveal", "id": github, "what": "code"}),
+        );
+        assert_eq!(none["code"], "no_match");
+        // An unknown `what` is refused like any request the app doesn't know.
+        let (unknown, _) = ask(
+            Some(&mut vault),
+            json!({"type": "reveal", "id": id, "what": "notes"}),
+        );
+        assert_eq!(unknown["code"], "bad_request");
+    }
+
+    #[test]
+    fn the_extension_can_lock_the_vault() {
+        let (mut vault, ..) = vault();
+        let mut gate = TestGate::new(Check::App);
+        let answer = answer(br#"{"type":"lock"}"#, Some(&mut vault), &mut gate);
+        assert!(answer.lock);
+        assert_eq!(&answer.bytes[..], br#"{"type":"locked_now"}"#);
+        // Locked already: the same answer, and nothing else to do.
+        let answer = answer_for_locked();
+        assert!(answer.contains("locked_now"));
+    }
+
+    fn answer_for_locked() -> String {
+        let answer = answer(br#"{"type":"lock"}"#, None, &mut TestGate::new(Check::App));
+        String::from_utf8(answer.bytes.to_vec()).unwrap()
     }
 
     fn unb64(value: &Value) -> Vec<u8> {
@@ -1663,7 +1837,7 @@ mod tests {
         assert!(filled.is_none());
         assert_eq!(
             reply,
-            json!({"type": "logins", "origin": "https://github.com", "check": "app", "hello": false, "items": [
+            json!({"type": "logins", "origin": "https://github.com", "check": "app", "hello": false, "always_asks": false, "items": [
                 {"id": github, "title": "GitHub", "username": "octocat", "locked": false, "has_code": false},
                 {"id": work, "title": "GitHub (work)", "username": "hubot", "locked": true, "has_code": false},
             ]})

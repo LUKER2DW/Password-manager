@@ -18,7 +18,7 @@ use zeroize::Zeroizing;
 use crate::{
     origin::item_matches,
     protocol::{
-        Check, CopyWhat, Credentials, ErrorCode, LoginEntry, Request, Response, Revealed,
+        Check, CopyWhat, Credentials, ErrorCode, LoginEntry, Request, Response, Revealed, Shown,
         VaultEntry,
     },
     service::{Answer, Copy, page_origin},
@@ -155,6 +155,7 @@ fn finish(response: Response, filled: Option<String>, copy: Option<Copy>) -> Ans
         kept: None,
         passkey_saved: None,
         passkey_used: None,
+        lock: false,
     }
 }
 
@@ -195,6 +196,7 @@ pub fn answer_locked(message: &[u8], logins: &[LockedLogin], gate: &mut dyn Lock
                     origin: origin.as_str().to_owned(),
                     check: Check::App,
                     hello: true,
+                    always_asks: true,
                     items,
                 },
                 None,
@@ -241,12 +243,19 @@ pub fn answer_locked(message: &[u8], logins: &[LockedLogin], gate: &mut dyn Lock
                 Response::Vault {
                     check: Check::App,
                     hello: true,
+                    always_asks: true,
                     items,
                 },
                 None,
                 None,
             )
         }
+        // Already locked: nothing to do.
+        Request::Lock {} => finish(Response::LockedNow {}, None, None),
+        // One-time codes are not kept for a locked vault.
+        Request::Reveal {
+            what: Shown::Code, ..
+        } => finish(error(ErrorCode::Locked), None, None),
         Request::Reveal { id, hello, .. } => {
             let Some(login) = find(&id) else {
                 return finish(error(ErrorCode::NoMatch), None, None);

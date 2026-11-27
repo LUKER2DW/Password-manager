@@ -40,14 +40,19 @@ pub enum Request {
     /// Every login in the vault, for the extension's own window: who and where, never a
     /// password.
     Vault {},
-    /// The password of login `id`, to show in the extension's window (never in a page).
+    /// The password of login `id` (or, with `what: "code"`, its current one-time code), to
+    /// show in the extension's window (never in a page).
     Reveal {
         id: String,
         #[serde(default)]
         check: Option<Secret>,
         #[serde(default)]
         hello: bool,
+        #[serde(default)]
+        what: Shown,
     },
+    /// Lock the vault in the app now (the extension's Lock button).
+    Lock {},
     /// Asks the app to copy something of login `id` to the clipboard. The app copies it
     /// itself (kept out of clipboard history, cleared after a while): a password or code
     /// copied this way never reaches the browser.
@@ -220,6 +225,16 @@ fn yes() -> bool {
 }
 
 /// What [`Request::Copy`] copies.
+/// What a [`Request::Reveal`] shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Shown {
+    #[default]
+    Password,
+    /// The current one-time code, with the seconds it stays valid.
+    Code,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CopyWhat {
@@ -291,6 +306,9 @@ pub enum Response {
         check: Check,
         /// Windows Hello can open them too (asked by the app, with the system's prompt).
         hello: bool,
+        /// Every password, code or passkey asks for the person first, each time (Settings →
+        /// Browser extension): every entry is `locked`.
+        always_asks: bool,
         items: Vec<LoginEntry>,
     },
     Fill(Credentials),
@@ -298,9 +316,14 @@ pub enum Response {
     Vault {
         check: Check,
         hello: bool,
+        always_asks: bool,
         items: Vec<VaultEntry>,
     },
     Reveal(Revealed),
+    /// A login's current one-time code ([`Request::Reveal`] with `what: "code"`).
+    CodeShown(ShownCode),
+    /// The vault was locked ([`Request::Lock`]).
+    LockedNow {},
     /// The app copied it; the clipboard is cleared after `seconds` (0: not cleared, it was
     /// not a secret).
     Copied {
@@ -459,6 +482,23 @@ pub struct Revealed {
 impl std::fmt::Debug for Revealed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Revealed(<redacted>)")
+    }
+}
+
+/// A one-time code on its way to the extension's window: the code, the length of its period
+/// and the seconds it stays valid (0 for a counter-based code). Wiped from memory when dropped.
+#[derive(Serialize, Zeroize, ZeroizeOnDrop)]
+pub struct ShownCode {
+    pub code: String,
+    #[zeroize(skip)]
+    pub period: u64,
+    #[zeroize(skip)]
+    pub left: u64,
+}
+
+impl std::fmt::Debug for ShownCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ShownCode(<redacted>)")
     }
 }
 
