@@ -651,13 +651,29 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   understood", and the extension says to update the app; an older extension still signs its
   requests and is still handed its key (until S25). Later: the host checking that its parent
   is a signed browser.
-- ⬜ S11. Keys in memory: vault key, guard key and subkeys in locked, encrypted pages; a
-  global allocator that zeroes what it frees.
+- ✅ S11. Keys in memory: a global allocator that wipes every block before freeing it (and
+  never grows one in place) in the desktop app, the CLI and the phone app
+  (`wiping_alloc.rs`); typed secrets in one area of memory locked in RAM once and left out
+  of crash reports (`secure_memory.rs`, where `SecretBuffer` keeps them; it used to unlock
+  pages other secrets shared); the vault key and the item guard key kept encrypted between
+  uses by a `KeyShield` the program installs (`vault_core::memory`; `CryptProtectMemory`
+  on Windows, none on the phone), opened only into a wiped copy; SHA-1 and SHA-2 wiping their
+  state; the UI thread's stack cleared when the vault locks. Subkeys are derived for each use
+  and wiped right after. Not covered: the Secret Key and keyfile while the vault is open,
+  and memory the renderer and Windows allocate for themselves (THREAT_MODEL §3).
 - ⬜ S12. The Secret Key on Windows wrapped by a non-exportable TPM key (DPAPI as fallback).
 - ⬜ S13. Android: overlays hidden and obscured touches refused on secret screens, task
   affinity, data extraction rules.
-- ⬜ S14. Tests: memory searched for secrets after a lock, a hostile sync target and server,
-  more fuzz targets run on a schedule.
+- 🚧 S14. Tests: memory searched for secrets after a lock, a hostile sync target and server,
+  more fuzz targets run on a schedule. Done: the memory test (`apps/desktop/tests/memory.rs`,
+  a step of its own in CI): a running copy of the app opens a vault, shows a guarded item
+  and locks, and its whole memory is read from outside; no 16-byte piece of the master
+  password, Secret Key, vault key, guard key or the item's secrets may be left, and the vault
+  and guard keys may not be found while it is open either. Before S11 it found the revealed
+  password in two dozen places of the heap and the keys on the stack.
+  Still to do: a hostile sync target and server, the fuzz targets on a schedule, and the
+  same reading of the release exe by hand (the renderer and UI Automation, which the test's
+  backend doesn't have).
 - ⬜ S15. Authenticode signing and a release manifest signed with an offline key that the
   updaters check (owner).
 - ⬜ S16. A warning when a vault password is pasted or sent on a site that isn't its own (the

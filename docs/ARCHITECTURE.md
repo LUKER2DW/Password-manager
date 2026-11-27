@@ -89,7 +89,7 @@ Keyfile [optional] ────────────────────�
 | Browser drop box | libsodium sealed box (X25519) | Only for logins saved while the vault is locked |
 | Sync server requests | **Ed25519** signatures | One key per device and vault; no password reaches the server |
 | Randomness | OS CSPRNG (`getrandom`) | |
-| Memory | `zeroize`, locked pages for typed secrets | |
+| Memory | `zeroize`; a global allocator that wipes every block it frees; typed secrets in one area locked in RAM; the vault and guard keys encrypted between uses (`CryptProtectMemory`, Windows) | A test reads the running app's memory after it locks (THREAT_MODEL §3) |
 
 Only audited RustCrypto crates (and `ed25519-dalek`, `crypto_box`). Sharing (later) is planned
 with HPKE and a hybrid X25519 + ML-KEM-768 KEM against "harvest now, decrypt later".
@@ -182,7 +182,7 @@ Full design: [spec/SYNC.md](spec/SYNC.md). In short:
 | Concern | Tauri 2 (WebView) | Slint (native Rust) |
 |---|---|---|
 | Master password typing | Every keystroke goes through the DOM and the JS engine; strings are copied by the GC and cannot be wiped | A custom secure field captures key events in Rust and appends them to a `Zeroizing` buffer; the UI layer only knows how many bullets to draw |
-| Revealing a password | The value is serialized over IPC as JSON, then lives in the JS heap and the DOM | The value is shown in one text element only while asked for, and cleared when hidden; the Rust copy is zeroized, the copy Slint keeps for drawing isn't (freed, not wiped) |
+| Revealing a password | The value is serialized over IPC as JSON, then lives in the JS heap and the DOM | The value is shown in one text element only while asked for, and cleared when hidden; the Rust copy is zeroized and Slint's own string is wiped when freed (the wiping allocator); what the renderer (Skia, C++) makes of it to draw it isn't |
 | Copy to clipboard | Can be done in Rust (OK in both) | Done in Rust |
 | Attack surface | Browser engine + JS + npm supply chain | Rust crates only |
 | Design freedom | Highest (HTML/CSS ecosystem) | High: custom components, gradients, shadows, animations, custom fonts, SVG; fewer ready-made components, limited effects such as backdrop blur |

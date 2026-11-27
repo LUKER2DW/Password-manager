@@ -91,13 +91,16 @@ filesystem policy** beyond atomic writes.
 | `totp.rs` | RFC 6238 one-time codes, and RFC 4226 counter-based ones (`otpauth://hotp/`) |
 | `storage.rs` | Atomic file writes with a `.bak` copy |
 | `random.rs` | OS randomness |
+| `memory.rs` | Keys in memory: the `KeyShield` a program installs (the vault key and the guard key kept encrypted between uses), and `clear_stack`, called when the vault locks |
 
 ### 2.2 `crates/platform` (vault-platform)
 
 Everything that touches the operating system: Secret Key in the credential store
 (`secret_store.rs`; the Android Keystore on a phone), per-device state and rollback detection
 (`device.rs`), clipboard that stays out of history (`clipboard.rs`, `clipboard_android.rs`),
-screen-capture blocking (`screen.rs`), locked memory for typed secrets (`secure_buffer.rs`),
+screen-capture blocking (`screen.rs`), typed secrets (`secure_buffer.rs`) kept in one area
+locked in RAM, and the Windows key shield (`secure_memory.rs`), the global allocator that wipes
+every block it frees (`wiping_alloc.rs`),
 the leak check and the leak watch's sealed memory (`leak_check.rs`),
 Windows Hello quick unlock (`quick_unlock.rs`), DPAPI (`dpapi.rs`), keyfiles on disk
 (`keyfile.rs`), the person's language (`locale.rs`), installed browsers and the default one (`browsers.rs`), the
@@ -322,6 +325,10 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
 - `apps/desktop/src/tests.rs` — the whole app flow headless (onboarding, unlock, items, cards,
   folders, history, health, generator, import, export, kit, second vault). Slow work runs inline
   there (`Runner::Inline`); dialogs and network are skipped.
+- `apps/desktop/tests/memory.rs` — a running copy of the app (a process of its own, protected
+  as in a release build) opens a vault, shows a guarded item and locks; its whole memory is
+  read from outside and no piece of any secret may be left (UTF-8, UTF-16, 16-byte pieces).
+  Windows only; also a step of its own in CI.
 - `apps/mobile/src/tests.rs` — the phone app headless, including sync against a running server.
 - `apps/server/tests/sync.rs` — two devices through a real server; strangers, replays and
   altered requests refused.
@@ -334,7 +341,10 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
    from audited crates. Any change to bytes on disk follows §5.1.
 2. **Secrets are wiped.** Keys and decrypted data live in `Zeroizing` / `ZeroizeOnDrop` types.
    Serialization buffers are sized exactly (no reallocation copies). `Debug` of secret types is
-   redacted. Never log, print, or put a secret in an error message.
+   redacted. Never log, print, or put a secret in an error message. Every program installs
+   `vault_platform::wiping_alloc::WipingAllocator` as its global allocator, and the desktop app
+   and the CLI the key shield (`vault_platform::secure_memory::install_key_shield`) first thing
+   in `main`.
 3. **Typed secrets never enter Slint strings.** Password fields are `SecretField`, whose
    keystrokes go straight to Rust (`Secrets` global → `SecretBuffer`); the UI only knows the
    length. A secret is shown as text only while the user asked to see it, and cleared after.

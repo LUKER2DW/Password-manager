@@ -87,11 +87,32 @@ On top of that:
 - Secrets stay encrypted **per item** in memory; only the item in use is decrypted, and it is
   wiped right after (`zeroize`).
 - What is typed into the app's secret fields (master password, PIN, Secret Key, recovery
-  parts) stays in a buffer locked in RAM (`VirtualLock`) so it isn't written to the
-  pagefile, and is wiped after use (lesson from KeePass CVE-2023-32784). The vault key and
-  the decrypted item in use are wiped (`zeroize`) but not yet locked in RAM (M10 S11), and
-  nothing keeps memory out of the hibernation file: that is why the vault locks, and its
-  keys are wiped, before Windows sleeps or hibernates.
+  parts) stays in one area of memory the app locks into RAM once (`VirtualLock`: never
+  written to the pagefile) and leaves out of crash reports, and is wiped after use (lesson
+  from KeePass CVE-2023-32784; `secure_memory.rs`).
+- The vault key and the item guard key are kept encrypted between uses on Windows
+  (`CryptProtectMemory`, under a key the system holds for this process) and opened into a
+  copy that is wiped right after, for the moment one is used: a dump of the process, the
+  pagefile or a crash report holds them only encrypted. An administrator, or code running
+  inside the process, can still have Windows decrypt them.
+- Every block of the app's own heap is wiped before it is freed (a global allocator, in the
+  desktop app, the CLI and the phone app), so what was decrypted or shown and then dropped
+  (an item, a revealed password in the UI's strings, a buffer of a dependency) isn't left
+  behind; and the stack the key work used is cleared when the vault locks. A test reads the
+  whole memory of a running copy of the app after it locks (`apps/desktop/tests/memory.rs`,
+  in CI): none of the master password, the Secret Key, the vault and guard keys, an item's
+  password, one-time code secret or notes is left, in UTF-8 or UTF-16, whole or in 16-byte
+  pieces, and while it is open the vault and guard keys aren't found in the clear either.
+  Before these changes the revealed password was still in two dozen places of the heap, and
+  copies of the Secret Key and of both keys on the stack.
+- What this doesn't cover: while the vault is open, the item in use, what the window shows
+  and the Secret Key and keyfile it was opened with are in memory as they are (wiped at the
+  lock); memory C code allocates for itself is freed but not wiped (the renderer drawing a
+  revealed password, the strings UI Automation hands out, a credential Windows returns);
+  the phone has the wiping allocator but no key shield and no locked area (Android doesn't
+  swap memory to disk, and the app locks on leaving it); and nothing keeps memory out of
+  the hibernation file: that is why the vault locks, and its keys are wiped, before Windows
+  sleeps or hibernates.
 - A custom master-password input that does not leave copies of the string in memory.
 - Window excluded from screen capture (`WDA_EXCLUDEFROMCAPTURE` on Windows, `FLAG_SECURE` on Android).
 - What the window shows is also read through the accessibility tree (UI Automation), by
