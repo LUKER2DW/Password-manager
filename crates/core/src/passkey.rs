@@ -143,6 +143,13 @@ impl Passkey {
         !self.key.is_empty()
     }
 
+    /// Its private key, the 32-byte P-256 scalar (empty while the item is locked). Only for
+    /// sealing it again under another key, as the export under a password of its own does
+    /// (CRYPTO.md §3.3); [`Passkey::from_parts`] takes it back.
+    pub fn private_key(&self) -> &[u8] {
+        &self.key
+    }
+
     /// Whether it keeps to the limits above, and its key (when there) is a P-256 key.
     pub(crate) fn fits(&self) -> bool {
         !self.credential_id.is_empty()
