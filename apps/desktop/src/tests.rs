@@ -854,6 +854,41 @@ fn whole_app_flow_headless() {
     ));
     assert!(phishing.contains("no_match"), "{phishing}");
     assert_eq!(app.get_notice_code(), 0);
+    // A page that only looks like a saved site is named with it (S21), a password a page was
+    // given is compared with the other sites' here (S16), and the kit's keys are refused in
+    // any page (S17). Settings turns the warnings off: nothing is compared, no lookalike named.
+    let json = |text: String| serde_json::from_str::<serde_json::Value>(&text).unwrap();
+    let fake = json(ask(r#"{"type":"logins","url":"https://g1thub.com/login"}"#));
+    assert_eq!(
+        fake["lookalike"],
+        serde_json::json!({"site": "github.com", "page": "g1thub.com"}),
+        "{fake}"
+    );
+    let kit_key = vault_core::SecretKey::generate()
+        .unwrap()
+        .to_display_string()
+        .to_string();
+    let elsewhere = |password: &str| {
+        ask(&format!(
+            r#"{{"type":"elsewhere","url":"https://evil.example/","password":"{password}"}}"#
+        ))
+    };
+    assert_eq!(json(elsewhere(&kit_key))["kit"], true);
+    assert_eq!(
+        json(elsewhere("not-a-saved-password")),
+        serde_json::json!({"type": "elsewhere", "page": "evil.example"})
+    );
+    assert!(app.get_browser_warnings(), "on by default");
+    app.set_browser_warnings(false);
+    app.invoke_settings_changed();
+    assert!(elsewhere("not-a-saved-password").contains("turned_off"));
+    let quiet = ask(r#"{"type":"logins","url":"https://g1thub.com/login"}"#);
+    assert!(
+        quiet.contains(r#""warns":false"#) && !quiet.contains("lookalike"),
+        "{quiet}"
+    );
+    app.set_browser_warnings(true);
+    app.invoke_settings_changed();
     let filled = ask(&format!(
         r#"{{"type":"fill","url":"https://github.com/session","id":"{id}"}}"#
     ));

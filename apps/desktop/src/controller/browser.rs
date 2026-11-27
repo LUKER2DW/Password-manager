@@ -43,7 +43,8 @@ const BAD_REQUEST: &[u8] = br#"{"type":"error","code":"bad_request"}"#;
 const LINK_CHANGED: &[u8] = br#"{"type":"error","code":"link_changed"}"#;
 /// How long a check of that registration stands before it is read again.
 const REGISTRATION_CHECKED_FOR: Duration = Duration::from_secs(5);
-/// Saving logins, or passkeys, turned off in Settings → Browser extension.
+/// Saving logins, passkeys or the warnings about other sites turned off in Settings → Browser
+/// extension.
 const TURNED_OFF: &[u8] = br#"{"type":"error","code":"turned_off"}"#;
 /// A login, a new password or a passkey that could not be written to the vault file: the
 /// extension is told so (and may ask again), never "saved".
@@ -409,29 +410,37 @@ impl Controller {
     }
 
     /// What Settings → Browser extension turned off is refused before anything is read:
-    /// saving logins from pages (also while locked), and the vault's passkeys (the browser
-    /// then uses its own).
+    /// saving logins from pages (also while locked), the vault's passkeys (the browser then
+    /// uses its own), and comparing a password a page was given with other sites' (the
+    /// password is not even read).
     fn browser_turned_off(&self, kind: &str) -> Option<Zeroizing<Vec<u8>>> {
         let settings = &self.state.borrow().settings;
         let off = match kind {
             "save" | "changed" | "update" => !settings.browser_saves,
             "passkeys" | "passkey_get" | "passkey_create" => !settings.browser_passkeys,
+            "elsewhere" => !settings.browser_warnings,
             _ => false,
         };
         off.then(|| Zeroizing::new(TURNED_OFF.to_vec()))
     }
 
     /// The answer about a page's logins (and the status) says what the person turned off, so
-    /// the extension doesn't offer it: `"saves": false`, `"passkeys": false`.
+    /// the extension doesn't offer it: `"saves": false`, `"passkeys": false`, `"warns": false`
+    /// (and then no lookalike is named either: the extension stops sending what a page was
+    /// given, and warns about no page).
     fn with_browser_settings(&self, kind: &str, answer: Zeroizing<Vec<u8>>) -> Zeroizing<Vec<u8>> {
         if !matches!(kind, "status" | "logins") {
             return answer;
         }
-        let (saves, passkeys) = {
+        let (saves, passkeys, warns) = {
             let settings = &self.state.borrow().settings;
-            (settings.browser_saves, settings.browser_passkeys)
+            (
+                settings.browser_saves,
+                settings.browser_passkeys,
+                settings.browser_warnings,
+            )
         };
-        if saves && passkeys {
+        if saves && passkeys && warns {
             return answer;
         }
         // Names and usernames only (a status or a list of logins, never a password).
@@ -443,6 +452,10 @@ impl Controller {
         }
         if !passkeys {
             reply.insert("passkeys".into(), false.into());
+        }
+        if !warns {
+            reply.remove("lookalike");
+            reply.insert("warns".into(), false.into());
         }
         serde_json::to_vec(&reply).map_or(answer, Zeroizing::new)
     }

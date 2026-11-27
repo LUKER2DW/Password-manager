@@ -4585,6 +4585,7 @@ impl Controller {
         app.set_browser_extension(settings.browser_extension);
         app.set_browser_saves(settings.browser_saves);
         app.set_browser_passkeys(settings.browser_passkeys);
+        app.set_browser_warnings(settings.browser_warnings);
         app.set_browser_fill_notices(settings.browser_fill_notices);
         app.set_browser_always_asks(settings.browser_always_asks);
         app.set_browser_ask_way(self.browser_ask_way());
@@ -5363,6 +5364,7 @@ impl Controller {
             language: self.state.borrow().settings.language.clone(),
             browser_saves: app.get_browser_saves(),
             browser_passkeys: app.get_browser_passkeys(),
+            browser_warnings: app.get_browser_warnings(),
             browser_fill_notices: app.get_browser_fill_notices(),
             browser_always_asks: app.get_browser_always_asks(),
             backdrop: app.get_backdrop_on(),

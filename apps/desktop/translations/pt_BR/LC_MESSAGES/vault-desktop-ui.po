@@ -3373,6 +3373,14 @@ msgid "After you sign in on a page, the extension offers to save the login here,
 msgstr "Depois que você entra em uma página, a extensão oferece salvar o login aqui, ou atualizar a senha dele quando ela mudou. Os logins salvos enquanto o cofre está trancado aguardam, lacrados, e entram nele no próximo desbloqueio. Desligado, nada é oferecido nem salvo a partir do navegador."
 
 msgctxt "SettingsPage"
+msgid "Warn when a page isn't the site a password belongs to"
+msgstr "Avisar quando uma página não for o site de uma senha"
+
+msgctxt "SettingsPage"
+msgid "When you paste or send the password of one of your logins on another site, or open a sign-in page that only looks like a site you have a login for (paypa1.com for paypal.com), the extension says so in the page and names the site. This app compares, from your vault's own sites; nothing is downloaded and the extension keeps nothing. Logins behind the item lock are never compared. The emergency kit's keys are refused in every page either way."
+msgstr "Quando você cola ou envia a senha de um dos seus logins em outro site, ou abre uma página de entrada que só se parece com um site em que você tem login (paypa1.com no lugar de paypal.com), a extensão avisa na página e diz qual é o site. Quem compara é este app, com os sites do seu próprio cofre; nada é baixado e a extensão não guarda nada. Logins atrás da trava de item nunca são comparados. As chaves do kit de emergência são recusadas em qualquer página de qualquer jeito."
+
+msgctxt "SettingsPage"
 msgid "Make and use passkeys from this vault"
 msgstr "Criar e usar chaves de acesso deste cofre"
 

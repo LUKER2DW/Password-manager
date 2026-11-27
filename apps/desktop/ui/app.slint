@@ -631,6 +631,8 @@ export component AppWindow inherits Window {
     callback confirm-settings(int);
     in-out property <bool> browser-saves: true;
     in-out property <bool> browser-passkeys: true;
+    // Warnings about a page that isn't a password's site, or only looks like a saved one.
+    in-out property <bool> browser-warnings: true;
     in-out property <bool> browser-fill-notices: true;
     // Every password, code or passkey the extension uses asks first (Settings).
     in-out property <bool> browser-always-asks: true;
@@ -1148,6 +1150,7 @@ export component AppWindow inherits Window {
                 browser-extension <=> root.browser-extension;
                 browser-saves <=> root.browser-saves;
                 browser-passkeys <=> root.browser-passkeys;
+                browser-warnings <=> root.browser-warnings;
                 browser-fill-notices <=> root.browser-fill-notices;
                 browser-always-asks <=> root.browser-always-asks;
                 browser-ask-way: root.browser-ask-way;

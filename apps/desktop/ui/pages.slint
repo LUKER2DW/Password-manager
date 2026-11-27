@@ -2296,6 +2296,7 @@ export component SettingsPage inherits Rectangle {
     in-out property <bool> browser-extension;
     in-out property <bool> browser-saves;
     in-out property <bool> browser-passkeys;
+    in-out property <bool> browser-warnings;
     in-out property <bool> browser-fill-notices;
     in-out property <bool> browser-always-asks;
     in property <int> browser-ask-way;
@@ -3111,6 +3112,21 @@ export component SettingsPage inherits Rectangle {
                                 alignment: center;
                                 Hint {
                                     text: @tr("After you sign in on a page, the extension offers to save the login here, or to update its password when it changed. Logins saved while the vault is locked wait, sealed, and join it at the next unlock. Off, nothing is offered or saved from the browser.");
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Check {
+                                text: @tr("Warn when a page isn't the site a password belongs to");
+                                checked <=> root.browser-warnings;
+                                toggled => { root.settings-changed(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("When you paste or send the password of one of your logins on another site, or open a sign-in page that only looks like a site you have a login for (paypa1.com for paypal.com), the extension says so in the page and names the site. This app compares, from your vault's own sites; nothing is downloaded and the extension keeps nothing. Logins behind the item lock are never compared. The emergency kit's keys are refused in every page either way.");
                                 }
                             }
                         }
