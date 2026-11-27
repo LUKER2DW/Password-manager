@@ -32,7 +32,7 @@ use vault_platform::{
     kit_pdf::{self, KitContents},
     part_picture,
     quick_unlock::{self, DeviceVerifier, QuickUnlockError},
-    secret_store,
+    secret_store::{self, Kept, Loaded},
 };
 use zeroize::Zeroizing;
 
@@ -192,6 +192,12 @@ mod error {
     pub const EXTENSION_FOLDER_OPEN: i32 = 71;
     /// The folder chosen to take the extension from doesn't read as one (the detail says why).
     pub const EXTENSION_LOCAL: i32 = 72;
+    /// The Secret Key kept on this computer can't be used (CRYPTO.md §2.2.1): the security
+    /// chip no longer opens it (cleared, replaced, turned off); two different ones are kept;
+    /// it couldn't be read just now (the detail says why). The kit's is asked for.
+    pub const SECRET_KEY_CHIP_LOST: i32 = 90;
+    pub const SECRET_KEY_CONFLICT: i32 = 91;
+    pub const SECRET_KEY_UNREADABLE: i32 = 92;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -301,6 +307,9 @@ mod notice {
     pub const EXTENSION_NOT_CHECKED: i32 = 98;
     /// A GitHub release's extension wasn't taken (the argument: its version and why).
     pub const EXTENSION_REFUSED: i32 = 99;
+    /// The Secret Key the vault opened with couldn't be kept on this computer (the argument
+    /// says why): it is asked for at the next unlock.
+    pub const SECRET_KEY_NOT_KEPT: i32 = 120;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -1244,7 +1253,9 @@ impl Controller {
             .and_then(|bytes| Vault::inspect(&bytes).ok())
         {
             Some(info) => {
-                let known = secret_store::load(&info.id_hex).ok().flatten().is_some();
+                // Whether a Secret Key is kept, without opening it: the chip is asked only
+                // at the unlock, which says so if it no longer opens it.
+                let known = secret_store::kept(&info.id_hex).ok().flatten().is_some();
                 app.set_quick_unlock_on(
                     self.state.borrow().quick_available && quick_unlock::is_enrolled(&info.id_hex),
                 );
@@ -1449,9 +1460,7 @@ impl Controller {
                     self.notify_long(notice::DEVICE_STATE_RESET, "");
                 }
                 if typed_secret_key {
-                    if let Err(err) = secret_store::store(&id, &session.secret_key) {
-                        self.set_error(error::OTHER, &err.to_string());
-                    }
+                    // Kept by `enter_vault`, off the UI thread (the chip may make its key).
                     app.set_needs_secret_key(false);
                 }
                 // An extension asked to connect while the vault was locked: the master
@@ -1867,33 +1876,44 @@ impl Controller {
         };
         self.app().set_can_use_parts(info.has_recovery_parts);
         let used_parts = self.app().get_use_parts();
-        let (secret_key, typed) = match secret_store::load(&info.id_hex) {
-            Ok(Some(key)) => (key, false),
-            Ok(None) if used_parts => {
-                match self.secret_key_from_parts(&bytes, info.has_recovery_parts) {
-                    Ok(key) => (key, true),
-                    Err(code) => {
-                        self.set_error(code, "");
-                        return;
+        let (secret_key, typed) = match secret_store::load_checked(&info.id_hex) {
+            Ok(Loaded::Key(key)) => (key, false),
+            // None kept that opens here: the kit's Secret Key, typed or brought back by two
+            // recovery parts. Why the kept one can't be used is said when nothing was typed.
+            kept => {
+                let why = match &kept {
+                    Ok(Loaded::ChipLost) => Some((error::SECRET_KEY_CHIP_LOST, String::new())),
+                    Ok(Loaded::Conflict) => Some((error::SECRET_KEY_CONFLICT, String::new())),
+                    Err(err) => Some((error::SECRET_KEY_UNREADABLE, format!("{err:#}"))),
+                    Ok(_) => None,
+                };
+                if used_parts {
+                    match self.secret_key_from_parts(&bytes, info.has_recovery_parts) {
+                        Ok(key) => (key, true),
+                        Err(code) => {
+                            self.set_error(code, "");
+                            return;
+                        }
+                    }
+                } else {
+                    let nothing_typed = self.state.borrow().secrets[field::SECRET_KEY].is_empty();
+                    let parsed =
+                        SecretKey::parse(self.state.borrow().secrets[field::SECRET_KEY].as_str());
+                    match (parsed, why) {
+                        (Ok(key), _) => (key, true),
+                        (Err(_), Some((code, detail))) if nothing_typed => {
+                            self.app().set_needs_secret_key(true);
+                            self.set_error(code, &detail);
+                            return;
+                        }
+                        (Err(err), _) => {
+                            self.app().set_needs_secret_key(true);
+                            let (code, detail) = self.core_error(&err);
+                            self.set_error(code, &detail);
+                            return;
+                        }
                     }
                 }
-            }
-            Ok(None) => {
-                let parsed =
-                    SecretKey::parse(self.state.borrow().secrets[field::SECRET_KEY].as_str());
-                match parsed {
-                    Ok(key) => (key, true),
-                    Err(err) => {
-                        self.app().set_needs_secret_key(true);
-                        let (code, detail) = self.core_error(&err);
-                        self.set_error(code, &detail);
-                        return;
-                    }
-                }
-            }
-            Err(err) => {
-                self.set_error(error::OTHER, &err.to_string());
-                return;
             }
         };
         let password = Zeroizing::new(
@@ -2237,9 +2257,18 @@ impl Controller {
                 return;
             }
         };
-        let Ok(Some(secret_key)) = secret_store::load(&id) else {
-            app.set_needs_secret_key(true);
-            return;
+        let secret_key = match secret_store::load_checked(&id) {
+            Ok(Loaded::Key(key)) => key,
+            kept => {
+                app.set_needs_secret_key(true);
+                match kept {
+                    Ok(Loaded::ChipLost) => self.set_error(error::SECRET_KEY_CHIP_LOST, ""),
+                    Ok(Loaded::Conflict) => self.set_error(error::SECRET_KEY_CONFLICT, ""),
+                    Err(err) => self.set_error(error::SECRET_KEY_UNREADABLE, &format!("{err:#}")),
+                    Ok(_) => {}
+                }
+                return;
+            }
         };
         let Some(sealed) = quick_unlock::load(&id) else {
             app.set_quick_unlock_on(false);
@@ -2404,6 +2433,61 @@ impl Controller {
         self.open_drop_box();
         self.start_sync();
         self.start_leak_watch();
+        self.keep_secret_key();
+    }
+
+    /// Keeps the Secret Key the vault just opened with on this computer, in the strongest form
+    /// it can (`secret_store::settle`): under the security chip, checked, whether it was typed
+    /// from the kit or kept the older way; Settings → Security then says how. Off the UI thread:
+    /// the chip makes its key the first time.
+    fn keep_secret_key(&self) {
+        let app = self.app();
+        app.set_secret_key_kept(0);
+        // A second copy for the thread, still under the key shield (never the printed text).
+        let copy = {
+            let state = self.state.borrow();
+            state
+                .session
+                .as_ref()
+                .map(|session| (session.vault.id_hex(), session.secret_key.duplicate()))
+        };
+        let Some((id, key)) = copy else {
+            return;
+        };
+        let ticket = self.job_ticket();
+        let settle = move || secret_store::settle(&id, &key).map_err(|err| format!("{err:#}"));
+        let runner = self.state.borrow().runner;
+        match runner {
+            Runner::Inline => self.secret_key_kept(settle(), &ticket),
+            Runner::Thread => {
+                std::thread::spawn(move || {
+                    let kept = settle();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
+                            controller.secret_key_kept(kept, &ticket);
+                        }
+                    });
+                });
+            }
+        }
+    }
+
+    fn secret_key_kept(&self, kept: Result<Kept, String>, ticket: &JobTicket) {
+        let current = {
+            let state = self.state.borrow();
+            state.vault_open
+                && ticket.epoch == state.session_epoch
+                && same_path(&ticket.path, &state.path)
+        };
+        if !current {
+            return;
+        }
+        let app = self.app();
+        match kept {
+            Ok(Kept::Chip) => app.set_secret_key_kept(1),
+            Ok(Kept::System) => app.set_secret_key_kept(2),
+            Err(detail) => self.notify_long(notice::SECRET_KEY_NOT_KEPT, &detail),
+        }
     }
 
     /// The headless test's stand-in for a slow item check: the open vault is taken by a

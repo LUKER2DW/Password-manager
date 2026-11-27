@@ -2283,6 +2283,8 @@ export component SettingsPage inherits Rectangle {
     in property <int> vault-recovery;
     in-out property <int> auto-lock-minutes;
     in-out property <bool> lock-with-windows;
+    // 1 the Secret Key is kept under the security chip, 2 by Windows alone, 0 not known.
+    in property <int> secret-key-kept;
     in-out property <int> clipboard-seconds;
     in-out property <bool> website-icons;
     in-out property <bool> leak-watch;
@@ -2496,6 +2498,22 @@ export component SettingsPage inherits Rectangle {
                                 icon: "key";
                                 clicked => { root.open-dialog(1); }
                             }
+                        }
+                    }
+
+                    // How this computer keeps the Secret Key (CRYPTO.md §2.2.1).
+                    if root.secret-key-kept != 0: SettingsCard {
+                        icon: "shield";
+                        title: @tr("Secret Key on this computer");
+                        summary: root.secret-key-kept == 1
+                            ? @tr("Kept under a key in this computer's security chip (TPM), which never leaves it. A copy of this computer's disk or of your Windows profile doesn't carry it.")
+                            : @tr("Kept by Windows alone: this computer has no security chip (TPM) the app can use.");
+                        hint: @tr("Your Secret Key and your master password together open the vault, so this computer keeps the Secret Key for you. A program running as you can still ask for it while you're signed in, as it could ask Windows; the chip stops it from being copied away and opened on another computer. If the chip is ever cleared or replaced, the vault asks once for the Secret Key from your emergency kit.");
+                        if root.secret-key-kept == 2: Text {
+                            text: @tr("Weaker than with a chip: a copy of your Windows profile, with your Windows password, opens it on another computer.");
+                            font-size: Theme.small;
+                            color: Theme.seal;
+                            wrap: word-wrap;
                         }
                     }
 

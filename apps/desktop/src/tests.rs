@@ -5,7 +5,7 @@
 use std::{
     path::Path,
     sync::{
-        Arc, Mutex, MutexGuard, PoisonError,
+        Arc, Mutex, MutexGuard, OnceLock, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -17,7 +17,7 @@ use vault_core::{
 };
 use vault_platform::{
     quick_unlock::{DeviceVerifier, QuickUnlockError},
-    secret_store,
+    secret_store::{self, MemoryChip},
 };
 use zeroize::Zeroizing;
 
@@ -34,6 +34,8 @@ const NEW_PASSWORD: &str = "desktop test passphrase two";
 mod renew;
 /// What the review of the audit fixes found, each on a vault of its own.
 mod review;
+/// How the Secret Key is kept: under the (stand-in) chip, a cleared chip, one that fails.
+mod secret_key;
 
 /// Every label and value the window's accessibility tree gives out as it is now: what a screen
 /// reader reads, and any program of this user asking UI Automation.
@@ -100,9 +102,22 @@ impl DeviceVerifier for FakeHello {
 /// folder of their own: one at a time.
 static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
+/// The stand-in for the security chip that keeps the Secret Keys of this binary's tests
+/// (CRYPTO.md §2.2.1), so none makes a key in this computer's TPM. Every test that stores a
+/// Secret Key takes its turn first (`app_home`), which puts it in place.
+fn memory_chip() -> &'static Arc<MemoryChip> {
+    static CHIP: OnceLock<Arc<MemoryChip>> = OnceLock::new();
+    CHIP.get_or_init(|| {
+        let chip = Arc::new(MemoryChip::default());
+        secret_store::use_key_wrapper(Some(chip.clone()));
+        chip
+    })
+}
+
 /// Takes this test's turn and points `VAULT_HOME` at `home` while it is held.
 fn app_home(home: &Path) -> MutexGuard<'static, ()> {
     let turn = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+    memory_chip();
     // SAFETY: every test that sets the environment holds this turn while it does, and the
     // other tests of this binary never read VAULT_HOME.
     #[allow(unsafe_code)]

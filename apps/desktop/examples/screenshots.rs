@@ -214,6 +214,10 @@ fn main() {
     unsafe {
         std::env::set_var("VAULT_HOME", temp.path().join("home"));
     }
+    // The demo's Secret Key goes under a stand-in for the TPM: no key is made in the chip.
+    vault_platform::secret_store::use_key_wrapper(Some(std::sync::Arc::new(
+        vault_platform::secret_store::MemoryChip::default(),
+    )));
 
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
     slint::platform::set_platform(Box::new(OffscreenPlatform {
@@ -564,6 +568,12 @@ fn main() {
         "settings-full",
         "Settings → Security, whole: unlock protection level, Apply asks first",
     );
+    app.set_secret_key_kept(2);
+    camera.shot(
+        "settings-secret-key-windows",
+        "Settings → Security, whole: no TPM here, the Secret Key kept by Windows alone (weaker)",
+    );
+    app.set_secret_key_kept(1);
     app.set_kdf_method(2);
     camera.shot(
         "settings-hash-method",
@@ -1138,6 +1148,12 @@ fn main() {
         "unlock-new-device",
         "A computer that hasn't seen this vault",
     );
+    app.set_error_code(90);
+    camera.shot(
+        "unlock-chip-cleared",
+        "The security chip was cleared: the kit's Secret Key is asked for once",
+    );
+    app.set_error_code(0);
     app.set_can_use_parts(true);
     app.set_use_parts(true);
     camera.shot(

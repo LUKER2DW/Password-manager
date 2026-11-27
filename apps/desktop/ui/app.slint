@@ -673,6 +673,9 @@ export component AppWindow inherits Window {
     in-out property <bool> leak-watch;
     in-out property <bool> close-to-tray: true;
     in-out property <bool> lock-with-windows: true;
+    // How this computer keeps the open vault's Secret Key (CRYPTO.md §2.2.1): 1 under the
+    // security chip, 2 by Windows alone, 0 not known yet (or not kept).
+    in property <int> secret-key-kept;
     in-out property <bool> start-at-sign-in;
     in-out property <bool> start-in-tray: true;
     in-out property <bool> browser-locked-fill: true;
@@ -1133,6 +1136,7 @@ export component AppWindow inherits Window {
                 use-extension-release => { root.use-extension-release(); }
                 auto-lock-minutes <=> root.auto-lock-minutes;
                 lock-with-windows <=> root.lock-with-windows;
+                secret-key-kept: root.secret-key-kept;
                 clipboard-seconds <=> root.clipboard-seconds;
                 website-icons <=> root.website-icons;
                 leak-watch <=> root.leak-watch;

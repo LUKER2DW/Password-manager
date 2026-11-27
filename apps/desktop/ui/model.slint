@@ -271,6 +271,9 @@ export global Messages {
         if (code == 70) { return @tr("The browser extension's folder couldn't be written ({}). Try again; if it keeps failing, close the browser first.", detail); }
         if (code == 71) { return @tr("The browser extension's folder couldn't be opened ({}).", detail); }
         if (code == 72) { return @tr("That folder can't be used as the browser extension ({}). It needs a manifest.json at its top and no links.", detail); }
+        if (code == 90) { return @tr("This computer's security chip (TPM) no longer opens the Secret Key it kept for this vault: the chip was cleared, replaced or turned off. Type the Secret Key from your emergency kit. Once the vault opens, it's kept again."); }
+        if (code == 91) { return @tr("Two different Secret Keys are kept for this vault on this computer: an older version of the app saved one. Type the Secret Key from your newest emergency kit."); }
+        if (code == 92) { return @tr("The Secret Key kept on this computer couldn't be read just now ({}). Try again, or type it from your emergency kit.", detail); }
         return @tr("Something went wrong: {}", detail);
     }
 
@@ -410,6 +413,7 @@ export global Messages {
         if (code == 99) { return @tr("Vault didn't take the browser extension of GitHub's release {}. It keeps the one it has.", arg); }
         if (code == 98) { return @tr("Vault couldn't check the browser extension's files ({}). It tries again in a few minutes; if this keeps coming back, restart the browser, then Vault.", arg); }
         if (code == 88) { return @tr("The vault key was renewed, but the vault locked before the new kit showed. Open Emergency kit and issue new recovery parts: the ones made then can't be shown again."); }
+        if (code == 120) { return @tr("The Secret Key couldn't be kept on this computer just now ({}). The vault is open; if the next unlock asks for the Secret Key, type it from your emergency kit.", arg); }
         return "";
     }
 

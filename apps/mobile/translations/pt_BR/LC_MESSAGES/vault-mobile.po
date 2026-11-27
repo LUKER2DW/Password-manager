@@ -3607,3 +3607,19 @@ msgstr "Confirmar"
 msgctxt "Words"
 msgid "Show the one-time code"
 msgstr "Mostrar o código de uso único"
+
+msgctxt "Messages"
+msgid "This computer's security chip (TPM) no longer opens the Secret Key it kept for this vault: the chip was cleared, replaced or turned off. Type the Secret Key from your emergency kit. Once the vault opens, it's kept again."
+msgstr "O chip de segurança (TPM) deste computador não abre mais a chave secreta que guardava para este cofre: o chip foi limpo, trocado ou desligado. Digite a chave secreta do seu kit de emergência. Assim que o cofre abrir, ela volta a ser guardada."
+
+msgctxt "Messages"
+msgid "Two different Secret Keys are kept for this vault on this computer: an older version of the app saved one. Type the Secret Key from your newest emergency kit."
+msgstr "Duas chaves secretas diferentes estão guardadas para este cofre neste computador: uma versão mais antiga do aplicativo salvou uma delas. Digite a chave secreta do seu kit de emergência mais recente."
+
+msgctxt "Messages"
+msgid "The Secret Key kept on this computer couldn't be read just now ({}). Try again, or type it from your emergency kit."
+msgstr "Não foi possível ler agora a chave secreta guardada neste computador ({}). Tente de novo ou digite a do seu kit de emergência."
+
+msgctxt "Messages"
+msgid "The Secret Key couldn't be kept on this computer just now ({}). The vault is open; if the next unlock asks for the Secret Key, type it from your emergency kit."
+msgstr "Não foi possível guardar agora a chave secreta neste computador ({}). O cofre está aberto; se o próximo desbloqueio pedir a chave secreta, digite a do seu kit de emergência."
