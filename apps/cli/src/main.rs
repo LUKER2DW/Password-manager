@@ -346,6 +346,12 @@ struct GenerateArgs {
 fn main() {
     // Before anything loads a DLL by name: System32 only, never next to the exe.
     vault_platform::process::restrict_dll_search();
+    // Other programs of this user can't read, write or steer the process (release builds: a
+    // debugger can't attach afterwards), and the mitigation policies that keep it working.
+    if !cfg!(debug_assertions) {
+        vault_platform::process::protect_memory();
+    }
+    vault_platform::process::apply_mitigations();
     if let Err(error) = run() {
         eprintln!("error: {error:#}");
         std::process::exit(1);
