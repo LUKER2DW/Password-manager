@@ -1,7 +1,7 @@
 //! Our own sync server (`vault-server`, SYNC.md §5.3). Every request is signed with this
 //! device's key; the server only ever holds sealed copies and public keys.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 use sha2::Digest as _;
@@ -24,7 +24,14 @@ pub struct ServerTarget {
     /// Made at the first request: a pinned server's certificate is fetched then, off the
     /// UI thread.
     agent: std::sync::Mutex<Option<ureq::Agent>>,
+    /// When the last long-poll was asked (see [`MIN_WAIT_SPACING`]).
+    last_wait: std::sync::Mutex<Option<Instant>>,
 }
+
+/// The least time between two long-polls. A server answers one at once only when its counter
+/// already moved; one that answers every one at once (its counter moving each time or not)
+/// would otherwise have this device ask it again and again without a pause.
+const MIN_WAIT_SPACING: Duration = Duration::from_secs(1);
 
 impl ServerTarget {
     pub fn new(address: &str, vault_id: &str, device: DeviceId, key: DeviceKey) -> Result<Self> {
@@ -39,6 +46,7 @@ impl ServerTarget {
             device,
             key,
             agent: std::sync::Mutex::default(),
+            last_wait: std::sync::Mutex::default(),
         })
     }
 
@@ -218,6 +226,15 @@ impl Target for ServerTarget {
     }
 
     fn wait(&self, after: u64, seconds: u64) -> Option<Result<u64>> {
+        let pause = {
+            let mut last = self.last_wait.lock().unwrap();
+            let pause = last.map_or(Duration::ZERO, |at| {
+                MIN_WAIT_SPACING.saturating_sub(at.elapsed())
+            });
+            *last = Some(Instant::now() + pause);
+            pause
+        };
+        std::thread::sleep(pause);
         let seconds = seconds.min(wire::MAX_WAIT_SECONDS);
         let path = self.path(&format!("/changes?after={after}&wait={seconds}"));
         Some(
