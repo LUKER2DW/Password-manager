@@ -606,7 +606,7 @@
     "message": "Show code"
   },
   "secondsShort": {
-    "message": "$SECONDS$ s",
+    "message": "$SECONDS$ seconds left",
     "placeholders": {
       "seconds": {
         "content": "$1"

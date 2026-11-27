@@ -180,12 +180,12 @@
             <!-- Dots, or while shown the code in two halves. -->
             <dd id="value-code" class="value"><span id="code-digits" class="code-digits" aria-live="polite"></span></dd>
             <div class="acts">
-              <span id="code-clock" class="code-clock" hidden>
+              <span id="code-clock" class="code-clock" role="timer" hidden>
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <circle class="track" cx="12" cy="12" r="9" />
                   <circle id="code-arc" class="arc" cx="12" cy="12" r="9" transform="rotate(-90 12 12)" />
                 </svg>
-                <span id="code-left" class="code-left"></span>
+                <span id="code-left" class="code-left" aria-hidden="true"></span>
               </span>
               <button id="show-code" class="eye" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><g class="open"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /><circle cx="12" cy="12" r="3" /></g><path class="shut" d="M3 10.5c4.8 5.6 13.2 5.6 18 0M7 14.2l-1.6 2.6M12 15.6v3M17 14.2l1.6 2.6" /></svg></button>
               <button id="copy-code" class="plain small" type="button"></button>

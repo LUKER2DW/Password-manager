@@ -23,6 +23,7 @@ const hiders = new WeakMap();
 export function codeClockElement() {
   const clock = document.createElement("span");
   clock.className = "code-clock";
+  clock.setAttribute("role", "timer");
   clock.hidden = true;
   const svg = document.createElementNS(SVG, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
@@ -42,6 +43,7 @@ export function codeClockElement() {
   svg.append(track, arc);
   const seconds = document.createElement("span");
   seconds.className = "code-left";
+  seconds.setAttribute("aria-hidden", "true");
   clock.append(svg, seconds);
   return clock;
 }
@@ -99,7 +101,10 @@ function show(parts, reply) {
   const tick = () => {
     const now = clock.at(Date.now());
     arc.setAttribute("stroke-dashoffset", (RING * (1 - now.fraction)).toFixed(2));
-    parts.clock.querySelector(".code-left").textContent = t("secondsShort", now.seconds);
+    // The number inside the ring; the whole words for a screen reader and on hover.
+    parts.clock.querySelector(".code-left").textContent = String(now.seconds);
+    parts.clock.title = t("secondsShort", now.seconds);
+    parts.clock.setAttribute("aria-label", t("secondsShort", now.seconds));
     parts.clock.classList.toggle("ending", now.seconds <= 5);
   };
   tick();
