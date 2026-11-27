@@ -344,6 +344,8 @@ struct GenerateArgs {
 }
 
 fn main() {
+    // Before anything loads a DLL by name: System32 only, never next to the exe.
+    vault_platform::process::restrict_dll_search();
     if let Err(error) = run() {
         eprintln!("error: {error:#}");
         std::process::exit(1);
