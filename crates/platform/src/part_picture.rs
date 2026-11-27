@@ -246,6 +246,19 @@ pub fn read(file: &[u8]) -> Result<RecoveryPart> {
     let mut reader = decoder.read_info().context(
         "this file is not a PNG picture: the part is kept only in the PNG the app saved",
     )?;
+    // The header says how big the picture is, and its pixels are allocated before they are
+    // read: only one the app could have made (its own landscape, or a cover of at most
+    // `MAX_PIXELS`, 8 bits a channel) is read on, so a file of a few bytes can't ask for
+    // gigabytes.
+    let header = reader.info();
+    if u64::from(header.width) * u64::from(header.height) > MAX_PIXELS {
+        bail!("this picture is too large to hold a recovery part");
+    }
+    let (color, depth) = reader.output_color_type();
+    if !matches!(color, png::ColorType::Rgb | png::ColorType::Rgba) || depth != png::BitDepth::Eight
+    {
+        bail!("this picture doesn't hold a recovery part");
+    }
     let size = reader
         .output_buffer_size()
         .context("this picture is too large")?;
@@ -321,6 +334,54 @@ mod tests {
             assert_eq!(&back, part);
             assert_eq!(back.label(), label);
         }
+    }
+
+    /// A PNG of `width` × `height` pixels as its header names them, with one tiny row of data:
+    /// a file of a few bytes that asks for a picture of any size.
+    fn png_header(width: u32, height: u32, color: u8, depth: u8) -> Vec<u8> {
+        let chunk = |kind: &[u8], data: &[u8]| {
+            let mut out = (data.len() as u32).to_be_bytes().to_vec();
+            out.extend_from_slice(kind);
+            out.extend_from_slice(data);
+            let crc = crc32fast::hash(&[kind, data].concat());
+            out.extend_from_slice(&crc.to_be_bytes());
+            out
+        };
+        let mut ihdr = width.to_be_bytes().to_vec();
+        ihdr.extend_from_slice(&height.to_be_bytes());
+        ihdr.extend_from_slice(&[depth, color, 0, 0, 0]);
+        // An empty zlib stream: the rows are missing.
+        let idat = [0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01];
+        [
+            &b"\x89PNG\r\n\x1a\n"[..],
+            &chunk(b"IHDR", &ihdr),
+            &chunk(b"IDAT", &idat),
+            &chunk(b"IEND", &[]),
+        ]
+        .concat()
+    }
+
+    /// Found by the `part_picture` fuzz target: a header naming a huge picture made the reader
+    /// allocate its pixels (over 100 GB) before reading them, and the app stopped. Refused at
+    /// the header now, whatever size it names, and so is a kind of picture the app never makes.
+    #[test]
+    fn a_picture_larger_than_any_the_app_makes_is_refused_before_its_pixels() {
+        for (width, height) in [(200_000, 200_000), (50_001, 1_000), (8_000, 8_000)] {
+            let err = format!("{:#}", read(&png_header(width, height, 6, 8)).unwrap_err());
+            assert!(err.contains("too large"), "{width} × {height}: {err}");
+        }
+        // Rows too long for the PNG reader's own limits: refused by it.
+        assert!(read(&png_header(u32::MAX / 2, 3, 6, 8)).is_err());
+        // 16 bits a channel, grey, grey with alpha: never made here, refused before any pixel.
+        for (color, depth) in [(6, 16), (0, 8), (4, 8)] {
+            let err = format!(
+                "{:#}",
+                read(&png_header(4_000, 4_000, color, depth)).unwrap_err()
+            );
+            assert!(err.contains("doesn't hold a recovery part"), "{err}");
+        }
+        // One the app could make, but whose rows are missing: an error, not a part.
+        assert!(read(&png_header(WIDTH, HEIGHT, 2, 8)).is_err());
     }
 
     #[test]
