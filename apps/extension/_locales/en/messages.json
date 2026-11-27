@@ -744,5 +744,105 @@
   },
   "codesAsksApp": {
     "message": "These logins are behind the item lock, which only your master password opens, in Vault."
+  },
+  "lookalikeTitle": {
+    "message": "Check the address"
+  },
+  "lookalikeText": {
+    "message": "This page is $PAGE$. It looks like $SITE$, where you have a login, but it is another site: Vault fills nothing here.",
+    "placeholders": {
+      "page": {
+        "content": "$1"
+      },
+      "site": {
+        "content": "$2"
+      }
+    }
+  },
+  "pastedTitle": {
+    "message": "This password is for $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pastedText": {
+    "message": "This page is $PAGE$, not $SITE$. Don't send it unless you use the same password here on purpose.",
+    "placeholders": {
+      "page": {
+        "content": "$1"
+      },
+      "site": {
+        "content": "$2"
+      }
+    }
+  },
+  "pastedLookalike": {
+    "message": "This page is $PAGE$: it only looks like $SITE$. Don't sign in here.",
+    "placeholders": {
+      "page": {
+        "content": "$1"
+      },
+      "site": {
+        "content": "$2"
+      }
+    }
+  },
+  "pastedRemove": {
+    "message": "Remove it"
+  },
+  "pastedKeep": {
+    "message": "Keep it"
+  },
+  "sentTitle": {
+    "message": "You sent the password of $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "sentText": {
+    "message": "It went to $PAGE$. If you didn't mean to, change it on $SITE$ now.",
+    "placeholders": {
+      "page": {
+        "content": "$1"
+      },
+      "site": {
+        "content": "$2"
+      }
+    }
+  },
+  "sentLookalike": {
+    "message": "$PAGE$ only looks like $SITE$. Change that password on $SITE$ now, typing its address yourself.",
+    "placeholders": {
+      "page": {
+        "content": "$1"
+      },
+      "site": {
+        "content": "$2"
+      }
+    }
+  },
+  "kitTitle": {
+    "message": "Never type your emergency kit's keys into a website"
+  },
+  "kitText": {
+    "message": "Vault never asks for your Secret Key or a recovery part in a page: whoever asks for them wants to open your vault. The paste was stopped."
+  },
+  "kitTypedText": {
+    "message": "Vault never asks for your Secret Key or a recovery part in a page: whoever asks for them wants to open your vault. It was taken out of the field."
+  },
+  "warnOk": {
+    "message": "Got it"
+  },
+  "saveLookalike": {
+    "message": "This site only looks like $SITE$, where you have a login.",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
   }
 }

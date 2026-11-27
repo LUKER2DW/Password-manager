@@ -44,15 +44,22 @@ export function showSite() {
   view("tabs", "site", "foot");
   $("origin").textContent = siteName(reply.origin);
   $("origin").title = reply.origin;
+  showWarnings();
   showOffer();
   const empty = reply.items.length === 0;
   $("site-empty").hidden = !empty;
   $("list").hidden = empty;
   const asks = listAsks(reply.items, reply);
   asksLine($("site-asks"), asks.kind, asks.all ? ALL_ASK : SOME_ASK);
+  // A page that only looks like a saved site (the app compares, from the vault's own sites):
+  // said in place of "no login", naming both.
+  const looks = empty && typeof reply.lookalike?.site === "string" ? reply.lookalike : undefined;
+  $("site-empty").classList.toggle("warns", Boolean(looks));
   if (empty) {
-    $("site-empty-title").textContent = t("noLoginsTitle");
-    $("site-empty-text").textContent = t("noLoginsText", reply.origin);
+    $("site-empty-title").textContent = t(looks ? "lookalikeTitle" : "noLoginsTitle");
+    $("site-empty-text").textContent = looks
+      ? t("lookalikeText", looks.page || siteName(reply.origin), looks.site)
+      : t("noLoginsText", reply.origin);
     $("list").replaceChildren();
     return;
   }
@@ -158,6 +165,32 @@ export async function fillTheCode(entry, back) {
   if (result === "choose_field") return outcome("chooseCodeField");
   if (result === "insecure_form") return outcome("insecureForm");
   return outcome(result === "none" ? "noCodeField" : "failed");
+}
+
+// ---- what the page was warned about ----
+
+/**
+ * The words of the warning to show for `warnings` (the worker's `tab-warnings`): a key of the
+ * kit first, then a password sent, then one pasted; none for nothing.
+ */
+export function warningWords(warnings) {
+  if (warnings?.kit) return { title: t("kitTitle"), text: t(warnings.kit.typed ? "kitTypedText" : "kitText") };
+  for (const about of ["sent", "pasted"]) {
+    const found = warnings?.[about];
+    if (typeof found?.site !== "string" || !found.site) continue;
+    const page = found.page || "";
+    const text = about === "sent" ? (found.lookalike ? "sentLookalike" : "sentText") : found.lookalike ? "pastedLookalike" : "pastedText";
+    return { title: t(`${about}Title`, found.site), text: t(text, page, found.site) };
+  }
+  return undefined;
+}
+
+function showWarnings() {
+  const words = warningWords(here.warnings);
+  $("site-warn").hidden = !words;
+  if (!words) return;
+  $("site-warn-title").textContent = words.title;
+  $("site-warn-text").textContent = words.text;
 }
 
 // ---- a login typed into this page and not saved yet ----

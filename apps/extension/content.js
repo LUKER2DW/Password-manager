@@ -13,9 +13,17 @@
 // site that login is saved for, or answer this page's own passkey request.
 //
 // A browser that can't report the frame fully visible (IntersectionObserver v2's `isVisible`:
-// Firefox) gets no frame in pages at all, since every click in it would be refused: the
+// Firefox) gets no card to act on in pages, since every click in it would be refused: the
 // extension's window fills there, and offers a login waiting to be saved, which the toolbar
-// button then marks.
+// button then marks. The warnings below are not drawn there either: the toolbar button shows
+// "!" and the extension's window says what it is about (background.js, popup/site.js).
+//
+// It also warns, in the same frame, and names no secret to the page:
+// - when a sign-in field is focused on a page that only looks like a site of the vault
+//   (`paypa1.com` for `paypal.com`; the app compares, from the vault's own sites);
+// - when a password pasted into a password field, or sent from a sign-in form, is the password
+//   of a login saved for another site (the app compares and forgets it);
+// - when one of the emergency kit's keys was refused in the page (kit.js).
 
 (() => {
   // A document the site isolated in a sandbox (a `sandbox` frame, a `Content-Security-Policy:
@@ -74,6 +82,10 @@
 
   let anchor = null;
   const dismissed = new WeakSet();
+  // The lookalike warning comes once per page, under the first sign-in field focused.
+  let lookalikeShown = false;
+  /** Whether the frame under a field is a warning: it stays until dismissed. */
+  const warning = () => about.get(frames.logins)?.which === "warn";
 
   // The card under a field is one offer: an id, the field, its form and where that form
   // sends. A login picked in the card is typed into that field and its form only (fill.js
@@ -182,9 +194,10 @@
   }
 
   async function offer(field) {
-    if (retired || !framed) return;
+    if (retired) return;
     if (frames.logins && anchor === field) return;
     if (dismissed.has(field)) return;
+    if (!framed) return warnOnly(field);
     const all = inputs();
     // A new password (sign-up, change of password) gets a strong suggestion instead.
     const fresh = isNewPasswordField(field, all);
@@ -207,6 +220,7 @@
       passkey,
     });
     if (!answer?.show || document.activeElement !== field) return;
+    if (answer.show === "lookalike") return showLookalike(field);
     close("logins");
     anchor = field;
     setOffer({ id, field, form: field.form, action: destinationOf(field.form) });
@@ -214,6 +228,63 @@
     show(frames.logins);
     place();
   }
+
+  // ---- warnings ----
+
+  /**
+   * Where no card can be clicked (Firefox): a sign-in field only asks whether the page looks
+   * like a saved site; the worker then marks the toolbar button, and the window says so.
+   */
+  async function warnOnly(field) {
+    if (lookalikeShown || !isSignInField(field, inputs()) || isNewPasswordField(field, inputs())) return;
+    lookalikeShown = true;
+    await say({ kind: "field-focused", framed: false });
+  }
+
+  /** Under `field`: the page only looks like a site of the vault (once per page). */
+  function showLookalike(field) {
+    if (lookalikeShown) return;
+    lookalikeShown = true;
+    warnUnder(field, "lookalike");
+  }
+
+  /** A warning (`what` it is about) in the frame under `field`, in place of any card there. */
+  function warnUnder(field, what) {
+    close("logins");
+    anchor = field;
+    frames.logins = makeFrame("warn", what);
+    show(frames.logins);
+    place();
+  }
+
+  /** A warning in the page's corner, in place of a save card there. */
+  function warnInCorner(what) {
+    close("save");
+    const frame = makeFrame("warn:corner", what);
+    frame.style.setProperty("top", "8px", "important");
+    frame.style.setProperty("right", "8px", "important");
+    frame.style.setProperty("height", "140px", "important");
+    frames.save = frame;
+    show(frame);
+  }
+
+  // A password pasted into a password field: is it the password of another site's login? The
+  // app compares and forgets it (the worker keeps nothing either); the answer is that site's
+  // name at most, shown in the frame, which the page can't read. A key of the emergency kit
+  // never gets here: kit.js stopped that paste first.
+  document.addEventListener(
+    "paste",
+    (event) => {
+      const field = event.target;
+      if (!event.isTrusted || retired || !warns || field?.tagName !== "INPUT" || kindOf(field) !== "password") return;
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      if (!text || text.length > 1024) return;
+      say({ kind: "pasted", password: text, framed }).then((answer) => {
+        if (answer?.warn && framed && field.isConnected) warnUnder(field, "pasted");
+      });
+    },
+    true,
+  );
 
   // A newer offer (another sign-in on this page) replaces the card on screen: a new frame
   // loads the offer that waits now, and counts clicks only once it has been seen anew.
@@ -236,7 +307,8 @@
     "pointerdown",
     (event) => {
       if (event.target === anchor) return;
-      if (frames.logins) close("logins");
+      // A warning stays until it is dismissed (Got it, or Escape).
+      if (frames.logins && !warning()) close("logins");
       if (event.target?.tagName === "INPUT" && document.activeElement === event.target) offer(event.target);
     },
     true,
@@ -258,7 +330,11 @@
     true,
   );
   // Typing in the field means the person is not picking a saved login.
-  document.addEventListener("input", (event) => event.isTrusted && event.target === anchor && close("logins"), true);
+  document.addEventListener(
+    "input",
+    (event) => event.isTrusted && event.target === anchor && !warning() && close("logins"),
+    true,
+  );
   window.addEventListener("scroll", place, { capture: true, passive: true });
   window.addEventListener("resize", place, { passive: true });
 
@@ -302,35 +378,51 @@
   }
 
   let reported = "";
-  // Saving left to the browser (the extension's setting): nothing typed is read at all, not
-  // even to hand it to the worker. Not known yet counts as off.
+  // Saving left to the browser (the extension's setting) and the app's warnings about other
+  // sites turned off (Settings → Browser extension, which the worker writes down as
+  // `vaultWarns` from the app's answers): nothing typed is read at all, not even to hand it to
+  // the worker. With saving left to the browser but the warnings on, a login sent is handed to
+  // the worker only for the app to compare (background.js `submitted`), never kept. Not known
+  // yet counts as off.
   let saving = false;
+  let warns = false;
   function setSaving(value) {
     const on = (value ?? true) === true;
     if (on && !saving) reported = "";
     saving = on;
+  }
+  function setWarns(value) {
+    const on = (value ?? true) === true;
+    if (on && !warns) reported = "";
+    warns = on;
   }
   try {
     chrome.storage.local.get("vaultSaves").then(
       (stored) => setSaving(stored?.vaultSaves),
       () => {},
     );
+    chrome.storage.local.get("vaultWarns").then(
+      (stored) => setWarns(stored?.vaultWarns),
+      () => {},
+    );
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === "local" && "vaultSaves" in changes) setSaving(changes.vaultSaves.newValue);
+      if (area !== "local") return;
+      if ("vaultSaves" in changes) setSaving(changes.vaultSaves.newValue);
+      if ("vaultWarns" in changes) setWarns(changes.vaultWarns.newValue);
     });
   } catch {
     // The extension is gone (reloaded or updated): nothing is read.
   }
 
   function report(scope) {
-    if (retired || !saving || scope === undefined) return;
+    if (retired || !(saving || warns) || scope === undefined) return;
     const typed = typedLogin(inputs(), scope);
     if (!typed) return;
     const mark = `${typed.username}\n${typed.password}`;
     if (mark === reported) return;
     reported = mark;
-    if (typed.password) say({ kind: "submitted", username: typed.username, password: typed.password });
-    else if (typed.username) say({ kind: "username-step", username: typed.username });
+    if (typed.password) say({ kind: "submitted", username: typed.username, password: typed.password, framed });
+    else if (typed.username && saving) say({ kind: "username-step", username: typed.username });
   }
   document.addEventListener(
     "submit",
@@ -361,6 +453,19 @@
       const frame = frames[message.which === "save" ? "save" : "logins"];
       frame?.style.setProperty("height", `${message.height}px`, "important");
       place();
+    }
+    // A login sent to the wrong site, or a key of the kit refused: said in the corner.
+    if (message?.kind === "warn" && framed && ["sent", "kit", "kit-typed"].includes(message.about)) {
+      warnInCorner(message.about);
+    }
+    // "Remove it" in the warning about a pasted password: the field it is under is emptied.
+    if (message?.kind === "clear-pasted" && anchor && warning() && kindOf(anchor) === "password") {
+      const field = anchor;
+      close("logins");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(field, "");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+      field.focus();
     }
   });
 

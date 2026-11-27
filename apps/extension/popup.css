@@ -268,6 +268,11 @@ button.back svg.ic {
   margin-top: 8px;
 }
 
+/* A warning about the page: its title in the seal's colour. */
+.offer.warns .offer-title {
+  color: var(--seal);
+}
+
 /* ---- lists ---- */
 
 .logins {
@@ -326,6 +331,11 @@ button.side:hover:enabled {
 
 .empty h2 {
   font-size: 15px;
+}
+
+/* A page that only looks like a saved site: the title in the seal's colour. */
+.empty.warns h2 {
+  color: var(--seal);
 }
 
 .empty-line {

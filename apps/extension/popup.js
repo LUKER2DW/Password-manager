@@ -65,6 +65,14 @@ async function load() {
   here.vault = vault.type === "vault" && Array.isArray(vault.items) ? vault : undefined;
   here.vaultProblem = vault.code;
   here.pending = tab?.id ? await pendingSave(tab.id) : undefined;
+  // Said once: kept for this window while it is open (a reload keeps what it was told).
+  if (tab?.id && !here.warnings) {
+    try {
+      here.warnings = await chrome.runtime.sendMessage({ kind: "tab-warnings", tabId: tab.id });
+    } catch {
+      here.warnings = undefined;
+    }
+  }
   drawFoot();
   return vault;
 }

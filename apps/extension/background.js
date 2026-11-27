@@ -12,7 +12,10 @@
 //   password;
 // - a page's passkey request is answered only after the person chose in the extension's own
 //   window, or in the frame under a field for the page's own request for a field's
-//   suggestions, and only for the tab's own origin (passkey-worker.js).
+//   suggestions, and only for the tab's own origin (passkey-worker.js);
+// - a password a page was given (pasted into a password field, or sent from a sign-in form)
+//   goes to the app only to be compared with the other sites' (`elsewhere`), and is not kept:
+//   what comes back, and what the frame shows, is the name of the site it belongs to.
 
 import {
   ask,
@@ -24,6 +27,7 @@ import {
   setPendingSave,
   updateRequest,
   vaultSaves,
+  vaultWarns,
 } from "./app.js";
 import { fillCode, fillLogin } from "./fill.js";
 import { fallbacks, patternTest, rulesFor } from "./generator.js";
@@ -78,6 +82,57 @@ const KNOWN_FOR_MS = 8000;
 const usernames = new Map();
 // What the focused new-password field allows, and the password suggested for it, per tab.
 const fresh = new Map();
+// The warnings the frame in a tab shows, per tab: a password pasted there (`pasted`) or sent
+// from there (`sent`) that belongs to another site, by that site's name only.
+const warnings = new Map();
+
+/** The saved site a page only looks like, from the app's answer about its logins. */
+function lookalikeOf(listed) {
+  const found = listed?.type === "logins" && listed.items?.length === 0 ? listed.lookalike : undefined;
+  return found && typeof found.site === "string" && typeof found.page === "string" ? found : undefined;
+}
+
+/**
+ * Where the browser can't vouch for the frame in a page (Firefox, content.js), a warning is not
+ * drawn there: the toolbar button shows "!" for the tab, and the extension's window says what it
+ * is about (`tab-warnings`).
+ */
+const marked = new Set();
+function markWarning(tabId) {
+  marked.add(tabId);
+  try {
+    chrome.action.setBadgeText({ tabId, text: "!" }).catch(() => {});
+  } catch {
+    // No toolbar button to mark.
+  }
+}
+
+/** Keeps a warning of the tab for its frame or window: names of sites only, for its page. */
+function keepWarning(tab, about, found) {
+  warnings.set(tab.id, { ...warnings.get(tab.id), [about]: { ...found, origin: originOf(tab.url) } });
+}
+
+/** What the app's answer to `elsewhere` warns about, checked; `undefined` for nothing. */
+function warningOf(reply) {
+  if (reply?.type !== "elsewhere") return undefined;
+  if (reply.kit === true) return { kit: true };
+  if (typeof reply.site !== "string" || !reply.site || reply.site.length > 253) return undefined;
+  const page = typeof reply.page === "string" ? reply.page.slice(0, 253) : "";
+  return { site: reply.site, page, lookalike: reply.lookalike === true };
+}
+
+/**
+ * Asks the app whether `password`, which the page in `tab` was just given, is the password of
+ * another site's login (or a key of the emergency kit), and keeps what to warn about for the
+ * tab's frame: the site's name, never the password. Nothing is asked while the app's warnings
+ * are off.
+ */
+async function elsewhere(tab, password, about) {
+  if (!(await vaultWarns())) return undefined;
+  const found = warningOf(await ask({ type: "elsewhere", url: tab.url, password }));
+  if (found) keepWarning(tab, found.kit ? "kit" : about, found);
+  return found;
+}
 
 async function loginsFor(tab) {
   const cached = known.get(tab.id);
@@ -172,11 +227,19 @@ async function codeFromFrame(tab, id, offer) {
 }
 
 async function submitted(tab, message) {
-  // Saving left to the browser: nothing typed is kept, compared or offered.
-  if (!(await vaultSaves())) return;
   const password = typeof message.password === "string" ? message.password : "";
   let username = typeof message.username === "string" ? message.username : "";
   if (!password || password.length > 1024 || username.length > 1024) return;
+  // Another site's password sent here, or a key of the kit: said in the corner, and nothing is
+  // offered for it (saving another site's password for this one would only spread it).
+  const found = await elsewhere(tab, password, "sent");
+  if (found) {
+    tell(tab.id, { kind: "warn", about: found.kit ? "kit" : "sent" });
+    if (message.framed === false) markWarning(tab.id);
+    return;
+  }
+  // Saving left to the browser: nothing typed is kept or offered.
+  if (!(await vaultSaves())) return;
   const step = usernames.get(tab.id);
   if (!username && step && step.origin === originOf(tab.url)) username = step.username;
   known.delete(tab.id);
@@ -213,7 +276,17 @@ async function submitted(tab, message) {
   }
   // Each offer has an id: the card says which login it shows, and Save acts on that one only,
   // never on a later offer of the same tab (another sign-in, another page) it didn't show.
-  await setPendingSave(tab.id, { id: crypto.randomUUID(), url: tab.url, origin, username, password, update });
+  // A page that only looks like a saved site: the card says so before Save.
+  const lookalike = lookalikeOf(listed)?.site;
+  await setPendingSave(tab.id, {
+    id: crypto.randomUUID(),
+    url: tab.url,
+    origin,
+    username,
+    password,
+    update,
+    lookalike,
+  });
   tell(tab.id, { kind: "offer-save" });
 }
 
@@ -265,6 +338,31 @@ async function saveFromFrame(tab, offer) {
   return { done: false, popup };
 }
 
+/** The warnings of tab `tabId` for its page in front, for the extension's window; then dropped. */
+async function takeWarnings(tabId) {
+  const kept = warnings.get(tabId);
+  warnings.delete(tabId);
+  let url = "";
+  try {
+    url = (await chrome.tabs.get(tabId))?.url ?? "";
+  } catch {
+    return {};
+  }
+  // The mark goes (back to a login waiting to be saved, if one does).
+  if (marked.delete(tabId)) markOffer(tabId, Boolean(await pendingSave(tabId)));
+  const here = originOf(url);
+  const shown = {};
+  for (const about of ["pasted", "sent", "kit"]) {
+    const found = kept?.[about];
+    if (found && found.origin === here) {
+      shown[about] = found.kit
+        ? { kit: true, typed: Boolean(found.typed) }
+        : { site: found.site, page: found.page, lookalike: found.lookalike };
+    }
+  }
+  return shown;
+}
+
 async function handle(message, sender) {
   const tab = sender.tab;
   if (sender.id !== chrome.runtime.id || typeof message?.kind !== "string") return undefined;
@@ -274,11 +372,27 @@ async function handle(message, sender) {
       ? applyUpdate()
       : undefined;
   }
+  // The extension's window, about the tab in front: its warnings (names of sites only), each
+  // said once, and the toolbar's mark for them taken off.
+  if (message.kind === "tab-warnings") {
+    return !tab && typeof sender.url === "string" && sender.url.startsWith(chrome.runtime.getURL("popup.html"))
+      ? takeWarnings(Number(message.tabId))
+      : undefined;
+  }
   if (fromPasskeyWindow(sender)) {
     return message.kind.startsWith("passkey-") ? passkeyFromWindow(message, sender) : undefined;
   }
   if (!tab?.id) return undefined;
   const fromFrame = typeof sender.url === "string" && sender.url.startsWith(INLINE);
+  // A key of the emergency kit refused in a document of the tab, any frame of it (kit.js): the
+  // page's own frame says why. Nothing of the key comes with it.
+  if (message.kind === "kit-refused" && !fromFrame) {
+    const about = message.how === "typed" ? "kit-typed" : "kit";
+    keepWarning(tab, "kit", { kit: true, typed: about === "kit-typed" });
+    tell(tab.id, { kind: "warn", about });
+    if (message.framed === false) markWarning(tab.id);
+    return undefined;
+  }
   const fromPage = !fromFrame && sender.frameId === 0;
   // The browser says which document sent it: a sandboxed one ("null") or one whose origin
   // isn't the tab's is not the site, and gets nothing (content.js already stays silent there).
@@ -289,6 +403,13 @@ async function handle(message, sender) {
   if (fromPage) {
     switch (message.kind) {
       case "field-focused": {
+        // Where no card can be clicked (content.js): only whether the page looks like a
+        // saved site it isn't.
+        if (message.framed === false) {
+          const looks = Boolean(lookalikeOf(await loginsFor(tab)));
+          if (looks) markWarning(tab.id);
+          return { show: looks ? "lookalike" : false };
+        }
         if (message.code) {
           const listed = await loginsFor(tab);
           return { show: listed.type === "logins" && listed.items.some((item) => item.has_code) };
@@ -312,7 +433,19 @@ async function handle(message, sender) {
         const listed = await loginsFor(tab);
         // The site's passkeys too, when this document waits for a field's suggestions.
         const passkeys = await passkeysForField(tab, sender.documentId, message.passkey);
-        return { show: (listed.type === "logins" && listed.items.length > 0) || passkeys > 0 };
+        if ((listed.type === "logins" && listed.items.length > 0) || passkeys > 0) return { show: true };
+        // Nothing to offer, on a page that only looks like a saved site: a warning instead.
+        return { show: lookalikeOf(listed) ? "lookalike" : false };
+      }
+      case "pasted": {
+        // A password pasted into a password field of the page: compared by the app, not kept.
+        const password = typeof message.password === "string" ? message.password : "";
+        if (!password || password.length > 1024) return { warn: false };
+        const found = await elsewhere(tab, password, "pasted");
+        // A key of the kit that kit.js let through (an older copy of it): said in the corner.
+        if (found?.kit) tell(tab.id, { kind: "warn", about: "kit" });
+        if (found && message.framed === false) markWarning(tab.id);
+        return { warn: Boolean(found && !found.kit) };
       }
       case "username-step":
         if (!(await vaultSaves())) return undefined;
@@ -399,9 +532,32 @@ async function handle(message, sender) {
     case "frame-save-info": {
       const pending = await pendingSave(tab.id);
       return pending
-        ? { id: pending.id, origin: pending.origin, username: pending.username, update: Boolean(pending.update) }
+        ? {
+            id: pending.id,
+            origin: pending.origin,
+            username: pending.username,
+            update: Boolean(pending.update),
+            lookalike: typeof pending.lookalike === "string" ? pending.lookalike : undefined,
+          }
         : {};
     }
+    case "frame-warning": {
+      // What a warning frame shows: names of sites, never a password.
+      const about = String(message.about ?? "");
+      if (about === "kit" || about === "kit-typed") return { kit: true };
+      if (about === "lookalike") {
+        const found = lookalikeOf(await loginsFor(tab));
+        return found ? { site: found.site, page: found.page, lookalike: true } : {};
+      }
+      const found = warnings.get(tab.id)?.[about];
+      // Kept for the page it was given on only.
+      if (!found || found.origin !== originOf(tab.url)) return {};
+      return { site: found.site, page: found.page, lookalike: found.lookalike };
+    }
+    case "frame-warn-clear":
+      // "Remove it": the pasted password goes out of the field the warning is under.
+      tell(tab.id, { kind: "clear-pasted" });
+      return undefined;
     case "frame-save": {
       const outcome = await saveFromFrame(tab, message.offer);
       // A stale offer or a changed login: the card says so itself (or shows the newer offer).
@@ -415,6 +571,11 @@ async function handle(message, sender) {
       return undefined;
     }
     case "frame-dismiss":
+      // A warning in the corner sits where the save card does, and offers nothing to drop.
+      if (message.which === "warn-corner") {
+        tell(tab.id, { kind: "close", which: "save" });
+        return undefined;
+      }
       if (message.which === "save") {
         // "Not now" drops the offer the card shows, never a newer one: with a newer one
         // waiting, the card shows that one instead of closing.
@@ -449,5 +610,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   known.delete(tabId);
   usernames.delete(tabId);
   fresh.delete(tabId);
+  warnings.delete(tabId);
+  marked.delete(tabId);
   setPendingSave(tabId, undefined);
 });

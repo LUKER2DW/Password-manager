@@ -37,6 +37,13 @@
   "content_scripts": [
     {
       "matches": ["https://*/*"],
+      "js": ["kit.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    },
+    {
+      "matches": ["https://*/*"],
       "js": ["passkeys-page.js"],
       "run_at": "document_start",
       "world": "MAIN",

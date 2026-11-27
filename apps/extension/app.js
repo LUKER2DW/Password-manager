@@ -48,6 +48,7 @@ export function onExtensionVersion(listener) {
 }
 
 function heard(reply) {
+  noteWarnings(reply);
   if (typeof reply?.extension_version === "string") {
     try {
       versionListener(reply.extension_version);
@@ -83,6 +84,34 @@ const PENDING_FOR_MS = 2 * 60 * 1000;
 export async function vaultSaves() {
   const { vaultSaves: on = true } = await chrome.storage.local.get("vaultSaves");
   return on === true;
+}
+
+// The app's warnings about other sites (Settings → Browser extension): a password pasted or
+// sent on a page that isn't its login's site, a page that only looks like a saved site. The
+// app decides, and says `"warns": false` in its answers about a page's logins and its status
+// while they are off; that is written down here as `vaultWarns`, so content.js reads nothing
+// typed for them and the worker sends nothing to compare. Not said yet counts as on (the
+// app's default): the app then refuses to compare, and nothing is shown.
+
+/** Whether the app's warnings about other sites are on, as its last answer said. */
+export async function vaultWarns() {
+  try {
+    const { vaultWarns: on = true } = await chrome.storage.local.get("vaultWarns");
+    return on === true;
+  } catch {
+    return true;
+  }
+}
+
+/** Writes down what an answer about a page's logins, or the status, says of the warnings. */
+async function noteWarnings(reply) {
+  if (reply?.type !== "logins" && reply?.type !== "status") return;
+  const on = reply.warns !== false;
+  try {
+    if ((await vaultWarns()) !== on) await chrome.storage.local.set({ vaultWarns: on });
+  } catch {
+    // No storage here (a test, the extension going away): nothing to note.
+  }
 }
 
 // The waiting logins are one stored map, read and written by the worker and the extension's

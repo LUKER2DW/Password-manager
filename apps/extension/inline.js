@@ -14,19 +14,26 @@
 // Under a sign-in field, while the page waits for a field's suggestions (a passkey request
 // with `mediation: "conditional"`), the site's passkeys in Vault come first: picking one has
 // the app sign in to that page (passkey-worker.js), with the same click check.
+//
+// `#warn` is a warning, under a field or (`:corner`) in the corner, and the offer part names
+// what it is about: `lookalike`, `pasted`, `sent`, `kit` or `kit-typed`. What it shows (names
+// of sites, never a password) comes from the worker, not from this address, which the page
+// can change: a page can only make it show the tab's real warnings again.
 
 const t = (key, ...parts) => chrome.i18n.getMessage(key, parts) || key;
 const $ = (id) => document.getElementById(id);
 const say = (message) => chrome.runtime.sendMessage(message).catch(() => undefined);
-const [mode = "logins"] = location.hash.slice(1).split("|")[0].split(":");
+const [mode = "logins", ...flags] = location.hash.slice(1).split("|")[0].split(":");
 const offer = location.hash.slice(1).split("|")[2] || "";
-// The card under a field (logins or a new password) and the one in the corner (save).
-const which = mode === "save" ? "save" : "logins";
+// The card under a field (logins, a new password, a warning) and the one in the corner (save,
+// a warning).
+const corner = mode === "save" || flags.includes("corner");
+const which = corner ? "save" : "logins";
 
 function placement() {
   const [where, scheme = "normal"] = location.hash.slice(1).split("|");
-  document.body.classList.toggle("up", where.endsWith(":up"));
-  document.body.classList.toggle("corner", mode === "save");
+  document.body.classList.toggle("up", where.split(":").includes("up"));
+  document.body.classList.toggle("corner", corner);
   // The page's colour scheme, so the browser draws no opaque box behind this frame (see
   // content.js). Only known words are taken.
   let words = "normal";
@@ -312,7 +319,9 @@ function drawSave(info) {
   no.hidden = false;
   yes.disabled = false;
   note.classList.remove("good");
-  note.textContent = "";
+  // A page that only looks like a saved site: said before Save.
+  note.classList.toggle("warns", Boolean(info.lookalike));
+  note.textContent = info.lookalike ? t("saveLookalike", info.lookalike) : "";
   no.onclick = (event) => event.isTrusted && dismissSave(info);
   yes.onclick = async (event) => {
     if (!genuine(event)) return;
@@ -321,6 +330,7 @@ function drawSave(info) {
     const outcome = await say({ kind: "frame-save", offer: info.id });
     if (outcome?.queued) {
       // Locked: kept for the next unlock. Said for a moment, then the card goes.
+      note.classList.remove("warns");
       note.classList.add("good");
       note.textContent = t("savedQueued");
       yes.hidden = true;
@@ -368,8 +378,55 @@ async function redraw() {
   fit();
 }
 
+// ---- a warning ----
+
+/** The words of the warning about `about`, from what the worker says of it; none for nothing. */
+function warningWords(about, info) {
+  if (info?.kit) {
+    return { title: t("kitTitle"), text: t(about === "kit-typed" ? "kitTypedText" : "kitText") };
+  }
+  if (typeof info?.site !== "string" || !info.site) return undefined;
+  const page = info.page || "";
+  if (about === "lookalike") return { title: t("lookalikeTitle"), text: t("lookalikeText", page, info.site) };
+  if (about === "pasted") {
+    return {
+      title: t("pastedTitle", info.site),
+      text: t(info.lookalike ? "pastedLookalike" : "pastedText", page, info.site),
+    };
+  }
+  if (about === "sent") {
+    return {
+      title: t("sentTitle", info.site),
+      text: t(info.lookalike ? "sentLookalike" : "sentText", page, info.site),
+    };
+  }
+  return undefined;
+}
+
+async function showWarning() {
+  const about = offer;
+  const info = await say({ kind: "frame-warning", about });
+  const words = warningWords(about, info);
+  const close = () => say({ kind: "frame-dismiss", which: corner ? "warn-corner" : "logins" });
+  if (!words) return close();
+  $("warn").hidden = false;
+  $("warn-title").textContent = words.title;
+  $("warn-text").textContent = words.text;
+  // The same click check as everywhere in this frame: a page that draws over the warning can't
+  // have it dismissed by a click meant for the page.
+  const ok = $("warn-ok");
+  ok.textContent = t(about === "pasted" ? "pastedKeep" : "warnOk");
+  ok.onclick = (event) => genuine(event) && close();
+  const remove = $("warn-other");
+  remove.hidden = about !== "pasted";
+  remove.textContent = t("pastedRemove");
+  remove.onclick = (event) => genuine(event) && say({ kind: "frame-warn-clear" });
+  fit();
+}
+
 if (!direct) {
   // Nothing is shown and nothing is asked.
 } else if (mode === "save") showSave();
 else if (mode === "new") showNew();
+else if (mode === "warn") showWarning();
 else showLogins();

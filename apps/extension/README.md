@@ -74,6 +74,25 @@ not in a store yet). Test with a test vault.
   locked. It needs Windows Hello on in Settings → Item lock.
 - Generated passwords you used are listed in the app's Generator page (encrypted with the
   vault on this computer, behind the item lock), with *Clear history*.
+- **Warnings about the wrong site** (in Firefox, which draws nothing in pages: a **!** on the
+  toolbar button, and the warning in the extension's window):
+  - *Check the address*: on a page with no login of its own that only looks like a site you
+    have a login for (`paypa1.com`, `pаypal.com` with a Cyrillic `а`, `paypal-login.com`,
+    `paypal.com.evil.example`), the first sign-in field you focus gets a card that names both,
+    and the extension's window says the same in place of "no login". The save card says it
+    too. The page's name is shown as `xn--…` when it mixes scripts.
+  - *This password is for …*: a password you paste into a password field that is the password
+    of a login saved for another site gets a card under the field naming that site, with
+    *Remove it* (empties the field) and *Keep it*. Sent from a sign-in form, the card in the
+    corner says *You sent the password of …* and to change it there; no save is offered for it.
+  - *Never type your emergency kit's keys into a website*: the Secret Key and the recovery
+    parts (`S0-…`, `A0-`/`B0-`/`C0-…`, and `R0-…` of older kits) are refused in every page,
+    frames too: a paste or a drop is stopped before the page hears of it, one typed by hand is
+    taken out of the field, and the corner says why. No site is an exception.
+
+  The app decides, from the vault's own sites: nothing is downloaded and the extension keeps
+  nothing. The first two follow the app's Settings → Browser extension → "Warn when a page
+  isn't the site a password belongs to" (on by default); the kit's keys are always refused.
 
 ## How it stays safe
 
@@ -89,7 +108,27 @@ not in a store yet). Test with a test vault.
   passkeys. The app then refuses those requests (`turned_off`) and says so in its answers
   about a page's logins (`"saves": false`, `"passkeys": false`): the extension offers no save,
   and passkeys fall back to the browser's own. The app can also stop showing a notice for
-  each fill.
+  each fill. With its warnings about other sites off (`"warns": false`), the extension sends
+  nothing to compare, reads nothing typed or pasted for them, and the app names no lookalike.
+- **Warnings:** a password pasted into a password field, or sent from a sign-in form, goes to
+  the app (`elsewhere`) only to be compared with the passwords of the other sites' logins, and
+  is kept neither there nor in the worker. The answer is a site's name at most, never which
+  login; logins behind the item lock are never compared, a page whose owner has one gets no
+  warning (the password may be that one), nor does one of the login's own owner
+  (`mail.example.com` for `example.com`), nor a password shorter than six characters. Only a
+  paste of yours counts, not one a page script makes up. The frame gets the site's name from
+  the worker, never from its own address (which the page can change). The page can see that a
+  warning appeared: it then knows the password it was just given is another site's in your
+  vault, not whose. With saving left to the browser and the warnings on, a sign-in is still
+  read to be compared, and then dropped.
+- **The kit's keys:** `kit.js` runs in every https document, frames too, at `document_start`,
+  in the extension's isolated world, ahead of the page's scripts: it listens on the window in
+  the capture phase, so a paste or a drop of a key is stopped (`preventDefault`,
+  `stopImmediatePropagation`) before the page's own listeners run. It knows the keys by their
+  printed shape only (the app's own rule, `crates/browser/src/kit.rs`, the same test keys on
+  both sides), holds nothing, and tells the worker only that it refused one. A key typed by
+  hand is taken out of the field as its last character comes: the page may have heard every
+  key press before that.
 - **Passkeys:** the page's address is the tab's own; the app decides which site the page may
   use passkeys for (its own host, or a domain above it that is not a public suffix), writes
   and signs the client data itself, and the answer reaches the page only while it still shows
@@ -124,7 +163,8 @@ not in a store yet). Test with a test vault.
   with nothing drawn over it (against extension clickjacking). It never shows a password
   except a freshly generated one.
 - A login typed into a page waits in the browser's memory (never on disk) for at most two
-  minutes, and goes to the app only if you choose *Save*. Before offering an update, the app
+  minutes, and goes to the app to be kept only if you choose *Save* (before that only to be
+  compared with other sites', while the app's warnings are on). Before offering an update, the app
   is asked whether that password differs from the saved one; it answers only for a login
   that is not behind the item lock (for a locked one it says it can't tell), so the extension
   can't test guesses against locked logins. The page itself can see whether the update card
@@ -148,7 +188,8 @@ not in a store yet). Test with a test vault.
   in with Google", "Login help" or "Can't log in?"). A help link, an eye that shows the
   password, a menu or a button of another form reads nothing by its click. Sign-in fields
   outside any `<form>` are read only for Enter in them or a click on such a button next to
-  them. With saving left to the browser (above), nothing typed is read at all.
+  them. With saving left to the browser and the app's warnings off (above), nothing typed is
+  read at all.
 - A login picked in the frame under a field goes into that field's own form, never into
   another sign-in form of the page, and not at all when the page has since removed the field,
   moved it into another form or changed where its form sends (its action, a submit button's
@@ -261,11 +302,14 @@ What differs in Firefox:
 
 - **No card in pages.** Firefox can't tell a frame in a page whether something covers it
   (IntersectionObserver v2's `isVisible`), and a click in the card counts only when the
-  browser says it was in full view. So nothing is drawn inside pages: fill from the
+  browser says it was in full view. So no card to act on is drawn inside pages: fill from the
   extension's window (the toolbar button or Ctrl+Shift+L), which offers the logins of the site
   in front. After a sign-in Vault could save, the toolbar button shows **1**; its window
   offers *Save* or *Update* (with the vault open; while it is locked, the offer waits there
-  until it is unlocked or two minutes pass).
+  until it is unlocked or two minutes pass). The warnings about the wrong site aren't drawn in
+  pages either: the toolbar button shows **!**, and its window says what the page was warned
+  about (a page that only looks like a saved site, another site's password pasted or sent
+  there, a key of the kit refused).
 - **Passkeys:** making one and signing in with one work as in Chrome (Vault's own window).
   A site's passkey suggestions in a field stay Firefox's own, since they would be listed in
   the card under the field.
@@ -281,8 +325,9 @@ What differs in Firefox:
 | `manifest.json` | Manifest V3 for Chrome, Edge and Firefox: `activeTab`, `scripting`, `nativeMessaging`, `storage`, `favicon` (Chrome, Edge), `privacy`; https pages for the content scripts |
 | `popup.html`, `popup.css`, `popup.js` | The extension's window: this site, all logins, codes, generator, new login, settings |
 | `popup/*.js` | Its views (`site.js`, `vault.js`, `entry.js`, `codes.js`, `generator.js`, `new-login.js`, `prefs.js`, `pairing.js`) and the rules they share, each testable on its own (`throttle.js`, `countdown.js`, `asks.js`, `cells.js`, `strength.js`, `options.js`, `version.js`, `tint.js`, `icon-pages.js`) |
-| `content.js`, `fields.js` | Content script: sign-in and new-password fields, submitted forms, placing the frame |
-| `inline.html`, `inline.css`, `inline.js` | The frame under a field (logins, the site's passkeys, or a new password) and the save offer |
+| `content.js`, `fields.js` | Content script: sign-in and new-password fields, submitted forms, a password pasted into a password field, placing the frame and the warnings |
+| `kit.js` | Content script in every https document, frames too, at `document_start`: the emergency kit's keys refused in pages |
+| `inline.html`, `inline.css`, `inline.js` | The frame under a field (logins, the site's passkeys, or a new password), the save offer, and the warnings (a lookalike page, another site's password pasted or sent, a key of the kit) |
 | `background.js` | The worker between the content script, the frame and the app |
 | `passkeys-page.js` | In the page's own world: stands in front of `navigator.credentials` for passkeys |
 | `passkeys.js` | Content script: relays passkey requests between the page and the worker, and holds a request for a field's suggestions while it waits |
@@ -295,7 +340,7 @@ What differs in Firefox:
 | `generator.js` | Reads a field's password rules for the app's generator |
 | `tokens.css` | Colours and shared pieces (the desktop app's tokens) |
 | `_locales/en/messages.json` | Every text shown |
-| `test/*.test.mjs` | Tests: `node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs` |
+| `test/*.test.mjs` | Tests: `node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs apps/extension/test/kit.test.mjs` |
 | `test/preview.html`, `test/preview-app.js` | Visual review of the window and the frames with fixed test data (a stand-in for the app through an import map) |
 | `test/pages/clickjacking.html` | Manual test page that tries to steal a fill |
 

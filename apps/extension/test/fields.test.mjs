@@ -242,7 +242,7 @@ class VouchingEntry {
  * frame is fully visible (Firefox doesn't). `waiting`: the request for a field's suggestions
  * that passkeys.js holds, if any.
  */
-async function contentScript(inputs, { saves = true, held = false, vouches = true, waiting } = {}) {
+async function contentScript(inputs, { saves = true, held = false, vouches = true, waiting, worker } = {}) {
   const listeners = {};
   const toWorker = [];
   const fromWorker = [];
@@ -286,6 +286,19 @@ async function contentScript(inputs, { saves = true, held = false, vouches = tru
     getComputedStyle: () => ({ colorScheme: "normal", borderBottomWidth: "0", boxShadow: "none", backgroundColor: "transparent" }),
     IntersectionObserverEntry: vouches ? VouchingEntry : class {},
     VaultPasskeys: { waiting: () => waiting },
+    // A field's value as the browser's setter writes it (the fields here keep it as their own).
+    HTMLInputElement: {
+      prototype: Object.defineProperty({}, "value", {
+        set(text) {
+          this.value = text;
+        },
+      }),
+    },
+    Event: class {
+      constructor(type) {
+        this.type = type;
+      }
+    },
     performance: { now: () => now },
     crypto: { randomUUID: () => `offer-${++ids}` },
     chrome: {
@@ -294,6 +307,7 @@ async function contentScript(inputs, { saves = true, held = false, vouches = tru
         getURL: (path) => `chrome-extension://vault/${path}`,
         sendMessage: async (message) => {
           toWorker.push(message);
+          if (worker) return worker(message);
           return message.kind === "field-focused" ? { show: true } : undefined;
         },
         onMessage: { addListener: (listener) => fromWorker.push(listener) },
@@ -449,7 +463,10 @@ test("a browser that can't vouch for the frame shows none in pages; a waiting lo
   page.fire("focusin", { target: user });
   await settle();
   assert.equal(page.appended.length, 0, "no frame under the field");
-  assert.ok(!page.toWorker.some((message) => message.kind === "field-focused"));
+  // It asks only whether the page looks like a saved site (a warning has nothing to click).
+  assert.ok(
+    page.toWorker.filter((message) => message.kind === "field-focused").every((message) => message.framed === false),
+  );
   page.tell({ kind: "offer-save" });
   assert.equal(page.appended.length, 0, "no save card either");
   assert.ok(page.toWorker.some((message) => message.kind === "offer-waiting"), "the toolbar button says so");
@@ -481,4 +498,117 @@ test("while the page waits for a field's suggestions, a sign-in or passkey field
   assert.ok(isPasskeyField(el("INPUT", body, { attributes: { autocomplete: "username webauthn" } })));
   assert.ok(!isPasskeyField(el("INPUT", body, { attributes: { autocomplete: "username" } })));
   assert.ok(!isPasskeyField(el("INPUT", body, { type: "checkbox", attributes: { autocomplete: "webauthn" } })));
+});
+
+// ---- warnings in the page ----
+
+/** A sign-in form on the stand-in page. */
+function signIn() {
+  const { body, el, inputs } = page();
+  const form = el("FORM", body);
+  const user = el("INPUT", form, { name: "username", form });
+  const password = el("INPUT", form, { type: "password", form });
+  const events = [];
+  password.dispatchEvent = (event) => events.push(event.type);
+  password.focus = () => {};
+  return { body, inputs, user, password, events };
+}
+const pastedText = (text) => ({ getData: (kind) => (kind === "text/plain" ? text : "") });
+
+test("a password pasted into a password field is asked about, and another site's is warned of under it", async () => {
+  const { body, inputs, user, password, events } = signIn();
+  const content = await contentScript(inputs, {
+    worker: (message) => (message.kind === "pasted" ? { warn: true } : undefined),
+  });
+  content.fire("paste", { target: password, clipboardData: pastedText("pasted-pw") });
+  await settle();
+  assert.deepEqual(
+    content.toWorker.filter((message) => message.kind === "pasted").map((message) => message.password),
+    ["pasted-pw"],
+  );
+  const frame = content.appended.at(-1);
+  // It names no site: the frame asks the worker. (Above or below the field, as it fits.)
+  assert.match(frame.src, /^chrome-extension:\/\/vault\/inline\.html#warn(:up)?\|normal\|pasted$/);
+  // Only a password field, and only what the person pasted.
+  content.fire("paste", { target: user, clipboardData: pastedText("me@example.com") });
+  content.fire("paste", { target: password, isTrusted: false, clipboardData: pastedText("made-up") });
+  await settle();
+  assert.equal(content.toWorker.filter((message) => message.kind === "pasted").length, 1);
+  // A click elsewhere, or typing on, leaves the warning up: it waits to be dismissed.
+  content.fire("pointerdown", { target: body });
+  content.fire("input", { target: password });
+  assert.equal(frame.removed, false);
+  // "Remove it" in the frame: the field is emptied (as typing would) and the warning closed.
+  password.value = "pasted-pw";
+  content.tell({ kind: "clear-pasted" });
+  assert.equal(password.value, "");
+  assert.deepEqual(events, ["input", "change"]);
+  assert.equal(frame.removed, true);
+});
+
+test("with the app's warnings off, nothing pasted is read", async () => {
+  const { inputs, password } = signIn();
+  // The stand-in storage answers `false` for every setting: saving and the warnings both off.
+  const content = await contentScript(inputs, { saves: false });
+  content.fire("paste", { target: password, clipboardData: pastedText("pasted-pw") });
+  await settle();
+  assert.ok(!content.toWorker.some((message) => message.kind === "pasted"));
+});
+
+test("a page that only looks like a saved site gets the warning under its first sign-in field, once", async () => {
+  const { inputs, user, password } = signIn();
+  const content = await contentScript(inputs, {
+    worker: (message) => (message.kind === "field-focused" ? { show: "lookalike" } : undefined),
+  });
+  content.sandbox.document.activeElement = user;
+  content.fire("focusin", { target: user });
+  await settle();
+  assert.equal(content.appended.length, 1);
+  assert.match(content.appended[0].src, /inline\.html#warn(:up)?\|normal\|lookalike$/);
+  content.sandbox.document.activeElement = password;
+  content.fire("focusin", { target: password });
+  await settle();
+  assert.equal(content.appended.length, 1, "once per page");
+});
+
+test("where the browser can't vouch for the frame, a warning draws nothing in the page: the worker marks the button", async () => {
+  const { inputs, user, password } = signIn();
+  const content = await contentScript(inputs, {
+    vouches: false,
+    worker: (message) =>
+      message.kind === "field-focused" ? { show: "lookalike" } : message.kind === "pasted" ? { warn: true } : undefined,
+  });
+  content.sandbox.document.activeElement = user;
+  content.fire("focusin", { target: user });
+  await settle();
+  // Only whether the page looks like a saved site is asked, once per page.
+  content.sandbox.document.activeElement = password;
+  content.fire("focusin", { target: password });
+  await settle();
+  assert.deepEqual(
+    content.toWorker.filter((message) => message.kind === "field-focused").map((message) => message.framed),
+    [false],
+  );
+  content.fire("paste", { target: password, clipboardData: pastedText("pasted-pw") });
+  await settle();
+  assert.equal(content.toWorker.find((message) => message.kind === "pasted").framed, false, "the worker is told");
+  content.tell({ kind: "warn", about: "sent" });
+  assert.equal(content.appended.length, 0, "nothing in the page");
+});
+
+test("a login sent to the wrong site and a key of the kit are said in the corner", async () => {
+  const { inputs } = signIn();
+  const content = await contentScript(inputs);
+  for (const about of ["sent", "kit", "kit-typed"]) {
+    content.tell({ kind: "warn", about });
+    const frame = content.appended.at(-1);
+    assert.equal(frame.src, `chrome-extension://vault/inline.html#warn:corner|normal|${about}`);
+    assert.equal(frame.style.top, "8px");
+    assert.equal(frame.style.right, "8px");
+  }
+  // One at a time: each replaced the one before.
+  assert.equal(content.appended.filter((frame) => !frame.removed).length, 1);
+  // Nothing else is shown on a word from the worker.
+  content.tell({ kind: "warn", about: "anything" });
+  assert.equal(content.appended.length, 3);
 });

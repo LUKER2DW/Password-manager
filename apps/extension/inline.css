@@ -305,6 +305,47 @@ hr {
   color: var(--ink);
 }
 
+/* On a page that only looks like a saved site: said in the seal's colour, above Save. */
+#save-note.warns {
+  color: var(--seal);
+}
+
+/* ---- a warning ---- */
+
+#warn {
+  padding: 8px 14px 6px;
+}
+
+.warn-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+/* The one mark of the card, in the seal's colour: no yellow here, nothing to do but read. */
+.warn-mark {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  fill: none;
+  stroke: var(--seal);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A title that may take two lines (a long site name). */
+.name.wraps {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#warn .sub {
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
 #save-note:empty {
   display: none;
 }

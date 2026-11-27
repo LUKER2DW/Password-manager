@@ -8,10 +8,12 @@
   codes_shown,
   generator, words, long, new_login, pin, wrong_pin, hello, setup, pair, pair_wait, empty,
   locked, not_running, insecure, item_locked, username, update, update_manual, prefs,
-  long_texts.
+  long_texts, lookalike (a page that only looks like a saved site).
   In-page frames: inline (the logins under a field), inline_passkeys (with the site's passkeys,
   while the page waits for a field's suggestions), suggest (a new password), save (the save
-  offer).
+  offer), save_lookalike (on a page that only looks like a saved site), warn_lookalike,
+  warn_pasted, warn_sent, warn_kit (the warnings: a lookalike page, another site's password
+  pasted or sent, a key of the emergency kit refused).
   A stand-in for the browser's `chrome` object, and for the app (test/preview-app.js, through
   the import map below), answers with fixed test data; nothing here talks to the app.
 -->
@@ -61,6 +63,13 @@
       };
       const lists = {
         empty: { type: "logins", origin: "https://github.com", ...listing, items: [] },
+        lookalike: {
+          type: "logins",
+          origin: "https://g1thub.com",
+          ...listing,
+          items: [],
+          lookalike: { site: "github.com", page: "g1thub.com" },
+        },
         insecure: { type: "error", code: "insecure_page" },
       };
       const tooOld = ["code_old"].includes(state);
@@ -143,7 +152,16 @@
               return state === "inline_passkeys" ? { ...listed, items: logins.items.slice(0, 1), passkeys } : listed;
             }
             if (message.kind === "frame-suggest") return { password: "q7#Vm2-kTz9@pLw4Rx8n", bits: 129 };
-            if (message.kind === "frame-save-info") return { id: "offer-1", origin: "https://github.com", username: "new.user@example.com" };
+            if (message.kind === "frame-save-info") {
+              return state === "save_lookalike"
+                ? { id: "offer-1", origin: "https://g1thub.com", username: "octocat", lookalike: "github.com" }
+                : { id: "offer-1", origin: "https://github.com", username: "new.user@example.com" };
+            }
+            if (message.kind === "frame-warning") {
+              if (message.about === "kit") return { kit: true };
+              if (message.about === "pasted") return { site: "github.com", page: "news.example", lookalike: false };
+              return { site: "github.com", page: "g1thub.com", lookalike: true };
+            }
             return undefined;
           },
           sendNativeMessage: async () => ({ type: "error", code: "not_paired" }),
@@ -179,7 +197,13 @@
       };
       window.close = () => {};
 
-      const frame = ["inline", "inline_passkeys", "save", "suggest"].includes(state);
+      const warnings = {
+        warn_lookalike: "#warn|normal|lookalike",
+        warn_pasted: "#warn|normal|pasted",
+        warn_sent: "#warn:corner|normal|sent",
+        warn_kit: "#warn:corner|normal|kit",
+      };
+      const frame = ["inline", "inline_passkeys", "save", "save_lookalike", "suggest"].includes(state) || state in warnings;
       const html = await (await fetch(frame ? "../inline.html" : "../popup.html")).text();
       const doc = new DOMParser().parseFromString(html, "text/html");
       for (const href of frame ? ["../tokens.css", "../inline.css"] : ["../tokens.css", "../popup.css"]) {
@@ -195,7 +219,8 @@
         // The frame's size in a page, over a page-like background.
         document.body.style.width = "300px";
         document.documentElement.style.background = matchMedia("(prefers-color-scheme: dark)").matches ? "#0b0f14" : "#e9edf3";
-        location.hash = state === "save" ? "#save" : state === "suggest" ? "#new" : "#logins";
+        location.hash =
+          warnings[state] ?? (state.startsWith("save") ? "#save" : state === "suggest" ? "#new" : "#logins");
         window.IntersectionObserver = class { observe() {} };
         await import("../inline.js");
       } else {

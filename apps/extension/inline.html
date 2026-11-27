@@ -56,6 +56,26 @@
           <button id="save-yes" class="primary" type="button"></button>
         </div>
       </section>
+
+      <!-- A warning: a page that only looks like a saved site, a password given to a site
+           that isn't its own, a key of the emergency kit refused. Names of sites only. -->
+      <section id="warn" hidden>
+        <div class="warn-head">
+          <svg class="warn-mark" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+            <path d="M12 9v4" />
+            <path d="M12 17h.01" />
+          </svg>
+          <div class="lines">
+            <span id="warn-title" class="name wraps"></span>
+            <span id="warn-text" class="sub"></span>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="warn-other" class="plain" type="button" hidden></button>
+          <button id="warn-ok" class="plain" type="button"></button>
+        </div>
+      </section>
     </div>
 
     <script type="module" src="inline.js"></script>

@@ -16,6 +16,12 @@ export const here = {
   status: undefined,
   /** A login typed into the page and not saved yet. */
   pending: undefined,
+  /**
+   * What the page in front was warned about where the browser draws no warning in pages
+   * (Firefox): another site's password pasted or sent there (`pasted`, `sent`: site names), a key
+   * of the kit refused (`kit`). From the worker, said once.
+   */
+  warnings: undefined,
   /** Which tab of the window is shown: "site", "vault", "codes" or "gen". */
   place: "site",
   /** False once the app said it doesn't know `lock` (an older app): the button goes. */

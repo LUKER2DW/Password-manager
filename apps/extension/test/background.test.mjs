@@ -130,6 +130,8 @@ function tab() {
     /** The same address, in a document the site sandboxed: the browser gives its origin as "null". */
     sandboxed: (message) => send(message, { frameId: 0, url: tabs.get(id).url, documentId: `doc-${id}`, origin: "null" }),
     frame: (message) => send(message, { frameId: 7, url: chrome.runtime.getURL("inline.html#logins|normal|x") }),
+    /** A document in a frame of the page (an advert, a widget), one the site may have sandboxed. */
+    sub: (message) => send(message, { frameId: 3, url: "https://widget.example/frame", documentId: `sub-${id}`, origin: "null" }),
   };
 }
 
@@ -207,11 +209,12 @@ test("a save the app could not write is not done, and can be tried again", async
 /** Lets the listeners' own work (dropping what waits) finish. */
 const settle = () => new Promise((done) => setTimeout(done, 5));
 
-test("with saving left to the browser, nothing typed is kept, compared or offered", async () => {
+test("with saving left to the browser, nothing typed is kept or offered; compared only for the warnings", async () => {
   answers = {
     logins: LOGINS,
     changed: { type: "changed", id: "item-1", changed: true },
     save: { type: "saved", existing: false, queued: false },
+    elsewhere: { type: "elsewhere", page: "login.example" },
   };
   await chrome.storage.local.set({ vaultSaves: false });
   try {
@@ -219,9 +222,19 @@ test("with saving left to the browser, nothing typed is kept, compared or offere
     asked.length = 0;
     await t.page({ kind: "username-step", username: "first-step" });
     await t.page({ kind: "submitted", username: "new-one", password: "typed-pw" });
+    // The app's warnings about other sites are on: what was sent is compared there (and only
+    // that: nothing to save, update or keep).
+    assert.deepEqual(
+      asked.map((request) => request.type),
+      ["elsewhere"],
+    );
+    // Turned off in the app (its answers say so): nothing typed goes to the app at all.
+    await chrome.storage.local.set({ vaultWarns: false });
+    asked.length = 0;
     await t.page({ kind: "submitted", username: "me", password: "other-pw" });
     await t.page({ kind: "submitted", username: "", password: "after-step" });
     assert.deepEqual(asked, [], "nothing typed went to the app, not even to compare");
+    await chrome.storage.local.set({ vaultWarns: true });
     assert.deepEqual(await t.frame({ kind: "frame-save-info" }), {});
     assert.deepEqual(await t.page({ kind: "pending" }), { offer: false });
     assert.equal(Object.keys(session.pendingSaves ?? {}).length, 0, "nothing kept");
@@ -230,7 +243,7 @@ test("with saving left to the browser, nothing typed is kept, compared or offere
     await t.page({ kind: "submitted", username: "", password: "pw-after" });
     assert.equal((await t.frame({ kind: "frame-save-info" })).username, "");
   } finally {
-    await chrome.storage.local.set({ vaultSaves: true });
+    await chrome.storage.local.set({ vaultSaves: true, vaultWarns: true });
   }
 });
 
@@ -538,4 +551,182 @@ test("under a sign-in field, the page's request for a field's suggestions lists 
   const other = tab();
   assert.deepEqual(await other.page({ kind: "field-focused", fresh: false, code: false }), { show: false });
   assert.equal((await other.frame({ kind: "frame-logins" })).passkeys, undefined);
+});
+
+// ---- warnings: another site's password, a page that only looks like a saved site, the kit ----
+
+const LOOKALIKE = {
+  type: "logins",
+  origin: ORIGIN,
+  hello: false,
+  items: [],
+  lookalike: { site: "example.com", page: "login.example" },
+};
+
+test("a password pasted on a page that isn't its site is compared by the app, and named by its site only", async () => {
+  answers = {
+    logins: LOGINS,
+    elsewhere: (request) =>
+      request.password === "bank-pw"
+        ? { type: "elsewhere", page: "login.example", site: "bank.example" }
+        : { type: "elsewhere", page: "login.example" },
+  };
+  const t = tab();
+  asked.length = 0;
+  assert.deepEqual(await t.page({ kind: "pasted", password: "own-pw" }), { warn: false });
+  assert.deepEqual(await t.page({ kind: "pasted", password: "bank-pw" }), { warn: true });
+  assert.deepEqual(
+    asked.map((request) => [request.type, request.url, request.password]),
+    [
+      ["elsewhere", `${ORIGIN}/sign-in`, "own-pw"],
+      ["elsewhere", `${ORIGIN}/sign-in`, "bank-pw"],
+    ],
+    "the tab's own address, and only to compare",
+  );
+  const shown = await t.frame({ kind: "frame-warning", about: "pasted" });
+  assert.deepEqual(shown, { site: "bank.example", page: "login.example", lookalike: false });
+  assert.ok(!JSON.stringify(shown).includes("bank-pw"), "the frame gets no password");
+  assert.equal(Object.keys(session.pendingSaves ?? {}).length, 0, "nothing kept");
+  // "Remove it" in the frame empties the field: the page's script is told.
+  told.length = 0;
+  await t.frame({ kind: "frame-warn-clear" });
+  assert.deepEqual(told, [{ tabId: t.id, message: { kind: "clear-pasted" } }]);
+  // Once the tab is on another site, that warning is no longer shown.
+  tabs.get(t.id).url = "https://other.example/";
+  assert.deepEqual(await t.frame({ kind: "frame-warning", about: "pasted" }), {});
+  // Off in the app: nothing goes there to compare.
+  await chrome.storage.local.set({ vaultWarns: false });
+  try {
+    asked.length = 0;
+    assert.deepEqual(await t.page({ kind: "pasted", password: "bank-pw" }), { warn: false });
+    assert.deepEqual(asked, []);
+  } finally {
+    await chrome.storage.local.set({ vaultWarns: true });
+  }
+});
+
+test("another site's password sent from a sign-in form is told in the corner, and not offered to save", async () => {
+  answers = {
+    logins: { ...LOGINS, items: [] },
+    elsewhere: { type: "elsewhere", page: "login.example", site: "bank.example", lookalike: true },
+    save: { type: "saved", existing: false, queued: false },
+  };
+  const t = tab();
+  told.length = 0;
+  await t.page({ kind: "submitted", username: "me", password: "bank-pw" });
+  assert.deepEqual(
+    told.map((sent) => sent.message),
+    [{ kind: "warn", about: "sent" }],
+  );
+  assert.deepEqual(await t.frame({ kind: "frame-save-info" }), {}, "nothing waits to be saved");
+  assert.deepEqual(await t.frame({ kind: "frame-warning", about: "sent" }), {
+    site: "bank.example",
+    page: "login.example",
+    lookalike: true,
+  });
+  // Closing it touches no offer: it only closes the corner.
+  told.length = 0;
+  assert.equal(await t.frame({ kind: "frame-dismiss", which: "warn-corner" }), undefined);
+  assert.deepEqual(
+    told.map((sent) => sent.message),
+    [{ kind: "close", which: "save" }],
+  );
+});
+
+test("a key of the emergency kit refused in any frame of the tab is said in the corner; the app finds one sent too", async () => {
+  answers = { logins: LOGINS, elsewhere: { type: "elsewhere", page: "login.example", kit: true } };
+  const t = tab();
+  told.length = 0;
+  // kit.js in a frame of the page, even one the site sandboxed: nothing of the key comes.
+  await t.sub({ kind: "kit-refused", how: "pasted" });
+  await t.sub({ kind: "kit-refused", how: "typed" });
+  assert.deepEqual(
+    told.map((sent) => [sent.tabId, sent.message]),
+    [
+      [t.id, { kind: "warn", about: "kit" }],
+      [t.id, { kind: "warn", about: "kit-typed" }],
+    ],
+  );
+  assert.deepEqual(await t.frame({ kind: "frame-warning", about: "kit" }), { kit: true });
+  // Sent from a form all the same (kit.js missed it): the app says so, and nothing is offered.
+  told.length = 0;
+  await t.page({ kind: "submitted", username: "me", password: "looks-like-a-key" });
+  assert.deepEqual(
+    told.map((sent) => sent.message),
+    [{ kind: "warn", about: "kit" }],
+  );
+  assert.deepEqual(await t.frame({ kind: "frame-save-info" }), {});
+  told.length = 0;
+  assert.deepEqual(await t.page({ kind: "pasted", password: "looks-like-a-key" }), { warn: false });
+  assert.deepEqual(
+    told.map((sent) => sent.message),
+    [{ kind: "warn", about: "kit" }],
+  );
+});
+
+test("on a page that only looks like a saved site, a sign-in field gets a warning instead of nothing", async () => {
+  answers = {
+    logins: LOOKALIKE,
+    elsewhere: { type: "elsewhere", page: "login.example" },
+    save: { type: "saved", existing: false, queued: false },
+  };
+  const t = tab();
+  assert.deepEqual(await t.page({ kind: "field-focused", fresh: false, code: false }), { show: "lookalike" });
+  // Where no card can be clicked, the same question only.
+  assert.deepEqual(await t.page({ kind: "field-focused", framed: false }), { show: "lookalike" });
+  assert.deepEqual(await t.frame({ kind: "frame-warning", about: "lookalike" }), {
+    site: "example.com",
+    page: "login.example",
+    lookalike: true,
+  });
+  // A login typed there and offered to save: the card says what the page looks like.
+  await t.page({ kind: "submitted", username: "me", password: "typed-here" });
+  assert.equal((await t.frame({ kind: "frame-save-info" })).lookalike, "example.com");
+  // A page with logins of its own: no warning.
+  answers.logins = { ...LOGINS, lookalike: { site: "example.com", page: "login.example" } };
+  const other = tab();
+  assert.deepEqual(await other.page({ kind: "field-focused", framed: false }), { show: false });
+  assert.deepEqual(await other.frame({ kind: "frame-warning", about: "lookalike" }), {});
+});
+
+test("the app's answers say whether its warnings are on, and the extension follows them", async () => {
+  answers = { logins: { ...LOGINS, warns: false } };
+  await tab().page({ kind: "field-focused", fresh: false, code: false });
+  await settle();
+  assert.equal(local.vaultWarns, false);
+  answers = { logins: LOGINS };
+  await tab().page({ kind: "field-focused", fresh: false, code: false });
+  await settle();
+  assert.equal(local.vaultWarns, true, "not said: on, as the app's default");
+});
+
+test("where the browser draws no warning in pages, the button is marked and the window says it, once", async () => {
+  answers = {
+    logins: LOOKALIKE,
+    elsewhere: { type: "elsewhere", page: "login.example", site: "bank.example" },
+  };
+  const t = tab();
+  badges.length = 0;
+  const fromWindow = (message) =>
+    new Promise((resolve) => onMessage(message, { id: "vault-extension", url: chrome.runtime.getURL("popup.html") }, resolve));
+  await t.page({ kind: "field-focused", framed: false });
+  await t.page({ kind: "pasted", password: "bank-pw", framed: false });
+  await t.sub({ kind: "kit-refused", how: "typed", framed: false });
+  assert.ok(badges.length >= 3 && badges.every((badge) => badge.tabId === t.id && badge.text === "!"));
+  // Where the frame is drawn (Chrome), nothing marks the button.
+  const chrome2 = tab();
+  badges.length = 0;
+  await chrome2.page({ kind: "pasted", password: "bank-pw", framed: true });
+  assert.deepEqual(badges, []);
+  // The extension's window hears what this page was warned about, by site names, and only once;
+  // the mark goes with it.
+  badges.length = 0;
+  assert.deepEqual(await fromWindow({ kind: "tab-warnings", tabId: t.id }), {
+    pasted: { site: "bank.example", page: "login.example", lookalike: false },
+    kit: { kit: true, typed: true },
+  });
+  assert.deepEqual(badges, [{ tabId: t.id, text: "" }]);
+  assert.deepEqual(await fromWindow({ kind: "tab-warnings", tabId: t.id }), {});
+  // Asked by anything but the extension's window: nothing.
+  assert.equal(await t.page({ kind: "tab-warnings", tabId: chrome2.id }), undefined);
 });
