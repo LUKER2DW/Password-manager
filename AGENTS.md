@@ -146,7 +146,8 @@ app, `pairing.rs` is the connection key and the proof on every request, `service
 from an open vault (with the item lock as a `Gate`), `host.rs` is the native host's relay
 between the browser and the app's pipe, run by the desktop app's own executable when a browser
 starts it with the extension's origin (`apps/desktop/src/main.rs`). In `apps/extension/`,
-`popup.js` is the extension's window, `link.js` its connection key and request signing, and
+`popup.js` is the extension's window, `link.js` its connection key (agreed with the app by
+ECDH), the sealing of each request and the opening of each answer, and
 `fill.js` the function that types a login into a page, `content.js` + `fields.js` the
 content script (sign-in fields, submitted forms), `inline.html`/`inline.js` the frame shown
 under a field, `background.js` the worker between them and the app, `generator.js` the

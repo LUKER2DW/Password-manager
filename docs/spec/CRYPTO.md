@@ -15,6 +15,7 @@
 | Randomness | OS CSPRNG | `getrandom` |
 | Constant-time comparison | — | `subtle` |
 | Sealing to a public key (browser drop box only, §3.5) | libsodium sealed box: X25519 + XSalsa20-Poly1305, nonce = BLAKE2b(eph_pk ‖ pk) | `crypto_box` |
+| The browser extension's link only (§3.9) | ECDH P-256 to agree on its key; AES-256-GCM to seal its messages (the AEAD the browser's WebCrypto offers: XChaCha20-Poly1305 isn't there, and written in JavaScript it would be home-made) | `p256`, `aes-gcm` |
 
 All labels below are ASCII byte strings and are used verbatim (no terminator).
 
@@ -150,12 +151,7 @@ is kept on the device (`item-lock-<vault id>.bin`), never in the vault file. A n
 password changes the check slot and so revokes it. Unlike a short PIN, this key cannot be
 guessed offline: the chip holds it and limits tries.
 
-**Browser extension pairing** (not part of the vault file): the app and the connected
-extension share a random 256-bit key. Each request carries a counter (the sender's clock in
-milliseconds) and `HMAC-SHA-256(key, counter as 8 bytes LE ‖ request text)`; the app accepts
-it when the MAC verifies, the counter is within two minutes of its clock and larger than the
-last one seen. The app keeps the key sealed with the vault (`subkey("local/browser-pairing")`,
-§6); the extension keeps it as a non-extractable browser key.
+The browser extension's key, and how its requests are signed and sealed, are in §3.9.
 
 This puts a second key between an unlocked vault and its most sensitive data. It does not
 make a short PIN strong: with the vault key in hand, 10 000 four-digit PINs cost 10 000
@@ -373,9 +369,15 @@ derived deterministically (RFC 6979), and SHA-256.
 - **Authenticator data** (WebAuthn §6.1): SHA-256 of the RP id, the flags user present (UP),
   user verified (UV), backup eligible (BE) and backed up (BS) (plus AT when made), and a sign
   counter of 0. There is no counter: the same passkey is in every synced copy of the vault,
-  and 0 tells the site that the authenticator keeps none. UV means the vault is open (the
-  master password was given) and, when the item lock covers the login, its check was passed
-  for this request; UP means the person chose it in the extension's own window.
+  and 0 tells the site that the authenticator keeps none. UV is set only when the person was
+  verified for this very request: Windows Hello, or the item lock's PIN or password (for a
+  login the lock covers, opening it for the request counts), on the phone the fingerprint or
+  the phone's lock, which Android asks for before any passkey answers. An open vault alone is
+  not verification. The site's `userVerification` decides when to ask: `required` and
+  `preferred` (also when missing or unknown) verify when there is a way to; `discouraged`
+  never asks. With no way here (no Windows Hello, no PIN or password item lock), `preferred`
+  answers with UV clear and `required` is left to the browser's own handler. UP means the
+  person chose it in the extension's own window.
 - **Signing in.** The signature is ES256 over `authenticatorData || SHA-256(clientDataJSON)`,
   DER-encoded. The client data (`type`, `challenge`, `origin`, `crossOrigin: false`) is
   written by the app from the page's origin as the browser reports it and the site's
@@ -496,6 +498,64 @@ key and all. The new kit is shown once, to be printed.
   (`Vault::adopt_key`, SYNC.md §4.7): their item keys are wrapped again the same way and the
   renewed header is taken as it is.
 
+### 3.9 The browser extension's link (not part of the vault file)
+
+The extension and the app share a 256-bit connection key `K`, agreed when the person connects
+the extension (`crates/browser/src/pairing.rs`, `apps/extension/link.js`):
+
+1. The extension makes an ephemeral P-256 key pair (the private half a non-extractable
+   WebCrypto key) and sends `commit = SHA-256("vault-browser/pairing-commit" ‖ E)`, `E` its
+   public key as an uncompressed SEC1 point (65 bytes).
+2. The app makes an ephemeral key pair and answers its public key `A`.
+3. The extension sends `E`; the app refuses it unless it matches `commit`.
+4. Both compute
+   ```
+   K    = HKDF-SHA-256(ikm = ECDH(E, A) x-coordinate, salt = E ‖ A, info = "vault-browser/pairing")
+   code = 8 characters of "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789" (56, without
+          I l 1 O o 0): the bytes of SHA-256("vault-browser/pairing-code" ‖ E ‖ A ‖ i) for
+          i = 0, 1, … (one byte), each byte below 224 taken as byte mod 56, the others skipped;
+          shown as two groups of four
+   ```
+   The extension and the app both show the code; the person connects in the app with the
+   master password only when the two are the same.
+
+A program in between must run one exchange with each side and can't make the two codes agree
+by choosing its keys: the commitment makes it answer the extension before it knows `E`, and
+commit towards the app before it knows `A` (the same reason Bluetooth's numeric comparison
+commits first). Each attempt has one chance in 56^8 (about 10^14), in front of the person.
+
+An extension older than this asks without a commitment and is handed a random `K` with a
+six-digit code (the first 4 bytes of `SHA-256("vault-browser/pairing-code" ‖ K)`, big-endian,
+mod 10^6), which the person types into the app: whoever asked knows it, so the app never shows
+it. That key travels through whatever is between the browser and the app. Still accepted until
+a version floor ends it.
+
+From `K`, by one block of HKDF-SHA-256-Expand (`HMAC-SHA-256(K, info ‖ 0x01)`; `K` is 32 uniform
+bytes, so there is no extract step, RFC 5869 §3.3):
+
+```
+K_req = HKDF-Expand(K, info = "vault-browser/requests", L = 32)
+K_ans = HKDF-Expand(K, info = "vault-browser/answers",  L = 32)
+```
+
+A request is `{"type":"sealed","counter":c,"data":base64(n ‖ ciphertext ‖ tag)}` with
+`AES-256-GCM(K_req, nonce n (12 random bytes), request text, aad = "vault-browser/request" ‖ c
+(8 bytes LE))`; `c` is the sender's clock in milliseconds × 1000 plus a random part below 1000,
+accepted once and only within two minutes of the app's clock. Its answer is
+`{"type":"sealed","data":base64(m ‖ ciphertext ‖ tag)}` with `AES-256-GCM(K_ans, nonce m (12
+random bytes), answer text, aad = "vault-browser/answer" ‖ c ‖ n)`: bound to that request. Only
+"not connected", "not running" and "not understood" travel plain. Nonces are random, never the
+counter (the app's record of counters seen starts empty at every start); at a few requests per
+minute, random 96-bit nonces stay far from GCM's limits.
+
+An extension older than sealed requests sends `{"type":"signed","counter":c,"body":…,"mac":…}`
+with `mac = HMAC-SHA-256(K, c (8 bytes LE) ‖ body)` and gets plain answers.
+
+The app keeps `K` sealed with the vault (`subkey("local/browser-pairing")`, §6) and a copy under
+DPAPI for filling while locked (§3.4); the extension keeps it as a non-extractable WebCrypto
+key. That key object is still written to the browser's profile, so a program that copies the
+profile takes it (THREAT_MODEL.md).
+
 ## 4. Argon2id parameters
 
 | | memory (KiB) | iterations | parallelism |
@@ -580,6 +640,8 @@ Deriving a fresh `K_enc` per message also removes any risk from random-nonce col
 | Item secrets (§3.2) | `guard_key` | `"vault-v0/item-secrets" ‖ vault_id ‖ item_id` |
 | Device unlock (§3.1) | `KEK_device` | `"vault-v0/device" ‖ vault_id ‖ SHA-256(password slot)` |
 | Device-local data (e.g. icon cache) | `subkey("local/" ‖ purpose)` | `"vault-v0/local" ‖ vault_id ‖ purpose` |
+| Browser link request (§3.9) | `K_req` | `"vault-browser/request" ‖ counter (u64 LE)` |
+| Browser link answer (§3.9) | `K_ans` | `"vault-browser/answer" ‖ counter (u64 LE) ‖ request nonce` |
 
 Device-local data is not part of the vault file: it is a per-device cache that can be deleted and
 rebuilt at any time, encrypted so that it reveals nothing (such as which sites you use) without

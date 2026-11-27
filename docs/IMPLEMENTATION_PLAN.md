@@ -610,24 +610,47 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   `check-exe.ps1` checks the flag. The C runtime stays a DLL (from System32, so the Visual
   C++ runtime must be installed: a copy beside the exe is ignored now): a static one would
   need Skia built from source, as no static-runtime Skia is published.
-- ⬜ S3. Process hardening: a process DACL other programs of the same user can't read or
-  write memory through (with an OWNER RIGHTS entry), the mitigation policies that don't break
-  GPU drivers, crash dumps left out; also in the native-host mode and the CLI.
-- ⬜ S4. Emergency kit: the saved PDF holds the Secret Key; recovery parts only in files of
-  their own, on request, with a warning for folders a cloud backs up.
+- ✅ S3. Process hardening: a process DACL other programs of the same user can't read or
+  write memory through (with an OWNER RIGHTS entry), threads closed too (a TLS callback and
+  sweeps), the mitigation policies that don't break GPU drivers (image load, extension points
+  when no legacy input method needs them, heap termination), crash reports without the heap;
+  also in the native-host mode and the CLI (`process.rs`). A child-process test checks that
+  another program of the same user can't read the protected process.
+- ✅ S4. Emergency kit: the saved PDF holds the Secret Key only; recovery parts each in a
+  PDF of its own ("Save each part apart", on the Kit page and in onboarding), never two in one
+  folder; neither in a folder a cloud copies away (`files::cloud_folder`).
 - ✅ S5. Extension: nothing offered, filled, saved or signed in a sandboxed (opaque-origin)
   document: the scripts compare the document's own origin with its address's, the worker
   ignores a page message whose browser-given origin isn't the tab's, the card shows nothing
   under a "null" ancestor, and passkey requests there stay with the browser. Tested in
   `fill`, `passkeys` and `background` tests.
-- ⬜ S6. Passkeys: "user verified" only after Windows Hello, the PIN or a fingerprint in that
-  operation; a site asking for `required` gets the check.
-- ⬜ S7. The docs say only what the code does (memory and hibernation, builds, revealed text).
-- ⬜ S8. Releases: a required reviewer on the `android-release` environment (owner), CODEOWNERS
-  for the workflows, the Gradle wrapper's checksum pinned.
-- ⬜ S9. Revealed passwords, codes and the Secret Key kept out of the accessibility tree.
-- ⬜ S10. The browser host's registration checked at start and before the link opens; the
-  app's answers authenticated to the extension.
+- ✅ S6. Passkeys: "user verified" only after Windows Hello, the PIN or a fingerprint in that
+  operation, as the site's `userVerification` asks (`required` and `preferred` verify when
+  there is a way, `required` without one goes to the browser, `discouraged` never asks);
+  core, the browser service, the extension and the phone.
+- ✅ S7. The docs say only what the code does: what is locked in RAM and what isn't, the
+  hibernation file, how far the release pipeline is trusted, the revealed password's Slint
+  copy (THREAT_MODEL, ARCHITECTURE).
+- 🚧 S8. Releases: the Gradle wrapper's download checked against its pinned SHA-256
+  (`distributionSha256Sum`). Owner: a required reviewer on the `android-release` environment
+  (GitHub → Settings → Environments), so no push alone signs and publishes an APK the phones
+  take within the hour.
+- ✅ S9. Revealed passwords, codes and the Secret Key kept out of the accessibility tree: on
+  the desktop each such text names what it is instead of its value (item page, notes,
+  recovery codes, generator, authenticator, kit); the headless test walks the whole tree for
+  the secrets.
+- 🚧 S10. The browser link: every request and answer sealed with AES-256-GCM under keys
+  derived from the connection key, each answer bound to its request (`pairing.rs`
+  `seal_request`/`open_request`/`seal_answer`, `link.js` `seal`/`opened`), so a relay put in
+  the host's place reads nothing and can't forge answers; connecting by ECDH P-256 with a
+  commitment first, an eight-character code (56 letters and digits) both sides show for the
+  person to compare before typing the master password (`Offer`, `link.js` `agree`), so the key
+  never travels; the host's registration (registry values and manifests) checked while
+  the link runs and put back, with a notice. Known-answer vectors computed apart (Node's
+  OpenSSL) are checked on both sides. An app older than this answers the new extension "not
+  understood", and the extension says to update the app; an older extension still signs its
+  requests and is still handed its key (until S25). Later: the host checking that its parent
+  is a signed browser.
 - ⬜ S11. Keys in memory: vault key, guard key and subkeys in locked, encrypted pages; a
   global allocator that zeroes what it frees.
 - ⬜ S12. The Secret Key on Windows wrapped by a non-exportable TPM key (DPAPI as fallback).

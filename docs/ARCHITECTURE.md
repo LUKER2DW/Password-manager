@@ -138,10 +138,13 @@ with HPKE and a hybrid X25519 + ML-KEM-768 KEM against "harvest now, decrypt lat
 - Exact origin matching (scheme + host + port), decided by the app with the WHATWG URL rules
   (`crates/browser/src/origin.rs`); the top frame only; no filling over plain HTTP. A password
   leaves the app only for the one login picked, and only for a page of its origin.
-- **Pairing:** the first time, the extension asks to be connected; the app comes forward,
-  shows a code and asks for the master password (typed in the app, never in the browser).
-  From then on every request is signed with the shared key (HMAC-SHA-256 over a counter and
-  the request), so a program that merely starts the native host gets nothing.
+- **Pairing:** the first time, the extension asks to be connected: it and the app agree on a
+  key by ECDH (the key never travels), both show an eight-character code computed from the
+  exchange, and the app comes forward and asks the person to compare it and type the master
+  password (in the app, never in the browser). From then on every request and every answer is sealed
+  with keys derived from it (AES-256-GCM, each answer bound to its request; CRYPTO.md §3.9),
+  so a program that merely starts the native host gets nothing, and one put between the
+  browser and the app reads nothing and can't forge an answer.
 - A login behind the item lock is opened for one fill only: by **Windows Hello** (the app
   shows the system's prompt) or by the item lock's **PIN**, typed in the extension's own
   window and counted with the app's wrong tries.
@@ -179,7 +182,7 @@ Full design: [spec/SYNC.md](spec/SYNC.md). In short:
 | Concern | Tauri 2 (WebView) | Slint (native Rust) |
 |---|---|---|
 | Master password typing | Every keystroke goes through the DOM and the JS engine; strings are copied by the GC and cannot be wiped | A custom secure field captures key events in Rust and appends them to a `Zeroizing` buffer; the UI layer only knows how many bullets to draw |
-| Revealing a password | The value is serialized over IPC as JSON, then lives in the JS heap and the DOM | The value is a short-lived Rust string shown in one text element, cleared and zeroized when hidden |
+| Revealing a password | The value is serialized over IPC as JSON, then lives in the JS heap and the DOM | The value is shown in one text element only while asked for, and cleared when hidden; the Rust copy is zeroized, the copy Slint keeps for drawing isn't (freed, not wiped) |
 | Copy to clipboard | Can be done in Rust (OK in both) | Done in Rust |
 | Attack surface | Browser engine + JS + npm supply chain | Rust crates only |
 | Design freedom | Highest (HTML/CSS ecosystem) | High: custom components, gradients, shadows, animations, custom fonts, SVG; fewer ready-made components, limited effects such as backdrop blur |

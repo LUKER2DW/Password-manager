@@ -86,10 +86,20 @@ On top of that:
   `session_watch.rs`); on the phone, on leaving the app.
 - Secrets stay encrypted **per item** in memory; only the item in use is decrypted, and it is
   wiped right after (`zeroize`).
-- Sensitive memory is locked (`VirtualLock`/`mlock`) so it does not reach the pagefile or
-  hibernation file (lesson from KeePass CVE-2023-32784).
+- What is typed into the app's secret fields (master password, PIN, Secret Key, recovery
+  parts) stays in a buffer locked in RAM (`VirtualLock`) so it isn't written to the
+  pagefile, and is wiped after use (lesson from KeePass CVE-2023-32784). The vault key and
+  the decrypted item in use are wiped (`zeroize`) but not yet locked in RAM (M10 S11), and
+  nothing keeps memory out of the hibernation file: that is why the vault locks, and its
+  keys are wiped, before Windows sleeps or hibernates.
 - A custom master-password input that does not leave copies of the string in memory.
 - Window excluded from screen capture (`WDA_EXCLUDEFROMCAPTURE` on Windows, `FLAG_SECURE` on Android).
+- What the window shows is also read through the accessibility tree (UI Automation), by
+  screen readers and by any program of the same user. A revealed password, PIN or private
+  key, a sensitive field, one-time and recovery codes, notes, a generated password and the
+  kit's keys are drawn but kept out of it: their element names what it is ("Password: shown
+  on screen, not read aloud"), never the value. The phone's toolkit exposes no accessibility
+  tree on Android at all.
 - A memory bug is harder to turn into control of the app: the Windows programs have ASLR with
   a high-entropy address space, DEP and Control Flow Guard (an indirect call to anywhere but
   the start of a function stops the program; `.cargo/config.toml`), and every release checks
@@ -102,6 +112,18 @@ On top of that:
   and so are those loaded later by name (`SetDefaultDllDirectories` first thing in `main`,
   `vault_platform::process`). Tested by hand: with a junk `VCRUNTIME140.dll` beside it, an exe
   built without the flag fails to start, one built with it runs.
+- Other programs of the same user can't reach into the app: in release builds the process and
+  each of its threads carry an access list that lets them only see it run, wait for it and
+  end it, from the first line of `main` (also in the browser host's mode, and in the CLI). No
+  reading or writing its memory, no thread started in it, no handle taken, no thread
+  suspended or steered, and no rewriting the list: an OWNER RIGHTS entry takes from the owner
+  the right owners otherwise keep (a list without it is undone in two calls). Threads get the
+  list as they start (a TLS callback) and from a sweep now and then. DLLs from a network share
+  or a low-integrity folder are refused, the legacy extension points (AppInit DLLs, global
+  hooks' DLLs) closed unless a legacy input method needs them, and crash reports carry no
+  heap. Limits: the program that started the app keeps the handle it was given (Explorer, the
+  browser for its host, or malware that launched it); an administrator reaches everything; a
+  hook aimed at the window's own thread, a keylogger and UI Automation are other matters.
 - Clipboard: automatic clearing and exclusion from Windows clipboard history and cloud sync.
 - Optional re-prompt: critical items (bank, primary email, crypto) require a fresh check
   on every use. Implemented as the item lock: the master password (re-derived against the
@@ -117,11 +139,28 @@ On top of that:
   picked in the extension's own window or in a small frame under a sign-in field.
   Requests are accepted only from the extension the person connected (pairing), and a
   locked login needs Windows Hello or the item lock's PIN for each fill. To connect, the
-  person types into the app the six-digit code the extension's own window shows, then the
-  master password. The app never shows that code: any program that asks the app to connect
-  is told the code too, so only the code read off the extension's window ties the approval
-  to the extension. A program that sends its own request gets a dialog the person can't
-  complete without a matching code.
+  extension and the app agree on a key by ECDH, so the key never travels; both show an
+  eight-character code computed from the exchange, and the person connects in the app with
+  the master password only when the two codes are the same. A program in between gets two
+  different codes and can't steer them (CRYPTO.md §3.9). A program that merely asks the app to
+  connect makes it show a code the extension doesn't show: the dialog says to refuse then, and
+  says so again when a second request replaces the one waiting. This rests on the person
+  comparing; the earlier way (typing the extension's code into the app) didn't, and remains
+  only for extensions older than the key agreement, whose code the app never shows.
+  The browsers find the app's host through a per-user registry value and a manifest file,
+  which another program of this user could point at a host of its own, sitting between the
+  browser and the app. Every request and every answer is sealed (AES-256-GCM, CRYPTO.md
+  §3.9) and each answer is bound to its request, so such a relay reads nothing (not the
+  logins, not a password being filled or saved, not the PIN typed for a locked login) and
+  can't forge an answer (a password it knows, a passkey of its own, a list of logins). Nor
+  can it take the key at the next connection: it would have to agree on one key with each
+  side, and the code the person types then differs from the app's (the extension commits to
+  its key first, so the relay can't pick keys that make the codes agree; one chance in a
+  million per attempt). While the link runs the app also checks the registration every few
+  seconds, puts it back when it changed, refuses that message and says so. An extension older
+  than this (not reloaded since the update) still signs its requests and gets plain answers,
+  and is still handed its key when it connects: a relay reads that one's traffic, as before.
+  It goes when a version floor (M10 S25) refuses older extensions.
   Known limit: a program already running as the same Windows user can copy the browser's
   stored data, pairing key included, and then ask like the extension does. It gets nothing while the vault is locked and
   nothing behind the item lock. Filling needs the exact site of the login; showing or copying
@@ -171,7 +210,10 @@ On top of that:
   public suffix) and writes the signed client data with that origin itself; and an answer is
   handed back only while the tab still shows that origin. Nothing is made or signed until the
   person chooses in a window of the extension's own (a page can't draw over it or click in it),
-  and a login behind the item lock asks for its check there too. The window names the page
+  and a login behind the item lock asks for its check there too. The answer tells the site
+  "user verified" only after Windows Hello or the item lock's PIN or password in that very
+  request, as the site asks (`userVerification`), never because the vault happens to be open:
+  a site that trusts the flag as a second factor isn't misled. The window names the page
   that asks and, when it is another name, the site its passkey belongs to as the app checked
   it, so a subdomain can't pass for its parent (while the vault is locked the app hasn't
   checked one, and the window names the page alone, never a site the page wrote). The app is asked to make or sign only while the very document
@@ -331,8 +373,13 @@ On top of that:
 
 **Files with secrets outside the vault** (each a deliberate, visible choice):
 - Printed emergency kit: the temporary PDF lives in `<app dir>/print` and is overwritten and
-  deleted on lock, on exit and at the next start. A kit saved elsewhere with "Save as PDF" is the
-  user's file. A filled kit also carries the Secret Key and each recovery part as a QR code
+  deleted on lock, on exit and at the next start. A kit saved with "Save as PDF" holds the
+  Secret Key only: infostealers sweep PDFs from Documents and the Desktop, and the three
+  recovery parts together open the vault without the master password. The parts go on paper,
+  or each to a PDF of its own with "Save each part apart", in different folders (the app
+  refuses a folder another part went to). Neither is written to a folder a cloud copies away
+  (OneDrive, its backed-up Documents and Desktop included, Dropbox, Google Drive, iCloud
+  Drive: `files::cloud_folder`). A saved file is then the user's. A filled kit also carries the Secret Key and each recovery part as a QR code
   (black squares in the PDF, no picture), for the phone's scanner: whoever can photograph a
   page could already read the same key printed above its code. A kit with empty boxes, to be
   filled by hand, has no codes.
@@ -356,8 +403,11 @@ On top of that:
 - OS compromise at administrator/kernel or firmware level (A9).
 - Physical coercion of the user.
 - Hardware side-channel attacks (Spectre, etc.) beyond what the libraries mitigate.
-- Undetected build supply-chain compromise: mitigated (reproducible builds, signed releases,
-  dependency auditing) but not eliminated.
+- Undetected build supply-chain compromise: reduced, not eliminated. Dependencies are
+  audited (`cargo-deny`, no advisory ignored), the workflows' actions pinned, and GitHub
+  attests where every released file was built; the APK is signed with a release key of its
+  own. Builds aren't reproducible yet and the Windows exes aren't Authenticode-signed
+  (M10 S15).
 
 ## 5. Derived principles
 
