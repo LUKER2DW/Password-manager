@@ -707,18 +707,40 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   backend doesn't have).
 - ⬜ S15. Authenticode signing and a release manifest signed with an offline key that the
   updaters check (owner).
-- ⬜ S16. A warning when a vault password is pasted or sent on a site that isn't its own (the
-  app compares; the extension still holds nothing).
-- ⬜ S17. The Secret Key and the recovery parts refused in any page (their own checksummed
-  format, recognised without a secret).
+- ✅ S16. A warning when a vault password is pasted or sent on a site that isn't its own: a
+  password pasted into a password field, or sent from a sign-in form, goes to the app
+  (`elsewhere`) only to be compared with the other sites' logins outside the item lock, and is
+  kept nowhere; the answer is that site's name at most (none for the page's own owner, a page
+  whose owner has a login behind the item lock, or fewer than six characters). The frame says
+  "This password is for …" under the field (Remove it / Keep it) or "You sent the password of
+  …" in the corner, and no save is offered for it; Firefox marks the toolbar button and the
+  window says it. Settings → Browser extension, "Warn when a page isn't the site a password
+  belongs to", on by default (off: the request is refused, the answers say `warns: false`, and
+  the extension reads nothing for it). Tests: `vault-browser` service, the desktop's headless
+  test, the extension's `background` and `fields` tests.
+- ✅ S17. The Secret Key, the recovery parts and the older Recovery Key refused in any page, no
+  exception: `kit.js` in every https document, frames too, at `document_start`, recognises their
+  printed shape (prefix, Crockford Base32 groups, the zero padding bits; lower case, aliases,
+  spaces or no separators) and stops a paste or drop before the page's listeners, takes one
+  typed by hand out of the field, and the corner says why. The app checks the same shape in
+  whatever a page sends (`vault_browser::kit`) and never saves, compares or keeps one (also
+  while locked). Test keys with real checksums shared by `crates/browser/tests/kit.rs` and
+  `apps/extension/test/kit.test.mjs`.
 - ⬜ S18. What a stolen pairing reaches: items or folders kept out of the browser, the
   extension's window listing only the open site's logins, a folder kept to one browser.
 - ⬜ S19. A strength floor for passwords that are the only factor (the `.vaultx` export, the
   item lock's password) and a check of a new master password.
 - ⬜ S20. Unlock attempts: a growing delay that survives a restart, the count shown at the
   next unlock; on the phone, optionally removing the local copy after many failures.
-- ⬜ S21. A warning for a domain that looks like a saved site, and mixed-script
-  internationalised names shown in punycode (from the vault's own sites, offline).
+- ✅ S21. A warning for a domain that looks like a saved site, from the vault's own sites,
+  offline (`vault_browser::lookalike`): registrable domains compared by skeleton (accents off,
+  look-alike letters of other scripts, `0`/`1`, `rn`/`vv`), one or two edits for names of five
+  letters or more, the same name under a mistyped or a hosting company's suffix, the saved
+  site in the page's name or subdomains; never for a saved site's own owner. A page with no
+  login of its own gets "Check the address" under its first sign-in field and in the
+  extension's window, and the save card says it; the locked app answers it too. Hosts that mix
+  scripts (or are all Latin-looking letters of another script) are shown in punycode. Tested
+  with a table of lookalikes and of ordinary other sites that must not warn.
 - ⬜ S22. Android autofill against the AutoFail cases (USENIX Security 2026): sandboxed
   frames, only the focused form's fields, the account oracle.
 - ✅ S23. Android's keyboard learns nothing typed in the vault's fields: every text field asks

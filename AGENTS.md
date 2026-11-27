@@ -156,7 +156,10 @@ vault key renewed on another device). Same vault and device state as the desktop
 ### 2.4.1 `crates/browser` (vault-browser) and `apps/extension/`
 
 The extension holds no secrets. `origin.rs` decides which saved website belongs to which page
-(exact scheme, host and port; https only) and which site a page may use passkeys for, `protocol.rs` is the JSON it exchanges with the
+(exact scheme, host and port; https only) and which site a page may use passkeys for,
+`lookalike.rs` which saved site a page only looks like (from the vault's own sites, offline)
+and how a host is shown (punycode when it mixes scripts), `kit.rs` the emergency kit's keys
+recognised in what a page sends, `protocol.rs` is the JSON it exchanges with the
 app, `pairing.rs` is the connection key and the proof on every request, `service.rs` answers
 from an open vault (with the item lock as a `Gate`), `host.rs` is the native host's relay
 between the browser and the app's pipe, run by the desktop app's own executable when a browser
@@ -164,15 +167,17 @@ starts it with the extension's origin (`apps/desktop/src/main.rs`). In `apps/ext
 `popup.js` is the extension's window (its views and their rules in `popup/`), `link.js` its connection key (agreed with the app by
 ECDH), the sealing of each request and the opening of each answer, and
 `fill.js` the function that types a login into a page, `content.js` + `fields.js` the
-content script (sign-in fields, submitted forms), `inline.html`/`inline.js` the frame shown
-under a field, `background.js` the worker between them and the app, `generator.js` the
+content script (sign-in fields, submitted forms, a password pasted, the warnings), `kit.js` the
+emergency kit's keys refused in every page (every frame, at `document_start`),
+`inline.html`/`inline.js` the frame shown under a field (and its warnings), `background.js`
+the worker between them and the app, `generator.js` the
 reading of a site's password rules, `app.js` the native messaging calls, `update.js` the
 extension reloading itself into the newer version the app wrote into its folder. Passkeys:
 `passkeys-page.js` (in the page's own world, in front of `navigator.credentials`), `passkeys.js`
 (the relay), `passkey-worker.js` (the worker's side) and `passkey.html`/`passkey.js` (the window
 where the person chooses). See
 [apps/extension/README.md](apps/extension/README.md). Tests: `cargo test -p vault-browser` and
-`node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs`.
+`node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs apps/extension/test/kit.test.mjs`.
 
 Rules for this part: UI in a page only as the extension's own frame (`inline.html`), never as
 page DOM, and every click there goes through the visibility check; no new permission without
@@ -319,7 +324,7 @@ cargo run -p vault-mobile                                  # the phone app in a 
 cargo run -p vault-mobile --example phone_screens -- target/phone-screens   # its screens as PNGs
 cargo run -p vault-cli -- --help                           # the `vault` command
 cargo run -p vault-server -- serve                         # a sync server (docs/SERVER.md)
-node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs
+node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs apps/extension/test/kit.test.mjs
 ```
 
 The APK and the browser build have their own scripts, `apps/mobile-android/build.ps1` and

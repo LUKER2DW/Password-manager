@@ -50,7 +50,7 @@ was removed. It is done on a computer (the desktop app's Emergency kit page or
 | A1 | File/backup thief | Copy of the vault, unlimited offline brute force | **Yes**, the primary goal |
 | A2 | Compromised sync server | Reads, modifies, reorders, rolls back and replays data; responds maliciously | **Yes**: the server is untrusted (lessons from the ETH Zurich 2026 study) |
 | A3 | Network attacker | MITM, replay | **Yes**: end-to-end encryption plus TLS |
-| A4 | Malicious website / phishing | Fake pages, iframes, clickjacking, DOM manipulation | **Yes**: autofill bound to the exact origin, confirmation outside the page DOM |
+| A4 | Malicious website / phishing | Fake pages, iframes, clickjacking, DOM manipulation | **Yes**: autofill bound to the exact origin, confirmation outside the page DOM; warnings for pages that only look like a saved site and for a password given to the wrong site, and the emergency kit's keys refused in every page (§3) |
 | A5 | Malicious Android app | WebView hosting a third-party login (AutoSpill) | **Yes**: app package and signature validation |
 | A6 | Physical access to a **locked** device | Stolen PC or phone | **Yes**: vault encrypted; quick unlock rate-limited by hardware (TPM/StrongBox) |
 | A7 | Malware while the vault is **locked** | Reads disk, keylogger | **Partially**, see §3 |
@@ -328,11 +328,14 @@ On top of that:
   checks; the extension in the stores (F12) will.
 - **Firefox**: the same extension and host. Firefox doesn't report whether
   a frame in a page is covered (no IntersectionObserver v2), so there the extension draws
-  nothing inside pages (no card under fields, no save card): filling and saving happen in the
-  extension's own window, and the toolbar button marks a login waiting to be saved. A page
-  therefore has nothing of Vault's to cover or click in Firefox, and never learns the
+  nothing inside pages (no card under fields, no save card, no warning): filling and saving
+  happen in the extension's own window, and the toolbar button marks a login waiting to be
+  saved. A
+  page therefore has nothing of Vault's to cover or click in Firefox, and never learns the
   extension's per-install address (`moz-extension://…`, which a frame's address would show
-  and which could serve to recognise the browser). Passkeys go through the window as in
+  and which could serve to recognise the browser). The warnings below aren't drawn in pages
+  there either: the toolbar button shows "!" for the tab, and the extension's window says what
+  it was about. Passkeys go through the window as in
   Chrome; a field's suggestions stay Firefox's own. Firefox starts the host with the path of
   its manifest and the extension's add-on id, which the host's manifest for Firefox
   (`allowed_extensions`) names alone. That id, like the Chrome id fixed by the manifest's
@@ -343,8 +346,10 @@ On top of that:
 - **What a page sends when a form is submitted**: the content script reads the typed username
   and password (in the extension's isolated world) and passes them to the background worker,
   which keeps them in `chrome.storage.session` (memory only, closed to content scripts) for
-  at most two minutes, until the person answers "Save this login?". They reach the app only if
-  the person says Save; a page can't trigger the save by itself (same visibility check). Only
+  at most two minutes, until the person answers "Save this login?". The password reaches the
+  app to be kept only if the person says Save (before that only to be compared with the other
+  sites' and dropped, while the app's warnings are on: below); a page can't trigger the save
+  by itself (same visibility check). Only
   the form the person sent is read (a help link, an eye button or a button of another form
   reads nothing), and only after the person's own act in that form: a made-up click or key
   press is ignored, and a form's `submit`, which the browser reports as the person's even when
@@ -352,9 +357,64 @@ On top of that:
   person's click or Enter in that same form, one submit per act. Save acts on the one offer its card
   shows, for the site it was typed on, and an update only for the version of the login the
   app compared and its username (a login changed since is not overwritten). Turned off in the
-  extension's Settings, nothing typed is read, kept or compared at all. A save or an update is answered as done only once the vault file
+  extension's Settings, nothing typed is kept or offered; with the app's warnings about other
+  sites off as well, nothing typed is read or compared at all (with them on, what was sent is
+  compared by the app and dropped, below). A save or an update is answered as done only once the vault file
   is written: when it can't be (the file changed elsewhere, the disk refused it), the app puts
   the open vault back as it was and says "not saved".
+- **Warnings about the wrong site** (M10 S16, S21, S17). Filling only on the exact site stops
+  a phishing page from being filled; what such a page counts on next is the person copying
+  the password from the app and pasting it, or typing it. Three warnings, all decided by the
+  app or by a fixed rule, none needing a list from anywhere or a secret in the extension:
+  - *A password given to the wrong site* (S16; Settings → Browser extension, "Warn when a page
+    isn't the site a password belongs to", on by default). When a password is pasted into a
+    password field, or sent from a sign-in form, the content script hands it to the worker,
+    which asks the app (`elsewhere`) whether it is the password of a login saved for another
+    site. The app compares it with each login outside the item lock and answers with that
+    site's name at most (its registrable domain), never which login: nothing when a login of
+    the page's own owner has it (`mail.example.com` and `example.com` are one owner), when the
+    page's owner has a login behind the item lock (its password may well be that one: such
+    logins are never compared), or when it is shorter than six characters (a PIN matches by
+    chance). Neither the worker nor the app keeps it. The frame then names that site, under
+    the field after a paste, in the corner after a sign-in (in Firefox: the toolbar button's
+    "!" and the extension's window), and a sign-in that sent another site's password is not
+    offered to save. Its buttons take only clicks the browser vouches were on a fully visible
+    frame, as the other cards do, so a page can't have the warning dismissed by a click meant
+    for the page. The page sees whether a frame appears: it learns
+    that the password it was just given is the one of some other login in the vault, not of
+    which; it had the password already. Only the person's own paste counts (a paste a page
+    script makes up carries nothing the browser vouches for), so a page that wants to try
+    guesses must put each one on the clipboard and get the person to paste it, one bit each.
+    Residual risk: the warning comes after the paste or the sign-in, and a page that reads
+    every key press or the field has the password by then; what the warning buys is the
+    person not sending it, or changing it on the real site at once.
+  - *A page that only looks like a saved site* (S21; the same setting). The app compares the
+    page's registrable domain with those of the vault's own sites (`crates/browser/src/
+    lookalike.rs`): the same reading once accents are dropped and letters of other scripts
+    that look Latin, `0`, `1`, `rn` and `vv` are read as the Latin letters they look like
+    (`paypa1.com`, `pаypal.com` with a Cyrillic `а`, `rnicrosoft.com`); one letter off (two
+    for names of ten or more) for names of five letters or more; the same name under a
+    mistyped suffix or a hosting company's (`paypal.co`, `paypal.github.io`); or the saved
+    site in the page's name or subdomains (`paypal-login.com`, `paypal.com.evil.example`). A
+    page of a saved site's owner is never one. Such a page with no login of its own gets the
+    warning under its first sign-in field, and in the extension's window, naming both, before
+    anything could be pasted; a login sent there is offered to save with that said on the card.
+    The page's host is shown in its ASCII form (`xn--…`) when its name mixes scripts or is made
+    only of letters that look Latin, as browsers do in the address bar. Residual risk: a
+    phishing site whose name is unlike every saved site's (a different domain altogether, the
+    common case) gets no such warning, only the refusal to fill; and an ordinary site one
+    letter from a saved one gets a warning it doesn't deserve.
+  - *The emergency kit's keys* (S17; no setting, no site excepted). A script of its own
+    (`kit.js`), in every https document, frames too, ahead of the page's own scripts,
+    recognises the Secret Key, the recovery parts and the Recovery Key of older kits by their
+    printed shape (a prefix and Crockford Base32 groups: no secret is needed) and stops a
+    paste or a drop of one before the page's listeners hear of it; one typed by hand is taken
+    out of the field as its last character comes. The page's frame then says that Vault never
+    asks for them in a page. The app checks the same shape in whatever a page sends it (a
+    login to save, a password to compare) and never saves, compares or keeps one
+    (`crates/browser/src/kit.rs`). Residual risk: a page that reads key presses has a key
+    typed by hand by the time it is taken out; one asked for in pieces, or read off a photo of
+    the kit, is not recognised.
 - **The phone's QR code scanner** is Google's (Play services' code scanner): the camera
   screen runs in Play services, the app has no camera permission and gets back only the
   code's text. That text (the invite) passes through Play services on the phone; it opens
