@@ -298,6 +298,12 @@ pub enum Response {
         locked: bool,
         /// The vault's name, when it has one and is open.
         name: String,
+        /// The version of the extension the app carries (`apps/extension`, built into the desktop
+        /// app): an extension older than it reloads itself to take the new files the app wrote
+        /// into its folder (`apps/extension/update.js`). Left out by an app that doesn't say;
+        /// older extensions ignore it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        extension_version: Option<String>,
     },
     Logins {
         /// The origin the logins belong to; the extension shows it.
@@ -576,4 +582,30 @@ pub enum ErrorCode {
     /// The login an update was offered for has been changed since (edited in the app, merged
     /// by a sync, another username): nothing was replaced.
     ChangedSince,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_status_names_the_extension_version_only_when_the_app_says_it() {
+        let status = |extension_version: Option<&str>| {
+            serde_json::to_string(&Response::Status {
+                locked: false,
+                name: String::new(),
+                extension_version: extension_version.map(str::to_owned),
+            })
+            .unwrap()
+        };
+        assert_eq!(
+            status(Some("0.4.7")),
+            r#"{"type":"status","locked":false,"name":"","extension_version":"0.4.7"}"#
+        );
+        // As before: an extension reads no version, and offers no update.
+        assert_eq!(
+            status(None),
+            r#"{"type":"status","locked":false,"name":""}"#
+        );
+    }
 }

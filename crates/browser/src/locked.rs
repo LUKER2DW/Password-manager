@@ -170,6 +170,7 @@ pub fn answer_locked(message: &[u8], logins: &[LockedLogin], gate: &mut dyn Lock
             Response::Status {
                 locked: true,
                 name: String::new(),
+                extension_version: None,
             },
             None,
             None,

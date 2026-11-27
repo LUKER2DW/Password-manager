@@ -508,6 +508,7 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
         return Response::Status {
             locked: vault.is_none(),
             name: vault.map_or_else(String::new, |v| v.settings().name.clone()),
+            extension_version: None,
         }
         .into();
     }
