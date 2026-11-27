@@ -2,9 +2,14 @@
 //!
 //! A browser starts the native host when the extension asks for it and talks to it over
 //! stdin/stdout. The host is the desktop app's own executable, started with the extension's
-//! origin as its first argument (`vault_browser::host::run`): it relays each message to the
-//! running desktop app through a named pipe, and the app's answer back. Nothing here touches the
+//! origin as its first argument (Chrome, Edge) or with the path of the host's manifest and the
+//! extension's id (Firefox) (`vault_browser::host::run`): it relays each message to the running
+//! desktop app through a named pipe, and the app's answer back. Nothing here touches the
 //! network.
+//!
+//! Each browser finds the host through one registry value of the signed-in user, which names
+//! the host's manifest: Chrome and Edge read one that allows the extension's origin
+//! (`allowed_origins`), Firefox one that allows its add-on id (`allowed_extensions`).
 //!
 //! What protects the pipe:
 //! - only the signed-in user may open it (its access list names that user alone), and remote
@@ -24,8 +29,12 @@ use anyhow::{Context, Result};
 
 /// Name the extension uses for the native host (`chrome.runtime.sendNativeMessage`).
 pub const HOST_NAME: &str = "vault.desktop.browser_host";
-/// Id of the extension (fixed by the public `key` in its manifest). Only it may start the host.
+/// Id of the extension in Chrome and Edge (fixed by the public `key` in its manifest). Only it
+/// may start the host there.
 pub const EXTENSION_ID: &str = "ebfeneijifledfnmjgelpifpjgmkbpcn";
+/// Id of the extension in Firefox (`browser_specific_settings.gecko.id` in its manifest). Only
+/// it may start the host there.
+pub const GECKO_ID: &str = "{71837927-6420-4e18-9ecf-1faa0afbf5f5}";
 /// Largest message accepted in either direction.
 pub const MAX_MESSAGE: usize = 1024 * 1024;
 
@@ -34,14 +43,47 @@ pub fn extension_origin() -> String {
     format!("chrome-extension://{EXTENSION_ID}/")
 }
 
-/// Where the host's manifest for browsers is written (`<app dir>/browser/<name>.json`).
+/// Which manifest of the host a browser reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostManifest {
+    /// Chrome and Edge: [`manifest_json`], allowing the extension's origin.
+    Chromium,
+    /// Firefox: [`firefox_manifest_json`], allowing its add-on id.
+    Firefox,
+}
+
+/// The per-user registry keys under which browsers look for native hosts, and the manifest
+/// each one reads. The host's own key, named [`HOST_NAME`], goes under each.
+pub const BROWSER_KEYS: [(&str, HostManifest); 3] = [
+    (
+        r"Software\Google\Chrome\NativeMessagingHosts",
+        HostManifest::Chromium,
+    ),
+    (
+        r"Software\Microsoft\Edge\NativeMessagingHosts",
+        HostManifest::Chromium,
+    ),
+    (
+        r"Software\Mozilla\NativeMessagingHosts",
+        HostManifest::Firefox,
+    ),
+];
+
+/// Where the host's manifest for Chrome and Edge is written (`<app dir>/browser/<name>.json`).
 pub fn manifest_path() -> Result<PathBuf> {
     Ok(crate::paths::app_dir()?
         .join("browser")
         .join(format!("{HOST_NAME}.json")))
 }
 
-/// The manifest browsers read to find and start the host.
+/// Where the host's manifest for Firefox is written (`<app dir>/browser/<name>.firefox.json`).
+pub fn firefox_manifest_path() -> Result<PathBuf> {
+    Ok(crate::paths::app_dir()?
+        .join("browser")
+        .join(format!("{HOST_NAME}.firefox.json")))
+}
+
+/// The manifest Chrome and Edge read to find and start the host.
 pub fn manifest_json(host_exe: &Path) -> String {
     serde_json::json!({
         "name": HOST_NAME,
@@ -53,23 +95,44 @@ pub fn manifest_json(host_exe: &Path) -> String {
     .to_string()
 }
 
-/// Tells Chrome and Edge (for this user) where the native host is. Writes the manifest file
-/// and one registry value per browser.
+/// The manifest Firefox reads to find and start the host: the same host, allowed to the
+/// extension's add-on id alone.
+pub fn firefox_manifest_json(host_exe: &Path) -> String {
+    serde_json::json!({
+        "name": HOST_NAME,
+        "description": "Connects the browser extension to the desktop password manager",
+        "path": host_exe,
+        "type": "stdio",
+        "allowed_extensions": [GECKO_ID],
+    })
+    .to_string()
+}
+
+/// Tells Chrome, Edge and Firefox (for this user) where the native host is. Writes the two
+/// manifest files and one registry value per browser.
 pub fn register_host(host_exe: &Path) -> Result<()> {
-    let path = manifest_path()?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
+    let chromium = manifest_path()?;
+    let firefox = firefox_manifest_path()?;
+    for (path, json) in [
+        (&chromium, manifest_json(host_exe)),
+        (&firefox, firefox_manifest_json(host_exe)),
+    ] {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        std::fs::write(path, json).with_context(|| format!("writing {}", path.display()))?;
     }
-    std::fs::write(&path, manifest_json(host_exe))
-        .with_context(|| format!("writing {}", path.display()))?;
-    imp::register(&path)
+    imp::register(&chromium, &firefox)
 }
 
 /// Undoes [`register_host`]: browsers can no longer start the host.
 pub fn unregister_host() {
     imp::unregister();
-    if let Ok(path) = manifest_path() {
+    for path in [manifest_path(), firefox_manifest_path()]
+        .into_iter()
+        .flatten()
+    {
         let _ = std::fs::remove_file(path);
     }
 }
@@ -182,13 +245,7 @@ mod imp {
         },
     };
 
-    use super::{HOST_NAME, read_frame, write_frame};
-
-    /// Per-user registry keys where Chromium browsers look for native hosts.
-    const BROWSER_KEYS: [&str; 2] = [
-        r"Software\Google\Chrome\NativeMessagingHosts",
-        r"Software\Microsoft\Edge\NativeMessagingHosts",
-    ];
+    use super::{BROWSER_KEYS, HOST_NAME, HostManifest, read_frame, write_frame};
     /// The server may identify the client but not act as it.
     const SECURITY_IDENTIFICATION: u32 = 0x0001_0000;
     const ERROR_PIPE_BUSY: i32 = 231;
@@ -207,10 +264,14 @@ mod imp {
             .open(name);
     }
 
-    pub(super) fn register(manifest: &Path) -> Result<()> {
-        let value = wide(&manifest.display().to_string());
-        let bytes = u32::try_from(value.len() * 2).context("manifest path too long")?;
-        for key in BROWSER_KEYS {
+    pub(super) fn register(chromium: &Path, firefox: &Path) -> Result<()> {
+        for (key, manifest) in BROWSER_KEYS {
+            let manifest = match manifest {
+                HostManifest::Chromium => chromium,
+                HostManifest::Firefox => firefox,
+            };
+            let value = wide(&manifest.display().to_string());
+            let bytes = u32::try_from(value.len() * 2).context("manifest path too long")?;
             let subkey = wide(&format!(r"{key}\{HOST_NAME}"));
             // SAFETY: `subkey` and `value` are NUL-terminated UTF-16 buffers that outlive the
             // call; `bytes` is the size of `value` in bytes; a null value name means the
@@ -234,7 +295,7 @@ mod imp {
     }
 
     pub(super) fn unregister() {
-        for key in BROWSER_KEYS {
+        for (key, _) in BROWSER_KEYS {
             let subkey = wide(&format!(r"{key}\{HOST_NAME}"));
             // SAFETY: `subkey` is a NUL-terminated UTF-16 buffer that outlives the call. Only
             // this app's own key (ending in the host name) is removed.
@@ -529,7 +590,7 @@ mod imp {
 
     use anyhow::{Result, bail};
 
-    pub(super) fn register(_manifest: &Path) -> Result<()> {
+    pub(super) fn register(_chromium: &Path, _firefox: &Path) -> Result<()> {
         bail!("the browser extension link is available on Windows only for now")
     }
 
@@ -596,6 +657,48 @@ mod tests {
         );
         assert_eq!(EXTENSION_ID.len(), 32);
         assert!(EXTENSION_ID.bytes().all(|b| (b'a'..=b'p').contains(&b)));
+        assert!(json.get("allowed_extensions").is_none());
+    }
+
+    #[test]
+    fn firefox_gets_a_manifest_of_its_own_naming_only_our_add_on() {
+        let json: serde_json::Value = serde_json::from_str(&firefox_manifest_json(Path::new(
+            r"C:\apps\vault-desktop.exe",
+        )))
+        .unwrap();
+        assert_eq!(json["name"], HOST_NAME);
+        assert_eq!(json["type"], "stdio");
+        assert_eq!(json["path"], r"C:\apps\vault-desktop.exe");
+        assert_eq!(json["allowed_extensions"], serde_json::json!([GECKO_ID]));
+        assert!(json.get("allowed_origins").is_none());
+        // Firefox's rule for host names (dot-separated words), and a braced GUID as the id.
+        assert!(HOST_NAME.split('.').all(|part| {
+            !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        }));
+        let guid = GECKO_ID
+            .strip_prefix('{')
+            .and_then(|id| id.strip_suffix('}'))
+            .unwrap();
+        let groups: Vec<usize> = guid.split('-').map(str::len).collect();
+        assert_eq!(groups, [8, 4, 4, 4, 12]);
+        assert!(guid.bytes().all(|b| b == b'-' || b.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn each_browser_reads_the_manifest_made_for_it() {
+        for (key, manifest) in BROWSER_KEYS {
+            assert!(key.starts_with(r"Software\") && key.ends_with(r"\NativeMessagingHosts"));
+            assert_eq!(
+                key.contains(r"\Mozilla\"),
+                manifest == HostManifest::Firefox,
+                "{key}"
+            );
+        }
+        let firefox = BROWSER_KEYS
+            .iter()
+            .filter(|(_, manifest)| *manifest == HostManifest::Firefox)
+            .count();
+        assert_eq!(firefox, 1);
     }
 
     #[cfg(windows)]
