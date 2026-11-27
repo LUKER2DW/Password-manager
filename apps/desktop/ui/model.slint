@@ -12,6 +12,15 @@ export struct DeviceLine {
     away: bool,
 }
 
+// A browser the extension can be added to (Settings → Browser extension), and whether it is
+// the one that opens web links.
+export struct ExtensionBrowser {
+    name: string,
+    // Its brand's mark (SourceMark in icons.slint).
+    mark: int,
+    is-default: bool,
+}
+
 export struct FileRow {
     name: string,
     size: string,
@@ -259,6 +268,9 @@ export global Messages {
         if (code == 16) { return @tr("It's been {} days: type your master password this time, so you keep remembering it. Windows Hello works again right after.", detail); }
         if (code == 18) { return @tr("Windows Hello was reset on this computer, so this vault's key is gone. Unlock with the master password, then turn Windows Hello on again in Settings."); }
         if (code == 17) { return @tr("Windows Hello isn't set up on this computer. Set it up in Windows Settings → Accounts → Sign-in options, or use your master password."); }
+        if (code == 70) { return @tr("The browser extension's folder couldn't be written ({}). Try again; if it keeps failing, close the browser first.", detail); }
+        if (code == 71) { return @tr("The browser extension's folder couldn't be opened ({}).", detail); }
+        if (code == 72) { return @tr("That folder can't be used as the browser extension ({}). It needs a manifest.json at its top and no links.", detail); }
         return @tr("Something went wrong: {}", detail);
     }
 
@@ -394,6 +406,9 @@ export global Messages {
         if (code == 90) { return @tr("Windows now starts this copy of Vault when you sign in, instead of {}.", arg); }
         if (code == 91) { return @tr("{} recovery parts saved, each in a file of its own. Keep them in different places.", arg); }
         if (code == 92) { return @tr("Another program changed how the browser reaches Vault. Vault put it back and ignored that request. If you didn't install something like that, check this computer."); }
+        if (code == 97) { return @tr("Another program changed the browser extension's files. Vault put them back: restart the browser so it runs them as Vault wrote them. If you didn't install something like that, check this computer."); }
+        if (code == 99) { return @tr("Vault didn't take the browser extension of GitHub's release {}. It keeps the one it has.", arg); }
+        if (code == 98) { return @tr("Vault couldn't check the browser extension's files ({}). It tries again in a few minutes; if this keeps coming back, restart the browser, then Vault.", arg); }
         if (code == 88) { return @tr("The vault key was renewed, but the vault locked before the new kit showed. Open Emergency kit and issue new recovery parts: the ones made then can't be shown again."); }
         return "";
     }

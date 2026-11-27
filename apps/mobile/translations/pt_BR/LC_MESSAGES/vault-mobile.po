@@ -3420,6 +3420,22 @@ msgctxt "Messages"
 msgid "Another program changed how the browser reaches Vault. Vault put it back and ignored that request. If you didn't install something like that, check this computer."
 msgstr "Outro programa mudou o caminho do navegador até o Vault. O Vault desfez a mudança e ignorou aquele pedido. Se você não instalou nada assim, verifique este computador."
 
+msgctxt "Messages"
+msgid "The browser extension's folder couldn't be written ({}). Try again; if it keeps failing, close the browser first."
+msgstr "Não foi possível gravar a pasta da extensão do navegador ({}). Tente de novo; se continuar falhando, feche o navegador antes."
+
+msgctxt "Messages"
+msgid "The browser extension's folder couldn't be opened ({})."
+msgstr "Não foi possível abrir a pasta da extensão do navegador ({})."
+
+msgctxt "Messages"
+msgid "Another program changed the browser extension's files. Vault put them back: restart the browser so it runs them as Vault wrote them. If you didn't install something like that, check this computer."
+msgstr "Outro programa mudou os arquivos da extensão do navegador. O Vault os restaurou: reinicie o navegador para que ele rode os arquivos como o Vault os gravou. Se você não instalou nada assim, verifique este computador."
+
+msgctxt "Messages"
+msgid "Vault couldn't check the browser extension's files ({}). It tries again in a few minutes; if this keeps coming back, restart the browser, then Vault."
+msgstr "O Vault não conseguiu verificar os arquivos da extensão do navegador ({}). Ele tenta de novo em alguns minutos; se isso continuar aparecendo, reinicie o navegador e depois o Vault."
+
 msgctxt "PhoneWindow"
 msgid "Opens again: 0.4.2 and 0.4.3 closed as soon as they started. Updates come from the project's releases on GitHub, or from your server if you choose it, and are looked for every hour while a vault is open, so a fix reaches you the same day."
 msgstr "Abre de novo: a 0.4.2 e a 0.4.3 fechavam assim que começavam. As atualizações vêm das versões publicadas do projeto no GitHub, ou do seu servidor se você escolher, e são procuradas a cada hora enquanto um cofre está aberto, então uma correção chega no mesmo dia."
@@ -3451,3 +3467,11 @@ msgstr "As passkeys do seu cofre nos navegadores e apps do celular (Android 14 e
 msgctxt "Messages"
 msgid "Another request to connect came while this one waited, so this is a new code. Connect only if the extension shows this same code; if it doesn't, refuse."
 msgstr "Outro pedido de conexão chegou enquanto este esperava, por isso este é um código novo. Conecte somente se a extensão mostrar este mesmo código; se não mostrar, recuse."
+
+msgctxt "Messages"
+msgid "That folder can't be used as the browser extension ({}). It needs a manifest.json at its top and no links."
+msgstr "Essa pasta não pode ser usada como a extensão do navegador ({}). Ela precisa de um manifest.json no topo e de nenhum link."
+
+msgctxt "Messages"
+msgid "Vault didn't take the browser extension of GitHub's release {}. It keeps the one it has."
+msgstr "O Vault não aceitou a extensão do navegador da versão {} do GitHub. Ele continua com a que tem."

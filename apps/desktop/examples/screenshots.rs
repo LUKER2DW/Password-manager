@@ -32,7 +32,7 @@ use slint::{
 use vault_desktop::{
     apply_sketches,
     controller::{Controller, Runner},
-    ui::{AppWindow, ItemLock, PasskeyRow, Secrets, Theme},
+    ui::{AppWindow, ExtensionBrowser, ItemLock, PasskeyRow, Secrets, Theme},
 };
 
 const WIDTH: u32 = 1180;
@@ -604,10 +604,77 @@ fn main() {
     camera.shot("settings-vault", "Settings → This vault");
     app.set_settings_section(3);
     app.set_browser_extension(true);
+    // The browsers of a typical computer, the default one first (the demo finds none of its
+    // own: the screenshots never look at this computer's).
+    let browsers = |names: &[(&str, i32, bool)]| {
+        slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(
+            names
+                .iter()
+                .map(|&(name, mark, is_default)| ExtensionBrowser {
+                    name: name.into(),
+                    mark,
+                    is_default,
+                })
+                .collect::<Vec<_>>(),
+        )))
+    };
+    app.set_extension_browsers(browsers(&[
+        ("Chrome", 0, true),
+        ("Edge", 1, false),
+        ("Firefox", 2, false),
+        ("Brave", 3, false),
+    ]));
+    app.set_extension_browser(0);
+    app.set_extension_source(1);
+    app.set_extension_version("0.4.8".into());
     camera.shot(
         "settings-browser",
         "Settings → Browser extension: what it may do",
     );
+    // Off: the card that adds it to a browser comes right under the first one.
+    app.set_browser_extension(false);
+    camera.shot(
+        "settings-browser-add",
+        "Settings → Browser extension: Add to a browser, from GitHub's newest release",
+    );
+    // A folder of the person's in use, and another browser picked.
+    app.set_extension_source(2);
+    app.set_extension_version("0.4.8.1".into());
+    app.set_extension_local(r"D:\Projects\vault-extension".into());
+    app.set_extension_browser(2);
+    camera.shot(
+        "settings-browser-folder",
+        "Settings → Browser extension: the extension from a folder of the person's, Firefox picked",
+    );
+    app.set_extension_source(1);
+    app.set_extension_version("0.4.8".into());
+    app.set_extension_local("".into());
+    app.set_extension_browser(0);
+    app.set_browser_extension(true);
+    // Added to Chrome: it opened on its extensions page, the path is copied, and the steps.
+    let folder = r"C:\Users\you\AppData\Local\vault\browser-extension";
+    app.set_extension_steps_browser("Chrome".into());
+    app.set_extension_steps_page("chrome://extensions".into());
+    app.set_extension_steps_folder(folder.into());
+    app.set_extension_steps_started(true);
+    app.set_extension_steps_copied(true);
+    app.set_extension_steps(true);
+    camera.shot(
+        "extension-steps-chrome",
+        "Add to Chrome: its extensions page opened, the folder's path copied, the steps",
+    );
+    app.set_extension_steps_browser("Firefox".into());
+    app.set_extension_steps_firefox(true);
+    app.set_extension_steps_page("about:debugging#/runtime/this-firefox".into());
+    // With the link still off, the last step turns it on.
+    app.set_browser_extension(false);
+    camera.shot(
+        "extension-steps-firefox",
+        "Add to Firefox: a temporary add-on until Firefox closes; the link turned on first",
+    );
+    app.set_browser_extension(true);
+    app.set_extension_steps(false);
+    app.set_extension_steps_firefox(false);
     // The extension asks to connect: the code both show, to compare, then the master password.
     app.set_pairing_compare(true);
     app.set_pairing_code("74At LSYM".into());

@@ -988,6 +988,117 @@ export component BackupServerDialog inherits Modal {
     }
 }
 
+// One step of what to do in a browser: its number and what to do.
+component Step inherits HorizontalLayout {
+    in property <string> number;
+    in property <string> text;
+    spacing: 10px;
+    Text {
+        text: root.number;
+        width: 18px;
+        font-size: Theme.body;
+        font-family: Theme.mono-font;
+        color: Theme.graphite;
+    }
+    Text {
+        text: root.text;
+        horizontal-stretch: 1;
+        font-size: Theme.body;
+        color: Theme.ink;
+        wrap: word-wrap;
+    }
+}
+
+// Settings → Browser extension → Add to a browser: the browser opened on its extensions page
+// (or the page to open in it), the folder's path copied, and the steps there. Chromium-based
+// browsers load the folder ("Load unpacked"); Firefox loads it as a temporary add-on, which it
+// keeps only until it closes (one that stays must be signed by Mozilla).
+export component ExtensionStepsDialog inherits Modal {
+    in property <string> browser;
+    in property <bool> firefox;
+    // The browser's extensions page, and the folder to load.
+    in property <string> page;
+    in property <string> folder;
+    // The browser started on that page; the folder's path is on the clipboard.
+    in property <bool> started;
+    in property <bool> copied;
+    // The browser link is on (Settings → Browser extension): the extension can reach the app.
+    in property <bool> link-on;
+    callback open-folder();
+    callback done();
+    card-width: 580px;
+    dismissed => { root.done(); }
+    Text {
+        text: @tr("Add the extension to {}", root.browser);
+        font-size: Theme.title;
+        color: Theme.ink;
+        wrap: word-wrap;
+    }
+    Text {
+        text: root.started && root.copied ? @tr("{} opened on its extensions page, {}, and the folder's path is copied.", root.browser, root.page)
+            : root.started ? @tr("{} opened on its extensions page, {}.", root.browser, root.page)
+            : root.copied ? @tr("Open {} in {}. The folder's path is copied.", root.page, root.browser)
+            : @tr("Open {} in {}.", root.page, root.browser);
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    Step {
+        number: "1";
+        text: root.firefox ? @tr("Choose “Load Temporary Add-on…”.") : @tr("Turn on “Developer mode”, a switch at the top of the page.");
+    }
+    Step {
+        number: "2";
+        text: root.firefox ? @tr("Paste the folder's path into the file box (Ctrl+V), press Enter, then pick manifest.json.")
+            : @tr("Choose “Load unpacked”, paste the folder's path into the folder box (Ctrl+V) and choose “Select Folder”.");
+    }
+    Step {
+        number: "3";
+        text: root.link-on ? @tr("Pin the extension to the toolbar, open it and choose Connect.")
+            : @tr("Turn on “Let the browser extension connect to this app” on this page, then pin the extension to the toolbar, open it and choose Connect.");
+    }
+    Rectangle {
+        background: Theme.panel;
+        border-radius: Theme.radius;
+        border-width: 1px;
+        border-color: Theme.rule;
+        height: path.preferred-height + 16px;
+        path := Text {
+            x: 12px;
+            width: parent.width - 24px;
+            text: root.folder;
+            font-size: Theme.small;
+            font-family: Theme.mono-font;
+            color: Theme.ink;
+            wrap: char-wrap;
+            vertical-alignment: center;
+        }
+    }
+    Text {
+        text: root.firefox ? @tr("Firefox keeps an add-on loaded this way only until it closes: one that stays must be signed by Mozilla, which this one isn't yet. Add it again after Firefox restarts.")
+            : @tr("Leave the folder where it is: Vault writes each new version of the extension into it, and the extension reloads itself to take it.");
+        font-size: Theme.small;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        alignment: end;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            QuietButton {
+                icon: "folder";
+                text: @tr("Open the folder");
+                clicked => { root.open-folder(); }
+            }
+        }
+        Button {
+            text: @tr("Done");
+            clicked => { root.done(); }
+        }
+    }
+}
+
 // The invite another device joins with: its QR code and its line.
 export component InviteDialog inherits Modal {
     in property <string> line;

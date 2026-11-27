@@ -800,6 +800,21 @@ fn whole_app_flow_headless() {
     // The flows below ask only for what the item lock covers.
     app.set_browser_always_asks(false);
     app.invoke_settings_changed();
+    // The connected extension hears which version of it this app carries (an older one
+    // reloads itself from the app's folder: apps/extension/update.js).
+    let version = format!(r#""extension_version":"{}""#, env!("CARGO_PKG_VERSION"));
+    let status = ask(r#"{"type":"status"}"#);
+    assert!(
+        status.contains(r#""locked":false"#) && status.contains(&version),
+        "{status}"
+    );
+    // So does the answer about a page's logins, asked at each sign-in field: a new version is
+    // noticed at the extension's next request.
+    assert!(ask(logins_request).contains(&version));
+    assert!(
+        !raw(r#"{"type":"status"}"#).contains("extension_version"),
+        "anyone else, only locked or not"
+    );
     let logins = ask(logins_request);
     assert!(
         logins.contains(r#""origin":"https://github.com""#),
@@ -1366,6 +1381,15 @@ fn whole_app_flow_headless() {
         "the earlier key is refused while the vault is locked too"
     );
     assert!(!ask(logins_request).contains("not_paired"));
+    // Locked, the status says so, with the extension's version and no name.
+    let status = ask(r#"{"type":"status"}"#);
+    let version = format!(r#""extension_version":"{}""#, env!("CARGO_PKG_VERSION"));
+    assert!(
+        status.contains(r#""locked":true"#)
+            && status.contains(r#""name":"","#)
+            && status.contains(&version),
+        "{status}"
+    );
     type_into(&app, 0, NEW_PASSWORD);
     app.invoke_unlock();
     assert_eq!(app.get_screen(), Screen::Vault);
@@ -2546,6 +2570,302 @@ fn an_export_of_locked_items_is_counted_before_it_is_made() {
         app.invoke_reveal();
         assert_eq!(app.get_revealed_password(), "");
     }
+}
+
+/// Settings → Browser extension → Add to a browser: the extension's files are written into the
+/// app's own folder and the steps show (no browser is started here); while the link runs, a
+/// file another program changed is put back and said.
+#[test]
+fn the_extension_folder_is_written_and_kept_as_the_app_wrote_it() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let _turn = app_home(&home);
+    let app = AppWindow::new().unwrap();
+    let controller =
+        Controller::install(&app, dir.path().join("none.vault"), Runner::Inline, None).unwrap();
+    let folder = home.join("browser-extension");
+
+    // Never added: the link's checks leave everything alone.
+    controller.check_extension_folder();
+    assert!(!folder.exists());
+
+    let browsers = app.get_extension_browsers();
+    let index = |name: &str| {
+        (0..browsers.row_count())
+            .find(|&i| browsers.row_data(i).unwrap().name == name)
+            .unwrap() as i32
+    };
+    app.invoke_add_extension(index("Edge"));
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    assert!(app.get_extension_steps());
+    assert_eq!(app.get_extension_steps_browser(), "Edge");
+    assert!(!app.get_extension_steps_firefox());
+    assert_eq!(app.get_extension_steps_page(), "edge://extensions");
+    assert_eq!(
+        app.get_extension_steps_folder(),
+        folder.display().to_string()
+    );
+    assert!(!app.get_extension_steps_started() && !app.get_extension_steps_copied());
+    // What the release's zip holds, at the app's version.
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(folder.join("manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest["version"], env!("CARGO_PKG_VERSION"));
+    for name in [
+        "background.js",
+        "update.js",
+        "_locales/en/messages.json",
+        "icons/icon128.png",
+    ] {
+        assert!(folder.join(name).is_file(), "{name}");
+    }
+    for name in ["test", "package.json", "README.md"] {
+        assert!(!folder.join(name).exists(), "{name}");
+    }
+    app.set_extension_steps(false);
+    app.invoke_add_extension(index("Firefox"));
+    assert!(app.get_extension_steps_firefox());
+    assert_eq!(
+        app.get_extension_steps_page(),
+        "about:debugging#/runtime/this-firefox"
+    );
+    assert_eq!(app.get_notice_code(), 0, "nothing was changed");
+
+    // Another program changes the code the browser runs: put back at the link's next check,
+    // and said.
+    let worker = std::fs::read(folder.join("background.js")).unwrap();
+    std::fs::write(folder.join("background.js"), b"stealPasswords();").unwrap();
+    std::fs::write(folder.join("more.js"), b"stealPasswords();").unwrap();
+    controller.check_extension_folder();
+    assert_eq!(app.get_notice_code(), 97);
+    assert_eq!(std::fs::read(folder.join("background.js")).unwrap(), worker);
+    assert!(!folder.join("more.js").exists());
+    app.set_notice_code(0);
+    controller.check_extension_folder();
+    assert_eq!(app.get_notice_code(), 0, "nothing changed since");
+    // So does adding it to a browser again.
+    std::fs::write(folder.join("manifest.json"), b"{}").unwrap();
+    app.invoke_open_extension_folder();
+    assert_eq!(app.get_notice_code(), 97);
+    assert!(std::fs::read(folder.join("manifest.json")).unwrap().len() > 2);
+
+    // A folder that can't be written is said on the card: here a file of it another program
+    // holds open, sharing nothing.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::write(folder.join("popup.js"), b"changed").unwrap();
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(folder.join("popup.js"))
+            .unwrap();
+        app.set_extension_steps(false);
+        app.invoke_add_extension(index("Chrome"));
+        assert_eq!(app.get_error_code(), 70);
+        assert!(app.get_error_detail().contains("popup.js"));
+        assert!(!app.get_extension_steps());
+        // The link's checks say it from the second failure in a row.
+        app.set_notice_code(0);
+        controller.check_extension_folder();
+        assert_eq!(app.get_notice_code(), 0, "once is no news");
+        controller.check_extension_folder();
+        assert_eq!(app.get_notice_code(), 98);
+        assert!(app.get_notice_arg().contains("popup.js"));
+        drop(held);
+        app.invoke_add_extension(index("Chrome"));
+        assert_eq!(app.get_error_code(), 0);
+        assert!(app.get_extension_steps());
+    }
+}
+
+/// A zip of `files`, stored (not compressed), as a release's would be read.
+fn stored_zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for &byte in bytes {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    (crc >> 1) ^ 0xEDB8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+    let (mut zip, mut directory) = (Vec::new(), Vec::new());
+    for (name, bytes) in files {
+        let header = |signature: u32, central: bool| {
+            let mut header = signature.to_le_bytes().to_vec();
+            if central {
+                header.extend_from_slice(&[20, 0]);
+            }
+            header.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+            header.extend_from_slice(&crc32(bytes).to_le_bytes());
+            header.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            header.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            header.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            header.extend_from_slice(&[0, 0]);
+            header
+        };
+        let offset = zip.len() as u32;
+        zip.extend(header(0x0403_4b50, false));
+        zip.extend_from_slice(name.as_bytes());
+        zip.extend_from_slice(bytes);
+        directory.extend(header(0x0201_4b50, true));
+        // Its comment's length, disk, internal and external attributes.
+        directory.extend_from_slice(&[0; 10]);
+        directory.extend_from_slice(&offset.to_le_bytes());
+        directory.extend_from_slice(name.as_bytes());
+    }
+    let at = zip.len() as u32;
+    zip.extend_from_slice(&directory);
+    zip.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+    zip.extend_from_slice(&[0; 4]);
+    zip.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    zip.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    zip.extend_from_slice(&(directory.len() as u32).to_le_bytes());
+    zip.extend_from_slice(&at.to_le_bytes());
+    zip.extend_from_slice(&[0, 0]);
+    zip
+}
+
+/// The extension follows the app: a new version of the app rewrites the folder as the link
+/// starts, and the extension hears that version; a newer GitHub release is taken only with the
+/// digest GitHub lists; a folder of the person's takes their place until they go back.
+#[test]
+fn the_extension_follows_the_app_its_releases_or_the_persons_folder() {
+    use sha2::Digest;
+    use vault_platform::{extension_folder, extension_source::Extension};
+
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let _turn = app_home(&home);
+    let folder = home.join("browser-extension");
+    let heard = |answer: &[u8]| -> String {
+        let answer: serde_json::Value = serde_json::from_slice(answer).unwrap();
+        answer["extension_version"].as_str().unwrap().to_owned()
+    };
+    let in_folder = || -> String {
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(folder.join("manifest.json")).unwrap()).unwrap();
+        manifest["version"].as_str().unwrap().to_owned()
+    };
+
+    // The previous version of the app: the link on, and its extension in the folder.
+    {
+        let app = AppWindow::new().unwrap();
+        let _controller =
+            Controller::install(&app, dir.path().join("none.vault"), Runner::Inline, None).unwrap();
+        app.set_browser_extension(true);
+        app.invoke_settings_changed();
+    }
+    let older = Extension::built_in(
+        "0.0.1",
+        &[
+            (
+                "manifest.json",
+                br#"{"manifest_version":3,"version":"0.0.1"}"#,
+            ),
+            ("old.js", b"// before"),
+        ],
+    );
+    extension_folder::install(&older).unwrap();
+    assert_eq!(in_folder(), "0.0.1");
+
+    // This version starts: its extension is in the folder as the link starts (before anything
+    // is answered), without a word, and the extension hears its version.
+    let app = AppWindow::new().unwrap();
+    let controller =
+        Controller::install(&app, dir.path().join("none.vault"), Runner::Inline, None).unwrap();
+    assert_eq!(in_folder(), env!("CARGO_PKG_VERSION"));
+    assert!(!folder.join("old.js").exists());
+    assert_eq!(app.get_notice_code(), 0);
+    assert_eq!(
+        heard(&controller.browser_status()),
+        env!("CARGO_PKG_VERSION")
+    );
+    assert_eq!(app.get_extension_source(), 0, "built into the app");
+    assert_eq!(app.get_extension_version(), env!("CARGO_PKG_VERSION"));
+
+    // A newer release on GitHub: taken only with the digest GitHub lists for it.
+    let zip = stored_zip(&[
+        (
+            "manifest.json",
+            br#"{"manifest_version":3,"version":"99.0.0"}"#,
+        ),
+        ("background.js", b"// 99"),
+    ]);
+    let sha256: String = sha2::Sha256::digest(&zip)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    controller.take_extension_release("99.0.0", &"0".repeat(64), &zip);
+    assert_eq!(app.get_notice_code(), 99);
+    assert!(app.get_notice_arg().starts_with("99.0.0: "));
+    assert_eq!(in_folder(), env!("CARGO_PKG_VERSION"), "nothing taken");
+    app.set_notice_code(0);
+    controller.take_extension_release("99.0.0", &sha256, &zip);
+    assert_eq!(app.get_notice_code(), 0);
+    assert_eq!(in_folder(), "99.0.0");
+    assert_eq!(app.get_extension_source(), 1, "from GitHub");
+    assert_eq!(heard(&controller.browser_status()), "99.0.0");
+    // Kept as such: another program's change is put back and said.
+    std::fs::write(folder.join("background.js"), b"stealPasswords();").unwrap();
+    controller.check_extension_folder();
+    assert_eq!(app.get_notice_code(), 97);
+    assert_eq!(
+        std::fs::read(folder.join("background.js")).unwrap(),
+        b"// 99"
+    );
+    app.set_notice_code(0);
+
+    // A folder of the person's instead; one without a manifest isn't one.
+    let mine = dir.path().join("my-extension");
+    std::fs::create_dir_all(&mine).unwrap();
+    std::fs::write(mine.join("content.js"), b"// mine").unwrap();
+    controller.use_extension_folder(&mine);
+    assert_eq!(app.get_error_code(), 72);
+    assert_eq!(in_folder(), "99.0.0");
+    std::fs::write(
+        mine.join("manifest.json"),
+        br#"{"manifest_version":3,"version":"1.0.0"}"#,
+    )
+    .unwrap();
+    controller.use_extension_folder(&mine);
+    assert_eq!(app.get_error_code(), 0);
+    assert_eq!(app.get_extension_source(), 2);
+    assert_eq!(app.get_extension_local(), mine.display().to_string());
+    assert_eq!(in_folder(), "1.0.0");
+    assert_eq!(
+        std::fs::read(folder.join("content.js")).unwrap(),
+        b"// mine"
+    );
+    assert!(!folder.join("background.js").exists());
+    assert_eq!(app.get_notice_code(), 0, "the person's own choice");
+    assert_eq!(heard(&controller.browser_status()), "1.0.0");
+    // Their changes are followed without a word; another program's change of the copy isn't.
+    std::fs::write(mine.join("content.js"), b"// mine, changed").unwrap();
+    controller.check_extension_folder();
+    assert_eq!(app.get_notice_code(), 0);
+    assert_eq!(
+        std::fs::read(folder.join("content.js")).unwrap(),
+        b"// mine, changed"
+    );
+    std::fs::write(folder.join("content.js"), b"stealPasswords();").unwrap();
+    controller.check_extension_folder();
+    assert_eq!(app.get_notice_code(), 97);
+    app.set_notice_code(0);
+
+    // Back to GitHub's releases: the newest one there.
+    app.invoke_use_extension_release();
+    assert_eq!(app.get_extension_source(), 1);
+    assert_eq!(in_folder(), "99.0.0");
+    assert!(!folder.join("content.js").exists());
+    assert_eq!(app.get_notice_code(), 0);
 }
 
 /// Check for updates: what each answer shows, with no network (the tests never ask GitHub).

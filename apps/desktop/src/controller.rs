@@ -48,6 +48,7 @@ use vault_platform::website_icons::{self as favicon, IconCache};
 mod attachments;
 mod browser;
 mod drop_box;
+mod extension;
 mod features;
 mod folders;
 mod generated;
@@ -185,6 +186,12 @@ mod error {
     pub const PARTS_TOGETHER: i32 = 66;
     /// A second request to connect replaced the one shown: its code is a new one.
     pub const PAIRING_REPLACED: i32 = 67;
+    /// The browser extension's folder (Settings → Browser extension → Add to a browser)
+    /// couldn't be written, or opened in Explorer; the detail says why.
+    pub const EXTENSION_FOLDER: i32 = 70;
+    pub const EXTENSION_FOLDER_OPEN: i32 = 71;
+    /// The folder chosen to take the extension from doesn't read as one (the detail says why).
+    pub const EXTENSION_LOCAL: i32 = 72;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -288,6 +295,12 @@ mod notice {
     pub const PARTS_SAVED: i32 = 91;
     /// Another program changed how the browsers reach the app while the link ran: put back.
     pub const BROWSER_LINK_REPAIRED: i32 = 92;
+    /// Another program changed the browser extension's files in the app's folder: put back.
+    pub const EXTENSION_PUT_BACK: i32 = 97;
+    /// That folder couldn't be checked or put right, twice in a row (the argument says why).
+    pub const EXTENSION_NOT_CHECKED: i32 = 98;
+    /// A GitHub release's extension wasn't taken (the argument: its version and why).
+    pub const EXTENSION_REFUSED: i32 = 99;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -559,6 +572,14 @@ struct State {
     secrets_open: bool,
     /// Listening for the browser extension (Settings → Browser extension).
     browser_link: Option<browser::BrowserLink>,
+    /// The browsers Settings → Browser extension → Add to a browser lists, in its order.
+    extension_browsers: Vec<vault_platform::browsers::Browser>,
+    /// The last check of the extension's folder failed (the next failure is said).
+    extension_check_failed: bool,
+    /// The version of the extension in use, which the extension hears; a release's extension
+    /// being downloaded.
+    extension_version: String,
+    extension_fetching: bool,
     /// The connected extension's key (read once per unlock), the app's half of a key
     /// agreement under way, one waiting for the person's answer, and the guard against
     /// replayed requests.
@@ -607,6 +628,8 @@ struct Timers {
     /// Updates: a look at GitHub's releases a moment after the start, then every hour.
     update_first: Timer,
     update_every: Timer,
+    /// The browser extension's folder, looked at every few minutes while the link runs.
+    extension_check: Timer,
 }
 
 pub struct Controller {
@@ -730,6 +753,10 @@ impl Controller {
                 unlock_seconds: None,
                 secrets_open: false,
                 browser_link: None,
+                extension_browsers: Vec::new(),
+                extension_check_failed: false,
+                extension_version: extension::VERSION.to_owned(),
+                extension_fetching: false,
                 browser_pairing: None,
                 browser_offer: None,
                 browser_pending: None,
@@ -778,6 +805,8 @@ impl Controller {
         app.set_language(crate::i18n::choice_of(&language));
         controller.wire(app);
         controller.install_shortcuts(app);
+        controller.show_extension_browsers();
+        controller.show_extension_source();
         controller.load_generator_prefs();
         controller.show_start_screen();
         controller.start_update_checks();
@@ -1024,6 +1053,10 @@ impl Controller {
         on!(on_health_filter_changed, |c, _filter| c.show_health());
         on!(on_check_leaks, |c| c.check_leaks());
         on!(on_check_updates, |c| c.check_updates());
+        on!(on_add_extension, |c, index| c.add_extension(index));
+        on!(on_open_extension_folder, |c| c.open_extension_folder());
+        on!(on_choose_extension_folder, |c| c.choose_extension_folder());
+        on!(on_use_extension_release, |c| c.use_extension_release());
         on!(on_open_release, |c| c.open_release());
         on!(on_health_open, |c, index| c.health_open(index));
         on!(on_add_wordlist, |c| c.add_wordlist());
@@ -4471,6 +4504,9 @@ impl Controller {
         app.set_backdrop_on(settings.backdrop);
         app.set_settings_dialog(dialog::NONE);
         app.set_browser_paired(self.browser_is_paired());
+        app.set_extension_steps(false);
+        self.show_extension_browsers();
+        self.show_extension_source();
         self.show_vault_settings();
         app.set_kit_secret_key(SharedString::new());
         clear_kit_parts(&app);

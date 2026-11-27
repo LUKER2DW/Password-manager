@@ -120,13 +120,19 @@ impl Controller {
     /// removes that), and starts or stops listening.
     pub(super) fn apply_browser_link(&self, on: bool) {
         if self.state.borrow().runner == Runner::Inline {
-            return; // headless tests never touch the registry or open pipes
+            // Headless tests never touch the registry or open pipes; the extension's folder is
+            // kept as when the link starts.
+            if on {
+                self.check_extension_folder();
+            }
+            return;
         }
         if let Some(link) = self.state.borrow_mut().browser_link.take() {
             link.stop.store(true, Ordering::Relaxed);
             browser_link::wake(&link.pipe);
         }
         if !on {
+            self.stop_extension_checks();
             browser_link::unregister_host();
             return;
         }
@@ -148,7 +154,18 @@ impl Controller {
             stop: stop.clone(),
             pipe: pipe.clone(),
         });
+        // The extension's folder is looked at every few minutes while the link runs (and once
+        // below, before anything is answered).
+        self.start_extension_checks();
         std::thread::spawn(move || {
+            // The extension's folder first: an extension that asks at once (and reloads when
+            // this app carries a newer version) finds this version's files there.
+            let (checked, in_use) = super::extension::keep_folder();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
+                    controller.extension_checked(checked, in_use);
+                }
+            });
             // Taken already: another window of the app is answering the extension, or another
             // program holds the name. Said in the app, and this link is not kept as running.
             let Ok(mut server) = browser_link::Server::bind(&pipe, &host) else {
@@ -379,12 +396,16 @@ impl Controller {
         if let Some(refused) = self.browser_turned_off(&kind) {
             return refused;
         }
-        let answer = if self.state.borrow().session.is_none() {
+        // The same, locked or not: what the extension needs to know of the app.
+        let answer = if kind == "status" {
+            self.browser_status()
+        } else if self.state.borrow().session.is_none() {
             self.browser_locked(request, device)
         } else {
             self.browser_inner(request, device)
         };
-        self.with_browser_settings(&kind, answer)
+        let answer = self.with_browser_settings(&kind, answer);
+        self.with_extension_version(&kind, answer)
     }
 
     /// What Settings → Browser extension turned off is refused before anything is read:

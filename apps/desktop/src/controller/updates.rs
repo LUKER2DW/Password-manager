@@ -56,7 +56,7 @@ impl Controller {
     }
 
     /// Asks GitHub off the UI thread; `quietly` (on its own) only a newer version is told.
-    fn ask_github(&self, quietly: bool) {
+    pub(super) fn ask_github(&self, quietly: bool) {
         let app = self.app();
         if app.get_update_state() == 1 {
             return; // asking already
@@ -77,6 +77,10 @@ impl Controller {
 
     pub(crate) fn finish_update_check(&self, result: Result<Release, String>, quietly: bool) {
         let app = self.app();
+        // The browser extension of that release, when it is newer than what the app has.
+        if let Ok(release) = &result {
+            self.release_seen(release);
+        }
         match result {
             Ok(release) if release.is_newer_than(env!("CARGO_PKG_VERSION")) => {
                 app.set_update_version(release.version.as_str().into());

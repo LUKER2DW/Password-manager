@@ -3345,10 +3345,6 @@ msgid "The extension keeps no passwords. The first time, it asks to be connected
 msgstr "A extensão não guarda senhas. Na primeira vez, ela pede para ser conectada, e este aplicativo pede a sua senha mestra; depois disso, só essa extensão recebe respostas, só enquanto o cofre estiver aberto, só para o site exato em que um login foi salvo (escreva *.example.com como site para incluir todos os sites abaixo dele) e só em páginas com https. Um login protegido pela trava de itens é aberto para um único preenchimento, exibição ou cópia por Windows Hello ou pelo PIN dele, digitado na própria janela da extensão. As cópias são feitas por este aplicativo, fora do histórico da área de transferência. Limite: um programa malicioso já em execução na sua conta do Windows poderia copiar os dados do navegador e pedir como a extensão faria, por isso as contas que importam devem ficar atrás da trava de itens."
 
 msgctxt "SettingsPage"
-msgid "Let the browser extension ask this app for logins"
-msgstr "Permitir que a extensão do navegador peça logins a este aplicativo"
-
-msgctxt "SettingsPage"
 msgid "An extension is connected to this vault."
 msgstr "Uma extensão está conectada a este cofre."
 
@@ -3397,12 +3393,20 @@ msgid "Show a notice here for every login the extension fills"
 msgstr "Mostrar um aviso aqui para cada login que a extensão preencher"
 
 msgctxt "SettingsPage"
-msgid "Installing it"
-msgstr "Como instalar"
+msgid "Add to a browser"
+msgstr "Adicionar a um navegador"
 
 msgctxt "SettingsPage"
-msgid "To install it: open chrome://extensions (or edge://extensions), turn on Developer mode, choose “Load unpacked” and pick the “extension” folder of this project."
-msgstr "Para instalar: abra chrome://extensions (ou edge://extensions), ative o Modo do desenvolvedor, escolha “Carregar sem compactação” e selecione a pasta “extension” deste projeto."
+msgid "Add to {}…"
+msgstr "Adicionar ao {}…"
+
+msgctxt "SettingsPage"
+msgid "No browser was found where browsers are usually installed. Open the folder, then load it from your browser's extensions page: Developer mode, then Load unpacked."
+msgstr "Nenhum navegador foi encontrado onde eles costumam ser instalados. Abra a pasta e carregue-a pela página de extensões do seu navegador: Modo do desenvolvedor, depois Carregar sem compactação."
+
+msgctxt "SettingsPage"
+msgid "Open the folder"
+msgstr "Abrir a pasta"
 
 msgctxt "SettingsPage"
 msgid "Look"
@@ -4484,6 +4488,22 @@ msgctxt "Messages"
 msgid "Another program changed how the browser reaches Vault. Vault put it back and ignored that request. If you didn't install something like that, check this computer."
 msgstr "Outro programa mudou o caminho do navegador até o Vault. O Vault desfez a mudança e ignorou aquele pedido. Se você não instalou nada assim, verifique este computador."
 
+msgctxt "Messages"
+msgid "The browser extension's folder couldn't be written ({}). Try again; if it keeps failing, close the browser first."
+msgstr "Não foi possível gravar a pasta da extensão do navegador ({}). Tente de novo; se continuar falhando, feche o navegador antes."
+
+msgctxt "Messages"
+msgid "The browser extension's folder couldn't be opened ({})."
+msgstr "Não foi possível abrir a pasta da extensão do navegador ({})."
+
+msgctxt "Messages"
+msgid "Another program changed the browser extension's files. Vault put them back: restart the browser so it runs them as Vault wrote them. If you didn't install something like that, check this computer."
+msgstr "Outro programa mudou os arquivos da extensão do navegador. O Vault os restaurou: reinicie o navegador para que ele rode os arquivos como o Vault os gravou. Se você não instalou nada assim, verifique este computador."
+
+msgctxt "Messages"
+msgid "Vault couldn't check the browser extension's files ({}). It tries again in a few minutes; if this keeps coming back, restart the browser, then Vault."
+msgstr "O Vault não conseguiu verificar os arquivos da extensão do navegador ({}). Ele tenta de novo em alguns minutos; se isso continuar aparecendo, reinicie o navegador e depois o Vault."
+
 msgctxt "SettingsPage"
 msgid "Asks GitHub, where the project's releases are, every hour while the app runs and when you press the button. Nothing about your vault is sent."
 msgstr "Pergunta ao GitHub, onde ficam as versões publicadas do projeto, a cada hora enquanto o app está aberto e quando você aperta o botão. Nada do seu cofre é enviado."
@@ -4503,14 +4523,6 @@ msgstr "Todos os itens em um arquivo, com anexos e passkeys, criptografado com u
 msgctxt "VaultIndex"
 msgid "Passkeys"
 msgstr "Passkeys"
-
-msgctxt "SettingsPage"
-msgid "Chrome, Edge and Firefox"
-msgstr "Chrome, Edge e Firefox"
-
-msgctxt "SettingsPage"
-msgid "Fills and saves your logins in Chrome, Edge and Firefox, and suggests strong passwords made here. Passwords are shown, copied and filled one at a time, through the item lock."
-msgstr "Preenche e salva os seus logins no Chrome, no Edge e no Firefox, e sugere senhas fortes criadas aqui. As senhas são mostradas, copiadas e preenchidas uma por vez, pela trava de itens."
 
 msgctxt "KitLine"
 msgid "{}: shown on screen, not read aloud"
@@ -4623,3 +4635,115 @@ msgstr "Cada preenchimento, exibição ou cópia de senha, cada código de uso �
 msgctxt "SettingsPage"
 msgid "Nothing here can ask yet: turn on Windows Hello, or give the item lock a PIN."
 msgstr "Nada aqui pode pedir ainda: ligue o Windows Hello ou dê um PIN ao item lock."
+
+msgctxt "ExtensionStepsDialog"
+msgid "Add the extension to {}"
+msgstr "Adicionar a extensão ao {}"
+
+msgctxt "ExtensionStepsDialog"
+msgid "{} opened on its extensions page, {}, and the folder's path is copied."
+msgstr "O {} abriu na página de extensões, {}, e o caminho da pasta foi copiado."
+
+msgctxt "ExtensionStepsDialog"
+msgid "{} opened on its extensions page, {}."
+msgstr "O {} abriu na página de extensões, {}."
+
+msgctxt "ExtensionStepsDialog"
+msgid "Open {} in {}. The folder's path is copied."
+msgstr "Abra {} no {}. O caminho da pasta foi copiado."
+
+msgctxt "ExtensionStepsDialog"
+msgid "Open {} in {}."
+msgstr "Abra {} no {}."
+
+msgctxt "ExtensionStepsDialog"
+msgid "Choose “Load Temporary Add-on…”."
+msgstr "Escolha “Carregar extensão temporária…”."
+
+msgctxt "ExtensionStepsDialog"
+msgid "Turn on “Developer mode”, a switch at the top of the page."
+msgstr "Ative o “Modo do desenvolvedor”, um botão no alto da página."
+
+msgctxt "ExtensionStepsDialog"
+msgid "Paste the folder's path into the file box (Ctrl+V), press Enter, then pick manifest.json."
+msgstr "Cole o caminho da pasta na caixa do arquivo (Ctrl+V), aperte Enter e escolha manifest.json."
+
+msgctxt "ExtensionStepsDialog"
+msgid "Choose “Load unpacked”, paste the folder's path into the folder box (Ctrl+V) and choose “Select Folder”."
+msgstr "Escolha “Carregar sem compactação”, cole o caminho da pasta na caixa da pasta (Ctrl+V) e escolha “Selecionar pasta”."
+
+msgctxt "ExtensionStepsDialog"
+msgid "Pin the extension to the toolbar, open it and choose Connect."
+msgstr "Fixe a extensão na barra de ferramentas, abra-a e clique em Conectar."
+
+msgctxt "ExtensionStepsDialog"
+msgid "Firefox keeps an add-on loaded this way only until it closes: one that stays must be signed by Mozilla, which this one isn't yet. Add it again after Firefox restarts."
+msgstr "O Firefox mantém uma extensão carregada assim só até fechar: uma que fique precisa ser assinada pela Mozilla, e esta ainda não é. Adicione de novo depois que o Firefox reiniciar."
+
+msgctxt "ExtensionStepsDialog"
+msgid "Leave the folder where it is: Vault writes each new version of the extension into it, and the extension reloads itself to take it."
+msgstr "Deixe a pasta onde está: o Vault grava nela cada nova versão da extensão, e a extensão se recarrega sozinha para usá-la."
+
+msgctxt "ExtensionStepsDialog"
+msgid "Open the folder"
+msgstr "Abrir a pasta"
+
+msgctxt "ExtensionStepsDialog"
+msgid "Done"
+msgstr "Pronto"
+
+msgctxt "SettingsPage"
+msgid "Connection with the browser"
+msgstr "Conexão com o navegador"
+
+msgctxt "SettingsPage"
+msgid "The extension fills and saves logins in Chrome, Edge, Firefox and the like by asking this app. Off, it can't reach the vault at all."
+msgstr "A extensão preenche e salva logins no Chrome, Edge, Firefox e similares pedindo a este aplicativo. Desligada, ela não alcança o cofre de jeito nenhum."
+
+msgctxt "SettingsPage"
+msgid "Let the browser extension connect to this app"
+msgstr "Permitir que a extensão do navegador se conecte a este aplicativo"
+
+msgctxt "SettingsPage"
+msgid "Updated with the app: each new version of Vault brings the extension's, and the extension reloads itself. Choose a browser: it opens on its extensions page, and the steps show here."
+msgstr "Atualizada com o app: cada nova versão do Vault traz a da extensão, e a extensão se recarrega sozinha. Escolha um navegador: ele abre na página de extensões, e os passos aparecem aqui."
+
+msgctxt "SettingsPage"
+msgid "In use: version {} from your folder {}. Vault copies it into a folder of its own and follows your changes."
+msgstr "Em uso: versão {} da sua pasta {}. O Vault a copia para uma pasta própria e acompanha as suas mudanças."
+
+msgctxt "SettingsPage"
+msgid "In use: version {} from the project's releases on GitHub, checked against the SHA-256 that GitHub lists."
+msgstr "Em uso: versão {} das versões publicadas do projeto no GitHub, conferida com o SHA-256 que o GitHub informa."
+
+msgctxt "SettingsPage"
+msgid "In use: version {}, built into this app. Newer ones come from the project's releases on GitHub when Vault looks for its own updates."
+msgstr "Em uso: versão {}, embutida neste aplicativo. As mais novas vêm das versões publicadas do projeto no GitHub quando o Vault procura as próprias atualizações."
+
+msgctxt "SettingsPage"
+msgid "Use the extension from GitHub"
+msgstr "Usar a extensão do GitHub"
+
+msgctxt "SettingsPage"
+msgid "Use a folder on this computer instead…"
+msgstr "Usar uma pasta deste computador…"
+
+msgctxt "BrowserPicker"
+msgid "Browser"
+msgstr "Navegador"
+
+msgctxt "BrowserPicker"
+msgid "your default browser"
+msgstr "seu navegador padrão"
+
+msgctxt "ExtensionStepsDialog"
+msgid "Turn on “Let the browser extension connect to this app” on this page, then pin the extension to the toolbar, open it and choose Connect."
+msgstr "Ative “Permitir que a extensão do navegador se conecte a este aplicativo” nesta página; depois fixe a extensão na barra de ferramentas, abra-a e clique em Conectar."
+
+msgctxt "Messages"
+msgid "That folder can't be used as the browser extension ({}). It needs a manifest.json at its top and no links."
+msgstr "Essa pasta não pode ser usada como a extensão do navegador ({}). Ela precisa de um manifest.json no topo e de nenhum link."
+
+msgctxt "Messages"
+msgid "Vault didn't take the browser extension of GitHub's release {}. It keeps the one it has."
+msgstr "O Vault não aceitou a extensão do navegador da versão {} do GitHub. Ele continua com a que tem."

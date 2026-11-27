@@ -2,7 +2,7 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, Messages, ItemLock } from "model.slint";
+import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock } from "model.slint";
 import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker, IconLook, FolderLook } from "icons.slint";
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip } from "kit.slint";
@@ -2015,6 +2015,115 @@ export component GeneratorPage inherits Rectangle {
 }
 
 // A settings group: a card with an icon, a title and a line about what it covers.
+// The browser to add the extension to (Settings → Browser extension): the installed ones,
+// each with its brand's mark, the default one first and said.
+component BrowserPicker inherits VerticalLayout {
+    in property <[ExtensionBrowser]> browsers;
+    in-out property <int> selected;
+    property <bool> picked: root.selected >= 0 && root.selected < root.browsers.length;
+    spacing: 6px;
+    Text {
+        text: @tr("Browser");
+        font-size: Theme.small;
+        color: Theme.graphite;
+    }
+    well := Rectangle {
+        height: Theme.control-height + 4px;
+        border-radius: Theme.radius;
+        background: Theme.field;
+        border-width: 1px;
+        border-color: Theme.rule;
+        accessible-role: combobox;
+        accessible-label: @tr("Browser");
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 12px;
+            spacing: 10px;
+            if root.picked: VerticalLayout {
+                alignment: center;
+                SourceMark { source: root.browsers[root.selected].mark; size: 22px; }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: root.picked ? root.browsers[root.selected].name : "";
+                font-size: Theme.body;
+                color: Theme.ink;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if root.picked && root.browsers[root.selected].is-default: Text {
+                text: @tr("your default browser");
+                font-size: Theme.small;
+                color: Theme.graphite;
+                vertical-alignment: center;
+            }
+            Path {
+                width: 10px;
+                height: 6px;
+                y: (parent.height - self.height) / 2;
+                viewbox-width: 10;
+                viewbox-height: 6;
+                commands: "M1 1 L5 5 L9 1";
+                stroke: Theme.graphite;
+                stroke-width: 1.4px;
+                fill: transparent;
+            }
+        }
+        TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { list.show(); }
+        }
+        list := PopupWindow {
+            y: well.height + 4px;
+            width: well.width;
+            close-policy: close-on-click;
+            Rectangle {
+                background: Theme.sheet;
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.rule;
+                drop-shadow-blur: 16px;
+                drop-shadow-color: #00000055;
+                VerticalLayout {
+                    padding: 4px;
+                    for browser[index] in root.browsers: Rectangle {
+                        height: 38px;
+                        border-radius: Theme.radius - 2px;
+                        background: option.has-hover ? Theme.hover : index == root.selected ? Theme.selected : transparent;
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 10px;
+                            VerticalLayout {
+                                alignment: center;
+                                SourceMark { source: browser.mark; size: 22px; }
+                            }
+                            Text {
+                                horizontal-stretch: 1;
+                                text: browser.name;
+                                font-size: Theme.body;
+                                color: Theme.ink;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            if browser.is-default: Text {
+                                text: @tr("your default browser");
+                                font-size: Theme.small;
+                                color: Theme.good;
+                                vertical-alignment: center;
+                            }
+                        }
+                        option := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.selected = index; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 component SettingsCard inherits Rectangle {
     in property <string> icon;
     in property <string> title;
@@ -2260,6 +2369,20 @@ export component SettingsPage inherits Rectangle {
     // Keyfile: whether the vault needs one, where it is.
     in property <bool> keyfile-on;
     in property <string> keyfile-path;
+    // Browser extension → Add to a browser: the installed browsers (the default one first) and
+    // the one picked; adding to one, by its index; the folder the extension is loaded from.
+    // What is in use: 0 the copy built into the app, 1 a GitHub release, 2 the person's folder
+    // (extension-local), at extension-version; choosing such a folder, and going back to
+    // GitHub's releases.
+    in property <[ExtensionBrowser]> extension-browsers;
+    in-out property <int> extension-browser;
+    callback add-extension(int);
+    callback open-extension-folder();
+    in property <int> extension-source;
+    in property <string> extension-version;
+    in property <string> extension-local;
+    callback choose-extension-folder();
+    callback use-extension-release();
 
     changed section => { scroll.content-y = 0; }
 
@@ -2903,11 +3026,11 @@ export component SettingsPage inherits Rectangle {
                     PageTitle { text: @tr("Browser extension"); }
                     SettingsCard {
                         icon: "browser";
-                        title: @tr("Chrome, Edge and Firefox");
-                        summary: @tr("Fills and saves your logins in Chrome, Edge and Firefox, and suggests strong passwords made here. Passwords are shown, copied and filled one at a time, through the item lock.");
+                        title: @tr("Connection with the browser");
+                        summary: @tr("The extension fills and saves logins in Chrome, Edge, Firefox and the like by asking this app. Off, it can't reach the vault at all.");
                         hint: @tr("The extension keeps no passwords. The first time, it asks to be connected and this app asks for your master password; after that only that extension gets answers, only while the vault is open, only for the exact site a login was saved for (write *.example.com as the website to include every site under it), and only on pages with https. A login behind the item lock is opened for one fill, show or copy by Windows Hello or by its PIN, typed in the extension's own window. Copies are made by this app, out of clipboard history. Limit: a malicious program already running under your Windows account could copy the browser's data and ask like the extension, which is why the accounts that matter belong behind the item lock.");
                         Check {
-                            text: @tr("Let the browser extension ask this app for logins");
+                            text: @tr("Let the browser extension connect to this app");
                             checked <=> root.browser-extension;
                             toggled => { root.settings-changed(); }
                         }
@@ -3011,8 +3134,67 @@ export component SettingsPage inherits Rectangle {
                     }
                     SettingsCard {
                         icon: "download";
-                        title: @tr("Installing it");
-                        summary: @tr("To install it: open chrome://extensions (or edge://extensions), turn on Developer mode, choose “Load unpacked” and pick the “extension” folder of this project.");
+                        title: @tr("Add to a browser");
+                        summary: @tr("Updated with the app: each new version of Vault brings the extension's, and the extension reloads itself. Choose a browser: it opens on its extensions page, and the steps show here.");
+                        if root.extension-browsers.length > 0: HorizontalLayout {
+                            spacing: 12px;
+                            BrowserPicker {
+                                horizontal-stretch: 1;
+                                browsers: root.extension-browsers;
+                                selected <=> root.extension-browser;
+                            }
+                            VerticalLayout {
+                                alignment: end;
+                                QuietButton {
+                                    outlined: true;
+                                    text: @tr("Add to {}…", root.extension-browsers[root.extension-browser].name);
+                                    clicked => { root.add-extension(root.extension-browser); }
+                                }
+                            }
+                        }
+                        // Written out rather than under an `if`, so that it wraps inside the card.
+                        Text {
+                            text: root.extension-browsers.length == 0 ? @tr("No browser was found where browsers are usually installed. Open the folder, then load it from your browser's extensions page: Developer mode, then Load unpacked.") : "";
+                            visible: root.extension-browsers.length == 0;
+                            height: root.extension-browsers.length == 0 ? self.preferred-height : 0px;
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            wrap: word-wrap;
+                        }
+                        // Where its files come from now (written out, so that it wraps in the card).
+                        Text {
+                            text: root.extension-source == 2 ? @tr("In use: version {} from your folder {}. Vault copies it into a folder of its own and follows your changes.", root.extension-version, root.extension-local)
+                                : root.extension-source == 1 ? @tr("In use: version {} from the project's releases on GitHub, checked against the SHA-256 that GitHub lists.", root.extension-version)
+                                : @tr("In use: version {}, built into this app. Newer ones come from the project's releases on GitHub when Vault looks for its own updates.", root.extension-version);
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            QuietButton {
+                                outlined: true;
+                                icon: "folder";
+                                text: @tr("Open the folder");
+                                clicked => { root.open-extension-folder(); }
+                            }
+                            QuietButton {
+                                outlined: true;
+                                text: root.extension-source == 2 ? @tr("Use the extension from GitHub") : @tr("Use a folder on this computer instead…");
+                                clicked => {
+                                    if (root.extension-source == 2) {
+                                        root.use-extension-release();
+                                    } else {
+                                        root.choose-extension-folder();
+                                    }
+                                }
+                            }
+                        }
+                        if root.error-code >= 70 && root.error-code <= 72: ErrorText {
+                            code: root.error-code;
+                            detail: root.error-detail;
+                        }
                     }
                 }
 

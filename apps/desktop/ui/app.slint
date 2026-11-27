@@ -2,17 +2,17 @@ import { Theme, Sketch, Secrets } from "theme.slint";
 // The monospace font, built in (see Theme.mono-font).
 import "fonts/JetBrainsMono-Regular.ttf";
 import "fonts/JetBrainsMono-SemiBold.ttf";
-import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, Messages, ItemLock } from "model.slint";
+import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage } from "pages.slint";
-import { FolderDialog, PairingDialog, PartsUsedDialog, ConfirmDialog, MasterPasswordDialog, TakeKeyDialog, ItemLockDialog, ServerJoinDialog, ServerAddressDialog, ExportDialog, WebDavDialog, BackupServerDialog, InviteDialog } from "dialogs.slint";
+import { FolderDialog, PairingDialog, PartsUsedDialog, ConfirmDialog, MasterPasswordDialog, TakeKeyDialog, ItemLockDialog, ServerJoinDialog, ServerAddressDialog, ExportDialog, WebDavDialog, BackupServerDialog, InviteDialog, ExtensionStepsDialog } from "dialogs.slint";
 import { MenuCard, MenuEntry, MenuRule, Backdrop } from "widgets.slint";
 import { Glyph } from "icons.slint";
 // A second window: the notification area icon's menu (src/tray.rs).
 export { TrayMenu } from "tray.slint";
 
-export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, Messages, ItemLock }
+export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock }
 
 // Confirmation messages ("Copied", "Saved"): bottom-right, out of the way of page content.
 component Notice inherits Rectangle {
@@ -638,6 +638,28 @@ export component AppWindow inherits Window {
     in property <int> browser-ask-way;
     in-out property <bool> backdrop-on: true;
     in property <string> app-version;
+    // Settings → Browser extension → Add to a browser: the installed browsers (the default
+    // one first), adding to one (by its index), opening the extension's folder, and the steps
+    // shown for the browser chosen (ExtensionStepsDialog: its name, whether it is Firefox, its
+    // extensions page, the folder, whether the browser started and the path was copied).
+    in property <[ExtensionBrowser]> extension-browsers;
+    in-out property <int> extension-browser;
+    callback add-extension(int);
+    callback open-extension-folder();
+    // What is in use (SettingsPage: 0 built in, 1 a GitHub release, 2 the person's folder),
+    // choosing such a folder, and going back to GitHub's releases.
+    in property <int> extension-source;
+    in property <string> extension-version;
+    in property <string> extension-local;
+    callback choose-extension-folder();
+    callback use-extension-release();
+    in-out property <bool> extension-steps;
+    in property <string> extension-steps-browser;
+    in property <bool> extension-steps-firefox;
+    in property <string> extension-steps-page;
+    in property <string> extension-steps-folder;
+    in property <bool> extension-steps-started;
+    in property <bool> extension-steps-copied;
     // Settings → About → Check for updates (see SettingsPage).
     in property <int> update-state;
     in property <string> update-version;
@@ -1100,6 +1122,15 @@ export component AppWindow inherits Window {
                 update-checks <=> root.update-checks;
                 check-updates => { root.check-updates(); }
                 open-release => { root.open-release(); }
+                extension-browsers: root.extension-browsers;
+                extension-browser <=> root.extension-browser;
+                add-extension(index) => { root.add-extension(index); }
+                open-extension-folder => { root.open-extension-folder(); }
+                extension-source: root.extension-source;
+                extension-version: root.extension-version;
+                extension-local: root.extension-local;
+                choose-extension-folder => { root.choose-extension-folder(); }
+                use-extension-release => { root.use-extension-release(); }
                 auto-lock-minutes <=> root.auto-lock-minutes;
                 lock-with-windows <=> root.lock-with-windows;
                 clipboard-seconds <=> root.clipboard-seconds;
@@ -1520,6 +1551,19 @@ export component AppWindow inherits Window {
         problem: root.sync-setup-error;
         confirmed => { root.sync-join-backup(); }
         cancelled => { root.sync-backup-form = false; }
+    }
+    if root.in-settings && root.extension-steps: ExtensionStepsDialog {
+        width: root.width;
+        height: root.height;
+        browser: root.extension-steps-browser;
+        firefox: root.extension-steps-firefox;
+        page: root.extension-steps-page;
+        folder: root.extension-steps-folder;
+        started: root.extension-steps-started;
+        copied: root.extension-steps-copied;
+        link-on: root.browser-extension;
+        open-folder => { root.open-extension-folder(); }
+        done => { root.extension-steps = false; }
     }
     if root.in-settings && root.sync-invite != "": InviteDialog {
         width: root.width;
