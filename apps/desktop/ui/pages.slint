@@ -315,6 +315,8 @@ export component DetailPage inherits Rectangle {
     }
 
     if root.has-item: ScrollView {
+        // No sideways scrolling: the page is as wide as the window, and what it holds wraps.
+        content-width: self.visible-width;
         VerticalLayout {
             padding: 44px;
             padding-right: 48px;
@@ -1075,6 +1077,8 @@ export component EditorPage inherits Rectangle {
     in-out property <bool> gen-open;
 
     ScrollView {
+        // No sideways scrolling: the page is as wide as the window, and what it holds wraps.
+        content-width: self.visible-width;
         VerticalLayout {
             padding: 40px;
             padding-right: 48px;
@@ -1681,6 +1685,8 @@ export component GeneratorPage inherits Rectangle {
     callback clear-history();
 
     ScrollView {
+        // No sideways scrolling: the page is as wide as the window, and what it holds wraps.
+        content-width: self.visible-width;
         VerticalLayout {
             padding: 40px;
             padding-right: 48px;
@@ -2297,6 +2303,8 @@ export component SettingsPage inherits Rectangle {
         }
 
         scroll := ScrollView {
+            // No sideways scrolling: the page is as wide as the window, and what it holds wraps.
+            content-width: self.visible-width;
             horizontal-stretch: 1;
             VerticalLayout {
                 padding: 40px;
@@ -3146,6 +3154,8 @@ export component AuthenticatorPage inherits Rectangle {
     callback add-code();
 
     ScrollView {
+        // No sideways scrolling: the page is as wide as the window, and what it holds wraps.
+        content-width: self.visible-width;
         VerticalLayout {
             padding: 40px;
             padding-right: 48px;
@@ -3198,9 +3208,10 @@ export component AuthenticatorPage inherits Rectangle {
                 edited(text) => { root.search(text); }
             }
             if root.total == 0: Rectangle {
-                border-radius: Theme.radius;
+                border-radius: Theme.radius + 2px;
                 border-width: 1px;
                 border-color: Theme.rule;
+                background: Theme.panel;
                 VerticalLayout {
                     padding: 18px;
                     spacing: 8px;
@@ -3377,6 +3388,8 @@ export component TransferPage inherits Rectangle {
     }
 
     ScrollView {
+        // No sideways scrolling: the page is as wide as the window, and what it holds wraps.
+        content-width: self.visible-width;
         VerticalLayout {
             padding: 40px;
             padding-right: 48px;
@@ -3565,17 +3578,19 @@ export component TransferPage inherits Rectangle {
                         }
                     }
                 }
+                // On a card of its own, as in Settings: the page's texture stays behind it.
                 Rectangle {
-                    border-radius: Theme.radius;
+                    border-radius: Theme.radius + 2px;
                     border-width: 1px;
                     border-color: Theme.rule;
+                    background: Theme.panel;
                     height: Math.min(380px, 44px + root.import-rows.length * 44px);
                     clip: true;
                     VerticalLayout {
                         // Header
                         Rectangle {
                             height: 36px;
-                            background: Theme.panel;
+                            background: Theme.sheet;
                             HorizontalLayout {
                                 padding-left: 12px;
                                 padding-right: 12px;
@@ -3594,6 +3609,8 @@ export component TransferPage inherits Rectangle {
                             }
                         }
                         ScrollView {
+                            // No sideways scrolling: the page is as wide as the window, and what it holds wraps.
+                            content-width: self.visible-width;
                             VerticalLayout {
                                 for row[index] in root.import-rows: Rectangle {
                                     height: 44px;
@@ -3900,6 +3917,8 @@ export component HealthPage inherits Rectangle {
     callback open-row(int);
 
     ScrollView {
+        // No sideways scrolling: the page is as wide as the window, and what it holds wraps.
+        content-width: self.visible-width;
         VerticalLayout {
             padding: 40px;
             padding-right: 48px;
@@ -4099,6 +4118,100 @@ export component HealthPage inherits Rectangle {
     }
 }
 
+// One action of the kit page: what it does in a few words, and in one line under them.
+component KitAction inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    in property <string> detail;
+    callback clicked;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-description: root.detail;
+    forward-focus: focus;
+    height: Theme.touch ? 60px : 52px;
+    border-radius: Theme.radius;
+    background: touch.has-hover || focus.has-focus ? Theme.hover : transparent;
+    animate background { duration: Theme.quick; }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            Glyph {
+                width: 18px;
+                height: 18px;
+                name: root.icon;
+                tint: Theme.graphite;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.text;
+                font-size: Theme.body;
+                color: Theme.ink;
+                overflow: elide;
+            }
+            Text {
+                text: root.detail;
+                font-size: Theme.small;
+                color: Theme.graphite;
+                overflow: elide;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: "›";
+                font-size: 18px;
+                color: Theme.faint;
+            }
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+    focus := FocusScope {
+        focus-on-click: false;
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+}
+
+// A titled group of kit actions, in one hairline frame.
+component KitGroup inherits VerticalLayout {
+    in property <string> title;
+    spacing: 6px;
+    // Side by side with a longer group: the frame stays its own height, at the top.
+    alignment: start;
+    Text {
+        text: root.title;
+        font-size: Theme.small;
+        font-weight: 600;
+        color: Theme.graphite;
+    }
+    Rectangle {
+        border-radius: Theme.radius;
+        border-width: 1px;
+        border-color: Theme.rule;
+        background: Theme.sheet;
+        VerticalLayout {
+            padding: 4px;
+            spacing: 0px;
+            @children
+        }
+    }
+}
+
 // The emergency kit: shown after the master password is typed, then printed or saved as a PDF.
 export component KitPage inherits Rectangle {
     in property <int> error-code;
@@ -4128,6 +4241,14 @@ export component KitPage inherits Rectangle {
     // Part C was saved in a picture: the printed kit leaves it out unless asked otherwise.
     in property <bool> part-c-pictured;
     in-out property <bool> leave-c-out;
+    // The keys are drawn as dots until "Show" is pressed, then for 15 seconds.
+    in-out property <bool> keys-shown: false;
+    // Runs while they are shown (starting afresh each time), and hides them.
+    Timer {
+        interval: 15s;
+        running: root.keys-shown;
+        triggered => { root.keys-shown = false; }
+    }
     changed kit-secret-key => {
         if (root.kit-secret-key != "") { root.asking-kit = false; }
     }
@@ -4137,6 +4258,8 @@ export component KitPage inherits Rectangle {
     }
 
     ScrollView {
+        // No sideways scrolling: the page is as wide as the window, and what it holds wraps.
+        content-width: self.visible-width;
         VerticalLayout {
             padding: 40px;
             padding-right: 48px;
@@ -4160,8 +4283,28 @@ export component KitPage inherits Rectangle {
 
             if root.kit-secret-key != "": VerticalLayout {
                 spacing: 16px;
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 12px;
+                    QuietButton {
+                        outlined: true;
+                        icon: root.keys-shown ? "eye-off" : "eye";
+                        text: root.keys-shown ? @tr("Hide the keys") : @tr("Show the keys for 15 seconds");
+                        clicked => { root.keys-shown = !root.keys-shown; }
+                    }
+                    if !root.keys-shown: VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: @tr("Printing and saving use the keys as they are.");
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            overflow: elide;
+                        }
+                    }
+                }
                 KitSlip {
-                    max-width: 620px;
+                    masked: !root.keys-shown;
+                    max-width: 1000px;
                     vault-id: root.vault-id;
                     secret-key: root.kit-secret-key;
                     part-a: root.kit-part-a;
@@ -4171,89 +4314,115 @@ export component KitPage inherits Rectangle {
                 }
                 if root.kit-part-a == "": Prose {
                     font-size: Theme.small;
-                    max-width: 620px;
+                    max-width: 1000px;
                     text: root.vault-recovery == 2 ? @tr("The recovery parts aren't stored anywhere, so they can't be shown again: use the ones from the kit that issued them. Lost one? Issue new parts below; the old ones stop working.")
                         : root.vault-recovery == 1 ? @tr("This vault still uses the Recovery Key of an older kit, which opens it on its own. Issue recovery parts to replace it: three pieces kept apart, where any two bring back the Secret Key and all three a new master password.")
                         : @tr("This vault has no way to recover a forgotten master password. Issue recovery parts to add one.");
                 }
-                Choice {
-                    options: [@tr("Print the keys"), @tr("Print empty boxes to fill in by hand")];
-                    selected: root.kit-filled ? 0 : 1;
-                    changed(index) => { root.kit-filled = index == 0; }
-                }
-                HorizontalLayout {
-                    alignment: start;
-                    spacing: 8px;
-                    Button {
-                        text: @tr("Print");
-                        clicked => { root.print-kit(); }
-                    }
+                // The actions sit on a card of their own, so the page's texture stays behind them,
+                // as wide as the page allows: printing on top, the two groups side by side.
+                Rectangle {
+                    max-width: 1000px;
+                    border-radius: Theme.radius + 2px;
+                    border-width: 1px;
+                    border-color: Theme.rule;
+                    background: Theme.panel;
                     VerticalLayout {
-                        alignment: center;
-                        QuietButton {
-                            text: @tr("Save as PDF…");
-                            clicked => { root.save-kit(); }
+                        padding: 20px;
+                        spacing: 14px;
+                        // Printing first (the one yellow thing), then the other ways to keep a copy,
+                        // then changing the keys: each action says in a line what it does.
+                        Choice {
+                            options: [@tr("Print the keys"), @tr("Print empty boxes to fill in by hand")];
+                            selected: root.kit-filled ? 0 : 1;
+                            changed(index) => { root.kit-filled = index == 0; }
                         }
-                    }
-                    if root.kit-part-a != "": VerticalLayout {
-                        alignment: center;
-                        QuietButton {
-                            text: @tr("Save each part apart…");
-                            clicked => { root.save-parts-apart(); }
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 14px;
+                            Button {
+                                text: @tr("Print");
+                                icon: "printer";
+                                clicked => { root.print-kit(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                horizontal-stretch: 1;
+                                Text {
+                                    text: @tr("Makes a temporary PDF, wiped from this computer when the vault locks.");
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    overflow: elide;
+                                }
+                            }
                         }
-                    }
-                    if root.kit-part-c != "": VerticalLayout {
-                        alignment: center;
-                        QuietButton {
-                            text: @tr("Save part C in a picture…");
-                            clicked => { root.save-part-picture(); }
+                        // Part C kept in its picture: the paper kit then holds A and B only, so the
+                        // three are never in one place (its page says C is kept apart, not where).
+                        if root.kit-part-c != "" && root.part-c-pictured: Check {
+                            text: @tr("Leave part C out of the printed kit: it is in the picture");
+                            checked <=> root.leave-c-out;
                         }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        QuietButton {
-                            text: root.vault-recovery == 2 ? @tr("New recovery parts") : @tr("Issue recovery parts");
-                            clicked => { root.confirming-new-key = true; }
+                        HorizontalLayout {
+                            spacing: 16px;
+                            KitGroup {
+                                horizontal-stretch: 1;
+                                title: @tr("Keep a copy in a file");
+                                KitAction {
+                                    icon: "download";
+                                    text: @tr("Save as PDF…");
+                                    detail: @tr("The Secret Key only. The recovery parts stay out.");
+                                    clicked => { root.save-kit(); }
+                                }
+                                if root.kit-part-a != "": KitAction {
+                                    icon: "stack";
+                                    text: @tr("Save each part apart…");
+                                    detail: @tr("Each recovery part in a PDF of its own.");
+                                    clicked => { root.save-parts-apart(); }
+                                }
+                                if root.kit-part-c != "": KitAction {
+                                    icon: "image";
+                                    text: @tr("Save part C in a picture…");
+                                    detail: @tr("Part C hidden in a copy of a photo of yours.");
+                                    clicked => { root.save-part-picture(); }
+                                }
+                            }
+                            KitGroup {
+                                horizontal-stretch: 1;
+                                title: @tr("Change the keys");
+                                KitAction {
+                                    icon: "refresh";
+                                    text: root.vault-recovery == 2 ? @tr("New recovery parts") : @tr("Issue recovery parts");
+                                    detail: root.vault-recovery == 2 ? @tr("The old parts stop working. Print the new kit.") : @tr("Three parts, kept apart: two bring back the Secret Key.");
+                                    clicked => { root.confirming-new-key = true; }
+                                }
+                                KitAction {
+                                    icon: "key";
+                                    text: @tr("New Secret Key…");
+                                    detail: @tr("If it may have leaked. The master password stays.");
+                                    clicked => { root.confirming-renew = true; }
+                                }
+                            }
                         }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        QuietButton {
-                            text: @tr("Renew the vault key…");
-                            clicked => { root.confirming-renew = true; }
+                        Text {
+                            text: @tr("Files go to a folder on this computer or a USB drive, never to one a cloud service copies away. Keep the recovery parts apart from one another: together they open the vault without the master password.");
+                            font-size: Theme.small;
+                            color: Theme.faint;
+                            wrap: word-wrap;
                         }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        QuietButton {
-                            text: @tr("Hide");
-                            tint: Theme.graphite;
-                            clicked => {
-                                root.confirming-new-key = false;
-                                root.confirming-renew = false;
-                                root.hide-kit();
+                        HorizontalLayout {
+                            alignment: start;
+                            QuietButton {
+                                icon: "eye-off";
+                                text: @tr("Hide the kit");
+                                tint: Theme.graphite;
+                                clicked => {
+                                    root.confirming-new-key = false;
+                                    root.confirming-renew = false;
+                                    root.hide-kit();
+                                }
                             }
                         }
                     }
-                }
-                if root.kit-part-c != "": Text {
-                    text: @tr("A copy of a photo of yours, as a PNG that looks the same with part C in its pixels. Keep the file as it is: a resized or converted copy loses the part.");
-                    font-size: Theme.small;
-                    color: Theme.faint;
-                    wrap: word-wrap;
-                    max-width: 620px;
-                }
-                // Part C kept in its picture: the paper kit then holds A and B only, so the
-                // three are never in one place (its page says C is kept apart, not where).
-                if root.kit-part-c != "" && root.part-c-pictured: Check {
-                    text: @tr("Leave part C out of the printed kit: it is in the picture");
-                    checked <=> root.leave-c-out;
-                }
-                Text {
-                    text: @tr("Printing makes a temporary PDF that is wiped from this computer when the vault locks. Save as PDF keeps the Secret Key only: the recovery parts, which together open the vault without the master password, go on paper or each to a file of its own, in different places. Neither goes to a folder a cloud copies away.");
-                    font-size: Theme.small;
-                    color: Theme.faint;
-                    wrap: word-wrap;
                 }
             }
         }

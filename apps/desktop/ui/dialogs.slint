@@ -59,6 +59,8 @@ component Modal inherits Rectangle {
 export component PairingDialog inherits Modal {
     in-out property <string> typed-code;
     in property <string> code;
+    // The code's characters, one per box (the dash goes between the fourth and the fifth).
+    in property <[string]> code-chars;
     in property <bool> compare;
     in property <bool> needs-password;
     in property <bool> busy;
@@ -82,21 +84,42 @@ export component PairingDialog inherits Modal {
     }
     if root.compare: Rectangle {
         height: 64px;
-        border-radius: 10px;
-        border-width: 1px;
-        border-color: Theme.rule;
-        background: Theme.field;
         accessible-role: text;
         accessible-label: @tr("Code: {}", root.code);
-        Text {
-            text: root.code;
-            font-family: Theme.mono-font;
-            font-size: 28px;
-            font-weight: 600;
-            letter-spacing: 3px;
-            color: Theme.ink;
-            horizontal-alignment: center;
-            vertical-alignment: center;
+        HorizontalLayout {
+            alignment: center;
+            spacing: 6px;
+            for char[index] in root.code-chars: HorizontalLayout {
+                spacing: 6px;
+                if index == 4: VerticalLayout {
+                    alignment: center;
+                    padding-left: 4px;
+                    padding-right: 4px;
+                    Rectangle {
+                        width: 14px;
+                        height: 3px;
+                        border-radius: 1.5px;
+                        background: Theme.graphite;
+                    }
+                }
+                Rectangle {
+                    width: 40px;
+                    height: 54px;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: Theme.rule;
+                    background: Theme.field;
+                    Text {
+                        text: char;
+                        font-family: Theme.mono-font;
+                        font-size: 26px;
+                        font-weight: 600;
+                        color: Theme.ink;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
         }
     }
     if !root.compare: LineField {

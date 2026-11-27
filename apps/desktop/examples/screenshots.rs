@@ -611,6 +611,12 @@ fn main() {
     // The extension asks to connect: the code both show, to compare, then the master password.
     app.set_pairing_compare(true);
     app.set_pairing_code("74At LSYM".into());
+    app.set_pairing_code_chars(slint::ModelRc::new(slint::VecModel::from(
+        "74AtLSYM"
+            .chars()
+            .map(|c| slint::SharedString::from(c.to_string()))
+            .collect::<Vec<_>>(),
+    )));
     camera.shot(
         "pairing-compare",
         "The browser extension asks to connect: compare its code, then the master password",
@@ -900,6 +906,16 @@ fn main() {
         "kit-new-parts",
         "Emergency kit page: new recovery parts, shown this once",
     );
+    // The whole page: printing, then the ways to keep a copy and to change the keys.
+    let normal = camera.window.size();
+    camera
+        .window
+        .set_size(PhysicalSize::new(normal.width, normal.height * 2));
+    camera.shot(
+        "kit-whole",
+        "Emergency kit page, whole: print, keep a copy in a file, change the keys",
+    );
+    camera.window.set_size(normal);
     // Keep a copy of the printable PDF next to the screenshots (fake keys only).
     app.invoke_print_kit();
     if let Ok(entries) = std::fs::read_dir(temp.path().join("home").join("print")) {

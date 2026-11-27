@@ -8,6 +8,9 @@ component KitLine inherits VerticalLayout {
     in property <bool> large: false;
     // A key: drawn, but kept out of the accessibility tree (UI Automation).
     in property <bool> secret: false;
+    // Drawn as dots (`mask`) until the person asks to see it.
+    in property <bool> masked: false;
+    in property <string> mask;
     spacing: 5px;
     HorizontalLayout {
         spacing: 6px;
@@ -24,7 +27,7 @@ component KitLine inherits VerticalLayout {
         }
     }
     Text {
-        text: root.value;
+        text: root.masked ? root.mask : root.value;
         accessible-label: root.secret ? @tr("{}: shown on screen, not read aloud", root.label) : root.value;
         font-family: Theme.mono-font;
         font-size: root.large ? Theme.title : Theme.body;
@@ -43,6 +46,9 @@ export component KitSlip inherits Rectangle {
     in property <string> part-b;
     in property <string> part-c;
     in property <string> vault-path;
+    // The Secret Key and the parts drawn as dots (the kit page shows them on request, for a
+    // few seconds); printing and saving are not affected.
+    in property <bool> masked: false;
 
     background: #F7F5EE;
     border-radius: 4px;
@@ -50,6 +56,25 @@ export component KitSlip inherits Rectangle {
     drop-shadow-offset-y: 6px;
     drop-shadow-color: #00000040;
     min-height: layout.preferred-height;
+
+    // Paper: a fine texture over the slip's colour (brand/paper-texture.png, made for this app;
+    // it repeats without seams).
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        border-radius: root.border-radius;
+        clip: true;
+        Image {
+            width: parent.width;
+            height: parent.height;
+            source: @image-url("brand/paper-texture.png");
+            horizontal-tiling: repeat;
+            vertical-tiling: repeat;
+            accessible-role: none;
+        }
+    }
 
     layout := VerticalLayout {
         padding: 26px;
@@ -78,6 +103,8 @@ export component KitSlip inherits Rectangle {
             value: root.secret-key;
             secret: true;
             large: true;
+            masked: root.masked;
+            mask: "S0-•••••••-•••••••-•••••••-•••••••";
         }
         if root.part-a != "": VerticalLayout {
             spacing: 5px;
@@ -95,8 +122,11 @@ export component KitSlip inherits Rectangle {
                     Hint { text: @tr("Keep each part in a different place. They aren't stored anywhere, so this is the only time they are shown, and each kit's parts work once."); }
                 }
             }
-            for part in [root.part-a, root.part-b, root.part-c]: Text {
-                text: part;
+            for part[index] in [root.part-a, root.part-b, root.part-c]: Text {
+                text: !root.masked ? part
+                    : index == 0 ? "A0-•••••••-•••••••-•••••••-•••••••"
+                    : index == 1 ? "B0-•••••••-•••••••-•••••••-•••••••"
+                    : "C0-•••••••-•••••••-•••••••-•••••••";
                 accessible-label: @tr("Recovery part: shown on screen, not read aloud");
                 font-family: Theme.mono-font;
                 font-size: Theme.body;

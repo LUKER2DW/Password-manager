@@ -4551,3 +4551,63 @@ msgstr "Código: {}"
 msgctxt "Messages"
 msgid "Another request to connect came while this one waited, so this is a new code. Connect only if the extension shows this same code; if it doesn't, refuse."
 msgstr "Outro pedido de conexão chegou enquanto este esperava, por isso este é um código novo. Conecte somente se a extensão mostrar este mesmo código; se não mostrar, recuse."
+
+msgctxt "KitPage"
+msgid "Makes a temporary PDF, wiped from this computer when the vault locks."
+msgstr "Gera um PDF temporário, apagado deste computador quando o cofre trava."
+
+msgctxt "KitPage"
+msgid "Keep a copy in a file"
+msgstr "Guardar uma cópia em arquivo"
+
+msgctxt "KitPage"
+msgid "The Secret Key only. The recovery parts stay out."
+msgstr "Só a Secret Key. As partes de recuperação ficam de fora."
+
+msgctxt "KitPage"
+msgid "Each recovery part in a PDF of its own."
+msgstr "Cada parte de recuperação num PDF próprio."
+
+msgctxt "KitPage"
+msgid "Part C hidden in a copy of a photo of yours."
+msgstr "A parte C escondida numa cópia de uma foto sua."
+
+msgctxt "KitPage"
+msgid "Change the keys"
+msgstr "Trocar as chaves"
+
+msgctxt "KitPage"
+msgid "The old parts stop working. Print the new kit."
+msgstr "As partes antigas deixam de funcionar. Imprima o kit novo."
+
+msgctxt "KitPage"
+msgid "Three parts, kept apart: two bring back the Secret Key."
+msgstr "Três partes, guardadas separadas: duas trazem de volta a Secret Key."
+
+msgctxt "KitPage"
+msgid "New Secret Key…"
+msgstr "Nova Secret Key…"
+
+msgctxt "KitPage"
+msgid "If it may have leaked. The master password stays."
+msgstr "Se ela pode ter vazado. A senha mestra continua."
+
+msgctxt "KitPage"
+msgid "Files go to a folder on this computer or a USB drive, never to one a cloud service copies away. Keep the recovery parts apart from one another: together they open the vault without the master password."
+msgstr "Os arquivos vão para uma pasta deste computador ou um pendrive, nunca para uma que um serviço de nuvem copia. Guarde as partes de recuperação separadas umas das outras: juntas, elas abrem o cofre sem a senha mestra."
+
+msgctxt "KitPage"
+msgid "Hide the kit"
+msgstr "Esconder o kit"
+
+msgctxt "KitPage"
+msgid "Hide the keys"
+msgstr "Esconder as chaves"
+
+msgctxt "KitPage"
+msgid "Show the keys for 15 seconds"
+msgstr "Mostrar as chaves por 15 segundos"
+
+msgctxt "KitPage"
+msgid "Printing and saving use the keys as they are."
+msgstr "Imprimir e salvar usam as chaves como elas são."

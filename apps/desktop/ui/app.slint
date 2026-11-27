@@ -312,6 +312,8 @@ export component AppWindow inherits Window {
     // whether one is connected.
     // Not shown: non-empty while a connection waits (see PairingDialog).
     in property <string> pairing-code;
+    // The code's characters, shown one per box.
+    in property <[string]> pairing-code-chars;
     // The code is compared (shown here and in the extension), not typed.
     in property <bool> pairing-compare;
     in-out property <string> pairing-typed;
@@ -877,10 +879,12 @@ export component AppWindow inherits Window {
             background: Theme.sheet;
 
             // The doodle texture, so the open vault doesn't look like the unlock screen's wall.
+            // Quieter behind the pages than beside them: it must not pull the eye from what the
+            // page holds.
             if Theme.backdrop == 1 || Theme.backdrop == 4: Backdrop {
                 width: parent.width;
                 height: parent.height;
-                strength: Theme.backdrop == 4 ? 0.45 : 0.6;
+                strength: Theme.backdrop == 4 ? 0.26 : 0.34;
             }
 
             if root.panel == Panel.detail: DetailPage {
@@ -1283,6 +1287,7 @@ export component AppWindow inherits Window {
         height: root.height;
         typed-code <=> root.pairing-typed;
         code: root.pairing-code;
+        code-chars: root.pairing-code-chars;
         compare: root.pairing-compare;
         needs-password: root.pairing-needs-password;
         busy: root.busy;

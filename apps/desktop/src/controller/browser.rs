@@ -716,6 +716,7 @@ impl Controller {
         app.set_pairing_needs_password(needs_password);
         app.set_pairing_typed(SharedString::new());
         app.set_pairing_compare(compared);
+        app.set_pairing_code_chars(code_chars(&code));
         app.set_pairing_code(SharedString::from(code));
     }
 
@@ -940,6 +941,16 @@ fn store_locked_pairing(vault_id: &str, key: &PairingKey) {
         let _ = storage::write_atomic(&path, &sealed);
     }
     let _ = std::fs::remove_file(storage::backup_path(&path));
+}
+
+/// A pairing code's characters, one per box (the space between its halves left out).
+pub(super) fn code_chars(code: &str) -> slint::ModelRc<SharedString> {
+    let chars: Vec<SharedString> = code
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .map(|c| SharedString::from(c.to_string()))
+        .collect();
+    slint::ModelRc::new(slint::VecModel::from(chars))
 }
 
 /// `{"type":"pairing","key":…,"code":…}` for an extension older than the key agreement, in a
