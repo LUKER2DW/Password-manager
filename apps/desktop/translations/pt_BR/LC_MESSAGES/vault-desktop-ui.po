@@ -4611,3 +4611,15 @@ msgstr "Mostrar as chaves por 15 segundos"
 msgctxt "KitPage"
 msgid "Printing and saving use the keys as they are."
 msgstr "Imprimir e salvar usam as chaves como elas são."
+
+msgctxt "SettingsPage"
+msgid "Ask for Windows Hello or the PIN every time the browser uses a password"
+msgstr "Pedir o Windows Hello ou o PIN toda vez que o navegador usar uma senha"
+
+msgctxt "SettingsPage"
+msgid "Each fill, show or copy of a password, each one-time code and each passkey asks first, in that request: picking another login asks again. Windows Hello when it unlocks this vault or the item lock here, else the item lock's PIN or password, typed in the extension's own window. Off, only the logins behind the item lock ask."
+msgstr "Cada preenchimento, exibição ou cópia de senha, cada código de uso único e cada passkey pede antes, naquele pedido: escolher outro login pede de novo. Windows Hello quando ele desbloqueia este cofre ou o item lock aqui; se não, o PIN ou a senha do item lock, digitados na janela da própria extensão. Desligado, só os logins atrás do item lock pedem."
+
+msgctxt "SettingsPage"
+msgid "Nothing here can ask yet: turn on Windows Hello, or give the item lock a PIN."
+msgstr "Nada aqui pode pedir ainda: ligue o Windows Hello ou dê um PIN ao item lock."

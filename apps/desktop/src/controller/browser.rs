@@ -285,10 +285,32 @@ impl Controller {
         let state = self.state.borrow();
         let vault = &state.session.as_ref()?.vault;
         let id = vault.id_hex();
-        (vault.item_guard().encrypts() && quick_unlock::item_lock_enrolled(&id))
-            .then(|| state.verifier.clone())
-            .flatten()
-            .map(|verifier| (verifier, quick_unlock::item_lock_key_id(&id)))
+        let verifier = state.verifier.clone()?;
+        if vault.item_guard().encrypts() && quick_unlock::item_lock_enrolled(&id) {
+            return Some((verifier, quick_unlock::item_lock_key_id(&id)));
+        }
+        // Every use asks, and the item lock has no Windows Hello here: the vault's quick
+        // unlock key verifies the person (its prompt is Windows Hello all the same).
+        (state.settings.browser_always_asks && quick_unlock::is_enrolled(&id))
+            .then_some((verifier, id))
+    }
+
+    /// What the extension can ask for when every use asks (Settings → Browser extension):
+    /// 1 Windows Hello, 2 the item lock's PIN or password, 3 both, 0 nothing (the browser then
+    /// gets no password at all).
+    pub(super) fn browser_ask_way(&self) -> i32 {
+        let state = self.state.borrow();
+        let Some(session) = state.session.as_ref() else {
+            return 0;
+        };
+        let id = session.vault.id_hex();
+        let hello = state.quick_available
+            && (quick_unlock::item_lock_enrolled(&id) || quick_unlock::is_enrolled(&id));
+        let typed = matches!(
+            session.vault.item_guard().check,
+            GuardCheck::Pin | GuardCheck::Password
+        );
+        i32::from(hello) + 2 * i32::from(typed)
     }
 
     /// Answers one message. `device` is the secret Windows Hello produced for it, if any.
@@ -445,10 +467,19 @@ impl Controller {
             let id = state.session.as_ref().map(|s| s.vault.id_hex());
             let hello = state.quick_available
                 && id.as_deref().is_some_and(quick_unlock::item_lock_enrolled);
+            let presence = state.quick_available
+                && id.as_deref().is_some_and(|id| {
+                    quick_unlock::item_lock_enrolled(id) || quick_unlock::is_enrolled(id)
+                });
+            // Windows Hello answered for this request (with whichever key it was asked).
+            let verified = device.is_some();
             let mut gate = AppGate {
                 attempts: &mut state.guard_attempts,
                 app_open: state.secrets_open,
                 hello,
+                always: state.settings.browser_always_asks,
+                presence,
+                verified,
                 device: device.zip(id.as_deref().and_then(quick_unlock::item_lock_load)),
                 locked_out: false,
                 save: false,
@@ -463,6 +494,11 @@ impl Controller {
             let answer = service::answer(request, vault, &mut gate);
             (answer, gate.locked_out, gate.save, before)
         };
+        // The extension's Lock button.
+        if answer.lock {
+            self.lock();
+            return answer.bytes;
+        }
         let changed =
             answer.saved.is_some() || answer.updated.is_some() || answer.passkey_saved.is_some();
         if locked_out {
@@ -969,10 +1005,17 @@ fn pairing_reply(key: &PairingKey, code: &str) -> Zeroizing<Vec<u8>> {
 struct AppGate<'a> {
     /// Wrong tries since the last right one (shared with the app's own lock box).
     attempts: &'a mut u32,
-    /// The lock was already opened in the app: nothing more is asked, nothing is closed.
+    /// The lock was already opened in the app: nothing more is asked, nothing is closed
+    /// (unless every use asks).
     app_open: bool,
     /// Windows Hello can open the item lock on this computer.
     hello: bool,
+    /// Every password, code or passkey asks for the person, each time (Settings).
+    always: bool,
+    /// Windows Hello can verify the person here (a key of this vault on this computer).
+    presence: bool,
+    /// Windows Hello verified the person for this very request.
+    verified: bool,
     /// What Windows Hello produced for this request, and the guard key it unwraps.
     device: Option<(Zeroizing<Vec<u8>>, Vec<u8>)>,
     locked_out: bool,
@@ -999,16 +1042,24 @@ impl Gate for AppGate<'_> {
     }
 
     fn locked(&self, vault: &Vault, item: &ItemData) -> bool {
-        !self.app_open && vault.guards(item)
+        self.always || (!self.app_open && vault.guards(item))
     }
 
     fn hello(&self, vault: &Vault) -> bool {
-        self.hello && vault.item_guard().encrypts()
+        (self.hello && vault.item_guard().encrypts()) || (self.always && self.presence)
     }
 
+    fn always(&self) -> bool {
+        self.always
+    }
+
+    /// Opens the item lock with Windows Hello's answer, or (a login outside the lock, every
+    /// use asking) takes that answer as the person verified. A login the lock covers still
+    /// needs the lock itself open: read after this, it comes back locked otherwise.
     fn open_hello(&mut self, vault: &mut Vault) -> bool {
+        let verified = std::mem::take(&mut self.verified);
         let Some((secret, sealed)) = self.device.take() else {
-            return false;
+            return verified;
         };
         let opened = vault
             .unlock_secrets_with_device(&secret, &sealed)
@@ -1022,7 +1073,7 @@ impl Gate for AppGate<'_> {
                 let _ = super::locked_fill::create(vault, &secret);
             }
         }
-        opened
+        opened || verified
     }
 
     fn open(&mut self, vault: &mut Vault, secret: &str) -> Opened {

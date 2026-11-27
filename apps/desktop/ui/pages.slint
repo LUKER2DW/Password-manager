@@ -2186,6 +2186,8 @@ export component SettingsPage inherits Rectangle {
     in-out property <bool> browser-saves;
     in-out property <bool> browser-passkeys;
     in-out property <bool> browser-fill-notices;
+    in-out property <bool> browser-always-asks;
+    in property <int> browser-ask-way;
     in property <bool> quick-unlock-available;
     in-out property <bool> quick-unlock-on;
     in property <string> app-version;
@@ -2935,6 +2937,27 @@ export component SettingsPage inherits Rectangle {
                         icon: "sliders";
                         title: @tr("What the extension may do");
                         summary: @tr("Kept on this computer. The extension follows them as soon as it next asks.");
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Check {
+                                text: @tr("Ask for Windows Hello or the PIN every time the browser uses a password");
+                                checked <=> root.browser-always-asks;
+                                toggled => { root.settings-changed(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("Each fill, show or copy of a password, each one-time code and each passkey asks first, in that request: picking another login asks again. Windows Hello when it unlocks this vault or the item lock here, else the item lock's PIN or password, typed in the extension's own window. Off, only the logins behind the item lock ask.");
+                                }
+                            }
+                        }
+                        if root.browser-always-asks && root.browser-ask-way == 0: Text {
+                            text: @tr("Nothing here can ask yet: turn on Windows Hello, or give the item lock a PIN.");
+                            font-size: Theme.small;
+                            color: Theme.seal;
+                            overflow: elide;
+                        }
                         HorizontalLayout {
                             spacing: 8px;
                             alignment: start;

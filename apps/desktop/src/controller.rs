@@ -4466,6 +4466,8 @@ impl Controller {
         app.set_browser_saves(settings.browser_saves);
         app.set_browser_passkeys(settings.browser_passkeys);
         app.set_browser_fill_notices(settings.browser_fill_notices);
+        app.set_browser_always_asks(settings.browser_always_asks);
+        app.set_browser_ask_way(self.browser_ask_way());
         app.set_backdrop_on(settings.backdrop);
         app.set_settings_dialog(dialog::NONE);
         app.set_browser_paired(self.browser_is_paired());
@@ -5239,6 +5241,7 @@ impl Controller {
             browser_saves: app.get_browser_saves(),
             browser_passkeys: app.get_browser_passkeys(),
             browser_fill_notices: app.get_browser_fill_notices(),
+            browser_always_asks: app.get_browser_always_asks(),
             backdrop: app.get_backdrop_on(),
         };
         app.global::<Theme>()

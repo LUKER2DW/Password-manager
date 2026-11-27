@@ -784,6 +784,22 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_notice_code(), 41);
     assert!(app.get_browser_paired());
     let ask = |message: &str| sealed(&key, message);
+    // Every use asks by default; with no Windows Hello and no item lock PIN here yet, the
+    // browser gets no password at all, and Settings says so.
+    app.invoke_open_settings();
+    assert!(app.get_browser_always_asks());
+    assert_eq!(app.get_browser_ask_way(), 0);
+    let listed = ask(logins_request);
+    assert!(listed.contains(r#""always_asks":true"#), "{listed}");
+    let github_id = field(&listed, "id");
+    let refused = ask(&format!(r#"{{"type":"reveal","id":"{github_id}"}}"#));
+    assert!(
+        refused.contains(r#""code":"item_locked","check":"app""#),
+        "{refused}"
+    );
+    // The flows below ask only for what the item lock covers.
+    app.set_browser_always_asks(false);
+    app.invoke_settings_changed();
     let logins = ask(logins_request);
     assert!(
         logins.contains(r#""origin":"https://github.com""#),
@@ -831,6 +847,12 @@ fn whole_app_flow_headless() {
         raw(&again).contains("not_paired"),
         "the same sealed request"
     );
+    // The extension's Lock button locks the vault here.
+    assert!(ask(r#"{"type":"lock"}"#).contains(r#""type":"locked_now""#));
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    type_into(&app, 0, PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_screen(), Screen::Vault);
 
     // ---- passkeys: made by the app for the extension, shown, and taken out in the editor ----
     // (The site discourages a check here; checks for a site that asks are tested in

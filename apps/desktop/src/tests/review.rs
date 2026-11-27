@@ -509,6 +509,10 @@ impl<'a> Extension<'a> {
         type_into(app, PAIRING, PASSWORD);
         app.invoke_pairing_decided(true);
         assert!(app.get_browser_paired(), "{}", app.get_error_detail());
+        // These tests are about writes; only the item lock asks here.
+        app.invoke_open_settings();
+        app.set_browser_always_asks(false);
+        app.invoke_settings_changed();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
