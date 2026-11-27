@@ -14,6 +14,8 @@ pub mod clipboard;
 pub mod clipboard;
 pub mod device;
 pub mod dpapi;
+pub mod extension_folder;
+pub mod extension_source;
 pub mod file_types;
 pub mod files;
 pub mod keyfile;

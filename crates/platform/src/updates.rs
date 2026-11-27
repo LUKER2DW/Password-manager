@@ -53,9 +53,43 @@ pub fn phone_package(release: &Release) -> Result<Vec<u8>, String> {
     let asset = release
         .phone_package()
         .ok_or_else(|| format!("release {} has no phone app", release.version))?;
+    download(asset, MAX_APP_BYTES)
+}
+
+/// Why the extension's zip of a release wasn't had.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PackageError {
+    /// The release lists none (or none with a SHA-256): nothing to take.
+    None,
+    /// What came isn't what the release lists (size or SHA-256), or GitHub refused: said.
+    Refused(String),
+    /// The network failed: tried again at the next look.
+    Network(String),
+}
+
+/// The browser extension's zip of `release` (`vault-extension-<version>.zip`), downloaded and
+/// checked against what the release lists for it (size and SHA-256), like the phone's package.
+/// Blocks: call it off the UI thread.
+pub fn extension_package(release: &Release) -> Result<Vec<u8>, PackageError> {
+    let asset = release.extension_package().ok_or(PackageError::None)?;
+    download(asset, releases::MAX_EXTENSION_BYTES).map_err(|err| {
+        if err.starts_with(NETWORK) {
+            PackageError::Network(err)
+        } else {
+            PackageError::Refused(err)
+        }
+    })
+}
+
+/// How a failure of the network starts, in [`download`]'s errors.
+const NETWORK: &str = "the network failed: ";
+
+/// `asset`, downloaded (at most `max` bytes) and checked against what the release lists for
+/// it.
+fn download(asset: &releases::Asset, max: usize) -> Result<Vec<u8>, String> {
     let expected = asset.sha256.as_deref().ok_or("no SHA-256 listed")?;
     let size = usize::try_from(asset.size).map_err(|_| "the package is too large")?;
-    if size > MAX_APP_BYTES {
+    if size > max {
         return Err("the package is too large".into());
     }
     let agent: ureq::Agent = ureq::Agent::config_builder()
@@ -66,16 +100,26 @@ pub fn phone_package(release: &Release) -> Result<Vec<u8>, String> {
         .user_agent(USER_AGENT)
         .build()
         .into();
+    let mut failed_network = false;
     let bytes = with_retries(&RETRY_WAITS, || {
         let mut bytes = Vec::with_capacity(size);
-        agent
-            .get(&asset.url)
-            .call()?
-            .into_body()
-            .into_reader()
-            .take(asset.size + 1)
-            .read_to_end(&mut bytes)?;
-        Ok(bytes)
+        let got = agent.get(&asset.url).call().and_then(|answer| {
+            answer
+                .into_body()
+                .into_reader()
+                .take(asset.size + 1)
+                .read_to_end(&mut bytes)
+                .map_err(ureq::Error::from)
+        });
+        failed_network = got.as_ref().is_err_and(network_failed);
+        got.map(|_| bytes)
+    })
+    .map_err(|err| {
+        if failed_network {
+            format!("{NETWORK}{err}")
+        } else {
+            err
+        }
     })?;
     check_package(&bytes, asset.size, expected)?;
     Ok(bytes)

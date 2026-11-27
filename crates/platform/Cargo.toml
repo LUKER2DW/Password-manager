@@ -18,6 +18,10 @@ undocumented_unsafe_blocks = "warn"
 
 [dependencies]
 vault-core = { path = "../core" }
+# The browser extension's zip from a GitHub release (extension_source.rs): deflate and its
+# checksum, read by a small reader of our own.
+flate2 = "1.1"
+crc32fast = "1.5"
 anyhow = "1"
 # Sync over HTTPS (own server, WebDAV).
 vault-sync-wire = { path = "../sync-wire" }

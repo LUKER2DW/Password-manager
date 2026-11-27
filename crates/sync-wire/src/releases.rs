@@ -39,6 +39,15 @@ pub fn phone_package_name(version: &str) -> String {
     format!("vault-mobile-android-{version}.apk")
 }
 
+/// The file name of the browser extension's zip in release `version` (release.yml, job
+/// `extension`).
+pub fn extension_package_name(version: &str) -> String {
+    format!("vault-extension-{version}.zip")
+}
+
+/// The largest extension zip taken (it is a few hundred kilobytes).
+pub const MAX_EXTENSION_BYTES: usize = 16 * 1024 * 1024;
+
 /// A release, as checked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Release {
@@ -127,6 +136,18 @@ impl Release {
                 && usize::try_from(asset.size).is_ok_and(|size| size <= MAX_APP_BYTES)
         })
     }
+
+    /// The browser extension's zip, when the release has one GitHub lists a SHA-256 for and
+    /// that isn't larger than an extension could be.
+    pub fn extension_package(&self) -> Option<&Asset> {
+        let name = extension_package_name(&self.version);
+        self.assets.iter().find(|asset| {
+            asset.name == name
+                && asset.sha256.is_some()
+                && asset.size > 0
+                && usize::try_from(asset.size).is_ok_and(|size| size <= MAX_EXTENSION_BYTES)
+        })
+    }
 }
 
 /// `sha256:<64 hex>`, as GitHub lists an asset's digest, to lowercase hex.
@@ -149,7 +170,9 @@ mod tests {
               {{"name":"vault-mobile-android-{v}.apk","size":2048,"digest":"sha256:{DIGEST}",
                 "browser_download_url":"https://github.com/o/r/releases/download/{tag}/vault-mobile-android-{v}.apk"}},
               {{"name":"vault-desktop-{v}-windows-x64.exe","size":4096,"digest":null,
-                "browser_download_url":"https://github.com/o/r/releases/download/{tag}/vault-desktop-{v}-windows-x64.exe"}}
+                "browser_download_url":"https://github.com/o/r/releases/download/{tag}/vault-desktop-{v}-windows-x64.exe"}},
+              {{"name":"vault-extension-{v}.zip","size":300000,"digest":"sha256:{DIGEST}",
+                "browser_download_url":"https://github.com/o/r/releases/download/{tag}/vault-extension-{v}.zip"}}
             ]}}"#,
             v = tag.trim_start_matches('v'),
         )
@@ -160,6 +183,21 @@ mod tests {
     fn a_release_is_read_with_its_phone_package() {
         let release = Release::parse(&answer("v0.4.3", "")).unwrap();
         assert_eq!(release.version, "0.4.3");
+        // And the browser extension's zip, with its digest; none without one.
+        let extension = release.extension_package().unwrap();
+        assert_eq!(extension.size, 300_000);
+        assert_eq!(extension.sha256.as_deref(), Some(DIGEST));
+        let mut without = release.clone();
+        without
+            .assets
+            .retain(|asset| asset.name != "vault-extension-0.4.3.zip");
+        without.assets.push(Asset {
+            name: "vault-extension-0.4.3.zip".into(),
+            size: 300_000,
+            sha256: None,
+            url: "https://github.com/o/r/releases/download/v0.4.3/vault-extension-0.4.3.zip".into(),
+        });
+        assert!(without.extension_package().is_none());
         assert_eq!(release.page, "https://github.com/o/r/releases/tag/v0.4.3");
         let package = release.phone_package().unwrap();
         assert_eq!(package.size, 2048);
