@@ -32,9 +32,9 @@ $env:ANDROID_NDK_ROOT = $ndk.FullName
 Remove-Item Env:\ANDROID_SDK_ROOT -ErrorAction SilentlyContinue
 foreach ($t in @("aarch64-linux-android", "x86_64-linux-android")) {
     $u = $t.Replace("-", "_")
-    Set-Item "Env:CC_$u" "$bin\${t}28-clang.cmd"
+    Set-Item "Env:CC_$u" "$bin\${t}31-clang.cmd"
     Set-Item "Env:AR_$u" "$bin\llvm-ar.exe"
-    Set-Item "Env:CARGO_TARGET_$($u.ToUpper())_LINKER" "$bin\${t}28-clang.cmd"
+    Set-Item "Env:CARGO_TARGET_$($u.ToUpper())_LINKER" "$bin\${t}31-clang.cmd"
 }
 $abi = @{ "aarch64-linux-android" = "arm64-v8a"; "x86_64-linux-android" = "x86_64" }[$Target]
 if (-not $abi) { throw "unknown target $Target" }
@@ -99,6 +99,9 @@ try {
     } finally {
         Pop-Location
     }
+    # What Android reads of the APK: its protections there, no part open but those meant to be.
+    & "$PSScriptRoot/check-manifest.ps1" -Sdk $sdk `
+        -Apk "target/gradle/vault-mobile-android/outputs/apk/release/vault-mobile-android-release.apk"
 
     $out = "target/release/apk"
     New-Item -ItemType Directory -Force $out | Out-Null

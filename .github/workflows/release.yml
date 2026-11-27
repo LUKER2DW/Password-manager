@@ -134,9 +134,9 @@ jobs:
           export ANDROID_HOME="$ANDROID_SDK_ROOT"
           export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
           bin="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export CC_aarch64_linux_android="$bin/aarch64-linux-android28-clang"
+          export CC_aarch64_linux_android="$bin/aarch64-linux-android31-clang"
           export AR_aarch64_linux_android="$bin/llvm-ar"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$bin/aarch64-linux-android28-clang"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$bin/aarch64-linux-android31-clang"
           export CARGO_TARGET_DIR=target/android
           cargo build --locked -p vault-mobile-android --profile release --target aarch64-linux-android
           mkdir -p target/android-libs/arm64-v8a
@@ -168,6 +168,14 @@ jobs:
           export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME_17_X64}"
           cd apps/mobile-android
           ./gradlew --no-daemon --quiet assembleRelease
+
+      # What Android reads of the APK, after Gradle merged in the libraries' manifests: the
+      # app's protections there, its permissions those listed, and no part of it open to other
+      # apps but those meant to be.
+      - name: The manifest
+        run: |
+          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME_17_X64}"
+          pwsh apps/mobile-android/check-manifest.ps1 -Sdk "$ANDROID_SDK_ROOT"             -Apk target/gradle/vault-mobile-android/outputs/apk/release/vault-mobile-android-release.apk
 
       - name: Check the signature
         env:

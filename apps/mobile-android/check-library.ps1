@@ -4,13 +4,13 @@
 # the library before the app's first line runs, so a missing symbol is a crash at start that no
 # test on a computer shows (0.4.2 and 0.4.3: Skia, built with a newer NDK, needed a libc++
 # function the older NDK's libc++ lacked).
-#   check-library.ps1 -Library <libvault_mobile_android.so> -Ndk <NDK folder> [-Api 28]
+#   check-library.ps1 -Library <libvault_mobile_android.so> -Ndk <NDK folder> [-Api 31]
 # Run by build.ps1 and .github/workflows/release.yml; pwsh on Linux too.
 param(
     [Parameter(Mandatory)] [string]$Library,
     [Parameter(Mandatory)] [string]$Ndk,
     [string]$Triple = "aarch64-linux-android",
-    [int]$Api = 28
+    [int]$Api = 31
 )
 $ErrorActionPreference = "Stop"
 $hostTag = if ($IsLinux) { "linux-x86_64" } elseif ($IsMacOS) { "darwin-x86_64" } else { "windows-x86_64" }
