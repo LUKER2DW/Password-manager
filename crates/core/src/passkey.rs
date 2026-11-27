@@ -34,8 +34,9 @@ pub const ES256: i64 = -7;
 pub mod flags {
     /// The person was there (clicked to allow it).
     pub const USER_PRESENT: u8 = 0x01;
-    /// The person was verified (the vault was unlocked, and the item lock passed when it
-    /// covers the login).
+    /// The person was verified for this very request: Windows Hello, the item lock's PIN or
+    /// password, or the phone's fingerprint or screen lock (an open vault alone is not
+    /// verification).
     pub const USER_VERIFIED: u8 = 0x04;
     /// The passkey can be backed up (it lives in a vault file that is copied and synced).
     pub const BACKUP_ELIGIBLE: u8 = 0x08;
@@ -45,9 +46,9 @@ pub mod flags {
     pub const ATTESTED: u8 = 0x40;
 }
 
-/// What a passkey made here tells the site about itself: present, verified, backed up.
-pub const FLAGS: u8 =
-    flags::USER_PRESENT | flags::USER_VERIFIED | flags::BACKUP_ELIGIBLE | flags::BACKED_UP;
+/// What a passkey made here always tells the site about itself: present, backed up.
+/// [`flags::USER_VERIFIED`] is added only when the person was verified for the request.
+pub const BASE_FLAGS: u8 = flags::USER_PRESENT | flags::BACKUP_ELIGIBLE | flags::BACKED_UP;
 
 /// One passkey of a login. Wiped from memory when dropped.
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
@@ -207,15 +208,19 @@ impl Passkey {
     }
 
     /// The authenticator data for this passkey, with the attested credential data when it is
-    /// being made (`attest`).
-    pub fn authenticator_data(&self, attest: bool) -> Result<Vec<u8>> {
+    /// being made (`attest`), and the "user verified" flag only when the person was verified
+    /// for this request (`verified`).
+    pub fn authenticator_data(&self, attest: bool, verified: bool) -> Result<Vec<u8>> {
         let mut out = Vec::with_capacity(if attest { 140 } else { 37 });
         out.extend_from_slice(&Sha256::digest(self.rp_id.as_bytes()));
-        out.push(if attest {
-            FLAGS | flags::ATTESTED
-        } else {
-            FLAGS
-        });
+        let mut bits = BASE_FLAGS;
+        if verified {
+            bits |= flags::USER_VERIFIED;
+        }
+        if attest {
+            bits |= flags::ATTESTED;
+        }
+        out.push(bits);
         out.extend_from_slice(&0u32.to_be_bytes());
         if attest {
             // No attestation: the authenticator's model id (AAGUID) is all zeros.
@@ -372,7 +377,7 @@ mod tests {
         assert_eq!((spki.len(), &spki[26..]), (91, &public[..]));
 
         // Made: attested data with the credential id and key; signing in: 37 bytes.
-        let made = passkey.authenticator_data(true).unwrap();
+        let made = passkey.authenticator_data(true, true).unwrap();
         assert_eq!(&made[..32], Sha256::digest(b"example.com").as_slice());
         assert_eq!(made[32], 0x5d);
         assert_eq!(&made[33..37], &[0, 0, 0, 0], "no sign counter");
@@ -383,8 +388,12 @@ mod tests {
         assert!(attestation.starts_with(b"\xa3\x63fmt\x64none\x67attStmt\xa0\x68authData\x58"));
         assert!(attestation.ends_with(&made));
 
-        let data = passkey.authenticator_data(false).unwrap();
+        let data = passkey.authenticator_data(false, true).unwrap();
         assert_eq!((data.len(), data[32]), (37, 0x1d));
+        // Not verified for the request: present and backed up, nothing more.
+        let unverified = passkey.authenticator_data(false, false).unwrap();
+        assert_eq!(unverified[32], 0x19);
+        assert_eq!(passkey.authenticator_data(true, false).unwrap()[32], 0x59);
         let hash: [u8; 32] = Sha256::digest(b"{\"type\":\"webauthn.get\"}").into();
         let signature = passkey.sign(&data, &hash).unwrap();
         let mut message = data.clone();
