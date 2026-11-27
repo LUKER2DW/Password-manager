@@ -683,6 +683,15 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   the kit, devices), sealed on this device.
 - ⬜ S27. The master password typed on a secure desktop (Windows).
 - ⬜ S28. Tabs driven by an AI agent get no offers in the page, only the extension's window.
+- ✅ S29. The extension asks every time: by default every password, one-time code, fill,
+  copy and passkey the extension uses asks for Windows Hello (the item lock's key, or the
+  vault's quick unlock key) or the item lock's PIN or password in that request, with no grace
+  period; Settings says when nothing here can ask. The extension's Lock button, and one-time
+  codes shown in its window (`reveal` with `what: "code"`), with the redesigned window.
+- ✅ S30. Emergency kit page: the Secret Key and the recovery parts drawn as dots until
+  "Show the keys for 15 seconds"; the actions grouped (print; keep a copy in a file; change
+  the keys), each with a line saying what it does; the pairing code shown one character per
+  box.
 
 **Features** (F2, F7 and F8 change the file format: one format version for the three)
 - ⬜ F1. Lock options: ask for the master password at every start of the app.

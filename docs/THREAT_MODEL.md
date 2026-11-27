@@ -162,12 +162,16 @@ On top of that:
   and is still handed its key when it connects: a relay reads that one's traffic, as before.
   It goes when a version floor (M10 S25) refuses older extensions.
   Known limit: a program already running as the same Windows user can copy the browser's
-  stored data, pairing key included, and then ask like the extension does. It gets nothing while the vault is locked and
-  nothing behind the item lock. Filling needs the exact site of the login; showing or copying
-  a password from the extension's window does not (it goes by the item, as in the app), so
-  with the vault unlocked such a program can read every login outside the item lock. Each
-  one shows a notice in the app. The same program could already read an unlocked
-  vault's memory, so the link adds no new reach, but it is one more reason for the item lock.
+  stored data, pairing key included, and then ask like the extension does. It gets nothing
+  while the vault is locked. By default (Settings → Browser extension, "Ask … every time")
+  every password, one-time code, fill, copy and passkey asks for Windows Hello or the item
+  lock's PIN or password in that very request, so the copied key alone gets titles,
+  usernames and sites, not secrets: Windows Hello's prompt can't be answered by a program,
+  and a PIN typed in the extension's window is counted with the app's wrong tries. Turned
+  off, it gets every login outside the item lock while the vault is unlocked (each one shows a
+  notice in the app). The same program could already read an unlocked vault's memory (S3
+  closes the easy way to), so the link adds no new reach; asking every time keeps the link
+  from being the easy way.
 - **The frame shown inside pages** (since extension 0.2) brings back the risk the extension's
   own window avoided: a page can draw over it, make it see-through or move it under the
   pointer (extension clickjacking). What limits it: the frame is the extension's page in a
