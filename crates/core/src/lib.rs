@@ -33,6 +33,7 @@ mod vault;
 pub mod drop_box;
 pub mod generator;
 pub mod health;
+pub mod kept_key;
 pub mod locked_fill;
 pub mod memory;
 pub mod passkey;
