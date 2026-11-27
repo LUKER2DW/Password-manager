@@ -4,6 +4,36 @@ What each release brought, newest first. A version's section is the text of its 
 release (`.github/workflows/release.yml`), so write it for the people who install it. Alpha:
 never use the apps with real passwords yet.
 
+## [0.4.7] - 2026-11-27
+
+Passkeys on the phone, in the field's suggestions and in Firefox; the protected export keeps
+everything.
+
+### Added
+- **Passkeys on the phone** (Android 14 and later): turn Vault on in the phone's settings
+  (passwords, passkeys and accounts), and in Chrome's autofill services. The phone's browsers
+  and apps then sign in with the vault's passkeys and save new ones in it, after a
+  fingerprint or the phone's lock; with the vault locked, the fingerprint opens it for that
+  one request. A web page's passkeys go only through a browser known by its certificate; any
+  other app's answer names that app, so a site refuses it for another site's passkey. New:
+  tell us how it goes on your phone.
+- **Passkeys in the field's suggestions** (Chrome, Edge): when a site offers passkeys in its
+  sign-in field, the card under the field lists the vault's passkeys for that site above the
+  logins; picking one signs in with the same checks as the passkey window. Sites with no
+  passkey in Vault, or a locked vault, keep the browser's own suggestions.
+- **Firefox** (153 and later), loaded as a temporary add-on for now: filling and saving
+  happen in the extension's window, since Firefox can't confirm a card in a page is
+  uncovered, and the toolbar button shows "1" while a login waits to be saved. Passkeys use
+  Vault's window. The desktop app's Browser extension setting points Firefox at it too.
+- **Every passkey in one place:** a Passkeys tab on the desktop and a passkey filter on the
+  phone list each item that keeps one.
+
+### Changed
+- **The protected export (.vaultx) keeps every item whole:** attached files and passkeys,
+  with their private keys, come back on import, and passkey items stay passkey items. Whoever
+  has the file and its password can sign in with those passkeys: give it a long password.
+  The plain JSON and CSV exports still leave files and passkeys out.
+
 ## [0.4.6] - 2026-11-26
 
 The Windows apps are harder to take over through a memory bug. Nothing changes on the phone.
