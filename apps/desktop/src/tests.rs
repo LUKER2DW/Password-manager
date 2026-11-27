@@ -323,6 +323,58 @@ fn whole_app_flow_headless() {
     controller.sync_round();
     assert_eq!(app.get_notice_code(), 0);
     assert_eq!(app.get_total_items(), 3);
+
+    // ---- a hostile sync folder: refused, said, and the vault file isn't written ----
+    {
+        let devices = sync_dir.join(&vault_id).join("devices");
+        let laptop_copy = devices.join(format!("{}.vault", other_device.to_hex()));
+        let merged = std::fs::read(&laptop_copy).unwrap();
+        // The laptop writes again (nothing new in it): what was merged is older now.
+        let newer = {
+            let mut laptop = vault_core::Vault::open(
+                &merged,
+                vault_core::Unlock::Password {
+                    password: PASSWORD,
+                    secret_key: &vault_core::SecretKey::parse(&secret_key).unwrap(),
+                },
+            )
+            .unwrap();
+            laptop.set_device(other_device);
+            laptop.to_bytes().unwrap()
+        };
+        let elsewhere = devices.join(format!("{}.vault", "ab".repeat(16)));
+        let before = std::fs::read(&path).unwrap();
+        let round = |place: &std::path::Path, bytes: &[u8]| {
+            std::fs::write(place, bytes).unwrap();
+            app.set_notice_code(0);
+            controller.sync_round();
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                before,
+                "the vault file changed"
+            );
+            assert_eq!(app.get_total_items(), 3);
+            (app.get_notice_code(), app.get_notice_arg().to_string())
+        };
+        let (code, why) = round(&laptop_copy, b"not a vault, garbage put there");
+        assert_eq!((code, why.as_str()), (56, "not a vault file"));
+        let (code, _) = round(&laptop_copy, &merged[..merged.len() / 2]);
+        assert_eq!(code, 56, "cut short");
+        std::fs::remove_file(&laptop_copy).unwrap();
+        let (code, why) = round(&elsewhere, &merged);
+        assert_eq!(code, 56);
+        assert!(why.contains("didn't write it"), "{why}");
+        std::fs::remove_file(&elsewhere).unwrap();
+        assert_eq!(round(&laptop_copy, &newer).0, 0, "the laptop's real copy");
+        let (code, why) = round(&laptop_copy, &merged);
+        assert_eq!(code, 56);
+        assert!(why.contains("older than one already seen"), "{why}");
+        // Said once: the same refused copy isn't read again next round.
+        app.set_notice_code(0);
+        controller.sync_round();
+        assert_eq!(app.get_notice_code(), 0);
+        std::fs::write(&laptop_copy, &newer).unwrap();
+    }
     app.invoke_sync_stop();
     assert_eq!(app.get_sync_folder(), "");
     assert_eq!(app.get_sync_state(), 0);
