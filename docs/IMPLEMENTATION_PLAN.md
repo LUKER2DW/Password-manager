@@ -600,8 +600,10 @@ From a review of how other password managers work and how they were attacked (No
 committed by area. Items marked (owner) need the maintainer's own accounts or keys.
 
 **Security**
-- ⬜ S1. Lock when Windows locks the session, sleeps or hibernates, or the session is
-  disconnected (THREAT_MODEL promises it; only the idle timer exists).
+- ✅ S1. Lock when Windows locks the session, switches user, signs out, sleeps or
+  hibernates (Settings → Security, on by default): a hidden window on a thread of its own
+  hears the session and power messages (`session_watch.rs`) and waits for the lock before
+  answering a suspend.
 - ⬜ S2. DLL loading: static C runtime, `/DEPENDENTLOADFLAG:0x800` and
   `SetDefaultDllDirectories(System32)` at start, so a DLL dropped next to an exe run from
   Downloads isn't loaded; `check-exe.ps1` checks it.

@@ -80,7 +80,10 @@ On top of that:
     revokes it. Users who share or reuse their PIN should leave quick unlock off.
 
 **Vault unlocked (A8)**: shrink the window and the attack surface.
-- Aggressive auto-lock (inactivity, screen lock, sleep).
+- Aggressive auto-lock: after 1–60 minutes without interaction and, on by default, when
+  Windows locks the session, switches user, signs out, sleeps or hibernates (the vault is
+  locked before Windows is answered, within the two seconds a suspend allows:
+  `session_watch.rs`); on the phone, on leaving the app.
 - Secrets stay encrypted **per item** in memory; only the item in use is decrypted, and it is
   wiped right after (`zeroize`).
 - Sensitive memory is locked (`VirtualLock`/`mlock`) so it does not reach the pagefile or
