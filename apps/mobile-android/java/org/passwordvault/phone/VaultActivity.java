@@ -153,6 +153,7 @@ public class VaultActivity extends NativeActivity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        Shield.guard(getWindow());
         current = new WeakReference<>(this);
         // The recent apps view never shows what was on screen, screenshots allowed or not.
         if (Build.VERSION.SDK_INT >= 33) {

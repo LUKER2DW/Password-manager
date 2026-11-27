@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Other apps' overlays hidden while a window of the app shows (Shield.java). Android
+         grants it without asking. -->
+    <uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS" />
 
     <!-- What this app may see of the others (Android 11 on): those that open https links, so
          autofill can tell a browser from another app and check its certificate (Place.java);
@@ -28,12 +31,19 @@
     <!-- No plain http from the Java side (it makes no requests of its own; this holds the
          libraries in it to that too). The app's own connections are made by its Rust library,
          which Android's setting doesn't reach: it refuses http:// itself, except to this phone
-         or a Tailscale address, whose network encrypts (sync/http.rs). -->
+         or a Tailscale address, whose network encrypts (sync/http.rs).
+         No backup and no copy to a new phone (allowBackup covers the first only;
+         data_extraction_rules.xml both). No task affinity: another app's activity that names
+         this app's package as its affinity can't be slipped into the app's task, over its
+         screens, when the person opens it from the launcher (task hijacking); every activity of
+         the app (and of the libraries in it) takes this. -->
     <application
         android:label="Vault"
         android:icon="@mipmap/ic_launcher"
         android:hasCode="true"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:taskAffinity=""
         android:usesCleartextTraffic="false">
 
         <!-- Play services fetches the QR code scanner when the app is installed, not at the

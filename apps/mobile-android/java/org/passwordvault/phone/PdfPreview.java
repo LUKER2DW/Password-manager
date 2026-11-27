@@ -4,7 +4,6 @@ package org.passwordvault.phone;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.pdf.PdfRenderer;
-import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.system.Os;
 import android.system.OsConstants;
@@ -155,11 +154,8 @@ final class PdfPreview implements Closeable {
         }
     }
 
-    /** Memory only this process can reach; null where Android has none (before 11, old kernels). */
+    /** Memory only this process can reach; null where the kernel has none (an old one). */
     private static Copy inMemory() {
-        if (Build.VERSION.SDK_INT < 30) {
-            return null;
-        }
         FileDescriptor memory = null;
         try {
             memory = Os.memfd_create(PREFIX, OsConstants.MFD_CLOEXEC);

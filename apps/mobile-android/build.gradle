@@ -24,7 +24,11 @@ android {
 
     defaultConfig {
         applicationId 'org.passwordvault.phone'
-        minSdk 28
+        // Android 12: other apps' overlays hidden over the app (Shield.java), taps through
+        // another app's window blocked by the system, and the task hijacking that only a
+        // system update stops (StrandHogg 2) fixed in every version it installs on. Also the
+        // native library's API level (build.ps1, check-library.ps1, release.yml).
+        minSdk 31
         targetSdk 35
         versionCode((1 << 24) | (major << 16) | (minor << 8) | patch)
         versionName "${major}.${minor}.${patch}"

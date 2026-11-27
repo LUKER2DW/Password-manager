@@ -56,6 +56,7 @@ public class PasskeyActivity extends Activity {
     @Override
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
+        Shield.guard(getWindow());
         String action = getIntent().getAction();
         if (GET.equals(action)) {
             get();

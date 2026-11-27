@@ -12,7 +12,6 @@ import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.content.pm.SigningInfo;
-import android.os.Build;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -70,8 +69,7 @@ final class Updates {
             // but what is put here stays as it is.
             Intent back = new Intent(context, InstallReceiver.class).setAction(ANSWER)
                     .putExtra(NONCE, number);
-            int flags = PendingIntent.FLAG_UPDATE_CURRENT
-                    | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE;
             PendingIntent pending = PendingIntent.getBroadcast(context, id, back, flags);
             open.commit(pending.getIntentSender());
         } catch (Exception e) {

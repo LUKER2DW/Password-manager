@@ -4,7 +4,6 @@ package org.passwordvault.phone;
 import android.app.PendingIntent;
 import android.app.assist.AssistStructure;
 import android.content.Intent;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.Handler;
@@ -140,8 +139,7 @@ public class VaultAutofillService extends AutofillService {
                 .putExtra(AutofillActivity.PASSWORD, fields.password);
         // Android adds the form to this intent when the offer is chosen: it must stay mutable.
         // What is put here stays as it is: an intent filled in keeps its own extras.
-        int flags = PendingIntent.FLAG_CANCEL_CURRENT
-                | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
+        int flags = PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_MUTABLE;
         PendingIntent pending = PendingIntent.getActivity(this, ++requests, intent, flags);
         Dataset.Builder dataset = new Dataset.Builder();
         android.widget.RemoteViews row = Autofill.row(this, first, second);

@@ -6,7 +6,6 @@ import android.app.KeyguardManager;
 import android.content.Context;
 import android.hardware.biometrics.BiometricManager;
 import android.hardware.biometrics.BiometricPrompt;
-import android.os.Build;
 import android.os.CancellationSignal;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyInfo;
@@ -40,9 +39,6 @@ final class Biometrics {
     private static final String PREFIX = "vault-unlock-";
     private static final String STORE = "AndroidKeyStore";
     private static final int IV = 12;
-    /** Android 11: a key can take the screen lock too, each use checked on its own. */
-    private static final boolean SCREEN_LOCK = Build.VERSION.SDK_INT >= 30;
-
     interface Answer {
         void done(byte[] data, String error);
     }
@@ -53,19 +49,14 @@ final class Biometrics {
 
     private Biometrics() {}
 
-    /** A strong biometric (Android's Class 3) or, from Android 11, a screen lock is set up. */
+    /** A strong biometric (Android's Class 3) or a screen lock is set up. */
     static boolean available(Context context) {
-        if (Build.VERSION.SDK_INT < 29) {
-            return false;
-        }
         BiometricManager manager = context.getSystemService(BiometricManager.class);
         if (manager == null) {
             return false;
         }
-        int result = SCREEN_LOCK
-                ? manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG
-                        | BiometricManager.Authenticators.DEVICE_CREDENTIAL)
-                : manager.canAuthenticate();
+        int result = manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG
+                | BiometricManager.Authenticators.DEVICE_CREDENTIAL);
         return result == BiometricManager.BIOMETRIC_SUCCESS;
     }
 
@@ -75,7 +66,7 @@ final class Biometrics {
         try {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, newKey(vaultId));
-            prompt(activity, cipher, SCREEN_LOCK, title, subtitle, cancel, c -> {
+            prompt(activity, cipher, true, title, subtitle, cancel, c -> {
                 byte[] iv = c.getIV();
                 byte[] sealed = c.doFinal(secret);
                 byte[] out = new byte[iv.length + sealed.length];
@@ -112,11 +103,11 @@ final class Biometrics {
         }
     }
 
-    /** Whether this key was made to take the screen lock too (Android 11 on). */
+    /**
+     * Whether this key was made to take the screen lock too: every key made on Android 11 or
+     * later; one made before (on a phone updated since) takes a biometric only.
+     */
     private static boolean takesScreenLock(SecretKey key) {
-        if (!SCREEN_LOCK) {
-            return false;
-        }
         try {
             SecretKeyFactory factory = SecretKeyFactory.getInstance(key.getAlgorithm(), STORE);
             KeyInfo info = (KeyInfo) factory.getKeySpec(key, KeyInfo.class);
@@ -143,14 +134,8 @@ final class Biometrics {
         if (subtitle != null && !subtitle.isEmpty()) {
             builder.setSubtitle(subtitle);
         }
-        if (Build.VERSION.SDK_INT >= 30) {
-            builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG
-                    | BiometricManager.Authenticators.DEVICE_CREDENTIAL);
-        } else if (Build.VERSION.SDK_INT == 29) {
-            builder.setDeviceCredentialAllowed(true);
-        } else {
-            builder.setNegativeButton(cancel, main, (dialog, which) -> answer.done(null, ""));
-        }
+        builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG
+                | BiometricManager.Authenticators.DEVICE_CREDENTIAL);
         builder.build().authenticate(new CancellationSignal(), main,
                 new BiometricPrompt.AuthenticationCallback() {
                     @Override
@@ -186,12 +171,10 @@ final class Biometrics {
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)
                 .setUserAuthenticationRequired(true)
-                .setInvalidatedByBiometricEnrollment(true);
-        if (SCREEN_LOCK) {
-            // Every use needs its own check: a strong biometric or the screen lock.
-            spec.setUserAuthenticationParameters(0,
-                    KeyProperties.AUTH_BIOMETRIC_STRONG | KeyProperties.AUTH_DEVICE_CREDENTIAL);
-        }
+                .setInvalidatedByBiometricEnrollment(true)
+                // Every use needs its own check: a strong biometric or the screen lock.
+                .setUserAuthenticationParameters(0,
+                        KeyProperties.AUTH_BIOMETRIC_STRONG | KeyProperties.AUTH_DEVICE_CREDENTIAL);
         KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, STORE);
         try {
             spec.setIsStrongBoxBacked(true);
@@ -217,16 +200,12 @@ final class Biometrics {
         if (subtitle != null && !subtitle.isEmpty()) {
             builder.setSubtitle(subtitle);
         }
-        if (Build.VERSION.SDK_INT >= 29) {
-            builder.setConfirmationRequired(false);
-        }
+        builder.setConfirmationRequired(false);
         if (screenLock) {
             builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG
                     | BiometricManager.Authenticators.DEVICE_CREDENTIAL);
         } else {
-            if (Build.VERSION.SDK_INT >= 30) {
-                builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG);
-            }
+            builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG);
             builder.setNegativeButton(cancel, main, (dialog, which) -> {
                 wipe(wipe);
                 answer.done(null, "");

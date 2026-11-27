@@ -40,6 +40,7 @@ public class AutofillActivity extends Activity {
     @Override
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
+        Shield.guard(getWindow());
         Intent intent = getIntent();
         Place place = Place.read(this, intent.getExtras());
         String recipient = place == null || !place.app.equals(getCallingPackage())
