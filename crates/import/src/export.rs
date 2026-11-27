@@ -6,11 +6,15 @@
 //! every password: it is returned in a wiped-on-drop buffer and should go straight to a file the
 //! user chose.
 //!
-//! No export is the whole vault: [`export_report`] counts, before the file is made, what a
-//! format leaves out and what it writes in clear, for the app to show the person first.
+//! The sealed export carries every item whole, attached files and passkeys included; the plain
+//! ones leave those out. No export is the whole vault (folders keep only their names, the item
+//! lock stays behind): [`export_report`] counts, before the file is made, what a format leaves
+//! out and what it writes in clear, for the app to show the person first.
 
+use base64::Engine as _;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
-use vault_core::{ItemData, ItemId, ItemKind, RecoveryCode, Vault};
+use vault_core::{Attachment, ItemData, ItemId, ItemKind, Passkey, RecoveryCode, Vault};
 use zeroize::{Zeroize, Zeroizing};
 
 /// One item with its secrets.
@@ -74,20 +78,37 @@ pub(crate) fn codes_text(codes: &[RecoveryCode]) -> Option<Zeroizing<String>> {
 /// import of the file can say so by name (`leftOut`), and the recovery codes as codes
 /// (`recoveryCodes`, next to the hidden field other managers read). Other managers skip keys
 /// they don't know.
+///
+/// The sealed export also carries what makes it whole: the attached files (`attachedFiles`),
+/// the passkeys with their private keys (`passkeys`, at the item's level, apart from the
+/// `login.fido2Credentials` other managers write) and whether the item is a passkey item
+/// (`passkeyItem`; other managers read it as the login it is written as). The plain exports
+/// never write them: the files would make them huge, and a passkey's key in clear would let
+/// whoever reads the file sign in as you.
 fn own_keys(entry: &mut Value, item: &ItemData, sealed: bool) {
-    let mut left_out = serde_json::Map::new();
-    let mut count = |key: &str, n: usize| {
-        if n > 0 {
-            left_out.insert(key.into(), n.into());
+    if sealed {
+        if !item.attachments.is_empty() {
+            entry["attachedFiles"] = item.attachments.iter().map(attached_file).collect();
         }
-    };
-    count("attachments", item.attachments.len());
-    count("passkeys", item.passkeys.len());
-    if !sealed {
+        if !item.passkeys.is_empty() {
+            entry["passkeys"] = item.passkeys.iter().map(passkey).collect();
+        }
+        if item.kind == ItemKind::Passkey {
+            entry["passkeyItem"] = Value::Bool(true);
+        }
+    } else {
+        let mut left_out = serde_json::Map::new();
+        let mut count = |key: &str, n: usize| {
+            if n > 0 {
+                left_out.insert(key.into(), n.into());
+            }
+        };
+        count("attachments", item.attachments.len());
+        count("passkeys", item.passkeys.len());
         count("passwordHistory", item.password_history.len());
-    }
-    if !left_out.is_empty() {
-        entry["leftOut"] = Value::Object(left_out);
+        if !left_out.is_empty() {
+            entry["leftOut"] = Value::Object(left_out);
+        }
     }
     if !item.recovery_codes.is_empty() {
         entry["recoveryCodes"] = item
@@ -96,6 +117,38 @@ fn own_keys(entry: &mut Value, item: &ItemData, sealed: bool) {
             .map(|c| json!({ "code": c.code, "used": c.used }))
             .collect();
     }
+}
+
+/// An attached file in the sealed export: its name, when it was added and its bytes in
+/// base64. Each text is made at its exact size and moved in (`json!` would copy it), so the
+/// document's wipe reaches every copy.
+fn attached_file(file: &Attachment) -> Value {
+    let mut entry = serde_json::Map::new();
+    entry.insert("name".into(), Value::String(file.name.clone()));
+    entry.insert("addedDate".into(), Value::String(iso8601(file.added_at)));
+    entry.insert("data".into(), Value::String(STANDARD.encode(&file.data)));
+    Value::Object(entry)
+}
+
+/// A passkey in the sealed export, its private key included (the 32-byte P-256 scalar);
+/// binary values in unpadded base64url, as WebAuthn writes them.
+fn passkey(passkey: &Passkey) -> Value {
+    let binary = |bytes: &[u8]| Value::String(URL_SAFE_NO_PAD.encode(bytes));
+    let mut entry = serde_json::Map::new();
+    entry.insert("credentialId".into(), binary(&passkey.credential_id));
+    entry.insert("rpId".into(), Value::String(passkey.rp_id.clone()));
+    entry.insert("userHandle".into(), binary(&passkey.user_handle));
+    entry.insert("userName".into(), Value::String(passkey.user_name.clone()));
+    entry.insert(
+        "displayName".into(),
+        Value::String(passkey.display_name.clone()),
+    );
+    entry.insert(
+        "creationDate".into(),
+        Value::String(iso8601(passkey.created_at)),
+    );
+    entry.insert("key".into(), binary(passkey.private_key()));
+    Value::Object(entry)
 }
 
 /// The `login` block of an item that isn't a login: what its kind's own block has no place
@@ -151,8 +204,8 @@ fn iso8601(unix: i64) -> String {
 
 /// The JSON export sealed under a password of its own (`vault_core::sealed_export`): for a
 /// copy to carry elsewhere that is not readable by whoever finds the file. Unlike the plain
-/// JSON it also keeps each login's earlier passwords: nobody reads them without the file's
-/// password.
+/// JSON it keeps every item whole: earlier passwords, attached files and passkeys (with their
+/// private keys, [`own_keys`]). Nobody reads them without the file's password.
 pub fn export_sealed(vault: &Vault, password: &str) -> Result<Vec<u8>, vault_core::Error> {
     let json = document(vault, true)?;
     vault_core::sealed_export::seal(password, json.as_bytes())
@@ -163,7 +216,7 @@ pub fn export_json(vault: &Vault) -> Result<Zeroizing<String>, vault_core::Error
     document(vault, false)
 }
 
-/// The JSON of both: `sealed` adds the earlier passwords.
+/// The JSON of both: `sealed` adds the earlier passwords, attached files and passkeys.
 fn document(vault: &Vault, sealed: bool) -> Result<Zeroizing<String>, vault_core::Error> {
     let folders: Vec<Value> = vault
         .folders()
@@ -404,9 +457,10 @@ pub struct ExportReport {
 /// What an export leaves out, across the vault.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LeftOut {
-    /// Files attached to items: no export carries them.
+    /// Files attached to items: only the sealed export carries them.
     pub attachments: usize,
-    /// Passkeys: no export carries them (their private keys stay in the vault).
+    /// Passkeys: only the sealed export carries them (their private keys never go out in
+    /// clear).
     pub passkeys: usize,
     /// Earlier passwords: only the sealed export carries them.
     pub earlier_passwords: usize,
@@ -420,7 +474,7 @@ pub struct LeftOut {
     /// hidden field, no longer codes that can be marked used.
     pub recovery_code_lists: usize,
     /// Items that come back as another kind, their contents kept: passkey items as logins
-    /// (every format), cards and SSH keys as notes (CSV).
+    /// (the plain formats), cards and SSH keys as notes (CSV).
     pub kinds_changed: usize,
     /// CSV has no dates: when each item was made and changed, and its password set.
     pub dates: bool,
@@ -477,25 +531,28 @@ pub fn export_report(
             .iter()
             .filter(|f| f.sensitive && !f.value.is_empty())
             .count();
-        let earlier = if format == ExportFormat::Sealed {
-            0
+        // The sealed export keeps the item whole; the plain ones leave these out.
+        let sealed = format == ExportFormat::Sealed;
+        let (files, passkeys, earlier) = if sealed {
+            (0, 0, 0)
         } else {
-            item.password_history.len()
+            (
+                item.attachments.len(),
+                item.passkeys.len(),
+                item.password_history.len(),
+            )
         };
         let kind_changes = match item.kind {
-            ItemKind::Passkey => true,
+            ItemKind::Passkey => !sealed,
             ItemKind::Card | ItemKind::SshKey => csv,
             ItemKind::Login | ItemKind::SecureNote => false,
         };
         let out = &mut report.left_out;
-        out.attachments += item.attachments.len();
-        out.passkeys += item.passkeys.len();
+        out.attachments += files;
+        out.passkeys += passkeys;
         out.earlier_passwords += earlier;
         out.kinds_changed += usize::from(kind_changes);
-        let mut loses = !item.attachments.is_empty()
-            || !item.passkeys.is_empty()
-            || earlier > 0
-            || kind_changes;
+        let mut loses = files > 0 || passkeys > 0 || earlier > 0 || kind_changes;
         if csv {
             out.extra_websites += item.urls.len().saturating_sub(1);
             out.hidden_marks += hidden;
@@ -507,7 +564,7 @@ pub fn export_report(
         if loses {
             report.affected.push(item.title.clone());
         }
-        if format == ExportFormat::Sealed {
+        if sealed {
             continue;
         }
         let clear = &mut report.in_clear;
@@ -736,17 +793,9 @@ mod tests {
 
         let sealed = report(ExportFormat::Sealed);
         assert_eq!(sealed.items, 6);
-        assert_eq!(
-            sealed.left_out,
-            LeftOut {
-                attachments: 1,
-                passkeys: 2,
-                kinds_changed: 1,
-                ..LeftOut::default()
-            }
-        );
+        assert!(sealed.left_out.is_empty(), "{:?}", sealed.left_out);
         assert!(sealed.in_clear.is_empty(), "sealed under its password");
-        assert_eq!(sealed.affected, ["Mail", "Shop"]);
+        assert!(sealed.affected.is_empty());
 
         let json = report(ExportFormat::Json);
         assert_eq!(
@@ -796,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn the_protected_export_brings_back_recovery_codes_and_earlier_passwords() {
+    fn the_protected_export_brings_back_every_item_whole() {
         let vault = full_vault();
         let sealed = export_sealed(&vault, "a file password").unwrap();
         let report =
@@ -814,19 +863,57 @@ mod tests {
         assert_eq!(mail.password_history.len(), 1);
         assert_eq!(mail.password_history, original.password_history);
         assert_eq!(mail.password_changed_at, original.password_changed_at);
-        // What the file can't carry is named, item by item.
+        // The attached file, byte for byte, with when it was added.
+        assert_eq!(mail.attachments, original.attachments);
+        // The passkey with its private key: it signs as the one in the vault does, so the
+        // site still accepts it.
+        assert_eq!(mail.passkeys.len(), 1);
+        let (copy, kept) = (&mail.passkeys[0], &original.passkeys[0]);
+        assert_eq!(copy.credential_id, kept.credential_id);
+        assert_eq!(copy.rp_id, kept.rp_id);
+        assert_eq!(copy.user_handle, kept.user_handle);
+        assert_eq!(
+            (&copy.user_name, &copy.display_name, copy.created_at),
+            (&kept.user_name, &kept.display_name, kept.created_at)
+        );
+        assert_eq!(copy.public_key().unwrap(), kept.public_key().unwrap());
+        let data = copy.authenticator_data(false).unwrap();
+        let signature = copy.sign(&data, &[7; 32]).unwrap();
+        let mut message = data.clone();
+        message.extend_from_slice(&[7; 32]);
+        assert!(vault_core::passkey::verify(
+            &kept.public_key().unwrap(),
+            &message,
+            &signature
+        ));
+        // A passkey item comes back as one.
+        let (shop, original) = (back("Shop"), titled(&vault, "Shop"));
+        assert_eq!(shop.kind, ItemKind::Passkey);
+        assert_eq!(shop.passkeys.len(), 1);
+        assert_eq!(
+            shop.passkeys[0].private_key(),
+            original.passkeys[0].private_key()
+        );
+        // Nothing left behind to warn about.
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    }
+
+    #[test]
+    fn only_the_sealed_export_holds_files_and_passkeys() {
+        let vault = full_vault();
+        let plain = export_json(&vault).unwrap();
+        let key = URL_SAFE_NO_PAD.encode(titled(&vault, "Mail").passkeys[0].private_key());
+        assert!(!plain.contains(&key), "a passkey's key in clear");
+        assert!(!plain.contains("attachedFiles") && !plain.contains("passkeyItem"));
+        // Read back, the plain file names what it left out, as before.
+        let report = import_json(plain.as_bytes()).unwrap();
         assert!(
-            report.warnings.contains(
-                &"\"Mail\": 1 attached file and 1 passkey were not in this export; they are only in the vault it was made from".to_owned()
-            ),
+            report.warnings.iter().any(|w| w.starts_with(
+                "\"Mail\": 1 attached file, 1 passkey and 1 earlier password were not in this export"
+            )),
             "{:?}",
             report.warnings
         );
-        assert!(report.warnings.contains(
-            &"\"Shop\": 1 passkey was not in this export; it is only in the vault it was made from"
-                .to_owned()
-        ));
-        assert_eq!(report.warnings.len(), 2, "{:?}", report.warnings);
     }
 
     /// What an item holds, its extra fields in any order.

@@ -1,8 +1,11 @@
 //! Unencrypted JSON exports (the layout most password managers read and write).
 
+use base64::Engine;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use serde::Deserialize;
 use serde_json::Value;
-use vault_core::{CustomField, ItemData, ItemKind, RecoveryCode};
+use vault_core::{Attachment, CustomField, ItemData, ItemKind, Passkey, RecoveryCode};
+use zeroize::Zeroizing;
 
 use crate::{
     ImportError, ImportReport, dates::iso8601_to_unix, export, host_of, left_out_list, non_empty,
@@ -53,6 +56,16 @@ struct Item {
     /// This app's own exports: how many attachments, passkeys and earlier passwords the item
     /// had that the file leaves out, `{"attachments": n, …}`.
     left_out: Option<Value>,
+    /// This app's sealed exports: the item's attached files, `[{"name", "addedDate",
+    /// "data"}]` (the bytes in base64).
+    attached_files: Option<Vec<Value>>,
+    /// This app's sealed exports: the item's passkeys with their private keys,
+    /// `[{"credentialId", "rpId", "userHandle", "userName", "displayName", "creationDate",
+    /// "key"}]` (binary values in unpadded base64url).
+    passkeys: Option<Vec<Value>>,
+    /// This app's sealed exports: a passkey item, written as a login for other managers.
+    #[serde(default)]
+    passkey_item: bool,
 }
 
 #[derive(Deserialize)]
@@ -174,6 +187,7 @@ pub(crate) fn import_json(bytes: &[u8]) -> Result<ImportReport, ImportError> {
         });
         let title = non_empty(source.name.clone()).unwrap_or_else(|| "Untitled".into());
         let kind = match source.kind {
+            1 if source.passkey_item => ItemKind::Passkey,
             1 => ItemKind::Login,
             3 => ItemKind::Card,
             5 => ItemKind::SshKey,
@@ -320,6 +334,39 @@ pub(crate) fn import_json(bytes: &[u8]) -> Result<ImportReport, ImportError> {
             push_field(&mut item, &name, field.value, field.kind == 1);
         }
 
+        // What only the sealed export carries. An entry that isn't one this app wrote, or
+        // that goes past an item's limits, is left out and counted.
+        let mut unread_files = 0;
+        for mut entry in source.attached_files.unwrap_or_default() {
+            match attached_file(&mut entry) {
+                Some(file) if item.attachments.len() < Attachment::MAX_PER_ITEM => {
+                    item.attachments.push(file);
+                }
+                _ => unread_files += 1,
+            }
+        }
+        let mut unread_passkeys = 0;
+        for mut entry in source.passkeys.unwrap_or_default() {
+            match passkey(&mut entry) {
+                Some(passkey) if item.passkeys.len() < Passkey::MAX_PER_ITEM => {
+                    item.passkeys.push(passkey);
+                }
+                _ => unread_passkeys += 1,
+            }
+        }
+        if let Some((what, verb)) = left_out_list(&[
+            (unread_files, "attached file", "attached files"),
+            (unread_passkeys, "passkey", "passkeys"),
+        ]) {
+            report.warnings.push(format!(
+                "\"{title}\": {what} in this file {verb} not imported (damaged, or past what an item keeps)"
+            ));
+        }
+        // A passkey item whose passkeys didn't come is the login it was written as.
+        if item.kind == ItemKind::Passkey && item.passkeys.is_empty() {
+            item.kind = ItemKind::Login;
+        }
+
         let codes = recovery_codes(source.recovery_codes);
         if let Some(text) = export::codes_text(&codes) {
             // The hidden field written next to them for other managers holds the same codes
@@ -359,6 +406,65 @@ pub(crate) fn import_json(bytes: &[u8]) -> Result<ImportReport, ImportError> {
         report.push(item, folder);
     }
     Ok(report)
+}
+
+/// The text under `key`, taken out of the document (wiped when dropped).
+fn take_text(entry: &mut Value, key: &str) -> Option<Zeroizing<String>> {
+    match entry.get_mut(key)?.take() {
+        Value::String(text) => Some(Zeroizing::new(text)),
+        _ => None,
+    }
+}
+
+/// Base64 `text` decoded into a buffer of its own size, wiped if it isn't valid.
+fn decoded(engine: &impl Engine, text: &str) -> Option<Zeroizing<Vec<u8>>> {
+    let mut bytes = Zeroizing::new(Vec::with_capacity(base64::decoded_len_estimate(text.len())));
+    engine.decode_vec(text, &mut bytes).ok()?;
+    Some(bytes)
+}
+
+/// An attached file of this app's sealed export (`attachedFiles`), held to the limits of
+/// [`Attachment::new`].
+fn attached_file(entry: &mut Value) -> Option<Attachment> {
+    let name = take_text(entry, "name")?;
+    // The name is checked first, with no bytes: a refused file is then never copied.
+    let mut file = Attachment::new(&name, Vec::new()).ok()?;
+    let mut data = decoded(&STANDARD, &take_text(entry, "data")?)?;
+    if data.len() > Attachment::MAX_BYTES {
+        return None;
+    }
+    file.data = std::mem::take(&mut *data);
+    if let Some(added) = take_text(entry, "addedDate").and_then(|d| iso8601_to_unix(&d)) {
+        file.added_at = added;
+    }
+    Some(file)
+}
+
+/// A passkey of this app's sealed export (`passkeys`), its private key checked to be a P-256
+/// key by [`Passkey::from_parts`].
+fn passkey(entry: &mut Value) -> Option<Passkey> {
+    let mut binary =
+        |key: &str| take_text(entry, key).and_then(|text| decoded(&URL_SAFE_NO_PAD, &text));
+    let credential_id = binary("credentialId")?;
+    let user_handle = binary("userHandle").unwrap_or_default();
+    let key = binary("key")?;
+    let text = |entry: &mut Value, key: &str| take_text(entry, key).unwrap_or_default();
+    let rp_id = text(entry, "rpId");
+    let user_name = text(entry, "userName");
+    let display_name = text(entry, "displayName");
+    let created = take_text(entry, "creationDate")
+        .and_then(|date| iso8601_to_unix(&date))
+        .unwrap_or(0);
+    let passkey = Passkey::from_parts(
+        &credential_id,
+        &rp_id,
+        &user_handle,
+        &user_name,
+        &display_name,
+        created,
+        &key,
+    );
+    passkey.ok()
 }
 
 /// The `recoveryCodes` of this app's exports; empty for anything else. Each code is moved out
@@ -635,6 +741,52 @@ mod tests {
         let odd = first(item(r#", "recoveryCodes": "aaaa""#, r"aaaa"));
         assert!(odd.recovery_codes.is_empty());
         assert_eq!(codes_field(&odd).as_deref(), Some("aaaa"));
+    }
+
+    #[test]
+    fn files_and_passkeys_the_sealed_export_holds_are_read_and_damaged_ones_counted() {
+        // A passkey key of 32 bytes that is a P-256 scalar, and one that isn't (all ones).
+        let good_key = URL_SAFE_NO_PAD.encode([7u8; 32]);
+        let bad_key = URL_SAFE_NO_PAD.encode([0xFFu8; 32]);
+        let file = r#"{"items": [{"type": 1, "name": "Shop", "passkeyItem": true,
+            "attachedFiles": [
+                {"name": "a.txt", "addedDate": "2024-01-02T03:04:05.000Z", "data": "aGVsbG8="},
+                {"name": "b.txt", "data": "not base64!"},
+                {"name": "", "data": "aGVsbG8="}
+            ],
+            "passkeys": [
+                {"credentialId": "AQID", "rpId": "shop.example", "userHandle": "BAU",
+                 "userName": "me", "displayName": "Me", "key": "GOOD"},
+                {"credentialId": "AQID", "rpId": "shop.example", "key": "BAD"},
+                {"credentialId": "AQID", "key": "GOOD"}
+            ]}]}"#
+            .replace("GOOD", &good_key)
+            .replace("BAD", &bad_key);
+        let report = import_json(file.as_bytes()).unwrap();
+        let item = &report.items[0];
+        assert_eq!(item.kind, ItemKind::Passkey);
+        assert_eq!(item.attachments.len(), 1);
+        assert_eq!(item.attachments[0].name, "a.txt");
+        assert_eq!(item.attachments[0].data, b"hello");
+        assert_eq!(item.attachments[0].added_at, 1_704_164_645);
+        assert_eq!(item.passkeys.len(), 1);
+        let passkey = &item.passkeys[0];
+        assert_eq!(passkey.credential_id, [1, 2, 3]);
+        assert_eq!(passkey.user_handle, [4, 5]);
+        assert_eq!(passkey.private_key(), [7u8; 32]);
+        assert_eq!(
+            report.warnings,
+            [
+                "\"Shop\": 2 attached files and 2 passkeys in this file were not imported (damaged, or past what an item keeps)"
+            ]
+        );
+
+        // A passkey item without a passkey that could be read is a login.
+        let none = r#"{"items": [{"type": 1, "name": "Shop", "passkeyItem": true}]}"#;
+        assert_eq!(
+            import_json(none.as_bytes()).unwrap().items[0].kind,
+            ItemKind::Login
+        );
     }
 
     #[test]
