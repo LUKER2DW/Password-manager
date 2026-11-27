@@ -90,27 +90,33 @@ On top of that:
   parts) stays in one area of memory the app locks into RAM once (`VirtualLock`: never
   written to the pagefile) and leaves out of crash reports, and is wiped after use (lesson
   from KeePass CVE-2023-32784; `secure_memory.rs`).
-- The vault key and the item guard key are kept encrypted between uses on Windows
-  (`CryptProtectMemory`, under a key the system holds for this process) and opened into a
-  copy that is wiped right after, for the moment one is used: a dump of the process, the
-  pagefile or a crash report holds them only encrypted. An administrator, or code running
-  inside the process, can still have Windows decrypt them.
+- The keys an open vault keeps in memory are kept encrypted between uses on Windows
+  (`CryptProtectMemory`, under a key the system holds for this process): the vault key, the
+  item guard key, and the Secret Key and keyfile the vault was opened with (needed again to
+  check the master password, rewrite a key slot or show the kit), from the moment each is
+  made or read. Each is opened into a copy that is wiped right after, for the moment it is
+  used, and the stack the hashing of a key used is cleared after it: a dump of the process,
+  the pagefile or a crash report holds them only encrypted. An administrator, or code
+  running inside the process, can still have Windows decrypt them.
 - Every block of the app's own heap is wiped before it is freed (a global allocator, in the
   desktop app, the CLI and the phone app), so what was decrypted or shown and then dropped
   (an item, a revealed password in the UI's strings, a buffer of a dependency) isn't left
   behind; and the stack the key work used is cleared when the vault locks. A test reads the
-  whole memory of a running copy of the app after it locks (`apps/desktop/tests/memory.rs`,
-  in CI): none of the master password, the Secret Key, the vault and guard keys, an item's
-  password, one-time code secret or notes is left, in UTF-8 or UTF-16, whole or in 16-byte
-  pieces, and while it is open the vault and guard keys aren't found in the clear either.
-  Before these changes the revealed password was still in two dozen places of the heap, and
-  copies of the Secret Key and of both keys on the stack.
-- What this doesn't cover: while the vault is open, the item in use, what the window shows
-  and the Secret Key and keyfile it was opened with are in memory as they are (wiped at the
-  lock); memory C code allocates for itself is freed but not wiped (the renderer drawing a
-  revealed password, the strings UI Automation hands out, a credential Windows returns);
-  the phone has the wiping allocator but no key shield and no locked area (Android doesn't
-  swap memory to disk, and the app locks on leaving it); and nothing keeps memory out of
+  whole memory of a running copy of the app (`apps/desktop/tests/memory.rs`, in CI), whole
+  values and 16-byte pieces, in UTF-8 and UTF-16, while a password is shown, once it is
+  hidden, while the kit is shown, once it is hidden, and after the lock. The master
+  password, the Secret Key's bytes, the keyfile and the vault and guard keys are never
+  found; the Secret Key's text only while the kit shows it; an item's password only while
+  it is shown; after the lock, nothing at all (item password, one-time code secret and notes
+  included). Before these changes the revealed password was still in two dozen places of
+  the heap, and copies of the Secret Key and of both keys on the stack.
+- What this doesn't cover: while the vault is open, the item in use and what the window
+  shows are in memory as they are (wiped when hidden, and at the lock); memory C code
+  allocates for itself is freed but not wiped (the renderer drawing a revealed password,
+  the strings UI Automation hands out, a credential Windows returns); the phone has the
+  wiping allocator and the cleared stack but no key shield and no locked area, so its keys
+  and the Secret Key are in memory as they are while the vault is open (Android doesn't swap
+  memory to disk, and the app locks on leaving it); and nothing keeps memory out of
   the hibernation file: that is why the vault locks, and its keys are wiped, before Windows
   sleeps or hibernates.
 - A custom master-password input that does not leave copies of the string in memory.

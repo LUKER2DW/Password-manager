@@ -682,3 +682,12 @@ Plaintexts are padded before sealing: `u32 LE length ‖ data ‖ zeros`.
 - Intermediate serialization buffers are allocated at their exact final size to avoid
   reallocation copies, and are zeroized.
 - `Debug` output of secret types is redacted.
+- While a vault is open the keys it keeps (vault key, item guard key, the Secret Key and the
+  keyfile's digest it was opened with, a Recovery Key while it is used) are held encrypted
+  by the key shield the program installs (`vault_core::memory::KeyShield`; on Windows
+  `CryptProtectMemory` with `CRYPTPROTECTMEMORY_SAME_PROCESS`, whole 16-byte blocks) and
+  decrypted into a wiped copy only for each use. Hashing a key (a key's checksum, a keyfile's
+  digest, the password slot's KEK) is followed by clearing 64 KiB of the stack below it, where
+  the hash's last block held the key's bytes. Nothing of this reaches the file.
+- Every program's global allocator wipes each heap block before freeing it and never grows
+  one in place (`vault_platform::wiping_alloc`).

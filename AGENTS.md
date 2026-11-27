@@ -91,7 +91,7 @@ filesystem policy** beyond atomic writes.
 | `totp.rs` | RFC 6238 one-time codes, and RFC 4226 counter-based ones (`otpauth://hotp/`) |
 | `storage.rs` | Atomic file writes with a `.bak` copy |
 | `random.rs` | OS randomness |
-| `memory.rs` | Keys in memory: the `KeyShield` a program installs (the vault key and the guard key kept encrypted between uses), and `clear_stack`, called when the vault locks |
+| `memory.rs` | Keys in memory: the `KeyShield` a program installs (the vault key, the guard key, the Secret Key and the keyfile kept encrypted between uses), and `clear_stack`, called after a key is hashed and when the vault locks |
 
 ### 2.2 `crates/platform` (vault-platform)
 
@@ -326,9 +326,11 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
   folders, history, health, generator, import, export, kit, second vault). Slow work runs inline
   there (`Runner::Inline`); dialogs and network are skipped.
 - `apps/desktop/tests/memory.rs` — a running copy of the app (a process of its own, protected
-  as in a release build) opens a vault, shows a guarded item and locks; its whole memory is
-  read from outside and no piece of any secret may be left (UTF-8, UTF-16, 16-byte pieces).
-  Windows only; also a step of its own in CI.
+  as in a release build) opens a vault with a keyfile, shows and hides a guarded item's
+  password and the kit, and locks; its whole memory is read from outside at each step. Keys
+  are never found in the clear, what is on screen only while it is, and after the lock no
+  piece of any secret (UTF-8, UTF-16, 16-byte pieces). Windows only; also a step of its own
+  in CI.
 - `apps/mobile/src/tests.rs` — the phone app headless, including sync against a running server.
 - `apps/server/tests/sync.rs` — two devices through a real server; strangers, replays and
   altered requests refused.
