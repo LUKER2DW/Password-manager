@@ -67,6 +67,32 @@
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- The screen that asks for the fingerprint before a passkey signs in or is made: not
+             exported, so only the pending intents the passkey provider gave Android lead here. -->
+        <activity
+            android:name="org.passwordvault.phone.PasskeyActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- Passkeys for the phone's browsers and apps (Android 14 on): Android binds to it only
+             with its own permission, once the person turns Vault on in the phone's settings
+             (passwords, passkeys and accounts). -->
+        <service
+            android:name="org.passwordvault.phone.VaultCredentialService"
+            android:label="@string/passkey_label"
+            android:icon="@mipmap/ic_launcher"
+            android:exported="true"
+            android:permission="android.permission.BIND_CREDENTIAL_PROVIDER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.credentials.CredentialProviderService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.credentials.provider"
+                android:resource="@xml/credential_provider" />
+        </service>
+
         <!-- The installer's answers: not exported, so only the PendingIntent the installer was
              given leads here. -->
         <receiver

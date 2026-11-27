@@ -1,6 +1,7 @@
 // The phone app's APK: the Java shell (java/), its words and icon (res/), the manifest, and the
 // Rust library cargo builds (build.ps1 puts it in target/android-libs/<abi>/). Gradle is used
-// for packaging only, and for the one library the Java side needs: Google's code scanner.
+// for packaging, and for the two libraries the Java side needs: Google's code scanner and
+// AndroidX Credentials (the passkey provider).
 plugins {
     id 'com.android.application' version '9.5.2'
 }
@@ -89,4 +90,7 @@ dependencies {
     // Google's QR code scanner, run by Play services: it shows its own camera screen and hands
     // back only the code's text, so the app needs no camera permission.
     implementation 'com.google.android.gms:play-services-code-scanner:16.1.0'
+    // Android's Credential Manager, provider side: the entries and answers of passkeys in the
+    // layout the system's account picker reads (VaultCredentialService, PasskeyActivity).
+    implementation 'androidx.credentials:credentials:1.5.0'
 }

@@ -12,6 +12,7 @@ use slint::ComponentHandle;
 use vault_mobile::{Controller, ui::PhoneWindow};
 
 mod autofill;
+mod passkeys;
 mod scan;
 mod shell;
 mod system;

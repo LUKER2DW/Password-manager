@@ -12,4 +12,13 @@
     <string name="autofill_not_saved">O Vault não conseguiu salvar este login. Abra o Vault e tente de novo.</string>
     <string name="autofill_saved_beside">Salvo como um login novo: o que você tem está atrás da trava de itens e fica como está.</string>
     <string name="autofill_no_lock">Defina um bloqueio de tela no celular para preencher com o Vault: cada preenchimento pede ele.</string>
+    <string name="passkey_label">Vault</string>
+    <string name="passkey_account">Vault</string>
+    <string name="passkey_create_detail">Guardada no seu cofre e sincronizada com ele</string>
+    <string name="passkey_unlock">Desbloquear o Vault para usar as passkeys</string>
+    <string name="passkey_title_get">Entrar com uma passkey do Vault</string>
+    <string name="passkey_title_create">Salvar uma passkey no Vault</string>
+    <string name="passkey_open_app">Desbloqueie o Vault e tente de novo.</string>
+    <string name="passkey_not_saved">O Vault não conseguiu salvar esta passkey. Abra o Vault e tente de novo.</string>
+    <string name="passkey_exists">Esta conta já tem uma passkey no Vault.</string>
 </resources>

@@ -29,7 +29,7 @@ use crate::shell::{CONTROLLER, bytes, string};
 /// How long a question to the running app may take.
 const WAIT: Duration = Duration::from_secs(2);
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
@@ -37,7 +37,7 @@ fn now() -> i64 {
 
 /// Asks the running app (on its UI thread) and waits for the answer; `None` when the app isn't
 /// running, its vault is locked, or it doesn't answer in time.
-fn ask_app<T: Send + 'static>(
+pub(crate) fn ask_app<T: Send + 'static>(
     ask: impl FnOnce(&Controller) -> Option<T> + Send + 'static,
 ) -> Option<T> {
     let (answer, answered) = mpsc::channel();
@@ -52,7 +52,7 @@ fn ask_app<T: Send + 'static>(
 }
 
 /// A Java `String[]` of `items`, or null.
-fn strings(env: &mut JNIEnv, items: &[&str]) -> jobjectArray {
+pub(crate) fn strings(env: &mut JNIEnv, items: &[&str]) -> jobjectArray {
     let made = (|| -> jni::errors::Result<jobjectArray> {
         let length = i32::try_from(items.len()).unwrap_or(i32::MAX);
         let array = env.new_object_array(length, "java/lang/String", JObject::null())?;
@@ -66,7 +66,7 @@ fn strings(env: &mut JNIEnv, items: &[&str]) -> jobjectArray {
     made.unwrap_or(ptr::null_mut())
 }
 
-fn text(env: &mut JNIEnv, value: &str) -> jstring {
+pub(crate) fn text(env: &mut JNIEnv, value: &str) -> jstring {
     env.new_string(value)
         .map_or(ptr::null_mut(), JString::into_raw)
 }
