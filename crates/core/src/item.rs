@@ -1084,6 +1084,10 @@ pub struct ItemSummary {
     /// How many files are attached (0 while the item is locked).
     #[zeroize(skip)]
     pub attachments: usize,
+    /// How many passkeys it keeps (counted while the item is locked too: only their keys are
+    /// sealed).
+    #[zeroize(skip)]
+    pub passkeys: usize,
 }
 
 impl ItemSummary {
@@ -1131,6 +1135,7 @@ impl ItemSummary {
             has_password,
             card_brand,
             attachments: data.attachments.len(),
+            passkeys: data.passkeys.len(),
         }
     }
 }
