@@ -137,6 +137,9 @@ pub struct SyncPlace {
 pub struct Settings {
     /// Lock after this many minutes without interaction.
     pub auto_lock_minutes: u32,
+    /// Lock when Windows locks the session, switches user, signs out, sleeps or hibernates.
+    /// On by default.
+    pub lock_with_windows: bool,
     /// Seconds before a copied secret is cleared from the clipboard.
     pub clipboard_clear_seconds: u32,
     /// Desktop app appearance; dark is the default.
@@ -181,6 +184,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             auto_lock_minutes: DEFAULT_AUTO_LOCK_MINUTES,
+            lock_with_windows: true,
             clipboard_clear_seconds: 20,
             dark_theme: true,
             website_icons: false,

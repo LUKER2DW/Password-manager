@@ -28,6 +28,7 @@ mod registry;
 pub mod screen;
 pub mod secret_store;
 pub mod secure_buffer;
+pub mod session_watch;
 pub mod single_instance;
 pub mod sync;
 pub mod updates;
