@@ -1,7 +1,7 @@
 //! What only Android does, for the controller (`vault_mobile::System`), through the activity
 //! (`java/org/passwordvault/phone/VaultActivity.java` and `Biometrics.java`): fingerprint
-//! unlock, keeping the app out of screenshots, Android's autofill settings, installing an
-//! update. Answers that need the person come back to the native methods at the end of this
+//! unlock, the check before each use of a secret, keeping the app out of screenshots,
+//! Android's autofill settings, installing an update. Answers that need the person come back to the native methods at the end of this
 //! file, and go on to the controller on the UI thread.
 
 use jni::{
@@ -88,6 +88,36 @@ impl System for AndroidSystem {
         words: &PromptWords,
     ) -> Result<(), String> {
         self.prompt("openWithBiometrics", vault_id, sealed, words)
+    }
+
+    /// The phone's screen lock, asked of Android each time: when it can't tell, there is
+    /// none (the app then asks what it can instead, or shows nothing).
+    fn checks_person(&self) -> Option<bool> {
+        Some(
+            with_activity(|env, activity| {
+                env.call_method(activity, "screenLockSet", "()Z", &[])?.z()
+            })
+            .unwrap_or(false),
+        )
+    }
+
+    fn check_person(&self, words: &PromptWords) -> Result<(), String> {
+        with_activity(|env, activity| {
+            let title = env.new_string(&words.title)?;
+            let detail = env.new_string(&words.detail)?;
+            let cancel = env.new_string(&words.cancel)?;
+            env.call_method(
+                activity,
+                "confirmPerson",
+                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+                &[
+                    JValue::Object(&title),
+                    JValue::Object(&detail),
+                    JValue::Object(&cancel),
+                ],
+            )
+            .map(|_| ())
+        })
     }
 
     fn forget_biometrics(&self, vault_id: &str) {
@@ -254,7 +284,8 @@ fn draw_pdf(
     Ok(Some(PdfPages { total, pages }))
 }
 
-/// `VaultActivity.bioDone`: what a fingerprint prompt sealed (1) or opened (2), or why not.
+/// `VaultActivity.bioDone`: what a fingerprint prompt sealed (1) or opened (2), that the
+/// person passed the check before one use of a secret (3), or why not.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_passwordvault_phone_VaultActivity_bioDone<'local>(
@@ -271,6 +302,7 @@ pub extern "system" fn Java_org_passwordvault_phone_VaultActivity_bioDone<'local
         match purpose {
             1 => controller.biometric_sealed(answer.map(|d| d.to_vec())),
             2 => controller.biometric_opened(answer),
+            3 => controller.person_checked(answer.map(|_| ())),
             _ => {}
         }
     });

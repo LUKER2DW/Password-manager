@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package org.passwordvault.phone;
 
+import android.app.KeyguardManager;
 import android.app.NativeActivity;
 import android.content.Intent;
 import android.content.pm.PackageInstaller;
@@ -26,9 +27,10 @@ import java.util.Locale;
 /**
  * The app's activity: Android's NativeActivity, which runs the app (a Rust library, see
  * apps/mobile-android/src/lib.rs), plus what native code can't do on its own: the system's file
- * picker and "save as", Google's code scanner for a QR code, fingerprint unlock (Biometrics),
- * keeping the screens out of screenshots, Android's autofill settings, installing an update, and
- * telling the app when it leaves the screen and comes back.
+ * picker and "save as", Google's code scanner for a QR code, fingerprint unlock (Biometrics) and
+ * the check before each use of a secret, keeping the screens out of screenshots, Android's
+ * autofill settings, installing an update, and telling the app when it leaves the screen and
+ * comes back.
  *
  * Files are read and written here, through the content resolver, off the main thread; what was
  * read (or read back after saving) goes to the app as bytes. Nothing here sees a password or the
@@ -49,6 +51,8 @@ public class VaultActivity extends NativeActivity {
     private static final int MAX = 64 * 1024 * 1024;
     private static final int SEALED = 1;
     private static final int OPENED = 2;
+    /** {@link #bioDone}: the person passed the check before one use of a secret. */
+    private static final int CONFIRMED = 3;
 
     private byte[] pendingSave;
     /** A system prompt (the phone's unlock) is on screen, or waits for the window's focus. */
@@ -221,6 +225,27 @@ public class VaultActivity extends NativeActivity {
                         Arrays.fill(data, (byte) 0);
                     }
                 }));
+    }
+
+    // ---- every use asks ----
+
+    /** The phone has a screen lock (PIN, pattern or password), so Android can check the person. */
+    public boolean screenLockSet() {
+        KeyguardManager keyguard = getSystemService(KeyguardManager.class);
+        return keyguard != null && keyguard.isDeviceSecure();
+    }
+
+    /**
+     * Asks for a strong biometric or the screen lock before one use of a secret (Settings, "Ask
+     * for the fingerprint or screen lock every time"): the system's own prompt, as before every
+     * autofill. The answer comes to {@link #bioDone}: an empty array once passed, else "" when
+     * cancelled, "no_lock" when the phone has no screen lock, or what went wrong.
+     */
+    public void confirmPerson(String title, String subtitle, String cancel) {
+        whenShown(() -> Biometrics.confirm(this, title, subtitle, cancel, (data, error) -> {
+            prompting = false;
+            bioDone(CONFIRMED, data, error);
+        }));
     }
 
     /**
@@ -481,7 +506,7 @@ public class VaultActivity extends NativeActivity {
     /** A copy was saved at {@code uri} and read back ({@code readBack}), or not. */
     private static native void saved(String uri, String name, byte[] readBack, String error);
 
-    /** A fingerprint prompt's answer: what was sealed or opened, or why not. */
+    /** A fingerprint prompt's answer: what was sealed or opened (or confirmed), or why not. */
     private static native void bioDone(int purpose, byte[] data, String error);
 
     /** The app left the screen (not for one of its own system screens). */
