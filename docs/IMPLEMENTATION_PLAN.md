@@ -273,11 +273,20 @@ Rules:
   `navigator.credentials` (top frame, HTTPS), the person chooses in the extension's own window,
   the app makes the passkey (ES256) in the login for that site and username, or signs in with
   one; the site check uses the Public Suffix List. A site with no passkey in Vault, a closed
-  app, a security key or the field's autofill list (conditional mediation) go to the browser.
-  Listed on the item page, taken out in the editor (desktop); listed on the phone
-- ⬜ Passkeys in the field's autofill list (conditional mediation), and from the phone (Android's
-  Credential Manager); passkeys in imports and exports
-- ⬜ Firefox
+  app or a security key go to the browser. Listed on the item page, taken out in the editor
+  (desktop); listed on the phone; a Passkeys tab (desktop) and filter (phone) list every item
+  that keeps one
+- ✅ Passkeys in the field's autofill list (conditional mediation): the site's request waits
+  in the page, the card under a sign-in field lists the vault's passkeys for the site above
+  the logins, a pick signs through the same checks as the passkey window; no passkey for the
+  site or a locked vault leave the browser's list. ⬜ checked by hand in a browser
+- ✅ Passkeys from the phone (M7.5); passkeys and attached files in the protected export
+- ✅ Firefox 153+ from the same folder (`background.scripts` beside the service worker, a
+  gecko id; the desktop registers a Firefox host manifest with `allowed_extensions` and starts
+  as the host from Firefox's arguments). No card in pages there (no IntersectionObserver v2
+  to confirm a click was on an uncovered frame): fill and save from the extension's window,
+  the toolbar button marks a login waiting to be saved. ⬜ checked by hand; ⬜ a signed `.xpi`
+  in the release (Mozilla signs unlisted add-ons; until then a temporary add-on)
 - ⬜ Installer that puts the app and the host side by side; store listing
 - **Done when:** fills logins on Chromium with confirmation; clickjacking test page fails to leak.
 
@@ -485,7 +494,15 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   back, "New login with it", the history of copied passwords (sealed, masked, used ones hidden)
 - ✅ M7.4 Autofill Service (exact site or app, a fingerprint or the phone's lock before every
   fill, a strong password suggested, "Save to Vault?" with a drop box while locked);
-  ⬜ tried on a device; ⬜ M7.5 Credential Manager provider (passwords, passkeys)
+  ⬜ tried on a device
+- ✅ M7.5 Passkeys through the Credential Manager (Android 14+, `VaultCredentialService`,
+  `PasskeyActivity`, `vault_mobile::passkeys`): sign-in and new passkeys for the browsers
+  known by their release certificates (the page's origin, given by Android to the browsers
+  listed as privileged) and for apps (their own `android:apk-key-hash:` origin), after a
+  fingerprint or the phone's lock; with the vault locked, fingerprint unlock opens the file
+  for the request (the passkeys read stay ready for a minute, for that caller only; a passkey
+  made is written back only over the very file read). ⬜ tried on a device; ⬜ passwords
+  through the Credential Manager (autofill serves them)
 - ✅ Updates of the app from the project's releases on GitHub (the default) or the person's own
   server (`vault-server publish-app`, or the server following the releases), checked against
   the release, installed by Android only when signed like the app; looked for every hour

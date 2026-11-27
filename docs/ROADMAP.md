@@ -11,7 +11,7 @@
 | App | State |
 |---|---|
 | Desktop (Windows) | ✅ Alpha: every feature below, in English and (in part) Brazilian Portuguese |
-| Browser extension (Chrome, Edge) | ✅ Alpha: loaded unpacked; not in a store yet |
+| Browser extension (Chrome, Edge, Firefox) | ✅ Alpha: loaded unpacked (a temporary add-on in Firefox); not in a store yet |
 | Android | ✅ Alpha: an APK you build and install yourself; updates from your own server |
 | Sync server | ✅ Alpha: Docker, behind Tailscale or with its own HTTPS |
 | CLI (`vault`) | 🚧 Works for the basics, behind the apps (see Phase 1) |
@@ -54,8 +54,9 @@
 - ✅ Chromium (Chrome, Edge) with Native Messaging to the desktop app
 - ✅ Filling chosen in the extension's own frame, strict origin matching, pairing
 - ✅ Offer to save and update logins; one-time codes; fill while locked with Windows Hello
-- ✅ Passkeys kept in the vault, made and used by the app
-- ⬜ Firefox, store listings
+- ✅ Passkeys kept in the vault, made and used by the app, also from the field's suggestions
+- ✅ Firefox 153+ (filling from the extension's window, no card in pages); ⬜ signed for
+  Firefox, store listings
 
 ## Phase 4: Sync ([design](spec/SYNC.md)) ✅
 - ✅ Merge in the core (tombstones, per-device writer, unlock and guard revisions)
@@ -72,7 +73,8 @@
 - ✅ Fingerprint unlock (Class 3, StrongBox where the phone has it), Autofill Service,
   screenshots and the recent apps view kept out, updates from the person's own server
 - 🚧 Parity with the desktop (custom fields, nested folders shown as a tree)
-- ⬜ Credential Manager provider (passwords and passkeys in other apps)
+- ✅ Passkeys in the phone's browsers and apps (Credential Manager, Android 14+); ⬜ passwords
+  through it (autofill serves them)
 
 ## Phase 6: Advanced features ⬜
 - **Linux.** The core, import, sync and the server are written without Windows in mind,

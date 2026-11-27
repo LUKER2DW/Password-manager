@@ -16,7 +16,7 @@ A local-first, zero-knowledge password manager written in Rust.
   project's own small server that the person runs; never a hosted service.
 - **Zero-knowledge.** The vault key depends on the master password *and* a 128-bit Secret Key
   that is never stored in the vault file. A stolen file alone is useless.
-- **Platforms:** Windows desktop, the Chrome/Edge extension and Android (alpha),
+- **Platforms:** Windows desktop, the browser extension (Chrome, Edge, Firefox) and Android (alpha),
   Linux (later).
 - **Status:** alpha: usable, not audited yet. Never test with real passwords; the CLI is
   unfinished and Linux unsupported ([docs/ROADMAP.md](docs/ROADMAP.md)).
@@ -38,7 +38,7 @@ apps/
   mobile-android/       vault-mobile-android: the phone app as an APK (cargo + Gradle, Java activity)
   mobile-web/           vault-mobile-web: the phone app in a browser page (WebAssembly), demo vault
   server/               vault-server: the self-hosted sync server (AGPL-3.0), Docker files
-  extension/            the Chrome/Edge extension (Manifest V3, plain JavaScript)
+  extension/            the browser extension (Manifest V3, plain JavaScript; Chrome, Edge, Firefox)
 crates/
   core/                 vault-core: cryptography, file format, item model (no UI, no network)
   platform/             vault-platform: OS integration (Windows first, Android)
@@ -208,22 +208,27 @@ the phone, updates from the server), `settings.rs` (vaults on the phone, fingerp
 import, "Check this password"), `filling.rs` (autofill from the open vault),
 `attachments.rs` (files and SSH keys), `preview.rs` (previews of attached pictures, text and
 PDFs), `icons.rs` (website icons and the preset `glyph:` icons), `folders.rs`, `health.rs`
-(password health) and `generated.rs` (the generator's sealed history). `prefs.rs` is the
+(password health), `generated.rs` (the generator's sealed history) and `passkeys.rs` (passkeys
+for other apps from the open vault). `prefs.rs` is the
 phone's own settings file, `bio.rs` a vault's fingerprint unlock file, `autofill.rs` which
-logins belong to the app or site asking (and the drop box for logins saved while locked), and
+logins belong to the app or site asking (and the drop box for logins saved while locked),
+`passkeys.rs` which passkeys answer a browser's page or an app through Android's Credential
+Manager and what they answer, and
 `system.rs` the `System` trait: what only Android does, implemented by the Android crate. The controller reaches the system only through
 `src/platform.rs` (the platform crate, or `src/platform/web.rs` in a browser), so the same
 code also runs as the web preview in `apps/mobile-web` (build: `apps/mobile-web/build.ps1`).
 
 `apps/mobile-android` is the APK: `src/lib.rs` starts Slint's Android backend with the same
 screens, `src/shell.rs` talks to the activity over JNI, `src/system.rs` is the `System` the
-controller asks, and `src/autofill.rs` answers autofill. The Java side is in
+controller asks, `src/autofill.rs` answers autofill and `src/passkeys.rs` the passkey
+provider. The Java side is in
 `java/org/passwordvault/phone/`: `VaultActivity` (Android's `NativeActivity` plus the file
 picker, "save as", Back, screenshots, updates), `Biometrics` (the Keystore key behind the
 fingerprint), `VaultAutofillService`, `AutofillActivity`, `Autofill`, `Fields` and `Place`
-(autofill, and who would receive a login), `PdfPreview` and `Wipe` (previews of attached PDFs),
-`Updates` and `InstallReceiver` (updates). `res/` holds
-the launcher icon and autofill's own words and layout. Build:
+(autofill, and who would receive a login), `VaultCredentialService`, `PasskeyActivity` and
+`Passkeys` (passkeys through the Credential Manager, Android 14+), `PdfPreview` and `Wipe`
+(previews of attached PDFs), `Updates` and `InstallReceiver` (updates). `res/` holds
+the launcher icon and the words and layouts of autofill and the passkey provider. Build:
 `apps/mobile-android/build.ps1` (docs/MOBILE.md §7.2).
 
 ### 2.7 `crates/sync-wire` and `apps/server`

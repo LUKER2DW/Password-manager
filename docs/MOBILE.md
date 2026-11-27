@@ -143,7 +143,7 @@ thumb (bottom of the form, not the top bar), nothing that needs hover.
 | M7.2 | **Phone storage** — Keystore-backed Secret Key, app-private vault path, the system file picker and "open with" for `.vault` files (§6.3), `FLAG_SECURE`, sensitive clipboard | ✅ a vault made on Windows opens on the phone; ✅ `FLAG_SECURE`; ⬜ "open with" |
 | M7.3 | **Biometrics** — Class 3 prompt, key invalidated when biometrics change; an app lock | ✅ built (CRYPTO.md §3.1.1); ⬜ tried on a device |
 | M7.4 | **Autofill** — `AutofillService` with app and origin matching, save prompt | ✅ built: offers, a confirmation on every fill, "Save to Vault?", a strong password suggested; ⬜ tried on a device |
-| M7.5 | **Passkeys and Credential Manager** (Android 14+) | ⬜ Depends on passkeys in the core |
+| M7.5 | **Passkeys and Credential Manager** (Android 14+) | ✅ built: sign-in and new passkeys for browsers and apps, a fingerprint or the phone's lock first, the vault file opened with the fingerprint while locked (THREAT_MODEL.md); ⬜ tried on a device |
 | M7.6 | **Sync** with the self-hosted server or WebDAV (M6) | ✅ The same vault on both devices without copying a file |
 | M7.7 | Cards, authenticator items (time- and counter-based), SSH keys, files and their previews, folders, password health, import and export, the generator's history, Brazilian Portuguese (✅); custom fields (⬜) | Parity with what the desktop edits |
 

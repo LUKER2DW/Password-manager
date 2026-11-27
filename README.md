@@ -24,14 +24,15 @@ is optional and only ever moves sealed copies.
   managers, encrypted and plain exports, an item lock (a PIN or second password before
   secrets show), Windows Hello, an optional keyfile, and a printable emergency kit with three
   recovery parts.
-- **Browser extension (Chrome, Edge):** fills logins and one-time codes from the desktop app
+- **Browser extension (Chrome, Edge, Firefox):** fills logins and one-time codes from the desktop app
   and offers to save new ones, in place of the browser's own offer, and keeps passkeys in the
   vault (made and used by the app, after you choose in the extension's own window). It holds no
   passwords or keys of its own.
 - **Android app:** opens the vault made on the computer and edits the same items;
   codes, generator, sync, attached files, several vaults, fingerprint unlock, autofill into
-  other apps and browsers (a fingerprint or the phone's lock before every fill), the leak
-  watch, and updates from your own server.
+  other apps and browsers (a fingerprint or the phone's lock before every fill), the vault's
+  passkeys in the phone's browsers and apps (Android 14+), the leak watch, and updates from
+  GitHub or your own server.
 - **CLI (unfinished):** the same vault from a terminal (`vault`): items, generator, codes,
   recovery, import and sync; SSH keys, files, export and health are still only in the apps.
 - **Sync (optional):** through a folder, a WebDAV host or a small server you run yourself
@@ -40,7 +41,7 @@ is optional and only ever moves sealed copies.
 
 ## Platforms
 
-Windows 10 and 11 for the desktop app and the CLI, Chrome and Edge for the extension,
+Windows 10 and 11 for the desktop app and the CLI, Chrome, Edge and Firefox for the extension,
 Android 9 and later for the phone, and any machine that runs Docker for the server. Linux is
 planned and not supported yet (the server aside); macOS comes after it.
 
@@ -54,7 +55,7 @@ planned and not supported yet (the server aside); macOS comes after it.
 | [`apps/mobile`](apps/mobile) | The phone app's screens and controller (Slint), see [docs/MOBILE.md](docs/MOBILE.md) |
 | [`apps/mobile-android`](apps/mobile-android) | The phone app as an Android APK |
 | [`apps/mobile-web`](apps/mobile-web) | The phone app in a web page (WebAssembly), with a demo vault |
-| [`apps/extension`](apps/extension) | The Chrome/Edge extension (plain JavaScript); see its [README](apps/extension/README.md) |
+| [`apps/extension`](apps/extension) | The browser extension for Chrome, Edge and Firefox (plain JavaScript); see its [README](apps/extension/README.md) |
 | [`apps/cli`](apps/cli) | The `vault` command-line client |
 | [`apps/server`](apps/server) | The self-hosted sync server; setup in [docs/SERVER.md](docs/SERVER.md) |
 | [`crates/core`](crates/core) | Cryptography, the vault file format, items, merge, generator, TOTP, health (no UI, no network) |

@@ -69,7 +69,9 @@ libraries mitigate.
   any page until its button is clicked; logins are offered only for the exact https origin
   saved in them and chosen in the extension's own window, so a page has nothing to click on
   your behalf. Only an extension you connected (a code you allow in the app) is answered, and
-  logins behind the item lock ask for Windows Hello or the PIN on every fill. Not a defence against malware already running as your Windows user while the
+  logins behind the item lock ask for Windows Hello or the PIN on every fill. In Firefox, which
+  can't tell the extension whether something covers its frame in a page, nothing is drawn
+  inside pages: logins are filled and saved from the extension's own window. Not a defence against malware already running as your Windows user while the
   vault is open (see the threat model).
 - **Password hashing:** Argon2id by default. scrypt and PBKDF2-SHA-256 can be chosen and are
   weaker; the app says so where they are offered.

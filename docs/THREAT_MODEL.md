@@ -171,6 +171,35 @@ On top of that:
   something stands in front of `navigator.credentials` (that Vault is installed), as it can
   with other password managers. Residual risk: a site with an XSS flaw can ask for its own
   passkey, as it could from the browser's own passkeys, but still needs the person's click.
+  A page's request for a field's suggestions (`mediation: "conditional"`) opens no window:
+  Vault takes it only when it has a passkey for that site (the app lists it, as for the
+  window), and the request then waits in the document that asked. The
+  passkeys are listed in the frame under a sign-in field, which is the frame above, with its
+  click check: names only, never a key. A pick there is signed by the same path as a pick in
+  the window (the app checks the site; the very document that asked must still wait for that
+  request, before the app signs and again before the answer goes back, and the answer goes to
+  that document alone, by the browser's id for it); a login behind the item lock needs Windows
+  Hello or the PIN typed in the extension's window. The page aborting, leaving, asking for
+  another passkey, or passkeys turned off end the request. What this adds: a clickjacked pick
+  (one the frame's check didn't catch) signs in to the page that asked with the person's
+  passkey, as a clickjacked fill types a password into it; such a page could already ask for
+  the passkey in the window. Since the background worker may be stopped while a page waits,
+  the document tells it the request again when a field is focused; a request named that way
+  but that the document doesn't hold is never answered (the document is asked first).
+- **Firefox**: the same extension and host. Firefox doesn't report whether
+  a frame in a page is covered (no IntersectionObserver v2), so there the extension draws
+  nothing inside pages (no card under fields, no save card): filling and saving happen in the
+  extension's own window, and the toolbar button marks a login waiting to be saved. A page
+  therefore has nothing of Vault's to cover or click in Firefox, and never learns the
+  extension's per-install address (`moz-extension://…`, which a frame's address would show
+  and which could serve to recognise the browser). Passkeys go through the window as in
+  Chrome; a field's suggestions stay Firefox's own. Firefox starts the host with the path of
+  its manifest and the extension's add-on id, which the host's manifest for Firefox
+  (`allowed_extensions`) names alone. That id, like the Chrome id fixed by the manifest's
+  public key, is no secret: a temporary add-on loaded in `about:debugging` (someone at the
+  keyboard, or a program already running as the user) can claim it, as an unpacked copy can
+  claim the Chrome id. It then still has to be connected in the app (the code and the master
+  password), which is what the app checks on every request.
 - **What a page sends when a form is submitted**: the content script reads the typed username
   and password (in the extension's isolated world) and passes them to the background worker,
   which keeps them in `chrome.storage.session` (memory only, closed to content scripts) for
@@ -203,6 +232,20 @@ On top of that:
   and a clock moved back counts as too long ago); guesses are rate-limited by the phone's secure hardware, but a 4-digit
   PIN is weaker than a master password. It is the person's choice in Settings, Security, and
   the master password always works.
+- **Passkeys on the phone** (Android 14+, once the person turns Vault on as a passkey
+  provider in the phone's settings): Android's Credential Manager asks the app, and the app
+  answers only after a fingerprint or the phone's lock. A web page's origin counts only when
+  Android vouches for it to a browser this app lists by its release certificate (the same list
+  autofill trusts); the site a passkey is used or made for must then be that page's host or a
+  domain above it that isn't a public suffix, as in a browser. Any other app answers for
+  itself: the signed client data names the app's own origin (`android:apk-key-hash:` and its
+  certificate), which the site checks against the apps it trusts, so an app that asks for
+  another site's passkey gets an answer that site refuses. Residual risk: a site that doesn't
+  check the origin of an answer (a broken site) would take such an answer; Digital Asset Links
+  can't be checked offline. With the vault locked, the fingerprint opens the vault file for
+  that one request: the passkeys it finds stay in the app's memory for a minute at most, for
+  that caller only, and a passkey made then is written into the vault file only if the file is
+  still the one read. Passkeys behind the item lock are never offered.
 - **Previews of attached files on the phone**: pictures and text are decoded in the app's own
   memory. A PDF is drawn by Android's renderer, which needs a file: the decrypted PDF sits in
   the app's private cache (closed to other apps) while its pages are drawn, then is overwritten

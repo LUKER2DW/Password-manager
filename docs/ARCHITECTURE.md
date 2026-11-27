@@ -147,8 +147,10 @@ with HPKE and a hybrid X25519 + ML-KEM-768 KEM against "harvest now, decrypt lat
   window and counted with the app's wrong tries.
 - A login is used on more sites only by choice: every website saved in it counts, and
   `*.example.com` covers that site and everything under it.
-- On Android (planned): Autofill Service + Credential Manager (`CredentialProviderService`,
-  Android 14+), validating the app package and signature (defence against AutoSpill).
+- On Android: the Autofill Service for logins and the Credential Manager for passkeys
+  (`CredentialProviderService`, Android 14+), both validating the app's package and signing
+  certificate (defence against AutoSpill), and a web page's origin only from a browser known
+  by its release certificate.
 
 ## 6. Sync
 
@@ -196,8 +198,8 @@ Rust gives us is **control**: short lifetimes, no hidden copies, explicit zeroiz
 - Android: Slint's Android backend from Rust, with a small Java activity
   (`apps/mobile-android/java`) for what native code can't reach alone (the file picker,
   "save as", Back). Secret fields use the system keyboard through an unseen input that only
-  ever holds stand-ins (MOBILE.md §6.1, §7.2). Autofill, Credential Manager and
-  BiometricPrompt will be Android services in the same shell, calling the same Rust core.
+  ever holds stand-ins (MOBILE.md §6.1, §7.2). Autofill, the Credential Manager and
+  BiometricPrompt are Android services in the same shell, calling the same Rust core.
 
 ### Alternatives kept on file
 
