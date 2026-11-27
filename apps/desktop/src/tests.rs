@@ -35,6 +35,19 @@ mod renew;
 /// What the review of the audit fixes found, each on a vault of its own.
 mod review;
 
+/// Every label and value the window's accessibility tree gives out as it is now: what a screen
+/// reader reads, and any program of this user asking UI Automation.
+fn accessible_texts(app: &AppWindow) -> Vec<String> {
+    i_slint_backend_testing::ElementQuery::from_root(app)
+        .match_descendants()
+        .find_all()
+        .into_iter()
+        .flat_map(|element| [element.accessible_label(), element.accessible_value()])
+        .flatten()
+        .map(|text| text.to_string())
+        .collect()
+}
+
 fn type_into(app: &AppWindow, field: i32, text: &str) {
     let secrets = app.global::<Secrets>();
     secrets.invoke_clear(field);
@@ -213,6 +226,23 @@ fn whole_app_flow_headless() {
 
     app.invoke_reveal();
     assert_eq!(app.get_revealed_password(), "gh-item-pass");
+    // Drawn on screen, but not in what any program of this user reads through UI Automation:
+    // neither the password nor the one-time code.
+    let exposed = accessible_texts(&app);
+    assert!(
+        exposed.iter().all(|text| !text.contains("gh-item-pass")),
+        "{exposed:?}"
+    );
+    let code: String = app
+        .get_totp_code()
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect();
+    assert!(
+        exposed
+            .iter()
+            .all(|text| !text.replace(' ', "").contains(&code))
+    );
     app.invoke_conceal();
     assert_eq!(app.get_revealed_password(), "");
 
@@ -593,6 +623,26 @@ fn whole_app_flow_headless() {
             .as_millis() as u64
             * vault_browser::pairing::COUNTER_SCALE,
     );
+    // The extension seals each request and reads only the answer sealed to it (pairing.rs);
+    // only "not connected" and its like come plain.
+    let sealed = |key: &[u8], message: &str| {
+        counter.set(counter.get() + 1);
+        let key = vault_browser::pairing::PairingKey::from_bytes(key).unwrap();
+        let (request, nonce) = key.seal_request(counter.get(), message.as_bytes()).unwrap();
+        assert!(!request.contains("github"), "nothing readable on the way");
+        let answer = raw(&request);
+        match key.open_answer(counter.get(), &nonce, answer.as_bytes()) {
+            Some(text) => text.to_string(),
+            None => {
+                assert!(
+                    !answer.contains(r#""type":"sealed""#),
+                    "an answer that doesn't open: {answer}"
+                );
+                answer
+            }
+        }
+    };
+    // An extension older than sealed requests signs them, and is answered plain.
     let signed = |key: &[u8], message: &str| {
         use hmac::{Hmac, KeyInit, Mac};
         counter.set(counter.get() + 1);
@@ -613,10 +663,8 @@ fn whole_app_flow_headless() {
     };
     let logins_request = r#"{"type":"logins","url":"https://github.com/login"}"#;
     assert!(raw(logins_request).contains("bad_request"));
+    assert!(sealed(&[9u8; 32], logins_request).contains("not_paired"));
     assert!(signed(&[9u8; 32], logins_request).contains("not_paired"));
-    // The extension asks to connect: the app waits for the person to type the code the
-    // extension shows (the app itself never shows it).
-    let pairing = raw(r#"{"type":"pair"}"#);
     let field = |json: &str, name: &str| {
         json.split(&format!(r#""{name}":""#))
             .nth(1)
@@ -624,24 +672,63 @@ fn whole_app_flow_headless() {
             .unwrap()
             .to_owned()
     };
-    let key: Vec<u8> = (0..32)
-        .map(|i| u8::from_str_radix(&field(&pairing, "key")[2 * i..2 * i + 2], 16).unwrap())
-        .collect();
-    assert_eq!(app.get_pairing_code(), field(&pairing, "code").as_str());
+    // The extension asks to connect: the two agree on a key without sending it, and the app
+    // waits for the person to type the code the extension shows (the app itself never shows
+    // it).
+    let connect = || {
+        let extension = vault_browser::pairing::Joiner::new().unwrap();
+        let offer = raw(&format!(
+            r#"{{"type":"pair","commit":"{}"}}"#,
+            extension.commit_hex()
+        ));
+        let agreed = extension
+            .finish(&field(&offer, "key"))
+            .expect("the app's public key");
+        let waiting = raw(&format!(
+            r#"{{"type":"pair_key","key":"{}"}}"#,
+            extension.public_hex()
+        ));
+        assert_eq!(waiting, r#"{"type":"pair_wait"}"#);
+        agreed
+    };
+    // A key other than the one committed to is refused, and spends the offer.
+    let committed = vault_browser::pairing::Joiner::new().unwrap();
+    raw(&format!(
+        r#"{{"type":"pair","commit":"{}"}}"#,
+        committed.commit_hex()
+    ));
+    let stranger = vault_browser::pairing::Joiner::new().unwrap();
+    for joiner in [&stranger, &committed] {
+        assert!(
+            raw(&format!(
+                r#"{{"type":"pair_key","key":"{}"}}"#,
+                joiner.public_hex()
+            ))
+            .contains("bad_request")
+        );
+    }
+    assert_eq!(app.get_pairing_code(), "", "nothing waits for the person");
+    let pairing = connect();
+    let key = pairing.key.as_bytes().to_vec();
+    // The app shows the same code as the extension, to compare.
+    assert_eq!(app.get_pairing_code(), pairing.code.as_str());
+    assert!(app.get_pairing_compare());
+    assert_eq!(app.get_error_code(), 0);
     assert_eq!(app.get_pairing_typed(), "");
     assert!(
-        signed(&key, logins_request).contains("not_paired"),
+        sealed(&key, logins_request).contains("not_paired"),
         "the key opens nothing until it is allowed in the app"
     );
     app.invoke_pairing_decided(false);
     assert_eq!(app.get_pairing_code(), "");
     assert!(
-        signed(&key, logins_request).contains("not_paired"),
+        sealed(&key, logins_request).contains("not_paired"),
         "refused"
     );
     // Another request to connect while the first one's master password is being checked:
     // neither key is stored (the approved one was replaced), and the newer request's own
-    // code is asked for.
+    // code is asked for. (An extension older than the key agreement asks: it is handed the
+    // key, with the code that follows from it.)
     let key_of = |reply: &str| -> Vec<u8> {
         (0..32)
             .map(|i| u8::from_str_radix(&field(reply, "key")[2 * i..2 * i + 2], 16).unwrap())
@@ -649,30 +736,37 @@ fn whole_app_flow_headless() {
     };
     let first = raw(r#"{"type":"pair"}"#);
     let second = controller.pair_again_while_checking();
-    assert!(signed(&key_of(&first), logins_request).contains("not_paired"));
-    assert!(signed(&key_of(&second), logins_request).contains("not_paired"));
+    assert!(sealed(&key_of(&first), logins_request).contains("not_paired"));
+    assert!(sealed(&key_of(&second), logins_request).contains("not_paired"));
     assert_eq!(app.get_pairing_code(), field(&second, "code").as_str());
+    assert!(
+        !app.get_pairing_compare(),
+        "a key handed over: its code is typed"
+    );
     assert_eq!(app.get_error_code(), 43);
     assert!(!app.get_browser_paired());
-    app.invoke_pairing_decided(false);
-    let pairing = raw(r#"{"type":"pair"}"#);
-    let key: Vec<u8> = (0..32)
-        .map(|i| u8::from_str_radix(&field(&pairing, "key")[2 * i..2 * i + 2], 16).unwrap())
-        .collect();
-    // Connecting takes the code from the extension's window, then the master password.
-    assert!(app.get_pairing_needs_password());
+    // Such a code must be the one typed, with or without the space.
     type_into(&app, 14, PASSWORD);
     app.invoke_pairing_decided(true);
     assert_eq!(app.get_error_code(), 43, "no code typed");
     app.set_pairing_typed("000 000".into());
-    if field(&pairing, "code") != "000 000" {
+    if field(&second, "code") != "000 000" {
         app.invoke_pairing_decided(true);
         assert_eq!(app.get_error_code(), 43, "not the extension's code");
         assert_ne!(app.get_pairing_code(), "", "the dialog stays open");
     }
-    assert!(signed(&key, logins_request).contains("not_paired"));
-    // Typed with or without the space.
-    app.set_pairing_typed(field(&pairing, "code").replace(' ', "").into());
+    app.invoke_pairing_decided(false);
+    // A request to connect while another waits: the newer one's code is shown, and said to be
+    // a new one.
+    connect();
+    let pairing = connect();
+    let key = pairing.key.as_bytes().to_vec();
+    assert_eq!(app.get_pairing_code(), pairing.code.as_str());
+    assert_eq!(app.get_error_code(), 67);
+    // Connecting after comparing the codes takes the master password, nothing typed from the
+    // extension.
+    assert!(app.get_pairing_needs_password());
+    assert!(sealed(&key, logins_request).contains("not_paired"));
     type_into(&app, 14, "");
     app.invoke_pairing_decided(true);
     assert_eq!(app.get_error_code(), 11, "no password typed");
@@ -680,7 +774,7 @@ fn whole_app_flow_headless() {
     app.invoke_pairing_decided(true);
     assert_eq!(app.get_error_code(), 11);
     assert_ne!(app.get_pairing_code(), "", "the dialog stays open");
-    assert!(signed(&key, logins_request).contains("not_paired"));
+    assert!(sealed(&key, logins_request).contains("not_paired"));
     type_into(&app, 14, PASSWORD);
     app.invoke_pairing_decided(true);
     assert_eq!(app.get_error_code(), 0);
@@ -689,11 +783,17 @@ fn whole_app_flow_headless() {
     assert_eq!(length(&app, 14), 0);
     assert_eq!(app.get_notice_code(), 41);
     assert!(app.get_browser_paired());
-    let ask = |message: &str| signed(&key, message);
+    let ask = |message: &str| sealed(&key, message);
     let logins = ask(logins_request);
     assert!(
         logins.contains(r#""origin":"https://github.com""#),
         "{logins}"
+    );
+    // An extension older than sealed requests, with the same key: answered plain.
+    let plain = signed(&key, logins_request);
+    assert!(
+        plain.contains(r#""origin":"https://github.com""#),
+        "{plain}"
     );
     assert!(logins.contains(r#""title":"GitHub""#) && !logins.contains("password"));
     let id = logins
@@ -721,11 +821,23 @@ fn whole_app_flow_headless() {
         "00".repeat(32)
     );
     assert!(raw(&replayed).contains("not_paired"));
+    counter.set(counter.get() + 1);
+    let (again, _) = vault_browser::pairing::PairingKey::from_bytes(&key)
+        .unwrap()
+        .seal_request(counter.get(), logins_request.as_bytes())
+        .unwrap();
+    assert!(raw(&again).contains(r#""type":"sealed""#));
+    assert!(
+        raw(&again).contains("not_paired"),
+        "the same sealed request"
+    );
 
     // ---- passkeys: made by the app for the extension, shown, and taken out in the editor ----
+    // (The site discourages a check here; checks for a site that asks are tested in
+    // vault-browser's service.)
     let challenge = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
     let made = ask(&format!(
-        r#"{{"type":"passkey_create","url":"https://github.com/settings/security","user_id":"aHVib3Q","user_name":"hubot","challenge":"{challenge}"}}"#
+        r#"{{"type":"passkey_create","url":"https://github.com/settings/security","user_id":"aHVib3Q","user_name":"hubot","challenge":"{challenge}","user_verification":"discouraged"}}"#
     ));
     assert!(made.contains(r#""type":"attestation""#), "{made}");
     assert_eq!(
@@ -746,7 +858,7 @@ fn whole_app_flow_headless() {
     );
     let listed = ask(r#"{"type":"passkeys","url":"https://github.com/login"}"#);
     let signed_in = ask(&format!(
-        r#"{{"type":"passkey_get","url":"https://github.com/login","id":"{}","credential":"{}","challenge":"{challenge}"}}"#,
+        r#"{{"type":"passkey_get","url":"https://github.com/login","id":"{}","credential":"{}","challenge":"{challenge}","user_verification":"discouraged"}}"#,
         field(&listed, "id"),
         field(&listed, "credential")
     ));
@@ -1217,20 +1329,18 @@ fn whole_app_flow_headless() {
 
     // ---- connecting the extension again replaces the earlier key, locked or not ----
     let earlier = key;
-    let pairing = raw(r#"{"type":"pair"}"#);
-    let key: Vec<u8> = (0..32)
-        .map(|i| u8::from_str_radix(&field(&pairing, "key")[2 * i..2 * i + 2], 16).unwrap())
-        .collect();
-    app.set_pairing_typed(field(&pairing, "code").into());
+    let pairing = connect();
+    let key = pairing.key.as_bytes().to_vec();
+    assert_eq!(app.get_pairing_code(), pairing.code.as_str());
     type_into(&app, 14, NEW_PASSWORD);
     app.invoke_pairing_decided(true);
     assert_eq!(app.get_error_code(), 0);
-    let ask = |message: &str| signed(&key, message);
-    assert!(signed(&earlier, logins_request).contains("not_paired"));
+    let ask = |message: &str| sealed(&key, message);
+    assert!(sealed(&earlier, logins_request).contains("not_paired"));
     assert!(!ask(logins_request).contains("not_paired"));
     app.invoke_lock();
     assert!(
-        signed(&earlier, logins_request).contains("not_paired"),
+        sealed(&earlier, logins_request).contains("not_paired"),
         "the earlier key is refused while the vault is locked too"
     );
     assert!(!ask(logins_request).contains("not_paired"));
@@ -1877,10 +1987,26 @@ fn whole_app_flow_headless() {
     assert!(parts[0].starts_with("A0-") && parts[0] != used_parts[0]);
     // On paper: the keys, or empty boxes to fill in by hand.
     app.set_kit_filled(false);
-    let blank = controller.kit_pdf_for_test().unwrap();
+    let blank = controller.kit_pdf_for_test(true).unwrap();
     assert!(!String::from_utf8_lossy(&blank).contains(&parts[0]));
     app.set_kit_filled(true);
-    assert!(String::from_utf8_lossy(&controller.kit_pdf_for_test().unwrap()).contains(&parts[0]));
+    assert!(
+        String::from_utf8_lossy(&controller.kit_pdf_for_test(true).unwrap()).contains(&parts[0])
+    );
+    // On screen, the kit's keys stay out of the accessibility tree.
+    let exposed = accessible_texts(&app);
+    let secret_key = app.get_kit_secret_key().to_string();
+    assert!(
+        exposed.iter().all(|text| !text.contains(&secret_key)
+            && parts.iter().all(|part| !text.contains(part.as_str()))),
+        "{exposed:?}"
+    );
+    // Saved as a file, the kit keeps the Secret Key only: the three parts together open the
+    // vault without the master password.
+    let saved = controller.kit_pdf_for_test(false).unwrap();
+    let saved = String::from_utf8_lossy(&saved);
+    assert!(parts.iter().all(|part| !saved.contains(part.as_str())));
+    assert!(saved.contains("Secret Key") || saved.contains("SECRET KEY"));
 
     // ---- recovery with the emergency kit ----
     app.invoke_lock();

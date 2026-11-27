@@ -608,6 +608,15 @@ fn main() {
         "settings-browser",
         "Settings → Browser extension: what it may do",
     );
+    // The extension asks to connect: the code both show, to compare, then the master password.
+    app.set_pairing_compare(true);
+    app.set_pairing_code("74At LSYM".into());
+    camera.shot(
+        "pairing-compare",
+        "The browser extension asks to connect: compare its code, then the master password",
+    );
+    app.set_pairing_code("".into());
+    app.set_pairing_compare(false);
     app.set_browser_extension(false);
     app.set_settings_section(4);
     // Starting at sign-in on, so its second check shows too.
@@ -988,8 +997,8 @@ fn main() {
     app.set_pairing_code("482 913".into());
     app.set_pairing_typed("482 913".into());
     camera.shot(
-        "pairing",
-        "A browser extension asks to connect: type the code it shows, allow or refuse",
+        "pairing-typed",
+        "An extension older than the key agreement asks to connect: type the code it shows",
     );
     app.set_pairing_code("".into());
     app.set_pairing_typed("".into());

@@ -471,11 +471,11 @@ fn taking_another_devices_lock_closes_what_the_replaced_one_opened() {
 
 // ---- N-03 / PM-18: what the browser is told about writes ----
 
-/// The connected extension: requests signed with the connection key, as the extension signs
+/// The connected extension: requests sealed with the connection key, as the extension seals
 /// them.
 struct Extension<'a> {
     controller: &'a Controller,
-    key: Vec<u8>,
+    key: vault_browser::pairing::PairingKey,
     counter: Cell<u64>,
 }
 
@@ -492,13 +492,20 @@ fn json_field(json: &str, name: &str) -> String {
 }
 
 impl<'a> Extension<'a> {
+    /// Connects as the extension does: the key agreement, then the code it shows typed into
+    /// the app with the master password.
     fn pair(controller: &'a Controller, app: &AppWindow) -> Self {
-        let reply = raw(controller, r#"{"type":"pair"}"#);
-        let hex = json_field(&reply, "key");
-        let key = (0..hex.len() / 2)
-            .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap())
-            .collect();
-        app.set_pairing_typed(json_field(&reply, "code").into());
+        let joiner = vault_browser::pairing::Joiner::new().unwrap();
+        let offer = raw(
+            controller,
+            &format!(r#"{{"type":"pair","commit":"{}"}}"#, joiner.commit_hex()),
+        );
+        let agreed = joiner.finish(&json_field(&offer, "key")).unwrap();
+        raw(
+            controller,
+            &format!(r#"{{"type":"pair_key","key":"{}"}}"#, joiner.public_hex()),
+        );
+        assert_eq!(app.get_pairing_code(), agreed.code.as_str());
         type_into(app, PAIRING, PASSWORD);
         app.invoke_pairing_decided(true);
         assert!(app.get_browser_paired(), "{}", app.get_error_detail());
@@ -508,31 +515,22 @@ impl<'a> Extension<'a> {
             .as_millis();
         Extension {
             controller,
-            key,
+            key: agreed.key,
             counter: Cell::new(u64::try_from(now).unwrap() * vault_browser::pairing::COUNTER_SCALE),
         }
     }
 
     fn ask(&self, message: &str) -> String {
-        use hmac::{Hmac, KeyInit, Mac};
         self.counter.set(self.counter.get() + 1);
-        let mut mac = <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(&self.key).unwrap();
-        mac.update(&self.counter.get().to_le_bytes());
-        mac.update(message.as_bytes());
-        let mac: String = mac
-            .finalize()
-            .into_bytes()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        let body = message.replace('\\', "\\\\").replace('"', "\\\"");
-        raw(
-            self.controller,
-            &format!(
-                r#"{{"type":"signed","counter":{},"body":"{body}","mac":"{mac}"}}"#,
-                self.counter.get()
-            ),
-        )
+        let (request, nonce) = self
+            .key
+            .seal_request(self.counter.get(), message.as_bytes())
+            .unwrap();
+        let answer = raw(self.controller, &request);
+        // Sealed to this request, as the extension opens it (pairing.rs).
+        self.key
+            .open_answer(self.counter.get(), &nonce, answer.as_bytes())
+            .map_or(answer, |text| text.to_string())
     }
 }
 

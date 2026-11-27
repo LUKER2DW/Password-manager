@@ -178,6 +178,13 @@ mod error {
     pub const KEY_ONLY_KIT: i32 = 63;
     /// Windows didn't take the start at sign-in (Settings → Appearance), on or off.
     pub const SIGN_IN_START: i32 = 64;
+    /// The kit (or a part) was to be saved in a folder a cloud copies away (the detail names
+    /// the service); nothing was written.
+    pub const KIT_CLOUD: i32 = 65;
+    /// A recovery part was to be saved in the folder another part went to; nothing written.
+    pub const PARTS_TOGETHER: i32 = 66;
+    /// A second request to connect replaced the one shown: its code is a new one.
+    pub const PAIRING_REPLACED: i32 = 67;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -277,6 +284,10 @@ mod notice {
     /// The start at sign-in started another program file and now starts this copy (the
     /// argument is that program).
     pub const SIGN_IN_START_MOVED: i32 = 90;
+    /// The recovery parts were each saved in a file of their own (the argument: how many).
+    pub const PARTS_SAVED: i32 = 91;
+    /// Another program changed how the browsers reach the app while the link ran: put back.
+    pub const BROWSER_LINK_REPAIRED: i32 = 92;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -548,10 +559,12 @@ struct State {
     secrets_open: bool,
     /// Listening for the browser extension (Settings → Browser extension).
     browser_link: Option<browser::BrowserLink>,
-    /// The connected extension's key (read once per unlock), one waiting for the person's
-    /// answer, and the guard against replayed requests.
+    /// The connected extension's key (read once per unlock), the app's half of a key
+    /// agreement under way, one waiting for the person's answer, and the guard against
+    /// replayed requests.
     browser_pairing: Option<vault_browser::pairing::PairingKey>,
-    browser_pending: Option<vault_browser::pairing::PairingKey>,
+    browser_offer: Option<vault_browser::pairing::Offer>,
+    browser_pending: Option<vault_browser::pairing::Pending>,
     browser_replay: vault_browser::pairing::Replay,
     /// Generated passwords handed to the extension, until used (see `browser.rs`).
     browser_generated: Vec<(String, vault_browser::service::Kept)>,
@@ -718,6 +731,7 @@ impl Controller {
                 secrets_open: false,
                 browser_link: None,
                 browser_pairing: None,
+                browser_offer: None,
                 browser_pending: None,
                 browser_replay: Default::default(),
                 browser_generated: Vec::new(),
@@ -921,6 +935,7 @@ impl Controller {
         on!(on_open_kit, |c| c.open_kit());
         on!(on_print_kit, |c| c.print_kit());
         on!(on_save_kit, |c| c.save_kit());
+        on!(on_save_parts_apart, |c| c.save_parts_apart());
         on!(on_open_transfer, |c| c.open_transfer());
         on!(on_import_choose, |c| c.import_choose());
         on!(on_import_open, |c| c.parse_import());
@@ -2643,6 +2658,7 @@ impl Controller {
             state.history = navigation::History::default();
             state.dialog_folder = None;
             state.browser_pairing = None;
+            state.browser_offer = None;
             state.browser_pending = None;
             state.browser_generated.clear();
             state.generated_history = None;
@@ -4924,7 +4940,9 @@ impl Controller {
     }
 
     /// The kit currently on screen as a PDF, with a file name. `None` until the keys are shown.
-    fn kit_pdf(&self) -> Option<(String, Zeroizing<Vec<u8>>)> {
+    /// `with_parts`: the recovery parts' pages too (the printed kit); a saved PDF keeps the
+    /// Secret Key only, as the three parts together open the vault without the master password.
+    fn kit_pdf(&self, with_parts: bool) -> Option<(String, Zeroizing<Vec<u8>>)> {
         let app = self.app();
         let secret_key = app.get_kit_secret_key();
         if secret_key.is_empty() {
@@ -4941,7 +4959,7 @@ impl Controller {
             .map_or(0, |d| d.as_secs());
         let bytes = kit_pdf::render(&KitContents {
             secret_key: &secret_key,
-            parts: (!parts[0].is_empty())
+            parts: (with_parts && !parts[0].is_empty())
                 .then(|| [parts[0].as_str(), parts[1].as_str(), parts[2].as_str()]),
             vault_id: &vault_id,
             created_at,
@@ -4954,14 +4972,14 @@ impl Controller {
 
     /// The kit as it would print (tests).
     #[cfg(test)]
-    pub(crate) fn kit_pdf_for_test(&self) -> Option<Zeroizing<Vec<u8>>> {
-        self.kit_pdf().map(|(_, bytes)| bytes)
+    pub(crate) fn kit_pdf_for_test(&self, with_parts: bool) -> Option<Zeroizing<Vec<u8>>> {
+        self.kit_pdf(with_parts).map(|(_, bytes)| bytes)
     }
 
     /// Writes the kit to the print folder (wiped when the vault locks) and opens it in the PDF
     /// viewer, where it can be printed.
     fn print_kit(&self) {
-        let Some((name, bytes)) = self.kit_pdf() else {
+        let Some((name, bytes)) = self.kit_pdf(true) else {
             return;
         };
         match files::write_for_printing(&name, &bytes) {
@@ -4979,11 +4997,13 @@ impl Controller {
         }
     }
 
+    /// Emergency kit → Save as PDF: the Secret Key's page only (the parts go on paper, or each
+    /// to a file of its own: `save_parts_apart`), never in a folder a cloud copies away.
     fn save_kit(&self) {
         if self.state.borrow().runner == Runner::Inline {
             return; // no dialogs in headless tests
         }
-        let Some((name, bytes)) = self.kit_pdf() else {
+        let Some((name, bytes)) = self.kit_pdf(false) else {
             return;
         };
         let Some(path) = rfd::FileDialog::new()
@@ -4994,9 +5014,77 @@ impl Controller {
         else {
             return;
         };
+        if let Some(cloud) = files::cloud_folder(&path) {
+            self.set_error(error::KIT_CLOUD, cloud);
+            return;
+        }
         match std::fs::write(&path, &*bytes) {
             Ok(()) => self.notify(notice::KIT_SAVED, &path.display().to_string()),
             Err(err) => self.set_error(error::FILE, &err.to_string()),
+        }
+    }
+
+    /// Emergency kit → Save each part apart: one PDF per recovery part, each in a folder of its
+    /// own (a USB drive, another computer…), never one a cloud copies away. Part C kept in its
+    /// picture is left out when the paper kit leaves it out. Stops at the first cancel.
+    fn save_parts_apart(&self) {
+        if self.state.borrow().runner == Runner::Inline {
+            return; // no dialogs in headless tests
+        }
+        let app = self.app();
+        let parts = [
+            app.get_kit_part_a(),
+            app.get_kit_part_b(),
+            app.get_kit_part_c(),
+        ];
+        if parts[0].is_empty() {
+            return;
+        }
+        let leave_c_out = app.get_kit_part_c_pictured() && app.get_kit_leave_c_out();
+        let vault_id = app.get_vault_id();
+        let short_id: String = vault_id.chars().take(8).collect();
+        let created_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let mut used: Vec<(char, std::path::PathBuf)> = Vec::new();
+        for (label, part) in vault_core::PartLabel::ALL.into_iter().zip(parts.iter()) {
+            if leave_c_out && label == vault_core::PartLabel::C {
+                continue;
+            }
+            let letter = label.letter();
+            let Some(path) = rfd::FileDialog::new()
+                .set_title(format!(
+                    "Save recovery part {letter}: a place of its own, apart from the others"
+                ))
+                .set_file_name(format!("recovery-part-{letter}-{short_id}.pdf"))
+                .add_filter("PDF", &["pdf"])
+                .save_file()
+            else {
+                break;
+            };
+            if let Some(cloud) = files::cloud_folder(&path) {
+                self.set_error(error::KIT_CLOUD, cloud);
+                return;
+            }
+            let folder = path.parent().map(std::path::Path::to_path_buf);
+            if let Some((other, _)) = used
+                .iter()
+                .find(|(_, earlier)| Some(earlier) == folder.as_ref())
+            {
+                self.set_error(error::PARTS_TOGETHER, &other.to_string());
+                return;
+            }
+            let bytes =
+                kit_pdf::render_part(label, part, &vault_id, created_at, app.get_kit_filled());
+            if let Err(err) = std::fs::write(&path, &*bytes) {
+                self.set_error(error::FILE, &err.to_string());
+                return;
+            }
+            used.push((letter, folder.unwrap_or_default()));
+        }
+        if !used.is_empty() {
+            self.set_error(error::NONE, "");
+            self.notify(notice::PARTS_SAVED, &used.len().to_string());
         }
     }
 

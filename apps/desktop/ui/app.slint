@@ -312,6 +312,8 @@ export component AppWindow inherits Window {
     // whether one is connected.
     // Not shown: non-empty while a connection waits (see PairingDialog).
     in property <string> pairing-code;
+    // The code is compared (shown here and in the extension), not typed.
+    in property <bool> pairing-compare;
     in-out property <string> pairing-typed;
     in property <bool> pairing-needs-password: true;
     in-out property <bool> browser-paired;
@@ -723,6 +725,7 @@ export component AppWindow inherits Window {
     callback export-cancel();
     callback export-plain();
     callback save-kit();
+    callback save-parts-apart();
 
     if root.screen == Screen.onboarding: OnboardingScreen {
         y: root.title-height;
@@ -761,6 +764,7 @@ export component AppWindow inherits Window {
 
         print-kit => { root.print-kit(); }
         save-kit => { root.save-kit(); }
+        save-parts-apart => { root.save-parts-apart(); }
     }
 
     if root.screen == Screen.unlock: UnlockScreen {
@@ -1248,6 +1252,7 @@ export component AppWindow inherits Window {
                 save-part-picture => { root.save-part-picture(); }
                 print-kit => { root.print-kit(); }
                 save-kit => { root.save-kit(); }
+                save-parts-apart => { root.save-parts-apart(); }
             }
 
             if root.notice-code != 0: Notice {
@@ -1277,6 +1282,8 @@ export component AppWindow inherits Window {
         width: root.width;
         height: root.height;
         typed-code <=> root.pairing-typed;
+        code: root.pairing-code;
+        compare: root.pairing-compare;
         needs-password: root.pairing-needs-password;
         busy: root.busy;
         error-code: root.error-code;

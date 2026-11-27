@@ -64,6 +64,9 @@ component FieldRow inherits VerticalLayout {
     in property <bool> warning: false;
     // A website: the value is a link that opens in the browser.
     in property <bool> link: false;
+    // A secret (a password, a code, a sensitive field): drawn, but kept out of the
+    // accessibility tree, which any program of this user can read through UI Automation.
+    in property <bool> secret: false;
     callback activated();
     spacing: 0px;
     HorizontalLayout {
@@ -92,6 +95,7 @@ component FieldRow inherits VerticalLayout {
         if !root.link: Text {
             horizontal-stretch: 1;
             text: root.value;
+            accessible-label: root.secret ? @tr("{}: shown on screen, not read aloud", root.label) : root.value;
             font-family: root.mono ? Theme.mono-font : Theme.ui-font;
             font-size: root.large ? Theme.title : Theme.body;
             color: root.warning ? Theme.seal : Theme.ink;
@@ -410,6 +414,7 @@ export component DetailPage inherits Rectangle {
                 label: root.kind == 1 ? @tr("PIN") : root.kind == 4 ? @tr("Private key") : @tr("Password");
                 icon: root.kind == 1 ? "pin" : root.kind == 4 ? "terminal" : "key";
                 value: root.revealed-password != "" ? root.revealed-password : "••••••••••••";
+                secret: true;
                 mono: root.revealed-password != "";
                 if root.revealed-password != "": Text {
                     text: @tr("hides in {} s", root.reveal-left);
@@ -557,6 +562,7 @@ export component DetailPage inherits Rectangle {
                 icon: "clock";
                 hint: @tr("The code for two-step sign-in, made from the secret saved in this item. It changes every 30 seconds.");
                 value: root.totp-code;
+                secret: true;
                 mono: true;
                 large: true;
                 Text {
@@ -592,6 +598,7 @@ export component DetailPage inherits Rectangle {
                 label: field.label;
                 icon: field.icon;
                 value: self.shown ? root.revealed-field-value : field.sensitive ? "••••••••" : field.value;
+                secret: field.sensitive;
                 mono: self.shown;
                 warning: field.warning;
                 if field-row.shown: Text {
@@ -648,6 +655,7 @@ export component DetailPage inherits Rectangle {
                             code-text := Text {
                                 x: 0;
                                 text: code.code;
+                                accessible-label: @tr("Recovery code {}: shown on screen, not read aloud", index + 1);
                                 font-family: Theme.mono-font;
                                 font-size: Theme.body;
                                 color: code.used ? Theme.faint : Theme.ink;
@@ -753,6 +761,7 @@ export component DetailPage inherits Rectangle {
                 padding-bottom: 10px;
                 Text {
                     text: root.notes;
+                    accessible-label: @tr("Notes: shown on screen, not read aloud");
                     font-size: Theme.body;
                     color: Theme.ink;
                     wrap: word-wrap;
@@ -1690,6 +1699,7 @@ export component GeneratorPage inherits Rectangle {
                     x: 16px;
                     width: parent.width - 32px;
                     text: root.result;
+                    accessible-label: @tr("Generated password: shown on screen, not read aloud");
                     font-family: Theme.mono-font;
                     font-size: Theme.lead + 2px;
                     color: Theme.ink;
@@ -3258,6 +3268,7 @@ export component AuthenticatorPage inherits Rectangle {
                     }
                     Text {
                         text: row.locked ? "••• •••" : row.code;
+                        accessible-label: @tr("One-time code: shown on screen, not read aloud");
                         font-family: Theme.mono-font;
                         font-size: Theme.title;
                         color: row.locked ? Theme.faint : row.left <= 5 ? Theme.seal : Theme.ink;
@@ -4106,6 +4117,7 @@ export component KitPage inherits Rectangle {
     callback new-parts();
     callback print-kit();
     callback save-kit();
+    callback save-parts-apart();
     callback save-part-picture();
 
     // "Issue new parts" and "Renew the vault key" asked in dialogs over the window
@@ -4183,6 +4195,13 @@ export component KitPage inherits Rectangle {
                             clicked => { root.save-kit(); }
                         }
                     }
+                    if root.kit-part-a != "": VerticalLayout {
+                        alignment: center;
+                        QuietButton {
+                            text: @tr("Save each part apart…");
+                            clicked => { root.save-parts-apart(); }
+                        }
+                    }
                     if root.kit-part-c != "": VerticalLayout {
                         alignment: center;
                         QuietButton {
@@ -4231,7 +4250,7 @@ export component KitPage inherits Rectangle {
                     checked <=> root.leave-c-out;
                 }
                 Text {
-                    text: @tr("Printing makes a temporary PDF that is wiped from this computer when the vault locks.");
+                    text: @tr("Printing makes a temporary PDF that is wiped from this computer when the vault locks. Save as PDF keeps the Secret Key only: the recovery parts, which together open the vault without the master password, go on paper or each to a file of its own, in different places. Neither goes to a folder a cloud copies away.");
                     font-size: Theme.small;
                     color: Theme.faint;
                     wrap: word-wrap;

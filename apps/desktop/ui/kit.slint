@@ -6,6 +6,8 @@ component KitLine inherits VerticalLayout {
     in property <string> hint;
     in property <string> value;
     in property <bool> large: false;
+    // A key: drawn, but kept out of the accessibility tree (UI Automation).
+    in property <bool> secret: false;
     spacing: 5px;
     HorizontalLayout {
         spacing: 6px;
@@ -23,6 +25,7 @@ component KitLine inherits VerticalLayout {
     }
     Text {
         text: root.value;
+        accessible-label: root.secret ? @tr("{}: shown on screen, not read aloud", root.label) : root.value;
         font-family: Theme.mono-font;
         font-size: root.large ? Theme.title : Theme.body;
         color: #1F2A3D;
@@ -73,6 +76,7 @@ export component KitSlip inherits Rectangle {
         KitLine {
             label: @tr("Secret Key");
             value: root.secret-key;
+            secret: true;
             large: true;
         }
         if root.part-a != "": VerticalLayout {
@@ -93,6 +97,7 @@ export component KitSlip inherits Rectangle {
             }
             for part in [root.part-a, root.part-b, root.part-c]: Text {
                 text: part;
+                accessible-label: @tr("Recovery part: shown on screen, not read aloud");
                 font-family: Theme.mono-font;
                 font-size: Theme.body;
                 color: #1F2A3D;

@@ -2315,6 +2315,14 @@ msgid "Windows didn't take the change to starting at sign-in ({}). The check sho
 msgstr "O Windows não aceitou a mudança na abertura ao entrar ({}). A caixa mostra o que o Windows vai fazer."
 
 msgctxt "Messages"
+msgid "That folder is copied to the cloud by {}: the kit's keys would leave this computer. Choose a folder on this computer or a USB drive, or print the kit. Nothing was saved."
+msgstr "Essa pasta é copiada para a nuvem pelo {}: as chaves do kit sairiam deste computador. Escolha uma pasta deste computador ou um pendrive, ou imprima o kit. Nada foi salvo."
+
+msgctxt "Messages"
+msgid "That folder already holds part {}. Keep each recovery part in a different place: two of them bring back the Secret Key, three open the vault. Nothing was saved."
+msgstr "Essa pasta já tem a parte {}. Guarde cada parte de recuperação num lugar diferente: duas delas trazem de volta a chave secreta, três abrem o cofre. Nada foi salvo."
+
+msgctxt "Messages"
 msgid "The vault key was renewed: the old kit, the old Secret Key and older copies of the file no longer open it. Print the new kit now. Windows Hello is off until you turn it on again."
 msgstr "A chave do cofre foi renovada: o kit antigo, a chave secreta antiga e as cópias antigas do arquivo não o abrem mais. Imprima o novo kit agora. O Windows Hello fica desativado até você ativá-lo de novo."
 
@@ -3889,6 +3897,14 @@ msgid "Save as PDF…"
 msgstr "Salvar como PDF…"
 
 msgctxt "KitPage"
+msgid "Save each part apart…"
+msgstr "Salvar cada parte separada…"
+
+msgctxt "OnboardingScreen"
+msgid "Save each part apart…"
+msgstr "Salvar cada parte separada…"
+
+msgctxt "KitPage"
 msgid "Save part C in a picture…"
 msgstr "Salvar a parte C em uma imagem…"
 
@@ -3913,8 +3929,8 @@ msgid "Leave part C out of the printed kit: it is in the picture"
 msgstr "Deixar a parte C fora do kit impresso: ela está na imagem"
 
 msgctxt "KitPage"
-msgid "Printing makes a temporary PDF that is wiped from this computer when the vault locks."
-msgstr "A impressão cria um PDF temporário que é apagado deste computador quando o cofre trancar."
+msgid "Printing makes a temporary PDF that is wiped from this computer when the vault locks. Save as PDF keeps the Secret Key only: the recovery parts, which together open the vault without the master password, go on paper or each to a file of its own, in different places. Neither goes to a folder a cloud copies away."
+msgstr "A impressão cria um PDF temporário que é apagado deste computador quando o cofre trancar. Salvar como PDF guarda só a chave secreta: as partes de recuperação, que juntas abrem o cofre sem a senha mestra, vão para o papel ou cada uma para um arquivo próprio, em lugares diferentes. Nenhum dos dois vai para uma pasta copiada para a nuvem."
 
 msgctxt "IndexTab"
 msgid "Edit folder"
@@ -4460,6 +4476,14 @@ msgctxt "Messages"
 msgid "Windows now starts this copy of Vault when you sign in, instead of {}."
 msgstr "Agora o Windows abre esta cópia do Vault quando você entra, em vez de {}."
 
+msgctxt "Messages"
+msgid "{} recovery parts saved, each in a file of its own. Keep them in different places."
+msgstr "{} partes de recuperação salvas, cada uma num arquivo próprio. Guarde-as em lugares diferentes."
+
+msgctxt "Messages"
+msgid "Another program changed how the browser reaches Vault. Vault put it back and ignored that request. If you didn't install something like that, check this computer."
+msgstr "Outro programa mudou o caminho do navegador até o Vault. O Vault desfez a mudança e ignorou aquele pedido. Se você não instalou nada assim, verifique este computador."
+
 msgctxt "SettingsPage"
 msgid "Asks GitHub, where the project's releases are, every hour while the app runs and when you press the button. Nothing about your vault is sent."
 msgstr "Pergunta ao GitHub, onde ficam as versões publicadas do projeto, a cada hora enquanto o app está aberto e quando você aperta o botão. Nada do seu cofre é enviado."
@@ -4487,3 +4511,43 @@ msgstr "Chrome, Edge e Firefox"
 msgctxt "SettingsPage"
 msgid "Fills and saves your logins in Chrome, Edge and Firefox, and suggests strong passwords made here. Passwords are shown, copied and filled one at a time, through the item lock."
 msgstr "Preenche e salva os seus logins no Chrome, no Edge e no Firefox, e sugere senhas fortes criadas aqui. As senhas são mostradas, copiadas e preenchidas uma por vez, pela trava de itens."
+
+msgctxt "KitLine"
+msgid "{}: shown on screen, not read aloud"
+msgstr "{}: mostrado na tela, não lido em voz alta"
+
+msgctxt "KitSlip"
+msgid "Recovery part: shown on screen, not read aloud"
+msgstr "Parte de recuperação: mostrada na tela, não lida em voz alta"
+
+msgctxt "FieldRow"
+msgid "{}: shown on screen, not read aloud"
+msgstr "{}: mostrado na tela, não lido em voz alta"
+
+msgctxt "DetailPage"
+msgid "Recovery code {}: shown on screen, not read aloud"
+msgstr "Código de recuperação {}: mostrado na tela, não lido em voz alta"
+
+msgctxt "DetailPage"
+msgid "Notes: shown on screen, not read aloud"
+msgstr "Notas: mostradas na tela, não lidas em voz alta"
+
+msgctxt "GeneratorPage"
+msgid "Generated password: shown on screen, not read aloud"
+msgstr "Senha gerada: mostrada na tela, não lida em voz alta"
+
+msgctxt "AuthenticatorPage"
+msgid "One-time code: shown on screen, not read aloud"
+msgstr "Código de uso único: mostrado na tela, não lido em voz alta"
+
+msgctxt "PairingDialog"
+msgid "The browser extension on this computer asks to fill logins from this vault. Connect it only if you just clicked “Connect” in the extension and its window shows this same code:"
+msgstr "A extensão do navegador neste computador pede para preencher logins deste cofre. Conecte-a somente se você acabou de clicar em “Conectar” na extensão e a janela dela mostra este mesmo código:"
+
+msgctxt "PairingDialog"
+msgid "Code: {}"
+msgstr "Código: {}"
+
+msgctxt "Messages"
+msgid "Another request to connect came while this one waited, so this is a new code. Connect only if the extension shows this same code; if it doesn't, refuse."
+msgstr "Outro pedido de conexão chegou enquanto este esperava, por isso este é um código novo. Conecte somente se a extensão mostrar este mesmo código; se não mostrar, recuse."

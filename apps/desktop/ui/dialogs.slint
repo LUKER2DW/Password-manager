@@ -50,13 +50,16 @@ component Modal inherits Rectangle {
 
 // Create a folder, change its name and look, or confirm deleting it.
 //   mode 0 = new folder, 1 = folder settings, 2 = delete?
-// A browser extension asks to be connected: the person types the master password and
-// connects, or refuses.
-// The extension's window shows a six-digit code; the person types it here. Whatever asked
-// to connect also knows the code it was given, so only the code typed from the extension's
-// own window ties the approval to the extension (the dialog never shows it).
+// A browser extension asks to be connected: the person checks the code and types the master
+// password, or refuses.
+// `compare`: the extension and the app agreed on the key (ECDH) and both show the same code,
+// which the person compares (a program in between makes them differ). Otherwise an older
+// extension was handed its key: whatever asked knows that code, so the person types the one
+// the extension's window shows and the dialog never shows it.
 export component PairingDialog inherits Modal {
     in-out property <string> typed-code;
+    in property <string> code;
+    in property <bool> compare;
     in property <bool> needs-password;
     in property <bool> busy;
     in property <int> error-code;
@@ -70,12 +73,33 @@ export component PairingDialog inherits Modal {
         color: Theme.ink;
     }
     Text {
-        text: @tr("The browser extension on this computer asks to fill logins from this vault. Connect it only if you just clicked “Connect” in the extension: type the six-digit code its window shows.");
+        text: root.compare
+            ? @tr("The browser extension on this computer asks to fill logins from this vault. Connect it only if you just clicked “Connect” in the extension and its window shows this same code:")
+            : @tr("The browser extension on this computer asks to fill logins from this vault. Connect it only if you just clicked “Connect” in the extension: type the six-digit code its window shows.");
         font-size: Theme.body;
         color: Theme.graphite;
         wrap: word-wrap;
     }
-    LineField {
+    if root.compare: Rectangle {
+        height: 64px;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Theme.rule;
+        background: Theme.field;
+        accessible-role: text;
+        accessible-label: @tr("Code: {}", root.code);
+        Text {
+            text: root.code;
+            font-family: Theme.mono-font;
+            font-size: 28px;
+            font-weight: 600;
+            letter-spacing: 3px;
+            color: Theme.ink;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    if !root.compare: LineField {
         label: @tr("Code shown by the extension");
         icon: "pin";
         required: true;

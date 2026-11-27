@@ -15,13 +15,13 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use slint::{ComponentHandle, SharedString};
 use vault_browser::{
     host::NOT_RUNNING,
-    pairing::{Envelope, PairingKey},
+    pairing::{Envelope, Offer, PairingKey, Pending},
     protocol::{Check, CopyWhat, Secret},
     service::{self, Gate, Held, Kept, Opened},
 };
@@ -38,6 +38,11 @@ const PAIRING_PURPOSE: &str = "browser-pairing";
 const LOCKED: &[u8] = br#"{"type":"error","code":"locked"}"#;
 const NOT_PAIRED: &[u8] = br#"{"type":"error","code":"not_paired"}"#;
 const BAD_REQUEST: &[u8] = br#"{"type":"error","code":"bad_request"}"#;
+/// The browsers' registration of the host changed while the link ran: this message gets
+/// nothing (the extension reads it as an answer it can't trust).
+const LINK_CHANGED: &[u8] = br#"{"type":"error","code":"link_changed"}"#;
+/// How long a check of that registration stands before it is read again.
+const REGISTRATION_CHECKED_FOR: Duration = Duration::from_secs(5);
 /// Saving logins, or passkeys, turned off in Settings → Browser extension.
 const TURNED_OFF: &[u8] = br#"{"type":"error","code":"turned_off"}"#;
 /// A login, a new password or a passkey that could not be written to the vault file: the
@@ -180,8 +185,28 @@ impl Controller {
                 });
                 reply.recv_timeout(Duration::from_secs(5)).ok().flatten()
             }
+            // When the registration was last found intact.
+            let mut intact_at: Option<Instant> = None;
             while !stop.load(Ordering::Relaxed) {
                 let served = server.serve_one(|message| {
+                    // While the link runs nothing of ours changes the browsers' registration
+                    // (one copy of the app): a change is another program putting a host of
+                    // its own between the browser and the app. It is put back, said in the
+                    // app, and this message gets nothing.
+                    if intact_at.is_none_or(|at| at.elapsed() > REGISTRATION_CHECKED_FOR) {
+                        if browser_link::registration_intact(&host) {
+                            intact_at = Some(Instant::now());
+                        } else {
+                            intact_at = None;
+                            let _ = browser_link::register_host(&host);
+                            let _ = slint::invoke_from_event_loop(|| {
+                                if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
+                                    controller.notify_long(notice::BROWSER_LINK_REPAIRED, "");
+                                }
+                            });
+                            return LINK_CHANGED.to_vec();
+                        }
+                    }
                     let message = message.to_vec();
                     // Windows Hello is asked here, off the UI thread: its prompt may stay
                     // open for as long as the person takes.
@@ -227,18 +252,24 @@ impl Controller {
     /// Whether this message asks for Windows Hello, and Hello can open the item lock here (or,
     /// with the vault locked, the passwords kept for the extension).
     fn browser_hello_inputs(&self, message: &[u8]) -> Option<HelloInputs> {
-        let Envelope::Signed { counter, body, mac } = Envelope::parse(message) else {
-            return None;
-        };
-        if !service::wants_hello(body.as_bytes()) {
-            return None;
-        }
         // Only the connected extension may bring up a Windows Hello prompt. (Whether the
         // request was seen before is checked when it is answered.)
-        if !self
-            .pairing_key()
-            .is_some_and(|key| key.verify(counter, body.as_bytes(), &mac))
-        {
+        let request = match Envelope::parse(message) {
+            Envelope::Sealed { counter, data } => {
+                self.pairing_key()?.open_request(counter, &data)?.body
+            }
+            Envelope::Signed { counter, body, mac } => {
+                if !self
+                    .pairing_key()
+                    .is_some_and(|key| key.verify(counter, body.as_bytes(), &mac))
+                {
+                    return None;
+                }
+                Zeroizing::new(body.into_bytes())
+            }
+            _ => return None,
+        };
+        if !service::wants_hello(&request) {
             return None;
         }
         if self.state.borrow().session.is_none() {
@@ -276,31 +307,62 @@ impl Controller {
                 br#"{"type":"status","locked":false,"name":""}"#
             }),
             Envelope::Pair => self.start_pairing(),
-            Envelope::Signed { counter, body, mac } => {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
-                let trusted = self
-                    .pairing_key()
-                    .is_some_and(|key| key.verify(counter, body.as_bytes(), &mac))
-                    && self.state.borrow_mut().browser_replay.accept(counter, now);
-                if !trusted {
+            Envelope::PairCommit { commit } => self.offer_pairing(&commit),
+            Envelope::PairKey { key } => self.pairing_key_revealed(&key),
+            // Sealed both ways: a program between the browser and the app reads nothing and
+            // can't forge an answer (pairing.rs).
+            Envelope::Sealed { counter, data } => {
+                let Some(key) = self.pairing_key() else {
+                    return fixed(NOT_PAIRED);
+                };
+                let Some(request) = key.open_request(counter, &data) else {
+                    return fixed(NOT_PAIRED);
+                };
+                if !self.fresh_counter(counter) {
                     return fixed(NOT_PAIRED);
                 }
-                let request = body.as_bytes();
-                let kind = request_type(request);
-                if let Some(refused) = self.browser_turned_off(&kind) {
-                    return refused;
+                let answer = self.trusted_answer(&request.body, device);
+                key.seal_answer(counter, &request.nonce, &answer)
+                    .unwrap_or_else(|| fixed(BAD_REQUEST))
+            }
+            // An extension older than sealed requests: signed, and answered plain as before.
+            Envelope::Signed { counter, body, mac } => {
+                let signed = self
+                    .pairing_key()
+                    .is_some_and(|key| key.verify(counter, body.as_bytes(), &mac));
+                if !signed || !self.fresh_counter(counter) {
+                    return fixed(NOT_PAIRED);
                 }
-                let answer = if self.state.borrow().session.is_none() {
-                    self.browser_locked(request, device)
-                } else {
-                    self.browser_inner(request, device)
-                };
-                self.with_browser_settings(&kind, answer)
+                self.trusted_answer(body.as_bytes(), device)
             }
             Envelope::Invalid => fixed(BAD_REQUEST),
         }
+    }
+
+    /// Whether a request's counter is near this clock and new (pairing.rs `Replay`).
+    fn fresh_counter(&self, counter: u64) -> bool {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+        self.state.borrow_mut().browser_replay.accept(counter, now)
+    }
+
+    /// The answer to a request from the connected extension.
+    fn trusted_answer(
+        &self,
+        request: &[u8],
+        device: Option<Zeroizing<Vec<u8>>>,
+    ) -> Zeroizing<Vec<u8>> {
+        let kind = request_type(request);
+        if let Some(refused) = self.browser_turned_off(&kind) {
+            return refused;
+        }
+        let answer = if self.state.borrow().session.is_none() {
+            self.browser_locked(request, device)
+        } else {
+            self.browser_inner(request, device)
+        };
+        self.with_browser_settings(&kind, answer)
     }
 
     /// What Settings → Browser extension turned off is refused before anything is read:
@@ -584,35 +646,68 @@ impl Controller {
         Some(key)
     }
 
-    /// An extension asks to be connected: make a key, bring this window forward and ask the
-    /// person (their master password, and Connect). Until then the key opens nothing. With
-    /// the vault locked, the question comes right after it is unlocked.
+    /// An extension older than the key agreement asks to be connected: make a key, hand it
+    /// over and wait for the person (`wait_for_approval`).
     fn start_pairing(&self) -> Zeroizing<Vec<u8>> {
-        let Some(key) = PairingKey::generate() else {
+        let Some(pending) = Pending::handed_over() else {
             return Zeroizing::new(BAD_REQUEST.to_vec());
         };
-        let reply = pairing_reply(&key, &key.code());
-        let open = {
+        let reply = pairing_reply(&pending.key, &pending.code);
+        self.wait_for_approval(pending);
+        reply
+    }
+
+    /// An extension asks to be connected (step 1 of the key agreement, pairing.rs): answer
+    /// its commitment with a fresh key pair of the app. Only the latest request is kept.
+    fn offer_pairing(&self, commit: &str) -> Zeroizing<Vec<u8>> {
+        let Some(offer) = Offer::new(commit) else {
+            return Zeroizing::new(BAD_REQUEST.to_vec());
+        };
+        let reply = format!(r#"{{"type":"pair_offer","key":"{}"}}"#, offer.public_hex());
+        self.state.borrow_mut().browser_offer = Some(offer);
+        Zeroizing::new(reply.into_bytes())
+    }
+
+    /// The extension reveals the key it committed to (step 3): the connection then waits for
+    /// the person. A key that isn't the one committed to is refused, and the offer is spent.
+    fn pairing_key_revealed(&self, key: &str) -> Zeroizing<Vec<u8>> {
+        let offer = self.state.borrow_mut().browser_offer.take();
+        let Some(pending) = offer.and_then(|offer| offer.finish(key)) else {
+            return Zeroizing::new(BAD_REQUEST.to_vec());
+        };
+        self.wait_for_approval(pending);
+        Zeroizing::new(br#"{"type":"pair_wait"}"#.to_vec())
+    }
+
+    /// A connection waits for the person: bring this window forward and ask them (the code
+    /// the extension shows, their master password, and Connect). Until then its key opens
+    /// nothing. With the vault locked, the question comes right after it is unlocked.
+    fn wait_for_approval(&self, pending: Pending) {
+        let (open, replaced) = {
             let mut state = self.state.borrow_mut();
-            state.browser_pending = Some(key);
-            state.session.is_some()
+            let replaced = state.browser_pending.replace(pending).is_some();
+            (state.session.is_some(), replaced)
         };
         if open {
             self.offer_pending_pairing(true);
+            // Two requests at once: one of them isn't the person's extension. The code shown
+            // is the newer one's, and the dialog says so.
+            if replaced {
+                self.set_error(error::PAIRING_REPLACED, "");
+            }
         }
         self.bring_to_front();
-        reply
     }
 
     /// Shows the dialog for a connection that is waiting. `needs_password` is off when the
     /// master password was typed a moment ago to unlock the vault for this.
     pub(super) fn offer_pending_pairing(&self, needs_password: bool) {
-        let Some(code) = self
+        let Some((code, compared)) = self
             .state
             .borrow()
             .browser_pending
             .as_ref()
-            .map(PairingKey::code)
+            .map(|pending| (pending.code.clone(), pending.compared))
         else {
             return;
         };
@@ -620,6 +715,7 @@ impl Controller {
         let app = self.app();
         app.set_pairing_needs_password(needs_password);
         app.set_pairing_typed(SharedString::new());
+        app.set_pairing_compare(compared);
         app.set_pairing_code(SharedString::from(code));
     }
 
@@ -654,14 +750,27 @@ impl Controller {
             app.set_pairing_code(SharedString::new());
             return;
         }
-        // The code typed from the extension's window, not one the app showed: whatever sent
-        // the request knows the code too, the person's eyes on the extension are the proof.
-        if !self.pairing_code_matches() {
+        // A key agreed with the extension: the person compared the codes. A key handed over:
+        // the code typed from the extension's window, not one the app showed (whatever sent
+        // the request knows that code too, the person's eyes on the extension are the proof).
+        let compared = self
+            .state
+            .borrow()
+            .browser_pending
+            .as_ref()
+            .is_some_and(|pending| pending.compared);
+        if !compared && !self.pairing_code_matches() {
             self.set_error(error::PAIRING_CODE, "");
             return;
         }
         // The request whose code was typed: only its key is stored, whatever asks meanwhile.
-        let Some(approved) = self.state.borrow().browser_pending.clone() else {
+        let Some(approved) = self
+            .state
+            .borrow()
+            .browser_pending
+            .as_ref()
+            .map(|pending| pending.key.clone())
+        else {
             return;
         };
         if !app.get_pairing_needs_password() {
@@ -700,7 +809,8 @@ impl Controller {
             .state
             .borrow()
             .browser_pending
-            .clone()
+            .as_ref()
+            .map(|pending| pending.key.clone())
             .expect("a request waiting");
         let second = self.start_pairing();
         self.finish_pairing(&approved);
@@ -715,7 +825,7 @@ impl Controller {
             .borrow()
             .browser_pending
             .as_ref()
-            .is_some_and(|key| !typed.is_empty() && typed == digits(&key.code()))
+            .is_some_and(|pending| !typed.is_empty() && typed == digits(&pending.code))
     }
 
     /// Stores the connection: from now on requests signed with its key are answered.
@@ -731,7 +841,7 @@ impl Controller {
         let key = {
             let mut state = self.state.borrow_mut();
             match state.browser_pending.take() {
-                Some(pending) if pending.as_bytes() == approved.as_bytes() => pending,
+                Some(pending) if pending.key.as_bytes() == approved.as_bytes() => pending.key,
                 other => {
                     let replaced = other.is_some();
                     state.browser_pending = other;
@@ -795,6 +905,7 @@ impl Controller {
             let mut state = self.state.borrow_mut();
             state.browser_pairing = None;
             state.browser_pending = None;
+            state.browser_offer = None;
         }
         self.app().set_browser_paired(false);
         self.notify(notice::BROWSER_UNPAIRED, "");
@@ -831,7 +942,8 @@ fn store_locked_pairing(vault_id: &str, key: &PairingKey) {
     let _ = std::fs::remove_file(storage::backup_path(&path));
 }
 
-/// `{"type":"pairing","key":…,"code":…}`, in a buffer wiped on drop.
+/// `{"type":"pairing","key":…,"code":…}` for an extension older than the key agreement, in a
+/// buffer wiped on drop.
 fn pairing_reply(key: &PairingKey, code: &str) -> Zeroizing<Vec<u8>> {
     Zeroizing::new(
         format!(

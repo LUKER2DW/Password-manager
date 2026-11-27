@@ -434,6 +434,7 @@ export component OnboardingScreen inherits Rectangle {
     callback finish();
     callback print-kit();
     callback save-kit();
+    callback save-parts-apart();
     // Vault chooser
     in property <[RecentVault]> vaults;
     in-out property <bool> choosing;
@@ -718,6 +719,10 @@ export component OnboardingScreen inherits Rectangle {
                     QuietButton {
                         text: @tr("Save as PDF…");
                         clicked => { root.save-kit(); }
+                    }
+                    if root.kit-part-a != "": QuietButton {
+                        text: @tr("Save each part apart…");
+                        clicked => { root.save-parts-apart(); }
                     }
                 }
                 Check {

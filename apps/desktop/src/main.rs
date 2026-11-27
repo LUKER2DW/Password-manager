@@ -24,6 +24,12 @@ use vault_platform::{
 fn main() -> anyhow::Result<()> {
     // Before anything loads a DLL by name: System32 only, never next to the exe.
     vault_platform::process::restrict_dll_search();
+    // Other programs of this user can't read, write or steer the process (release builds: a
+    // debugger can't attach afterwards), and the mitigation policies that keep it working.
+    if !cfg!(debug_assertions) {
+        vault_platform::process::protect_memory();
+    }
+    vault_platform::process::apply_mitigations();
     // Started by a browser as the browser extension's native host (Chrome and Edge give the
     // extension's origin, Firefox the host's manifest and the extension's id): relay its
     // messages to the app that holds the pipe, show nothing.
