@@ -146,13 +146,14 @@ section {
   border-radius: 5px;
 }
 
+/* A site without an icon: its first letter on its own colour, as in the app (tokens.css). */
 .letter {
   display: grid;
   place-items: center;
-  background: var(--marker);
-  color: var(--on-marker);
+  background: var(--tint, var(--tint-0));
+  color: #ffffff;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
 }
 

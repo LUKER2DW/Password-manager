@@ -3,7 +3,7 @@
     "message": "Vault: fill and save logins"
   },
   "extensionDescription": {
-    "message": "Fills, shows and saves logins from the desktop password manager. Keeps no passwords itself: every one comes from the app, which asks for Windows Hello or your PIN."
+    "message": "Fills, shows and saves logins from the desktop password manager. Keeps no passwords itself: every one comes from the app, which asks you to confirm before the browser gets it."
   },
   "actionTitle": {
     "message": "Open your vault"
@@ -396,7 +396,7 @@
     "message": "Connect again"
   },
   "connectedLocked": {
-    "message": "Vault locked. Windows Hello fills."
+    "message": "Vault is locked"
   },
   "fillCode": {
     "message": "Fill the one-time code"
@@ -529,5 +529,220 @@
   },
   "prefsPasskeysHint": {
     "message": "When a site makes or asks for a passkey, Vault offers its own: in a window of its own, or under the sign-in field when the site suggests passkeys there. Choose “Use another device” in the window for a phone or security key. Turned off, the browser handles passkeys as before."
+  },
+  "lockButton": {
+    "message": "Lock"
+  },
+  "lockTitle": {
+    "message": "Lock the vault in Vault, as its Lock now does"
+  },
+  "lockedNowToast": {
+    "message": "Vault locked."
+  },
+  "setupTitle": {
+    "message": "Set up Windows Hello or a PIN in Vault"
+  },
+  "setupText": {
+    "message": "Vault asks for Windows Hello or a PIN before the browser gets a password, a code or a passkey, and neither is set up yet. In Vault, open Settings → Browser extension and set one up, then try again."
+  },
+  "setupShort": {
+    "message": "Vault asks for Windows Hello or a PIN before the browser gets a password, and neither is set up. Set one up in Vault: Settings → Browser extension."
+  },
+  "helloRefusedTitle": {
+    "message": "Windows Hello didn't confirm it's you"
+  },
+  "helloRefusedText": {
+    "message": "Nothing was shown, copied or filled. Try again, and confirm in the Windows Hello window."
+  },
+  "siteAsksHello": {
+    "message": "Filling asks for Windows Hello, each time."
+  },
+  "siteAsksPin": {
+    "message": "Filling asks for your PIN, each time."
+  },
+  "siteAsksPassword": {
+    "message": "Filling asks for your item password, each time."
+  },
+  "siteAsksApp": {
+    "message": "These logins are behind the item lock, which only your master password opens, in Vault."
+  },
+  "vaultAsksHello": {
+    "message": "Showing, copying or filling a password asks for Windows Hello, each time."
+  },
+  "vaultAsksPin": {
+    "message": "Showing, copying or filling a password asks for your PIN, each time."
+  },
+  "vaultAsksPassword": {
+    "message": "Showing, copying or filling a password asks for your item password, each time."
+  },
+  "vaultAsksApp": {
+    "message": "These logins are behind the item lock, which only your master password opens, in Vault."
+  },
+  "someAskHello": {
+    "message": "Logins with a fingerprint ask for Windows Hello first."
+  },
+  "someAskPin": {
+    "message": "Logins with a padlock ask for your PIN first."
+  },
+  "someAskPassword": {
+    "message": "Logins with a padlock ask for your item password first."
+  },
+  "someAskApp": {
+    "message": "Logins with a padlock are behind the item lock: open them in Vault first."
+  },
+  "entryAsksHello": {
+    "message": "Showing, copying or filling asks for Windows Hello, each time."
+  },
+  "entryAsksPin": {
+    "message": "Showing, copying or filling asks for your PIN, each time."
+  },
+  "entryAsksPassword": {
+    "message": "Showing, copying or filling asks for your item password, each time."
+  },
+  "codeShort": {
+    "message": "Code"
+  },
+  "showCode": {
+    "message": "Show code"
+  },
+  "secondsShort": {
+    "message": "$SECONDS$ s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "hidesIn": {
+    "message": "Hides in $SECONDS$ s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "pairCodeLabel": {
+    "message": "Connection code: $CODE$",
+    "placeholders": {
+      "code": {
+        "content": "$1"
+      }
+    }
+  },
+  "strengthWeak": {
+    "message": "Weak"
+  },
+  "strengthFair": {
+    "message": "Fair"
+  },
+  "strengthStrong": {
+    "message": "Strong"
+  },
+  "strengthVeryStrong": {
+    "message": "Very strong"
+  },
+  "bitsLabel": {
+    "message": "$BITS$ bits",
+    "placeholders": {
+      "bits": {
+        "content": "$1"
+      }
+    }
+  },
+  "kindUpper": {
+    "message": "A–Z capitals"
+  },
+  "kindLower": {
+    "message": "a–z small letters"
+  },
+  "kindDigits": {
+    "message": "0–9 digits"
+  },
+  "kindSymbols": {
+    "message": "!#$% symbols"
+  },
+  "separatorOwn": {
+    "message": "Own"
+  },
+  "separatorOwnLabel": {
+    "message": "Your own, up to 3 characters"
+  },
+  "separatorSpace": {
+    "message": "A space"
+  },
+  "countBoxLabel": {
+    "message": "How many"
+  },
+  "genFailed": {
+    "message": "The app couldn't make a password. Try again."
+  },
+  "updateText": {
+    "message": "Version $VERSION$ of this extension is ready.",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
+  },
+  "updateManual": {
+    "message": "Vault has a newer version of this extension ($VERSION$). The steps to install it are in Vault: Settings → Browser extension.",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
+  },
+  "updateNow": {
+    "message": "Update now"
+  },
+  "updating": {
+    "message": "Updating…"
+  },
+  "prefsInApp": {
+    "message": "What the extension may do, and what Vault asks for before the browser gets a password, are set in Vault: Settings → Browser extension."
+  },
+  "prefsVersion": {
+    "message": "Extension version $VERSION$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectedLockedHello": {
+    "message": "Vault locked. Windows Hello fills."
+  },
+  "lockedTextPin": {
+    "message": "Unlock it in the app, then open this window again. The generator works while it is locked."
+  },
+  "setupTitlePin": {
+    "message": "Choose a PIN in Vault"
+  },
+  "setupTextPin": {
+    "message": "Vault asks for a PIN before the browser gets a password, a code or a passkey, and none is set yet. In Vault, open Settings → Browser extension and choose one, then try again."
+  },
+  "setupShortPin": {
+    "message": "Vault asks for a PIN before the browser gets a password, and none is set. Choose one in Vault: Settings → Browser extension."
+  },
+  "tabCodes": {
+    "message": "Codes"
+  },
+  "codesEmptyTitle": {
+    "message": "No one-time codes yet"
+  },
+  "codesEmptyText": {
+    "message": "Logins with a one-time code (two-step sign-in) are listed here. Add one to a login in Vault: edit it, then One-time code."
+  },
+  "codesAsksHello": {
+    "message": "Showing, copying or filling a code asks for Windows Hello, each time."
+  },
+  "codesAsksPin": {
+    "message": "Showing, copying or filling a code asks for your PIN, each time."
+  },
+  "codesAsksPassword": {
+    "message": "Showing, copying or filling a code asks for your item password, each time."
+  },
+  "codesAsksApp": {
+    "message": "These logins are behind the item lock, which only your master password opens, in Vault."
   }
 }

@@ -1,35 +1,79 @@
-/* The desktop app's tokens (docs/DESIGN.md): dark slate, one highlighter yellow, a single
-   hand-drawn stroke. Shared by the extension's window and the small frame shown in pages. */
+/* The desktop app's tokens (docs/DESIGN.md, apps/desktop/ui/theme.slint): dark slate, one
+   highlighter yellow for the one thing that matters on screen, a hand-drawn stroke only for
+   small details. Shared by the extension's window, the small frame shown in pages and the
+   passkey window. */
 :root {
   color-scheme: dark light;
   --canvas: #121821;
-  --panel: #18202b;
+  --panel: #161d27;
+  --sheet: #1a222d;
   --field: #0f141b;
   --hover: #212a36;
+  --selected: #243040;
   --ink: #e3e8ef;
   --graphite: #8e9aac;
+  --faint: #5e6a7b;
   --rule: #283240;
   --marker: #e7c54b;
+  --marker-hover: #f2d362;
   --on-marker: #161a20;
   --stroke: #e7c54b;
   --seal: #f06a60;
+  --good: #6fbf8e;
+  --toast: #2a3442;
+
+  /* Field icons, in each field's own colour (FieldColors in icons.slint). */
+  --c-user: #74a9ff;
+  --c-key: #e7c54b;
+  --c-clock: #4fc6b7;
+  --c-download: #ffb75a;
+  --c-warning: #ffa25e;
+
+  /* A shown secret: digits and symbols stand apart from letters. */
+  --c-digit: #74a9ff;
+  --c-symbol: #ffa25e;
+
+  /* The letter tiles: the desktop app's colours for a login without an icon (view.rs). */
+  --tint-0: #3d6fd6;
+  --tint-1: #7b5cd6;
+  --tint-2: #169372;
+  --tint-3: #d26335;
+  --tint-4: #c04a84;
+  --tint-5: #178ab0;
+  --tint-6: #c84545;
+  --tint-7: #5b7f2e;
+
   --text: Bahnschrift, "Segoe UI", system-ui, sans-serif;
-  --mono: "Cascadia Mono", Consolas, monospace;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, "Liberation Mono", monospace;
+  --radius: 6px;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
     --canvas: #eef1f4;
-    --panel: #e4e9ee;
+    --panel: #e6eaef;
+    --sheet: #fafbfc;
     --field: #ffffff;
-    --hover: #dce2e9;
+    --hover: #dfe4ea;
+    --selected: #d9e0e8;
     --ink: #1f2a3d;
-    --graphite: #5a6678;
-    --rule: #cfd7e0;
+    --graphite: #5f6b7d;
+    --faint: #9aa5b3;
+    --rule: #d3dae2;
     --marker: #f2cf45;
+    --marker-hover: #f6da66;
     --on-marker: #161a20;
     --stroke: #b88a00;
     --seal: #b3261e;
+    --good: #2e7d55;
+    --toast: #1f2a3d;
+    --c-user: #2d6bd0;
+    --c-key: #a67c00;
+    --c-clock: #1a8a7d;
+    --c-download: #a86a0e;
+    --c-warning: #bf5e1a;
+    --c-digit: #2d6bd0;
+    --c-symbol: #bf5e1a;
   }
 }
 
@@ -47,17 +91,31 @@ p {
   margin: 0;
 }
 
-/* ---- a login: a letter tile, its name, who it is, and what it asks for ---- */
+/* ---- icons: Lucide paths, drawn with a 2-unit round stroke ---- */
+
+svg.ic {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---- a login: its tile, its name, who it is, and what it asks for ---- */
 
 .login {
   display: grid;
-  grid-template-columns: 24px 1fr auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   column-gap: 12px;
   align-items: center;
   width: 100%;
-  padding: 8px 10px;
+  min-width: 0;
+  padding: 7px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: none;
   color: inherit;
   font: inherit;
@@ -79,24 +137,38 @@ p {
   color: var(--graphite);
 }
 
-/* The site's own icon, or its first letter on the highlighter yellow. */
+/* The site's own icon, or the login's initial on a colour hashed from its site, as in the
+   app: a service keeps its colour everywhere. */
 .favicon,
 .tile {
   grid-row: 1 / span 2;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+}
+
+.favicon {
+  object-fit: contain;
 }
 
 .tile {
   display: grid;
   place-items: center;
-  background: var(--marker);
-  color: var(--on-marker);
-  font-size: 13px;
-  font-weight: 700;
-  text-transform: uppercase;
+  background: var(--tint, var(--tint-0));
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
 }
+
+/* Which colour: a class beside `tile` (or the in-page card's `letter`). */
+.tint-1 { --tint: var(--tint-1); }
+.tint-2 { --tint: var(--tint-2); }
+.tint-3 { --tint: var(--tint-3); }
+.tint-4 { --tint: var(--tint-4); }
+.tint-5 { --tint: var(--tint-5); }
+.tint-6 { --tint: var(--tint-6); }
+.tint-7 { --tint: var(--tint-7); }
 
 .lock {
   grid-column: 3;
@@ -127,35 +199,38 @@ p {
   white-space: nowrap;
 }
 
-.asks {
-  grid-column: 3;
-  grid-row: 1 / span 2;
-  font-size: 12px;
-  color: var(--graphite);
-  white-space: nowrap;
-}
-
 /* ---- buttons ---- */
 
 button.primary,
 button.plain,
 button.quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   height: 34px;
   padding: 0 14px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font: inherit;
+  white-space: nowrap;
   cursor: pointer;
 }
 
+/* The one primary action of a view: filled with the highlighter. */
 button.primary {
   background: var(--marker);
   color: var(--on-marker);
   font-weight: 600;
 }
 
+button.primary:hover:enabled {
+  background: var(--marker-hover);
+}
+
+/* A button that must read as one: a hairline (Copy, New, Another). */
 button.plain {
-  background: var(--panel);
+  background: transparent;
   border: 1px solid var(--rule);
   color: var(--ink);
 }
@@ -164,25 +239,32 @@ button.plain:hover:enabled {
   background: var(--hover);
 }
 
-button.primary:focus-visible,
-button.plain:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
-}
-
+/* Everything else: text that gains a soft background on hover. */
 button.quiet {
-  height: 28px;
+  height: 30px;
   padding: 0 8px;
   background: none;
   color: var(--graphite);
-  font-size: 12px;
 }
 
-button.quiet:hover:enabled,
-button.quiet:focus-visible {
+button.quiet:hover:enabled {
   background: var(--hover);
   color: var(--ink);
-  outline: none;
+}
+
+button.small {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+button.quiet.small {
+  padding: 0 8px;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
 button:disabled {
@@ -190,25 +272,49 @@ button:disabled {
   cursor: default;
 }
 
-/* Show / hide: an eye that opens while the secret is shown, and blinks shut. */
-button.eye {
+/* An icon alone. */
+button.icon {
+  flex: none;
   display: inline-grid;
   place-items: center;
-  width: 30px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: none;
   color: var(--graphite);
   cursor: pointer;
 }
 
-button.eye:hover,
-button.eye:focus-visible {
+button.icon:hover:enabled {
   background: var(--hover);
   color: var(--ink);
-  outline: none;
+}
+
+button.icon svg.ic {
+  width: 17px;
+  height: 17px;
+}
+
+/* Show / hide: an eye that opens while the secret is shown, and blinks shut. */
+button.eye {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--graphite);
+  cursor: pointer;
+}
+
+button.eye:hover {
+  background: var(--hover);
+  color: var(--ink);
 }
 
 button.eye svg {
@@ -235,6 +341,10 @@ button.eye .shut {
   transition: opacity 160ms ease-in-out 60ms;
 }
 
+button.eye[aria-pressed="true"] {
+  color: var(--ink);
+}
+
 button.eye[aria-pressed="true"] .open {
   transform: scaleY(1);
   opacity: 1;
@@ -251,6 +361,54 @@ button.eye[aria-pressed="true"] .shut {
     transition: none;
   }
 }
+
+/* ---- a check box, as the app draws one: a hairline square, the highlighter when on ---- */
+
+label.box {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+label.box input {
+  flex: none;
+  position: relative;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  border: 1.5px solid var(--graphite);
+  border-radius: 4px;
+  background: var(--field);
+  cursor: pointer;
+}
+
+label.box input:checked {
+  border-color: var(--marker);
+  background: var(--marker);
+}
+
+label.box input:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 1.5px;
+  width: 4px;
+  height: 9px;
+  border: solid var(--on-marker);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+label.box input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* ---- the hand-drawn stroke under what to read first ---- */
 
 .stroke {
   display: block;

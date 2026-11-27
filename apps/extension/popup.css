@@ -1,91 +1,234 @@
-/* The extension's window. Tokens and the login row live in tokens.css. The one hand-drawn
-   stroke sits under the site's name, because that name is what the person should read
-   before anything is filled. */
+/* The extension's window: the tabs at the top, one view in the middle, who it is connected to
+   at the bottom. Tokens, the login row, buttons and check boxes live in tokens.css.
+
+   Every view sits inside `main`, which keeps 16 px from every edge of the window and scrolls
+   when a view is taller than the window can be: nothing (a button, its focus ring) ever
+   touches the window's edge. The one hand-drawn stroke sits under the site's name, because
+   that name is what to read before anything is filled; the highlighter underlines the tab
+   (and the generator's mode) that is shown, as in the app. */
+
+html {
+  background: var(--canvas);
+}
+
 body {
-  width: 360px;
-  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  min-height: 200px;
+  max-height: 600px;
   margin: 0;
-  padding: 12px 14px 0;
   background: var(--canvas);
   color: var(--ink);
   font: 14px/1.45 var(--text);
 }
 
-body > :last-child:not(footer) {
-  margin-bottom: 14px;
+main {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule) transparent;
 }
 
-/* ---- the two places ---- */
+main > section,
+main > form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+h2 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+p {
+  font-size: 12px;
+  color: var(--graphite);
+  overflow-wrap: anywhere;
+}
+
+p:empty {
+  display: none;
+}
+
+.lead {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.note,
+.hint {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.problem {
+  font-size: 13px;
+  color: var(--seal);
+}
+
+.row,
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.actions {
+  margin-top: 2px;
+}
+
+/* Back, at the top left of a view opened from another. */
+button.back {
+  align-self: flex-start;
+  margin: -4px 0 -2px -8px;
+}
+
+button.back svg.ic {
+  width: 15px;
+  height: 15px;
+}
+
+/* ---- the three places ---- */
 
 #tabs {
+  flex: none;
   display: flex;
-  gap: 4px;
-  margin: 0 -4px 12px;
-  padding-bottom: 8px;
+  gap: 2px;
+  padding: 8px 10px 0;
   border-bottom: 1px solid var(--rule);
 }
 
-#tabs button {
-  height: 28px;
-  padding: 0 10px;
+#tabs button,
+.choice button {
+  position: relative;
+  height: 36px;
+  padding: 0 9px 2px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius) var(--radius) 0 0;
   background: none;
   color: var(--graphite);
   font: inherit;
   cursor: pointer;
 }
 
-#tabs button:hover,
-#tabs button:focus-visible {
+#tabs button:hover {
   color: var(--ink);
-  outline: none;
   background: var(--hover);
 }
 
-#tabs button {
-  position: relative;
-}
-
-#tabs button[aria-pressed="true"] {
+#tabs button[aria-pressed="true"],
+.choice button[aria-pressed="true"] {
   color: var(--ink);
   font-weight: 600;
-}
-
-/* The page you are on is underlined with the highlighter, as in the app: a slightly uneven
-   stroke drawn in from the left. */
-#tabs button::after {
-  content: "";
-  position: absolute;
-  left: 9px;
-  right: 9px;
-  bottom: 1px;
-  height: 2.5px;
-  border-radius: 2px;
-  background: var(--marker);
-  transform: scaleX(0) rotate(-0.6deg);
-  transform-origin: left center;
-  transition: transform 260ms ease-out;
-}
-
-#tabs button[aria-pressed="true"]::after {
-  transform: scaleX(1) rotate(-0.6deg);
 }
 
 #tabs button[aria-pressed="true"]:hover {
   background: none;
 }
 
+#tabs button:focus-visible,
+.choice button:focus-visible {
+  outline-offset: -2px;
+}
+
+/* The place shown is underlined with the highlighter, as in the app: a slightly uneven
+   stroke drawn in from the left. */
+#tabs button::after,
+.choice button::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 3px;
+  height: 2.5px;
+  border-radius: 2px;
+  background: var(--marker);
+  transform: scaleX(0) rotate(-0.6deg);
+  transform-origin: left center;
+  transition: transform 220ms ease-out;
+}
+
+#tabs button[aria-pressed="true"]::after,
+.choice button[aria-pressed="true"]::after {
+  transform: scaleX(1) rotate(-0.6deg);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  #tabs button::after {
+  #tabs button::after,
+  .choice button::after {
     transition: none;
   }
 }
 
+/* ---- a newer extension ---- */
+
+#update {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 8px;
+  align-items: start;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.update-mark {
+  display: grid;
+  padding-top: 1px;
+  color: var(--c-download);
+}
+
+#update p {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+#update-now {
+  grid-column: 2;
+  justify-self: start;
+}
+
+/* ---- what a login asks before anything is given to the browser ---- */
+
+.asks {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--graphite);
+}
+
+.asks svg.ic {
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+}
+
+.asks.needs-setup {
+  color: var(--ink);
+}
+
+.asks.needs-setup svg.ic {
+  color: var(--c-warning);
+}
+
 /* ---- the site ---- */
 
-#site {
-  margin: 0 2px 12px;
+.site-head {
+  min-width: 0;
 }
 
 #origin {
@@ -95,242 +238,701 @@ body > :last-child:not(footer) {
   overflow-wrap: anywhere;
 }
 
-#site .stroke {
+.site-head .stroke {
   width: min(100%, 132px);
-  margin-top: 3px;
+  margin-top: 4px;
+}
+
+/* A login typed into the page, not saved yet. */
+.offer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.offer-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.offer p:not(.offer-title) {
+  font-size: 13px;
+}
+
+.offer .row {
+  margin-top: 8px;
 }
 
 /* ---- lists ---- */
 
-#list,
-#vault-list {
+.logins {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 0 -6px;
-  overflow-y: auto;
+  margin: 0 -8px;
 }
 
-#list {
-  max-height: 320px;
-}
-
-#vault-list {
-  max-height: 348px;
-}
-
-.with-more {
+.login-row {
   display: flex;
   align-items: center;
   gap: 2px;
-}
-
-.with-more .login {
-  flex: 1;
   min-width: 0;
 }
 
-.with-more .more {
+.login-row .login {
+  flex: 1;
+}
+
+/* Beside a row: fill its one-time code, or open it. */
+button.side {
   flex: none;
-  visibility: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--graphite);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
 
-.with-more:hover .more,
-.with-more:focus-within .more {
-  visibility: visible;
+button.side.word {
+  border: 1px solid var(--rule);
+  padding: 0 8px;
 }
 
-#vault > .row {
-  margin-bottom: 8px;
+button.side:hover:enabled {
+  background: var(--hover);
+  color: var(--ink);
 }
 
-#add-login {
-  flex: none;
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.empty h2 {
+  font-size: 15px;
+}
+
+.empty-line {
+  padding: 8px 0;
+  font-size: 13px;
+}
+
+/* ---- the vault ---- */
+
+.search-row {
+  position: sticky;
+  top: -16px;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+  margin: -16px -16px 0;
+  padding: 16px 16px 4px;
+  background: var(--canvas);
+}
+
+label.search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--field);
+  color: var(--graphite);
+}
+
+label.search:focus-within {
+  border-bottom-color: var(--marker);
 }
 
 #search {
   flex: 1;
   min-width: 0;
-  width: 100%;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  background: var(--field);
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--ink);
   font: inherit;
+  outline: none;
 }
 
 #search::placeholder {
+  color: var(--faint);
+}
+
+#add-login {
+  flex: none;
+  height: 36px;
+  padding: 0 12px 0 10px;
+}
+
+/* ---- one login ---- */
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.who-lines {
+  min-width: 0;
+}
+
+.who h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.who p {
+  font-size: 12px;
+}
+
+.big-tile .favicon,
+.big-tile .tile {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  font-size: 18px;
+}
+
+.big-tile {
+  flex: none;
+  display: grid;
+}
+
+.facts {
+  margin: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.fact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label label"
+    "value acts"
+    "note note";
+  align-items: center;
+  column-gap: 8px;
+  padding: 9px 0 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.fact dt {
+  grid-area: label;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+  font-size: 12px;
   color: var(--graphite);
 }
 
-#search:focus {
-  outline: none;
-  border-bottom-color: var(--marker);
+.fact dt svg.ic {
+  width: 14px;
+  height: 14px;
 }
 
-#vault-empty {
-  padding: 18px 2px 6px;
+.label.user svg.ic { color: var(--c-user); }
+.label.key svg.ic { color: var(--c-key); }
+.label.clock svg.ic,
+.label.globe svg.ic { color: var(--c-clock); }
+
+.fact dd {
+  grid-area: value;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fact .acts {
+  grid-area: acts;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.secret {
+  font-family: var(--mono);
+  color: var(--graphite);
+  letter-spacing: 1px;
+}
+
+/* A shown password: plain text in a field, which can be selected; digits and symbols in
+   their own colours. */
+#value-password.shown {
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--field);
+  color: var(--ink);
+  font: 15px/1.4 var(--mono);
+  letter-spacing: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+
+#value-password .digit,
+.gen-password .digit {
+  color: var(--c-digit);
+}
+
+#value-password .symbol,
+.gen-password .symbol {
+  color: var(--c-symbol);
+}
+
+/* Under a shown password: the seconds until it hides. */
+.shown-note {
+  grid-area: note;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--graphite);
+  font-variant-numeric: tabular-nums;
+}
+
+#value-code {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+}
+
+/* The one-time code: dots like the password's until shown, then large, in two halves; the
+   ring beside it drains with its period. */
+.code-digits {
+  font-family: var(--mono);
+  letter-spacing: 1px;
+  color: var(--graphite);
+}
+
+.code-digits.shown {
+  font-size: 26px;
+  line-height: 1.1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+}
+
+.code-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 4px;
+  font-size: 12px;
+  color: var(--graphite);
+  font-variant-numeric: tabular-nums;
+}
+
+.code-clock svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke-width: 2.5;
+}
+
+.code-clock .track {
+  stroke: var(--rule);
+}
+
+.code-clock .arc {
+  stroke: var(--c-clock);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 250ms linear;
+}
+
+.code-clock.ending .arc {
+  stroke: var(--seal);
+}
+
+.code-clock.ending {
+  color: var(--seal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code-clock .arc {
+    transition: none;
+  }
+}
+
+#entry-actions {
+  margin-top: 4px;
+}
+
+#entry-fill {
+  height: 38px;
+  padding: 0 18px;
+}
+
+#entry-fill-code {
+  height: 38px;
+}
+
+/* ---- the one-time codes ---- */
+
+.code-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.code-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.code-row:first-child {
+  padding-top: 0;
+}
+
+.code-row:last-child {
+  border-bottom: 0;
+}
+
+.code-tile {
+  grid-row: 1 / span 3;
+  display: grid;
+  align-self: start;
+  padding-top: 2px;
+}
+
+.code-row .title,
+.code-row .detail,
+.code-line {
+  grid-column: 2;
+}
+
+.code-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  margin-top: 2px;
+}
+
+.code-line .acts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.code-line .code-digits.shown {
+  font-size: 24px;
 }
 
 /* ---- the generator ---- */
 
-#gen,
-#new-login {
+.gen-well {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.gen-result {
-  display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
-  padding: 6px 4px 6px 12px;
+  min-height: 52px;
+  padding: 8px 6px 8px 12px;
   border: 1px solid var(--rule);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--field);
 }
 
-#gen-password {
+.gen-password {
   flex: 1;
   min-width: 0;
-  font: 15px/1.4 var(--mono);
+  max-height: 7.2em;
+  padding-top: 6px;
+  overflow-y: auto;
+  font: 16px/1.45 var(--mono);
   color: var(--ink);
   overflow-wrap: anywhere;
+  scrollbar-width: thin;
 }
 
-button.icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: none;
+.gen-password.none {
+  font: 13px/1.45 var(--text);
   color: var(--graphite);
-  cursor: pointer;
 }
 
-button.icon:hover,
-button.icon:focus-visible {
-  background: var(--hover);
-  color: var(--ink);
-  outline: none;
+#gen-again.turn svg.ic {
+  animation: turn 320ms ease-out;
 }
 
-button.icon svg {
-  width: 17px;
-  height: 17px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+@keyframes turn {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(180deg);
+  }
 }
 
-button.icon:active svg {
-  transform: rotate(-90deg);
-  transition: transform 160ms ease-out;
+@media (prefers-reduced-motion: reduce) {
+  #gen-again.turn svg.ic {
+    animation: none;
+  }
 }
 
-/* Strength: a thin bar filled up to 128 bits. */
-.meter {
-  height: 3px;
+/* Strength: four segments, red below 50 bits, yellow below 70, green above (as the app). */
+.strength {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-top: -4px;
+  font-size: 12px;
+}
+
+.meter {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  width: 112px;
+}
+
+.meter i {
+  flex: 1;
+  height: 4px;
   border-radius: 2px;
   background: var(--rule);
-  overflow: hidden;
 }
 
-#gen-meter {
-  display: block;
-  height: 100%;
-  width: 0;
-  background: var(--marker);
-  transition: width 200ms ease-out;
+.meter[data-level="1"] i:nth-child(-n + 1),
+.meter[data-level="2"] i:nth-child(-n + 2),
+.meter[data-level="3"] i:nth-child(-n + 3),
+.meter[data-level="4"] i {
+  background: var(--good);
 }
 
-#gen-meter.weak {
+.meter[data-tone="weak"][data-level="1"] i:nth-child(1) {
   background: var(--seal);
 }
 
-#gen-bits {
-  margin-top: -4px;
+.meter[data-tone="fair"][data-level="2"] i:nth-child(-n + 2) {
+  background: var(--marker);
 }
 
-.modes {
-  display: flex;
-  gap: 4px;
+.strength-word {
+  font-weight: 600;
+  color: var(--good);
 }
 
-.modes button {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  background: none;
+.strength-word[data-tone="weak"] {
+  color: var(--seal);
+}
+
+.strength-word[data-tone="fair"] {
+  color: var(--ink);
+}
+
+.bits {
   color: var(--graphite);
-  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.choice {
+  display: flex;
+  gap: 2px;
+  margin: 2px 0 -4px -10px;
+}
+
+.count {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  row-gap: 6px;
+}
+
+.count label {
   font-size: 13px;
+  color: var(--graphite);
+}
+
+#gen-count-number {
+  width: 58px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--field);
+  color: var(--ink);
+  font: 600 14px var(--text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+}
+
+#gen-count-number::-webkit-inner-spin-button,
+#gen-count-number::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+#gen-count-number:focus,
+.field-input input:focus,
+#check-input:focus,
+#gen-separator:focus {
+  outline: none;
+  border-bottom-color: var(--marker);
+}
+
+/* The slider, as the app draws it: a hairline track filled in the highlighter up to a round
+   knob. The fill is `--fill`, set as the knob moves. */
+.slider {
+  grid-column: 1 / -1;
+  --fill: 0%;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  background: transparent;
+  appearance: none;
   cursor: pointer;
 }
 
-.modes button[aria-pressed="true"] {
-  background: var(--panel);
-  color: var(--ink);
-  font-weight: 600;
+.slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--marker) var(--fill), var(--rule) var(--fill));
 }
 
-.slider {
+.slider::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  margin-top: -7px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--marker);
+  box-shadow: 0 0 0 3px var(--canvas);
+  appearance: none;
+}
+
+.slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--rule);
+}
+
+.slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--marker);
+}
+
+.slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--marker);
+  box-shadow: 0 0 0 3px var(--canvas);
+}
+
+.slider:focus-visible {
+  outline: none;
+}
+
+.slider:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 3px var(--canvas),
+    0 0 0 5px var(--ink);
+}
+
+.slider:focus-visible::-moz-range-thumb {
+  box-shadow:
+    0 0 0 3px var(--canvas),
+    0 0 0 5px var(--ink);
+}
+
+.options {
   display: grid;
-  grid-template-columns: 64px 1fr 28px;
-  align-items: center;
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
   font-size: 13px;
 }
 
-.slider input {
-  accent-color: var(--marker);
+.options .wide {
+  grid-column: 1 / -1;
 }
 
-.slider output {
-  text-align: right;
-  font-weight: 600;
-}
-
-.kinds {
+.separator {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  font-size: 13px;
-}
-
-.kinds .wide {
-  flex-basis: 100%;
+  flex-direction: column;
+  gap: 6px;
   color: var(--graphite);
 }
 
-.kinds input {
-  accent-color: var(--marker);
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.separator select {
-  margin-left: 6px;
-  height: 24px;
+.presets button {
+  width: 34px;
+  height: 30px;
+  padding: 0;
   border: 1px solid var(--rule);
-  border-radius: 5px;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--ink);
+  font: 15px var(--mono);
+  cursor: pointer;
+}
+
+.presets button:hover {
+  background: var(--hover);
+}
+
+.presets button[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--selected);
+}
+
+#gen-separator {
+  width: 72px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
   background: var(--field);
   color: var(--ink);
-  font: inherit;
+  font: 15px var(--mono);
 }
 
-#gen .row {
-  margin-top: 2px;
+#gen-separator::placeholder {
+  font: 13px var(--text);
+  color: var(--faint);
+}
+
+#gen .actions {
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
 }
 
 /* ---- a new login ---- */
@@ -338,26 +940,31 @@ button.icon:active svg {
 .field-input {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
+  min-width: 0;
   font-size: 12px;
   color: var(--graphite);
 }
 
 .field-input input {
-  flex: none;
   min-width: 0;
-  height: 34px;
+  height: 36px;
   padding: 0 10px;
   border: 1px solid var(--rule);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--field);
   color: var(--ink);
   font: 14px var(--text);
 }
 
-.field-input input:focus {
-  outline: none;
-  border-bottom-color: var(--marker);
+.field-input input::placeholder {
+  color: var(--faint);
+}
+
+.well-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 #new-pass {
@@ -365,202 +972,42 @@ button.icon:active svg {
   font-family: var(--mono);
 }
 
-/* ---- a login typed in the page, not saved yet ---- */
-
-#offer {
-  margin: 0 -4px 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--rule);
-  border-left: 3px solid var(--marker);
-  border-radius: 6px;
-  background: var(--panel);
-}
-
-#offer p {
-  margin-bottom: 8px;
-  font-size: 13px;
-  color: var(--ink);
-  overflow-wrap: anywhere;
-}
-
-/* ---- one login ---- */
-
-#entry {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-#entry-back {
-  align-self: flex-start;
-  margin-left: -8px;
-}
-
-#entry .who {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.entry-icon .favicon,
-.entry-icon .tile {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  font-size: 16px;
-}
-
-#entry-title {
-  font-size: 17px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-dl {
-  margin: 0;
-  border-top: 1px solid var(--rule);
-}
-
-.field {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  column-gap: 2px;
-  align-items: center;
-  padding: 8px 0 8px 2px;
-  border-bottom: 1px solid var(--rule);
-}
-
-.field dt {
-  grid-column: 1 / -1;
-  font-size: 12px;
-  color: var(--graphite);
-}
-
-.field dd {
-  grid-column: 1;
-  margin: 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.field dd.secret,
-#value-code {
-  font-family: var(--mono);
-  color: var(--graphite);
-  letter-spacing: 1px;
-}
-
-.field dd.secret.shown {
-  color: var(--ink);
-  letter-spacing: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  user-select: text;
-}
-
-#entry-fill {
-  align-self: flex-start;
-  height: 38px;
-}
-
-/* ---- the PIN, pairing and messages ---- */
-
-#check,
-#pair,
-#message {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 0 2px;
-}
-
-#pair,
-#message:first-of-type {
-  padding-top: 6px;
-}
-
-h2 {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-p {
-  font-size: 12px;
-  color: var(--graphite);
-}
-
-p:empty {
-  display: none;
-}
-
-#check .who {
-  font-size: 14px;
-  color: var(--ink);
-}
-
-#check .who span {
-  color: var(--graphite);
-}
-
-.problem,
-#message.error h2 {
-  color: var(--seal);
-}
-
-#message.error h2 {
-  font-size: 14px;
-  font-weight: 400;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+/* ---- the item lock's PIN ---- */
 
 #check-input {
   flex: 1;
   min-width: 0;
-  height: 38px;
+  height: 40px;
   padding: 0 12px;
   border: 1px solid var(--rule);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--field);
   color: var(--ink);
   font: 16px var(--mono);
-  letter-spacing: 3px;
+  letter-spacing: 2px;
+}
+
+#check-input.pin {
+  font-size: 20px;
+  letter-spacing: 6px;
 }
 
 #check-input::placeholder {
   font: 14px var(--text);
   letter-spacing: 0;
-  color: var(--graphite);
+  color: var(--faint);
 }
 
-#check-input:focus {
-  outline: none;
-  border-bottom-color: var(--marker);
+#check-go {
+  height: 40px;
 }
 
-#check-go,
-#pair-button {
-  height: 38px;
+/* ---- connecting ---- */
+
+#pair {
+  padding-top: 4px;
 }
 
-#check-back,
-#pair-restart {
-  align-self: flex-start;
-  margin-left: -8px;
-}
-
-#pair-button {
-  align-self: flex-start;
-  padding: 0 22px;
-}
-
-/* A line drawn by hand from here to the app: the only picture in this window. */
 /* The app's logo, and the stroke that reaches from it to this browser. */
 #pair-art {
   display: flex;
@@ -586,74 +1033,161 @@ p:empty {
   stroke-linejoin: round;
 }
 
-/* The connection code, read against the one the app shows. */
-#pair-code {
-  font: 28px var(--mono);
+#pair h2 {
+  font-size: 18px;
+}
+
+/* The connection code, read against the one the app shows: one character to a box, two
+   groups of four, large and plain. The boxes shrink before the row could leave the window. */
+.code-boxes {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 0;
+}
+
+.code-boxes .box {
+  flex: 1 1 0;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  max-width: 36px;
+  height: 48px;
+  border: 1px solid var(--graphite);
+  border-radius: var(--radius);
+  background: var(--field);
   color: var(--ink);
-  letter-spacing: 2px;
+  font: 600 24px/1 var(--mono);
+}
+
+.code-boxes .dash {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  color: var(--graphite);
+  font: 20px/1 var(--mono);
+}
+
+#pair-button {
+  height: 38px;
+  padding: 0 22px;
+}
+
+#pair-restart {
+  margin-left: -8px;
+}
+
+/* ---- a message in place of a view ---- */
+
+#message {
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.message-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  margin-bottom: 4px;
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--graphite);
+}
+
+.message-icon svg.ic {
+  width: 18px;
+  height: 18px;
+}
+
+#message.error h2 {
+  color: var(--seal);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ---- settings ---- */
+
+.setting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.setting label.box {
+  font-size: 14px;
+}
+
+.setting .hint {
+  padding-left: 27px;
+}
+
+.version {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- what just happened, and who we are connected to ---- */
 
 #toast {
   position: fixed;
-  left: 14px;
-  right: 14px;
-  bottom: 40px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: var(--ink);
-  color: var(--canvas);
+  left: 16px;
+  right: 16px;
+  bottom: 52px;
+  z-index: 2;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--toast);
+  color: #e3e8ef;
   font-size: 13px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
 
 #foot {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin: 12px -14px 0;
-  padding: 7px 16px;
+  gap: 6px;
+  min-height: 40px;
+  padding: 5px 8px 5px 16px;
   border-top: 1px solid var(--rule);
   font-size: 12px;
   color: var(--graphite);
 }
 
 #foot-dot {
+  flex: none;
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--marker);
+  background: var(--good);
 }
 
 /* Locked vault: a hollow dot. */
 #foot.locked #foot-dot {
   background: none;
-  box-shadow: inset 0 0 0 1.5px var(--marker);
+  box-shadow: inset 0 0 0 1.5px var(--graphite);
 }
 
 #foot-text {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+}
+
+#foot button {
+  font-size: 12px;
+}
+
+#foot button svg.ic {
+  width: 14px;
+  height: 14px;
 }
 
 #foot-prefs {
-  font-size: 12px;
-  padding: 2px 6px;
-}
-
-#prefs .setting {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  margin: 10px 0 6px;
-  font-size: 14px;
-  color: var(--ink);
-}
-
-#prefs .hint {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: var(--graphite);
+  width: 30px;
+  padding: 0;
 }

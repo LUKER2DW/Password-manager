@@ -42,15 +42,31 @@ Status: alpha, like the rest of the project (loaded unpacked; not in a store yet
   a locked vault (for the field's list) and security keys go to the browser as before. On the
   item page in the app you see a login's passkeys; the editor takes one out. Turn it off in
   the extension's Settings: "Vault keeps passkeys, not the browser".
-- **Its window** (the toolbar button or Ctrl+Shift+L) has three tabs:
-  - *This site*: the logins for the page in front, to fill; *Details* opens one.
-  - *All logins*: search the whole vault; show a password or copy username, password or
-    one-time code. *New* adds a login by hand.
-  - *Generator*: a password from the app's generator; *Copy* or *Use for a new login*. It
-    works with the vault locked too: making a password needs no vault, and one you used joins
-    the app's history once the vault is open again.
+- **Its window** (the toolbar button or Ctrl+Shift+L) has four tabs, and says above a list
+  what Vault will ask for (your PIN, your item password, or Windows Hello where the app offers
+  it) before anything is shown, copied or filled:
+  - *This site*: the logins for the page in front, to fill; *Code* fills a login's one-time
+    code; the arrow opens the login.
+  - *All logins*: search the whole vault; open a login to show its password (as text you can
+    select, back to dots after 15 seconds) or its one-time code (with a ring counting down,
+    back to dots when it runs out), copy username, password or code, or fill it. *New* adds
+    a login by hand.
+  - *Codes*: every login with a one-time code, each behind dots and an eye, with *Copy*, and
+    *Fill* for the page in front.
+  - *Generator*: a password from the app's generator, made again while the length slider
+    moves (4 to 128 characters, or 3 to 20 words), with its strength in a word and in bits;
+    *Copy* or *Use for a new login*. It works with the vault locked too: making a password
+    needs no vault, and one you used joins the app's history once the vault is open again.
+
+  Nothing shown is kept: it goes after its time, when the window shows something else, and
+  when it closes. *Lock* at the bottom locks the vault in the app. When the browser's worker
+  has learned of a newer extension, a notice at the top says so (with *Update now* where it
+  can put it in place itself).
 - Copying is done **by the app**: the value never reaches the browser, it stays out of
   Windows clipboard history, and it is cleared after the time set in the app.
+- **Site icons** come from the browser's own cache of the pages it has shown (a few likely
+  pages of the site are tried, the page in front first); nothing is fetched from the sites.
+  A site the browser has no icon of keeps its initial on the colour the app gives it.
 - **Works with the vault locked** (the app must be running, the window may be closed to the
   notification area): logins are listed and each fill asks for Windows Hello. Turn it on or
   off in the app: Settings → Browser extension → Fill with Windows Hello while the vault is
@@ -211,7 +227,8 @@ What differs in Firefox:
 | File | Role |
 |---|---|
 | `manifest.json` | Manifest V3 for Chrome, Edge and Firefox: `activeTab`, `scripting`, `nativeMessaging`, `storage`, `favicon` (Chrome, Edge), `privacy`; https pages for the content scripts |
-| `popup.html`, `popup.css`, `popup.js` | The extension's window: this site, all logins, generator, new login |
+| `popup.html`, `popup.css`, `popup.js` | The extension's window: this site, all logins, codes, generator, new login, settings |
+| `popup/*.js` | Its views (`site.js`, `vault.js`, `entry.js`, `codes.js`, `generator.js`, `new-login.js`, `prefs.js`, `pairing.js`) and the rules they share, each testable on its own (`throttle.js`, `countdown.js`, `asks.js`, `cells.js`, `strength.js`, `options.js`, `version.js`, `tint.js`, `icon-pages.js`) |
 | `content.js`, `fields.js` | Content script: sign-in and new-password fields, submitted forms, placing the frame |
 | `inline.html`, `inline.css`, `inline.js` | The frame under a field (logins, the site's passkeys, or a new password) and the save offer |
 | `background.js` | The worker between the content script, the frame and the app |
@@ -225,8 +242,8 @@ What differs in Firefox:
 | `generator.js` | Reads a field's password rules for the app's generator |
 | `tokens.css` | Colours and shared pieces (the desktop app's tokens) |
 | `_locales/en/messages.json` | Every text shown |
-| `test/*.test.mjs` | Tests: `node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs` |
-| `test/preview.html` | Visual review of the window and the frames with fixed test data |
+| `test/*.test.mjs` | Tests: `node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs` |
+| `test/preview.html`, `test/preview-app.js` | Visual review of the window and the frames with fixed test data (a stand-in for the app through an import map) |
 | `test/pages/clickjacking.html` | Manual test page that tries to steal a fill |
 
 Plain JavaScript on purpose: no build step and no packages, so what is reviewed in this folder

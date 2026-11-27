@@ -86,6 +86,39 @@ function fit() {
 }
 window.addEventListener("hashchange", fit);
 
+/**
+ * A letter tile's colour (0–7) for `key`: FNV-1a over the lowercased key, the desktop app's
+ * colours for a login without an icon (apps/desktop/src/view.rs, popup/tint.js), so a site
+ * looks alike everywhere.
+ */
+function tintOf(key) {
+  let hash = 0x811c9dc5;
+  for (const ch of String(key ?? "").toLowerCase()) {
+    // Its UTF-8 bytes, as the app hashes them.
+    const c = ch.codePointAt(0);
+    const bytes =
+      c < 0x80
+        ? [c]
+        : c < 0x800
+          ? [0xc0 | (c >> 6), 0x80 | (c & 63)]
+          : c < 0x10000
+            ? [0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63)]
+            : [0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63)];
+    for (const byte of bytes) hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
+  }
+  return hash % 8;
+}
+
+/** The host a site is keyed by for its colour ("www." dropped). */
+function hostKey(site) {
+  return String(site ?? "")
+    .replace(/^[a-z]+:\/\//i, "")
+    .split(/[/?#]/)[0]
+    .toLowerCase()
+    .replace(/^\*\./, "")
+    .replace(/^www\./, "");
+}
+
 /** The site's icon as the browser already has it (nothing is fetched), or its first letter. */
 function siteIcon(origin, letter) {
   const img = document.createElement("img");
@@ -95,7 +128,7 @@ function siteIcon(origin, letter) {
   img.addEventListener("error", () => {
     const tile = document.createElement("span");
     if (img.id) tile.id = img.id;
-    tile.className = "letter";
+    tile.className = `letter tint-${tintOf(hostKey(origin) || letter)}`;
     tile.textContent = (letter || "?").trim().charAt(0);
     img.replaceWith(tile);
   });

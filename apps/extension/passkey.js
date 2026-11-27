@@ -25,10 +25,43 @@ let again;
 // The worker keeps the request while this window is open.
 setInterval(() => say("passkey-ping"), 20_000);
 
+/**
+ * A letter tile's colour (0–7) for `key`: FNV-1a over the lowercased key, the desktop app's
+ * colours for a login without an icon (apps/desktop/src/view.rs, popup/tint.js), so a site
+ * looks alike everywhere.
+ */
+function tintOf(key) {
+  let hash = 0x811c9dc5;
+  for (const ch of String(key ?? "").toLowerCase()) {
+    // Its UTF-8 bytes, as the app hashes them.
+    const c = ch.codePointAt(0);
+    const bytes =
+      c < 0x80
+        ? [c]
+        : c < 0x800
+          ? [0xc0 | (c >> 6), 0x80 | (c & 63)]
+          : c < 0x10000
+            ? [0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63)]
+            : [0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63)];
+    for (const byte of bytes) hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
+  }
+  return hash % 8;
+}
+
+/** The host a site is keyed by for its colour ("www." dropped). */
+function hostKey(site) {
+  return String(site ?? "")
+    .replace(/^[a-z]+:\/\//i, "")
+    .split(/[/?#]/)[0]
+    .toLowerCase()
+    .replace(/^\*\./, "")
+    .replace(/^www\./, "");
+}
+
 function siteIcon(site, letter) {
   const tile = () => {
     const span = document.createElement("span");
-    span.className = "tile";
+    span.className = `tile tint-${tintOf(hostKey(site) || letter)}`;
     span.textContent = (letter || "?").trim().charAt(0);
     return span;
   };
@@ -107,7 +140,7 @@ function render() {
       detail.className = "detail";
       detail.textContent = entry.title;
       const tile = document.createElement("span");
-      tile.className = "tile";
+      tile.className = `tile tint-${tintOf(hostKey(state.site) || name)}`;
       tile.textContent = name.trim().charAt(0) || "?";
       button.append(tile, title, detail);
       if (entry.locked) button.append(lockIcon());
@@ -118,6 +151,7 @@ function render() {
     rows[0]?.focus();
   } else {
     const name = state.userName || state.displayName || t("noUsername");
+    $("make-tile").className = `tile tint-${tintOf(hostKey(state.site) || name)}`;
     $("make-tile").textContent = name.trim().charAt(0) || "?";
     $("make-name").textContent = name;
     $("make-detail").textContent = state.displayName && state.displayName !== name ? state.displayName : state.site;
