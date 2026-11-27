@@ -106,7 +106,9 @@ extension's local pipe and host registration (`browser_link.rs`), the emergency 
 fetched directly from each site with a sealed cache (`website_icons.rs`), the `.vault` file
 type for this user on Windows (icon, opens in the app; `file_types.rs`), starting at sign-in
 (`autostart.rs`, the user's `Run` key) and one running copy of the desktop app
-(`single_instance.rs`), the registry calls these share (`registry.rs`), file helpers and
+(`single_instance.rs`), the registry calls these share (`registry.rs`), locking with Windows
+(`session_watch.rs`: session lock, user switch, sign-out, sleep), the process's own hardening
+(`process.rs`: DLLs from System32 only), file helpers and
 secure wiping (`files.rs`), app paths (`paths.rs`), the apps' updates from GitHub's releases
 (`updates.rs`: the release list, and the phone's package checked against it), sync targets and one sync
 round (`sync.rs`: the folder target, fetch, merge, this device joining the vault;

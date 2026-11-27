@@ -604,15 +604,22 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   hibernates (Settings → Security, on by default): a hidden window on a thread of its own
   hears the session and power messages (`session_watch.rs`) and waits for the lock before
   answering a suspend.
-- ⬜ S2. DLL loading: static C runtime, `/DEPENDENTLOADFLAG:0x800` and
-  `SetDefaultDllDirectories(System32)` at start, so a DLL dropped next to an exe run from
-  Downloads isn't loaded; `check-exe.ps1` checks it.
+- ✅ S2. DLL loading: `/DEPENDENTLOADFLAG:0x800` in every Windows program and
+  `SetDefaultDllDirectories(System32)` first thing in the desktop app and the CLI
+  (`process.rs`), so a DLL dropped next to an exe run from Downloads isn't loaded;
+  `check-exe.ps1` checks the flag. The C runtime stays a DLL (from System32, so the Visual
+  C++ runtime must be installed: a copy beside the exe is ignored now): a static one would
+  need Skia built from source, as no static-runtime Skia is published.
 - ⬜ S3. Process hardening: a process DACL other programs of the same user can't read or
   write memory through (with an OWNER RIGHTS entry), the mitigation policies that don't break
   GPU drivers, crash dumps left out; also in the native-host mode and the CLI.
 - ⬜ S4. Emergency kit: the saved PDF holds the Secret Key; recovery parts only in files of
   their own, on request, with a warning for folders a cloud backs up.
-- ⬜ S5. Extension: nothing filled, saved or signed in a sandboxed (opaque-origin) document.
+- ✅ S5. Extension: nothing offered, filled, saved or signed in a sandboxed (opaque-origin)
+  document: the scripts compare the document's own origin with its address's, the worker
+  ignores a page message whose browser-given origin isn't the tab's, the card shows nothing
+  under a "null" ancestor, and passkey requests there stay with the browser. Tested in
+  `fill`, `passkeys` and `background` tests.
 - ⬜ S6. Passkeys: "user verified" only after Windows Hello, the PIN or a fingerprint in that
   operation; a site asking for `required` gets the check.
 - ⬜ S7. The docs say only what the code does (memory and hibernation, builds, revealed text).
@@ -630,6 +637,29 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   more fuzz targets run on a schedule.
 - ⬜ S15. Authenticode signing and a release manifest signed with an offline key that the
   updaters check (owner).
+- ⬜ S16. A warning when a vault password is pasted or sent on a site that isn't its own (the
+  app compares; the extension still holds nothing).
+- ⬜ S17. The Secret Key and the recovery parts refused in any page (their own checksummed
+  format, recognised without a secret).
+- ⬜ S18. What a stolen pairing reaches: items or folders kept out of the browser, the
+  extension's window listing only the open site's logins, a folder kept to one browser.
+- ⬜ S19. A strength floor for passwords that are the only factor (the `.vaultx` export, the
+  item lock's password) and a check of a new master password.
+- ⬜ S20. Unlock attempts: a growing delay that survives a restart, the count shown at the
+  next unlock; on the phone, optionally removing the local copy after many failures.
+- ⬜ S21. A warning for a domain that looks like a saved site, and mixed-script
+  internationalised names shown in punycode (from the vault's own sites, offline).
+- ⬜ S22. Android autofill against the AutoFail cases (USENIX Security 2026): sandboxed
+  frames, only the focused form's fields, the account oracle.
+- ⬜ S23. Android's keyboard learns nothing typed in the vault's fields.
+- ⬜ S24. The extension frame's address changes each session (`use_dynamic_url`), so pages
+  can't detect Vault.
+- ⬜ S25. A minimum extension version the app accepts, and a warning when an exe older than
+  one already used runs.
+- ⬜ S26. A local security log (unlocks, failures, each use through the extension, exports,
+  the kit, devices), sealed on this device.
+- ⬜ S27. The master password typed on a secure desktop (Windows).
+- ⬜ S28. Tabs driven by an AI agent get no offers in the page, only the extension's window.
 
 **Features** (F2, F7 and F8 change the file format: one format version for the three)
 - ⬜ F1. Lock options: ask for the master password at every start of the app.
@@ -648,6 +678,29 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
 - ⬜ F13. Sharing and emergency access (a written design first, `docs/spec/SHARING.md`).
 - ⬜ F14. Passkey provider for Windows 11.
 - ⬜ F15. Linux, macOS, and the CLI level with the apps.
+- ⬜ F16. Per-site rules: never offer to save, never show the card, never fill, no passkeys.
+- ⬜ F17. More lock triggers and "lock everything": on minimising to the tray, hiding revealed
+  text on losing focus, how often Windows Hello asks for the master password, Lock in the
+  extension, a global shortcut, `--lock`.
+- ⬜ F18. The save card and the editor warn of a reused or leaked new password.
+- ⬜ F19. Help changing a password: `/.well-known/change-password`, and the change URLs and
+  password rules of the `password-manager-resources` lists, built in.
+- ⬜ F20. Authenticator: Steam codes, import from other authenticator apps
+  (`otpauth-migration`, exports), a QR code read from a picture on the desktop.
+- ⬜ F21. The whole item's history, with restore.
+- ⬜ F22. Archived items: out of search, filling and health, not deleted.
+- ⬜ F23. The WebAuthn Signal API: a site says a passkey is gone or its names changed.
+- ⬜ F24. Show a password in large type.
+- ⬜ F25. A settings review on the health page, and "ignore this warning".
+- ⬜ F26. Quick access by a global shortcut (search, copy, type) and configurable shortcuts.
+- ⬜ F27. Export as KDBX 4.
+- ⬜ F28. More import sources.
+- ⬜ F29. CLI automation through the open app (`vault run`, `vault inject`, a git credential
+  helper), each use approved in the app.
+
+F21, F22 and S18's flag change the file format too: the same format version as F2, F7 and F8.
+Before that version, a device on the older format must say plainly that it needs updating
+(today a copy of another format version is skipped by sync without a word).
 
 ## Engineering practices
 

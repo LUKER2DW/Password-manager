@@ -96,6 +96,12 @@ On top of that:
   each exe for them (`apps/desktop/check-exe.ps1`). Control Flow Guard covers our code and the
   C compiled with it (ring, SQLite), not the standard library or Skia, which come
   precompiled. Most of the code is safe Rust, where such bugs can't happen to begin with.
+- A DLL dropped next to the exe never loads: the desktop app is one exe often run from
+  Downloads, and Windows looks there first. The DLLs each program imports are looked for in
+  System32 only (`/DEPENDENTLOADFLAG:0x800`, checked in every release by `check-exe.ps1`),
+  and so are those loaded later by name (`SetDefaultDllDirectories` first thing in `main`,
+  `vault_platform::process`). Tested by hand: with a junk `VCRUNTIME140.dll` beside it, an exe
+  built without the flag fails to start, one built with it runs.
 - Clipboard: automatic clearing and exclusion from Windows clipboard history and cloud sync.
 - Optional re-prompt: critical items (bank, primary email, crypto) require a fresh check
   on every use. Implemented as the item lock: the master password (re-derived against the
@@ -131,7 +137,11 @@ On top of that:
   (IntersectionObserver v2), and a mouse click only once the pointer has rested on the card
   for 150 ms (a frame slid under the pointer takes no click meant for the page); the card
   shows nothing inside a frame of the page (an advert, a widget), only directly in the page
-  whose logins it lists; it shows usernames, never passwords; a fill goes only into the
+  whose logins it lists; it shows usernames, never passwords; a document the site sandboxed
+  (a `sandbox` frame, a `Content-Security-Policy: sandbox` header, a pop-up that inherited
+  one: its own origin is opaque while its address names the site) is not the site, so
+  nothing is offered, read, filled or saved there and its passkey requests stay with the
+  browser (the class of CVE-2025-65203); a fill goes only into the
   site the login is saved for, top frame only, and into the field the card was shown under
   and that field's own form (each card is one offer: its id is in the frame's address, which
   the page can read, but what it stands for, the field, its form and where that form sends, is
