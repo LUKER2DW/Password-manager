@@ -836,3 +836,405 @@ fn two_devices_sync_through_a_server() {
     let after = phone.fails(&["sync"], &[MASTER]);
     assert!(after.contains("isn't allowed in"), "{after}");
 }
+
+// ---- A hostile sync place (THREAT_MODEL A2, SYNC.md §4.1, §9) ----
+
+/// The one folder in `dir` (a sync folder's vault, a server's vault).
+fn the_one_folder_in(dir: &std::path::Path) -> std::path::PathBuf {
+    let mut entries = std::fs::read_dir(dir).unwrap();
+    let only = entries.next().unwrap().unwrap().path();
+    assert!(entries.next().is_none());
+    only
+}
+
+fn names_in(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// Runs `vault sync`, checks whether it ended well, and returns all it said.
+fn sync_says(env: &Env, ends_well: bool) -> String {
+    let output = env.run(&["sync"], &[MASTER]);
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.status.success(), ends_well, "{said}");
+    said
+}
+
+/// What another program can leave where the phone's copy goes in a shared folder: the copy
+/// with one byte altered, cut short, empty, garbage, another vault's, one bigger than any
+/// vault, the phone's copy under another device's name, and an older copy once a newer one was
+/// taken. `vault sync` on the desktop takes none of it: the vault file stays as it was, byte
+/// for byte, and each is said. The phone's real copy goes in, and a later round works.
+#[test]
+fn a_hostile_sync_folder_changes_nothing_here() {
+    let desktop = Env::new();
+    desktop.ok(
+        &["init", "--kdf-target-ms", "50", "--kdf-memory-mib", "64"],
+        &[MASTER],
+    );
+    let phone = Env::new();
+    std::fs::copy(&desktop.vault, &phone.vault).unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let folder_arg = folder.path().to_str().unwrap();
+    desktop.ok(&["sync", folder_arg], &[MASTER]);
+    let devices = the_one_folder_in(folder.path()).join("devices");
+    let desktop_copy = names_in(&devices).remove(0);
+    phone.ok(&["sync", folder_arg], &[MASTER]);
+    let phone_copy = names_in(&devices)
+        .into_iter()
+        .find(|name| *name != desktop_copy)
+        .unwrap();
+    let phone_path = devices.join(&phone_copy);
+    let older = std::fs::read(&phone_path).unwrap();
+    desktop.ok(&["sync"], &[MASTER]);
+    phone.ok(
+        &["add", "Phone item", "-u", "p", "--url", "https://p.example"],
+        &[MASTER, "phone-item-password"],
+    );
+    phone.ok(&["sync"], &[MASTER]);
+    let newer = std::fs::read(&phone_path).unwrap();
+    let stranger = Env::new();
+    stranger.ok(
+        &["init", "--kdf-target-ms", "50", "--kdf-memory-mib", "64"],
+        &[MASTER],
+    );
+    let strangers = std::fs::read(&stranger.vault).unwrap();
+
+    let before = std::fs::read(&desktop.vault).unwrap();
+    let mut altered = newer.clone();
+    let middle = altered.len() / 2;
+    altered[middle] ^= 0x01;
+    const REFUSED: &str = "Not used: the copy of device";
+    const UNOPENED: &str = "can't be opened with this vault's key";
+    let cases: Vec<(&str, Vec<u8>, &[&str])> = vec![
+        ("one byte altered", altered, &[UNOPENED]),
+        (
+            "cut short",
+            newer[..newer.len() / 2].to_vec(),
+            &[REFUSED, UNOPENED],
+        ),
+        ("empty", Vec::new(), &[REFUSED]),
+        ("garbage", b"not a vault at all ".repeat(200), &[REFUSED]),
+        ("another vault's", strangers, &["belongs to another vault"]),
+    ];
+    for (what, bytes, said) in cases {
+        std::fs::write(&phone_path, &bytes).unwrap();
+        let told = sync_says(&desktop, true);
+        assert!(said.iter().any(|s| told.contains(s)), "{what}: {told}");
+        assert_eq!(
+            std::fs::read(&desktop.vault).unwrap(),
+            before,
+            "{what}: the vault file changed"
+        );
+    }
+    // Bigger than any vault: not read at all.
+    std::fs::File::create(&phone_path)
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+    let told = sync_says(&desktop, true);
+    assert!(
+        told.contains("Couldn't read the copy of device") && told.contains("too big"),
+        "{told}"
+    );
+    assert_eq!(std::fs::read(&desktop.vault).unwrap(), before);
+    // The phone's real copy under another device's name.
+    std::fs::remove_file(&phone_path).unwrap();
+    let elsewhere = devices.join(format!("{}.vault", "ab".repeat(16)));
+    std::fs::write(&elsewhere, &newer).unwrap();
+    let told = sync_says(&desktop, true);
+    assert!(
+        told.contains("found under the name of a device that didn't write it"),
+        "{told}"
+    );
+    assert_eq!(std::fs::read(&desktop.vault).unwrap(), before);
+    std::fs::remove_file(&elsewhere).unwrap();
+    assert!(!desktop.ok(&["list"], &[MASTER]).contains("Phone item"));
+
+    // The real copy where it belongs: taken.
+    std::fs::write(&phone_path, &newer).unwrap();
+    assert!(sync_says(&desktop, true).contains("1 added"));
+    assert!(desktop.ok(&["list"], &[MASTER]).contains("Phone item"));
+    // The older one put back: a rollback, said, and nothing changes.
+    let before = std::fs::read(&desktop.vault).unwrap();
+    std::fs::write(&phone_path, &older).unwrap();
+    let told = sync_says(&desktop, true);
+    assert!(told.contains("older than one already seen"), "{told}");
+    assert_eq!(std::fs::read(&desktop.vault).unwrap(), before);
+    // A later honest round from the phone still goes in.
+    phone.ok(
+        &[
+            "add",
+            "Later item",
+            "-u",
+            "p",
+            "--url",
+            "https://later.example",
+        ],
+        &[MASTER, "later-item-password"],
+    );
+    phone.ok(&["sync"], &[MASTER]);
+    assert!(sync_says(&desktop, true).contains("1 added"));
+    assert!(desktop.ok(&["list"], &[MASTER]).contains("Later item"));
+}
+
+/// The real vault-server, its data folder changed by whoever runs it: the phone's stored copy
+/// altered, replaced by the desktop's own, or by the phone's older one. The desktop takes none
+/// of it and says so, then takes the real copy.
+#[test]
+fn a_tampered_server_store_changes_nothing_here() {
+    let server = Server::start();
+    let desktop = Env::new();
+    desktop.ok(
+        &["init", "--kdf-target-ms", "50", "--kdf-memory-mib", "64"],
+        &[MASTER],
+    );
+    let phone = Env::new();
+    std::fs::copy(&desktop.vault, &phone.vault).unwrap();
+    desktop.ok(
+        &[
+            "sync",
+            "--server",
+            &server.url,
+            "--invite",
+            &server.invite(),
+        ],
+        &[MASTER],
+    );
+    let link = desktop.ok(&["sync", "--add-device"], &[]);
+    let link = link.lines().next().unwrap().trim().to_owned();
+    phone.ok(&["sync", "--join", &link], &[MASTER]);
+    desktop.ok(&["sync"], &[MASTER]);
+    let copies = the_one_folder_in(&server.data.path().join("vaults")).join("copies");
+    let devices = desktop.ok(&["sync", "--devices"], &[MASTER]);
+    let desktop_id = devices
+        .lines()
+        .find(|l| l.contains("(this device)"))
+        .and_then(|l| l.split_whitespace().next())
+        .unwrap()
+        .to_owned();
+    let (desktop_copy, phone_copy) = match names_in(&copies).as_slice() {
+        [a, b] if a.starts_with(&desktop_id) => (copies.join(a), copies.join(b)),
+        [a, b] => (copies.join(b), copies.join(a)),
+        other => panic!("{other:?}"),
+    };
+    let older = std::fs::read(&phone_copy).unwrap();
+    phone.ok(
+        &["add", "Phone item", "-u", "p", "--url", "https://p.example"],
+        &[MASTER, "phone-item-password"],
+    );
+    phone.ok(&["sync"], &[MASTER]);
+    let newer = std::fs::read(&phone_copy).unwrap();
+
+    let before = std::fs::read(&desktop.vault).unwrap();
+    let mut altered = newer.clone();
+    let last = altered.len() - 1;
+    altered[last] ^= 0x80;
+    let desktops_own = std::fs::read(&desktop_copy).unwrap();
+    for (what, bytes, said) in [
+        ("altered", altered, "can't be opened with this vault's key"),
+        (
+            "the desktop's own copy",
+            desktops_own,
+            "found under the name of a device that didn't write it",
+        ),
+    ] {
+        std::fs::write(&phone_copy, &bytes).unwrap();
+        let told = sync_says(&desktop, true);
+        assert!(told.contains(said), "{what}: {told}");
+        assert_eq!(std::fs::read(&desktop.vault).unwrap(), before, "{what}");
+    }
+    std::fs::write(&phone_copy, &newer).unwrap();
+    assert!(sync_says(&desktop, true).contains("1 added"));
+    let before = std::fs::read(&desktop.vault).unwrap();
+    std::fs::write(&phone_copy, &older).unwrap();
+    let told = sync_says(&desktop, true);
+    assert!(told.contains("older than one already seen"), "{told}");
+    assert_eq!(std::fs::read(&desktop.vault).unwrap(), before);
+}
+
+/// What the lying server answers a request (method, path): status, extra headers, body.
+type LiarAnswer = (u16, Vec<(String, String)>, Vec<u8>);
+type LiarScript = dyn Fn(&str, &str) -> LiarAnswer + Send + Sync;
+
+/// A server of someone else's making on this computer, one connection per request, answering
+/// each as its script says.
+struct Liar {
+    url: String,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Liar {
+    fn start(answer: std::sync::Arc<LiarScript>) -> Self {
+        use std::sync::atomic::Ordering;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let thread = {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    let Ok((mut stream, _)) = listener.accept() else {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        continue;
+                    };
+                    let (method, path) = read_head_and_body(&mut stream);
+                    let (status, headers, body) = answer(&method, &path);
+                    let mut out = format!(
+                        "HTTP/1.1 {status} Liar\r\ncontent-length: {}\r\nconnection: close\r\n",
+                        body.len()
+                    );
+                    for (name, value) in headers {
+                        out.push_str(&format!("{name}: {value}\r\n"));
+                    }
+                    out.push_str("\r\n");
+                    let _ = stream.write_all(out.as_bytes());
+                    let _ = stream.write_all(&body);
+                    let _ = stream.shutdown(std::net::Shutdown::Write);
+                    let _ = std::io::copy(&mut stream, &mut std::io::sink());
+                }
+            })
+        };
+        Self {
+            url,
+            stop,
+            thread: Some(thread),
+        }
+    }
+}
+
+/// Reads one request to its end; returns its method and path.
+fn read_head_and_body(stream: &mut std::net::TcpStream) -> (String, String) {
+    use std::io::Read;
+    stream.set_nonblocking(false).unwrap();
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .unwrap();
+    let mut bytes = Vec::new();
+    let mut piece = [0u8; 64 * 1024];
+    let end = loop {
+        if let Some(at) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+            break at + 4;
+        }
+        match stream.read(&mut piece) {
+            Ok(read) if read > 0 => bytes.extend_from_slice(&piece[..read]),
+            _ => return (String::new(), String::new()),
+        }
+    };
+    let head = String::from_utf8_lossy(&bytes[..end]).to_lowercase();
+    let length: usize = head
+        .lines()
+        .find_map(|line| line.strip_prefix("content-length:"))
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(0);
+    let mut body = bytes.len() - end;
+    while body < length {
+        match stream.read(&mut piece) {
+            Ok(read) if read > 0 => body += read,
+            _ => break,
+        }
+    }
+    let mut first = head.lines().next().unwrap_or_default().split(' ');
+    let method = first.next().unwrap_or_default().to_uppercase();
+    (method, first.next().unwrap_or_default().to_owned())
+}
+
+impl Drop for Liar {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// A server that lies in its answers: it takes the enrollment, then answers a listing that
+/// can't be read, sends the device elsewhere, hands over a copy that isn't one, refuses this
+/// device's copy. `vault sync` fails or says what it didn't use, and the vault file stays as
+/// it was each time.
+#[test]
+fn a_lying_server_changes_nothing_here() {
+    use std::sync::{Arc, Mutex};
+    let desktop = Env::new();
+    desktop.ok(
+        &["init", "--kdf-target-ms", "50", "--kdf-memory-mib", "64"],
+        &[MASTER],
+    );
+    // Synced through a folder once, so this device is in the vault's list already and a round
+    // has nothing of its own to save.
+    let folder = tempfile::tempdir().unwrap();
+    desktop.ok(&["sync", folder.path().to_str().unwrap()], &[MASTER]);
+
+    let mode: Arc<Mutex<&'static str>> = Arc::new(Mutex::new("honest"));
+    let liar = {
+        let mode = mode.clone();
+        let phone = "cd".repeat(16);
+        Liar::start(Arc::new(move |method: &str, path: &str| -> LiarAnswer {
+            let ok = |body: &str| (200, Vec::new(), body.as_bytes().to_vec());
+            let mode = *mode.lock().unwrap();
+            match (mode, method, path) {
+                (_, "POST", "/v1/enroll") => ok(r#"{"vault":"x","device":"y"}"#),
+                ("garbage", _, _) => ok("<html>not what was asked</html>"),
+                ("redirect", _, _) => (
+                    302,
+                    vec![("location".into(), "http://127.0.0.1:9/v1".into())],
+                    Vec::new(),
+                ),
+                ("not a copy", "GET", p) if p.ends_with("/devices") => ok(&format!(
+                    r#"{{"copies":[{{"device":"{phone}","tag":"t","size":5}}],"seq":1}}"#
+                )),
+                ("not a copy", "GET", _) => ok("<html>a page, not a vault</html>"),
+                (_, "GET", p) if p.ends_with("/devices") => ok(r#"{"copies":[],"seq":1}"#),
+                ("refuses", "PUT", _) => (500, Vec::new(), b"{}".to_vec()),
+                (_, "PUT", _) => (204, Vec::new(), Vec::new()),
+                _ => (404, Vec::new(), Vec::new()),
+            }
+        }))
+    };
+    let joined = desktop.ok(
+        &["sync", "--server", &liar.url, "--invite", &"ab".repeat(16)],
+        &[MASTER],
+    );
+    assert!(joined.contains("joined the server"), "{joined}");
+    let before = std::fs::read(&desktop.vault).unwrap();
+    for (what, ends_well, said) in [
+        ("garbage", false, "can't be read"),
+        ("redirect", false, "another address"),
+        (
+            "not a copy",
+            true,
+            "Not used: the copy of device cdcdcdcd: not a vault file",
+        ),
+    ] {
+        *mode.lock().unwrap() = what;
+        let told = sync_says(&desktop, ends_well);
+        assert!(told.contains(said), "{what}: {told}");
+        assert_eq!(std::fs::read(&desktop.vault).unwrap(), before, "{what}");
+    }
+    // A change of this device's own, then a server that refuses its copy: the change stays
+    // here, and the command says the copy didn't go.
+    *mode.lock().unwrap() = "honest";
+    desktop.ok(
+        &["add", "Here", "-u", "h", "--url", "https://here.example"],
+        &[MASTER, "here-item-password"],
+    );
+    let before = std::fs::read(&desktop.vault).unwrap();
+    *mode.lock().unwrap() = "refuses";
+    let told = sync_says(&desktop, false);
+    assert!(told.contains("answered 500"), "{told}");
+    assert_eq!(std::fs::read(&desktop.vault).unwrap(), before);
+    assert!(desktop.ok(&["list"], &[MASTER]).contains("Here"));
+    // The server takes it again: the next round sends the copy.
+    *mode.lock().unwrap() = "honest";
+    sync_says(&desktop, true);
+}
