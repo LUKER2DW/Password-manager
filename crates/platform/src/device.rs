@@ -147,6 +147,10 @@ pub struct Settings {
     pub browser_extension: bool,
     /// Closing the window keeps the app running in the notification area. On by default.
     pub close_to_tray: bool,
+    /// Started by Windows at sign-in, the app waits in the notification area instead of
+    /// opening its window. On by default. (Whether Windows starts it is kept by Windows: see
+    /// `autostart.rs`.)
+    pub start_in_tray: bool,
     /// The browser extension can fill logins while the vault is locked, with Windows Hello
     /// for each one. On by default; it needs the item lock's Windows Hello.
     pub browser_locked_fill: bool,
@@ -182,6 +186,7 @@ impl Default for Settings {
             website_icons: false,
             browser_extension: false,
             close_to_tray: true,
+            start_in_tray: true,
             browser_locked_fill: true,
             generator: GeneratorPrefs::default(),
             language: String::new(),

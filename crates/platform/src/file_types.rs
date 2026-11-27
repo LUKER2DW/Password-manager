@@ -83,79 +83,15 @@ pub fn register_vault_files(exe: &Path, type_name: &str) -> Result<bool> {
 mod imp {
     use std::path::Path;
 
-    use anyhow::{Result, bail};
+    use anyhow::Result;
     use windows_sys::Win32::{
-        System::Registry::{
-            HKEY, HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegGetValueW,
-            RegSetKeyValueW,
-        },
+        System::Registry::{HKEY_CLASSES_ROOT, HKEY_CURRENT_USER},
         UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify},
     };
 
+    pub(super) use crate::registry::{read_text as read, write_text as write};
+
     use super::{PROG_ID, VAULT_EXTENSION, entries};
-
-    fn wide(text: &str) -> Vec<u16> {
-        text.encode_utf16().chain(std::iter::once(0)).collect()
-    }
-
-    /// A text value, or `None` when the key or the value is missing (or not text).
-    pub(super) fn read(root: HKEY, key: &str, name: Option<&str>) -> Option<String> {
-        let key = wide(key);
-        let name = name.map(wide);
-        let name_ptr = name.as_ref().map_or(std::ptr::null(), |n| n.as_ptr());
-        let mut buffer = vec![0u16; 1024];
-        let mut bytes = u32::try_from(buffer.len() * 2).ok()?;
-        // SAFETY: `key` and `name` are NUL-terminated UTF-16 buffers that outlive the call (a
-        // null name reads the key's default value); `buffer` has room for `bytes` bytes, and
-        // the call writes at most that many and sets `bytes` to what it wrote.
-        #[allow(unsafe_code)]
-        let status = unsafe {
-            RegGetValueW(
-                root,
-                key.as_ptr(),
-                name_ptr,
-                RRF_RT_REG_SZ,
-                std::ptr::null_mut(),
-                buffer.as_mut_ptr().cast(),
-                &raw mut bytes,
-            )
-        };
-        if status != 0 {
-            return None;
-        }
-        let chars = (bytes as usize / 2).min(buffer.len());
-        let text = &buffer[..chars];
-        let end = text.iter().position(|&c| c == 0).unwrap_or(text.len());
-        Some(String::from_utf16_lossy(&text[..end]))
-    }
-
-    pub(super) fn write(key: &str, name: Option<&str>, data: &str) -> Result<()> {
-        let key_w = wide(key);
-        let name = name.map(wide);
-        let name_ptr = name.as_ref().map_or(std::ptr::null(), |n| n.as_ptr());
-        let value = wide(data);
-        let Ok(bytes) = u32::try_from(value.len() * 2) else {
-            bail!("registry value too long");
-        };
-        // SAFETY: `key_w`, `name` and `value` are NUL-terminated UTF-16 buffers that outlive
-        // the call; `bytes` is the size of `value` in bytes. The call creates the key when it
-        // is missing; a null name sets the key's default value.
-        #[allow(unsafe_code)]
-        let status = unsafe {
-            RegSetKeyValueW(
-                HKEY_CURRENT_USER,
-                key_w.as_ptr(),
-                name_ptr,
-                REG_SZ,
-                value.as_ptr().cast(),
-                bytes,
-            )
-        };
-        if status != 0 {
-            bail!("registering the vault file type failed (Windows error {status})");
-        }
-        Ok(())
-    }
 
     /// Writes the entries under `base` (in `HKEY_CURRENT_USER`) that aren't right yet. With
     /// `live`, the extension's current program is read as Windows sees it (the user's and the
@@ -195,18 +131,6 @@ mod imp {
             }
         }
         Ok(changed)
-    }
-
-    #[cfg(test)]
-    pub(super) fn delete_tree(key: &str) {
-        use windows_sys::Win32::System::Registry::RegDeleteTreeW;
-        let key = wide(key);
-        // SAFETY: `key` is a NUL-terminated UTF-16 buffer that outlives the call; the tests
-        // only remove the throwaway key they made.
-        #[allow(unsafe_code)]
-        unsafe {
-            RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr());
-        }
     }
 }
 
@@ -316,7 +240,7 @@ mod tests {
             );
             Ok(())
         })();
-        imp::delete_tree(&root);
+        crate::registry::delete_tree(&root);
         outcome.unwrap();
 
         // Another program's extension stays its own; the app is only offered.
@@ -341,7 +265,7 @@ mod tests {
             );
             Ok(())
         })();
-        imp::delete_tree(&other_root);
+        crate::registry::delete_tree(&other_root);
         outcome.unwrap();
     }
 }

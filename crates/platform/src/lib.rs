@@ -3,6 +3,7 @@
 //! Everything here is about *where* things live on this device and *how* the OS is asked to
 //! protect them. Cryptography stays in `vault-core`.
 
+pub mod autostart;
 pub mod browser_link;
 pub mod browsers;
 #[cfg(not(target_os = "android"))]
@@ -22,9 +23,12 @@ pub mod locale;
 pub mod part_picture;
 pub mod paths;
 pub mod quick_unlock;
+#[cfg(windows)]
+mod registry;
 pub mod screen;
 pub mod secret_store;
 pub mod secure_buffer;
+pub mod single_instance;
 pub mod sync;
 pub mod updates;
 pub mod website_icons;
