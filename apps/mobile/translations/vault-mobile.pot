@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: vault-mobile VERSION\n"
-"POT-Creation-Date: 2026-11-26 19:37+0000\n"
+"POT-Creation-Date: 2026-11-27 00:03+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -447,8 +447,10 @@ msgstr ""
 #: ui/app.slint:231
 msgctxt "Words"
 msgid ""
-"The file is encrypted with a password you choose here. It opens only with "
-"that password, in this app or the desktop one."
+"The file holds every item, attached files and passkeys included, encrypted "
+"with a password you choose here. It opens only with that password, in this "
+"app or the desktop one: whoever has both can sign in with those passkeys, so "
+"make it long."
 msgstr ""
 
 #: ui/app.slint:232

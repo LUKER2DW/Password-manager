@@ -2942,27 +2942,26 @@ fn an_export_sheet_says_first_what_the_file_leaves_out() {
     let (app, controller) = (&phone.app, &phone.controller);
     let notes = || app.get_export_notes().to_string();
 
-    // Protected: what no export carries. Nothing is readable.
+    // Protected: every item whole, attached file and passkey included. Nothing is readable.
     app.invoke_ask(7);
     assert_eq!((app.get_confirming(), app.get_error_code()), (7, 0));
-    let sealed = ExportCounts {
-        attachments: 1,
-        passkeys: 1,
-        ..ExportCounts::default()
-    };
+    let sealed = ExportCounts::default();
     assert_eq!(app.get_export_counts(), sealed);
-    assert_eq!(notes(), "Not in this file: 1 attached file, 1 passkey.");
+    assert_eq!(notes(), "");
 
-    // JSON: the earlier password stays behind too, and everything else is in the clear.
+    // JSON: the attached file, the passkey and the earlier password stay behind, and
+    // everything else is in the clear.
     app.invoke_ask(6);
     let json = ExportCounts {
+        attachments: 1,
+        passkeys: 1,
         earlier_passwords: 1,
         passwords: 2,
         otp_secrets: 1,
         hidden_fields: 2,
         recovery_codes: 2,
         notes: 1,
-        ..sealed.clone()
+        ..ExportCounts::default()
     };
     assert_eq!(app.get_export_counts(), json);
     assert_eq!(
@@ -3142,16 +3141,13 @@ fn an_import_on_the_phone_shows_what_it_left_behind() {
     assert!(shown.chars().count() < 1000 && shown.ends_with('…'));
     assert_eq!(app.get_import_more(), 0);
 
-    // A file with a password: told when its sheet closes, not lost with it.
-    let mut other = Vault::create(
-        PASSWORD,
-        &SecretKey::generate().unwrap(),
-        None,
-        KdfParams::minimum().unwrap(),
-    )
-    .unwrap();
-    add_what_exports_lose(&mut other);
-    let sealed = vault_import::export_sealed(&other, "an export password").unwrap();
+    // A file with a password: told when its sheet closes, not lost with it. (This app's own
+    // protected exports keep every item whole: this one is sealed by hand around a document
+    // that names what it left out.)
+    let document =
+        br#"{"items": [{"type": 1, "name": "Mail", "login": {"password": "import-test-pw-m"},
+        "leftOut": {"attachments": 1, "passkeys": 1}}]}"#;
+    let sealed = vault_core::sealed_export::seal("an export password", document).unwrap();
     controller.picked_file(3, "vault-export.vaultx", sealed);
     assert_eq!(app.get_confirming(), 11);
     type_secret(app, 8, "an export password");
@@ -3162,7 +3158,7 @@ fn an_import_on_the_phone_shows_what_it_left_behind() {
         "{}",
         app.get_error_detail()
     );
-    assert_eq!((app.get_import_added(), app.get_import_skipped()), (3, 0));
+    assert_eq!((app.get_import_added(), app.get_import_skipped()), (1, 0));
     assert_eq!(
         app.get_import_warnings(),
         "\"Mail\": 1 attached file and 1 passkey were not in this export; they are only in the vault it was made from"
