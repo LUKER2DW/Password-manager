@@ -982,6 +982,18 @@ impl Vault {
         hex(&self.header.vault_id)
     }
 
+    /// The vault key and the guard key (while guarded secrets are open), for the memory test
+    /// only (see [`crate::memory_test`]).
+    #[cfg(feature = "memory-test")]
+    pub(crate) fn keys_for_memory_test(
+        &self,
+    ) -> (Zeroizing<aead::Key>, Option<Zeroizing<aead::Key>>) {
+        (
+            Zeroizing::new(*self.vault_key.as_bytes()),
+            self.guard_key.clone(),
+        )
+    }
+
     /// Incremented on every save; compare with the last value seen to detect rollbacks.
     pub fn revision(&self) -> u64 {
         self.revision

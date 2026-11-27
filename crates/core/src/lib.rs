@@ -53,5 +53,31 @@ pub use keys::{Keyfile, PartLabel, RecoveryKey, RecoveryPart, RecoveryParts, Sec
 pub use passkey::Passkey;
 pub use vault::{FormerKey, RenewedKey, Unlock, Vault, VaultInfo, VaultSnapshot};
 
+/// The keys no public call gives out, for the memory test of the desktop app
+/// (`apps/desktop/tests/memory.rs`), which looks for them in the memory of a running copy.
+/// Built only with the `memory-test` feature, which only that test turns on.
+#[cfg(feature = "memory-test")]
+#[doc(hidden)]
+pub mod memory_test {
+    use zeroize::Zeroizing;
+
+    use crate::{SecretKey, Vault};
+
+    /// The vault key.
+    pub fn vault_key(vault: &Vault) -> Zeroizing<[u8; 32]> {
+        vault.keys_for_memory_test().0
+    }
+
+    /// The item guard key, while guarded secrets are open.
+    pub fn guard_key(vault: &Vault) -> Option<Zeroizing<[u8; 32]>> {
+        vault.keys_for_memory_test().1
+    }
+
+    /// The Secret Key's 16 bytes.
+    pub fn secret_key(key: &SecretKey) -> Zeroizing<[u8; 16]> {
+        Zeroizing::new(*key.as_bytes())
+    }
+}
+
 /// Convenience alias used throughout the crate.
 pub type Result<T> = std::result::Result<T, Error>;

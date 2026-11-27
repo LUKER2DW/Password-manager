@@ -10,6 +10,11 @@ publish.workspace = true
 [lints]
 workspace = true
 
+# `memory-test`: the keys no public call gives out, for the desktop app's memory test
+# (apps/desktop/tests/memory.rs) only. Never in a program's own build.
+[features]
+memory-test = []
+
 [dependencies]
 argon2 = { version = "0.6", features = ["zeroize"] }
 # `zeroize` features: wipe internal key state of the cipher and of HMAC (used by HKDF) on drop.
