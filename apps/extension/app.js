@@ -31,10 +31,31 @@ export async function ask(request) {
   if (!key) return { type: "error", code: "not_paired" };
   let sent = await seal(key, request);
   let reply = await opened(key, sent, await send(sent.message));
-  if (reply.code !== "not_paired") return reply;
+  if (reply.code !== "not_paired") return heard(reply);
   await new Promise((done) => setTimeout(done, 120));
   sent = await seal(key, request);
-  return opened(key, sent, await send(sent.message));
+  return heard(await opened(key, sent, await send(sent.message)));
+}
+
+// The version of the extension the app has in use, named in its answers to `status` and
+// `logins` (an answer opened, so the app's own): told to update.js, which reloads into a newer
+// one at the extension's next request.
+let versionListener = () => {};
+
+/** `listener(version)` hears the version of the extension the app has in use. */
+export function onExtensionVersion(listener) {
+  versionListener = listener;
+}
+
+function heard(reply) {
+  if (typeof reply?.extension_version === "string") {
+    try {
+      versionListener(reply.extension_version);
+    } catch {
+      // Nothing to do with the answer itself.
+    }
+  }
+  return reply;
 }
 
 /** The origin of an address, or "" when it has none worth comparing. */
@@ -127,6 +148,11 @@ async function current() {
 /** Drops every login waiting to be saved, and closes the cards that offer them. */
 export function dropPendingSaves() {
   return alone(clearAll);
+}
+
+/** Whether a login waits to be saved in any tab (an update that reloads the extension waits too). */
+export async function savesWaiting() {
+  return Object.keys(await stored()).length > 0;
 }
 
 /** The login waiting to be saved for this tab, or `undefined` (always, while saving is off). */

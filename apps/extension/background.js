@@ -36,6 +36,7 @@ import {
   passkeySuggestions,
   passkeysForField,
 } from "./passkey-worker.js";
+import { applyUpdate, checkForUpdate } from "./update.js";
 
 const INLINE = chrome.runtime.getURL("inline.html");
 
@@ -267,6 +268,12 @@ async function saveFromFrame(tab, offer) {
 async function handle(message, sender) {
   const tab = sender.tab;
   if (sender.id !== chrome.runtime.id || typeof message?.kind !== "string") return undefined;
+  // The extension's window: take the new version that waits (update.js).
+  if (message.kind === "apply-update") {
+    return !tab && typeof sender.url === "string" && sender.url.startsWith(chrome.runtime.getURL("popup.html"))
+      ? applyUpdate()
+      : undefined;
+  }
   if (fromPasskeyWindow(sender)) {
     return message.kind.startsWith("passkey-") ? passkeyFromWindow(message, sender) : undefined;
   }
@@ -433,6 +440,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   handle(message, sender).then(respond, () => respond(undefined));
   return true;
 });
+
+// Each start of the worker: is the app carrying a newer version of the extension? (At most
+// every few minutes; update.js.)
+checkForUpdate().catch(() => {});
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   known.delete(tabId);
