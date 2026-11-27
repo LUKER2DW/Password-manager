@@ -3833,3 +3833,43 @@ fn a_code_on_a_phone_without_a_screen_lock_asks_the_item_pin() {
     app.invoke_sheet_closed(20);
     assert!(code_row(app, "Mail").hidden);
 }
+
+/// The keyboard learns nothing typed in the app (M10 S23): the APK builds Slint's Android
+/// backend from `vendor/`, whose text fields ask the keyboard not to learn
+/// (`IME_FLAG_NO_PERSONALIZED_LEARNING`). After a Slint update cargo would quietly take the
+/// published crate instead, without the flag: this fails then, until the copy is made again
+/// (`vendor/update-slint-android.ps1`).
+#[test]
+fn the_keyboard_is_asked_not_to_learn() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lock = std::fs::read_to_string(root.join("Cargo.lock")).unwrap();
+    let entry = lock
+        .split("[[package]]")
+        .find(|entry| {
+            entry
+                .lines()
+                .any(|line| line == "name = \"i-slint-backend-android-activity\"")
+        })
+        .expect("Slint's Android backend is in the lock file");
+    assert!(
+        !entry.contains("source = "),
+        "the lock file takes Slint's Android backend from crates.io, not vendor/: {entry}"
+    );
+    let vendored = root.join("vendor/i-slint-backend-android-activity");
+    let manifest = std::fs::read_to_string(vendored.join("Cargo.toml")).unwrap();
+    let version = entry
+        .lines()
+        .find_map(|line| line.strip_prefix("version = "))
+        .unwrap();
+    assert!(
+        manifest
+            .lines()
+            .any(|line| line == format!("version = {version}")),
+        "vendor/ holds another version than the lock file's {version}"
+    );
+    let java = std::fs::read_to_string(vendored.join("java/SlintAndroidJavaHelper.java")).unwrap();
+    assert!(
+        java.contains("| EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING;"),
+        "the vendored Java side lacks the keyboard's flag"
+    );
+}
