@@ -2692,11 +2692,8 @@ impl Controller {
             // The master password, tried against the vault file itself.
             let (path, secret_key) = {
                 let state = self.state.borrow();
-                // A copy for the check's own thread, made from its printed form.
-                let key = state
-                    .secret_key
-                    .as_ref()
-                    .and_then(|key| SecretKey::parse(&key.to_display_string()).ok());
+                // A copy for the check's own thread.
+                let key = state.secret_key.as_ref().map(SecretKey::duplicate);
                 (state.path.clone(), key)
             };
             let Some(secret_key) = secret_key else {
