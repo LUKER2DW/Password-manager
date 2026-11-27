@@ -533,7 +533,6 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
 
     if let Some(parts) = kit.parts {
         for (label, value) in vault_core::PartLabel::ALL.into_iter().zip(parts) {
-            let letter = label.letter();
             if kit.part_c_elsewhere && label == vault_core::PartLabel::C {
                 let mut page = Page::new();
                 page.heading("Recovery part C", &format!("3 of 3, {date}"));
@@ -557,44 +556,69 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
                 pages.push(page.ops);
                 continue;
             }
-            let mut page = Page::new();
-            page.heading(
-                &format!("Recovery part {letter}"),
-                &format!("{} of 3, {date}", label as u8 + 1),
-            );
-            page.gap(18.0);
-            page.key_grid(
-                &format!("PART {letter}"),
-                label.prefix(),
-                PART_GROUPS,
-                PART_GROUP_LEN,
-                PART_GROUPS,
-                kit.filled.then_some(value),
-                "",
-            );
-            if kit.filled {
-                page.gap(14.0);
-                page.qr(
-                    value,
-                    "Recovering on the phone: on its unlock screen tap Forgot your master \
-                     password, then the QR button next to each part.",
-                );
-            }
-            page.gap(26.0);
-            page.subheading("What it does");
-            page.bullets(&[
-                "With any other part: brings back your Secret Key. You still need your master \
-                 password.",
-                "With both other parts: lets you choose a new master password.",
-                "On its own: opens nothing, so losing one part, or having it found, is not the end. \
-                 Make a new kit in the app if that happens.",
-            ]);
-            page.footer(kit.vault_id);
-            pages.push(page.ops);
+            pages.push(part_page(label, value, kit.filled, &date, kit.vault_id));
         }
     }
 
     assemble(&mut pages)
+}
+
+/// One recovery part alone, as a PDF of one page: saved as a file of its own, so the three
+/// parts (which together open the vault without the master password) never share a file.
+pub fn render_part(
+    label: vault_core::PartLabel,
+    part: &str,
+    vault_id: &str,
+    created_at: u64,
+    filled: bool,
+) -> Zeroizing<Vec<u8>> {
+    let date = date_text(created_at);
+    assemble(&mut [part_page(label, part, filled, &date, vault_id)])
+}
+
+/// A recovery part's page: its boxes (filled or empty), its QR code, what it does.
+fn part_page(
+    label: vault_core::PartLabel,
+    value: &str,
+    filled: bool,
+    date: &str,
+    vault_id: &str,
+) -> String {
+    let letter = label.letter();
+    let mut page = Page::new();
+    page.heading(
+        &format!("Recovery part {letter}"),
+        &format!("{} of 3, {date}", label as u8 + 1),
+    );
+    page.gap(18.0);
+    page.key_grid(
+        &format!("PART {letter}"),
+        label.prefix(),
+        PART_GROUPS,
+        PART_GROUP_LEN,
+        PART_GROUPS,
+        filled.then_some(value),
+        "",
+    );
+    if filled {
+        page.gap(14.0);
+        page.qr(
+            value,
+            "Recovering on the phone: on its unlock screen tap Forgot your master \
+             password, then the QR button next to each part.",
+        );
+    }
+    page.gap(26.0);
+    page.subheading("What it does");
+    page.bullets(&[
+        "With any other part: brings back your Secret Key. You still need your master \
+         password.",
+        "With both other parts: lets you choose a new master password.",
+        "On its own: opens nothing, so losing one part, or having it found, is not the end. \
+         Make a new kit in the app if that happens.",
+    ]);
+    page.footer(vault_id);
+    page.ops
 }
 
 /// Wraps content streams into a complete PDF file, one page each.
@@ -679,6 +703,23 @@ mod tests {
             filled,
             part_c_elsewhere: false,
         })
+    }
+
+    #[test]
+    fn a_part_saved_alone_holds_only_that_part() {
+        let alone = render_part(
+            vault_core::PartLabel::B,
+            PARTS[1],
+            "0123456789abcdef0123456789abcdef",
+            1_794_441_600,
+            true,
+        );
+        check_xref(&alone);
+        let text = String::from_utf8_lossy(&alone);
+        assert!(text.contains("EEEEEEE") && text.contains("Recovery part B"));
+        assert!(!text.contains("AAAAAAA") && !text.contains("JJJJJJJ"));
+        assert!(!text.contains("ABCDEFG"), "nor the Secret Key");
+        assert_eq!(text.matches("/Type /Page ").count(), 1, "one page");
     }
 
     #[test]

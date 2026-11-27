@@ -33,6 +33,43 @@ pub fn reseal(
     true
 }
 
+/// The cloud service whose app copies `path` off this computer, if any: under a OneDrive folder
+/// (its environment variables give the folders, Documents and the Desktop included when
+/// OneDrive backs them up) or in a folder named as Dropbox, Google Drive or iCloud name theirs.
+/// The emergency kit's keys are never saved there.
+pub fn cloud_folder(path: &Path) -> Option<&'static str> {
+    let onedrive: Vec<PathBuf> = ["OneDrive", "OneDriveConsumer", "OneDriveCommercial"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .filter(|root| !root.is_empty())
+        .map(PathBuf::from)
+        .collect();
+    cloud_folder_in(path, &onedrive)
+}
+
+/// [`cloud_folder`] with OneDrive's folders given.
+fn cloud_folder_in(path: &Path, onedrive: &[PathBuf]) -> Option<&'static str> {
+    let folded = |p: &Path| p.to_string_lossy().replace('/', "\\").to_lowercase();
+    let target = folded(path);
+    for root in onedrive {
+        let root = folded(root);
+        let root = root.trim_end_matches('\\');
+        if target == root || target.starts_with(&format!("{root}\\")) {
+            return Some("OneDrive");
+        }
+    }
+    path.components().find_map(|part| {
+        let name = part.as_os_str().to_string_lossy().to_lowercase();
+        match name.as_str() {
+            "dropbox" => Some("Dropbox"),
+            "google drive" | "my drive" | "meu drive" => Some("Google Drive"),
+            "icloud drive" | "iclouddrive" => Some("iCloud Drive"),
+            _ if name.starts_with("onedrive - ") || name == "onedrive" => Some("OneDrive"),
+            _ => None,
+        }
+    })
+}
+
 /// Folder for files made only to be printed. Emptied (overwritten, then deleted) on lock, on
 /// exit and at the next start.
 pub fn print_dir() -> Result<PathBuf> {
@@ -225,6 +262,40 @@ fn shell_open(target: &std::ffi::OsStr) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Windows paths: tested where they mean something.
+    #[cfg(windows)]
+    #[test]
+    fn folders_a_cloud_copies_away() {
+        let onedrive = [PathBuf::from(r"C:\Users\Test\OneDrive")];
+        let cloud = |path: &str| cloud_folder_in(Path::new(path), &onedrive);
+        assert_eq!(
+            cloud(r"C:\Users\Test\OneDrive\Documents\kit.pdf"),
+            Some("OneDrive")
+        );
+        assert_eq!(
+            cloud(r"c:\users\test\onedrive\Desktop\kit.pdf"),
+            Some("OneDrive")
+        );
+        assert_eq!(
+            cloud(r"C:\Users\Test\OneDriveOther\kit.pdf"),
+            None,
+            "only that folder"
+        );
+        assert_eq!(
+            cloud(r"C:\Users\Test\OneDrive - Example Ltd\kit.pdf"),
+            Some("OneDrive"),
+            "a work account's folder"
+        );
+        assert_eq!(cloud(r"C:\Users\Test\Dropbox\kit.pdf"), Some("Dropbox"));
+        assert_eq!(cloud(r"G:\My Drive\kit.pdf"), Some("Google Drive"));
+        assert_eq!(
+            cloud(r"C:\Users\Test\iCloudDrive\kit.pdf"),
+            Some("iCloud Drive")
+        );
+        assert_eq!(cloud(r"C:\Users\Test\Documents\kit.pdf"), None);
+        assert_eq!(cloud(r"E:\kit.pdf"), None, "a USB drive");
+    }
 
     #[test]
     fn a_file_sealed_under_the_former_key_is_sealed_again() {
