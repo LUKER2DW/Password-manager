@@ -10,6 +10,7 @@ use vault_core::{
     storage,
     totp::Totp,
 };
+use vault_platform::secret_store::{self, Kept};
 use zeroize::Zeroizing;
 
 use crate::{
@@ -228,7 +229,8 @@ fn describe_kdf(kdf: &PasswordKdf) -> String {
 pub fn info(ctx: &Context) -> Result<()> {
     let bytes = session::read_vault_file(&ctx.path)?;
     let info = Vault::inspect(&bytes).map_err(explain)?;
-    let known = session::load_secret_key(&info.id_hex)?.is_some();
+    // How the Secret Key is kept, without asking the chip to open it.
+    let kept = secret_store::kept(&info.id_hex)?;
     println!("File:           {}", ctx.path.display());
     println!("Size:           {} bytes", bytes.len());
     println!("Vault ID:       {}", info.id_hex);
@@ -253,10 +255,12 @@ pub fn info(ctx: &Context) -> Result<()> {
     );
     println!(
         "This device:    {}",
-        if known {
-            "has the Secret Key"
-        } else {
-            "does not have the Secret Key"
+        match kept {
+            Some(Kept::Chip) => "has the Secret Key, under a key in its security chip (TPM)",
+            Some(Kept::System) => {
+                "has the Secret Key, kept by the OS credential store alone (no security chip)"
+            }
+            None => "does not have the Secret Key",
         }
     );
     Ok(())

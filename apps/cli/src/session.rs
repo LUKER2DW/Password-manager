@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow, bail};
 use vault_core::{Error as CoreError, Keyfile, SecretKey, Unlock, Vault, storage};
-use vault_platform::{DeviceState, RollbackStatus, device, keyfile, paths, secret_store};
+use vault_platform::{
+    DeviceState, RollbackStatus, device, keyfile, paths,
+    secret_store::{self, Kept, Loaded},
+};
 use zeroize::Zeroizing;
 
 use crate::prompt::Prompter;
@@ -32,12 +35,21 @@ pub fn store_secret_key(vault_id: &str, key: &SecretKey) -> Result<()> {
     secret_store::store(vault_id, key)
 }
 
-pub fn load_secret_key(vault_id: &str) -> Result<Option<SecretKey>> {
-    secret_store::load(vault_id)
-}
-
 pub fn forget_secret_key(vault_id: &str) -> Result<bool> {
     secret_store::forget(vault_id)
+}
+
+/// What the CLI says once it kept the Secret Key.
+pub fn kept_message(kept: Option<Kept>) -> &'static str {
+    match kept {
+        Some(Kept::Chip) => {
+            "Secret Key kept on this computer, under a key in its security chip (TPM)."
+        }
+        Some(Kept::System) => {
+            "Secret Key saved in this device's credential store (no security chip to keep it)."
+        }
+        None => "This device didn't keep the Secret Key.",
+    }
 }
 
 pub fn record_new_vault(vault: &Vault) -> Result<()> {
@@ -81,10 +93,26 @@ impl Session {
         };
 
         let mut used_parts = false;
-        let (secret_key, typed) = match secret_store::load(&info.id_hex)? {
-            Some(key) => (key, false),
-            None => {
-                eprintln!("This device does not know the Secret Key for this vault yet.");
+        let (secret_key, typed) = match secret_store::load_checked(&info.id_hex) {
+            Ok(Loaded::Key(key)) => (key, false),
+            kept => {
+                // None kept that opens here (CRYPTO.md §2.2.1): the kit's is asked for.
+                match kept {
+                    Ok(Loaded::ChipLost) => eprintln!(
+                        "This computer's security chip (TPM) no longer opens the Secret Key it \
+                         kept for this vault: the chip was cleared, replaced or turned off."
+                    ),
+                    Ok(Loaded::Conflict) => eprintln!(
+                        "Two different Secret Keys are kept for this vault on this computer (an \
+                         older version saved one): type the one from your newest kit."
+                    ),
+                    Err(err) => eprintln!(
+                        "warning: the Secret Key kept on this computer couldn't be read ({err:#})."
+                    ),
+                    Ok(_) => {
+                        eprintln!("This device does not know the Secret Key for this vault yet.");
+                    }
+                }
                 let text = prompter
                     .secret("Secret Key (from your emergency kit), or one of two recovery parts")?;
                 match vault_core::RecoveryPart::parse(&text) {
@@ -142,7 +170,7 @@ impl Session {
 
         let keep_secret_key = || -> Result<()> {
             secret_store::store(&info.id_hex, &secret_key)?;
-            eprintln!("Secret Key saved in this device's credential store.");
+            eprintln!("{}", kept_message(secret_store::kept(&info.id_hex)?));
             Ok(())
         };
         let mut file_hash = storage::fingerprint(&bytes);
@@ -156,8 +184,17 @@ impl Session {
             eprintln!(
                 "The two recovery parts you typed no longer work. Make a new kit: vault kit --new-parts"
             );
-        } else if typed {
-            keep_secret_key()?;
+        } else {
+            // Kept in the strongest form this computer has: a key typed from the kit, or one
+            // kept the older way moved under the security chip, checked before the old one
+            // goes. The first time the chip makes its key, which takes a second or two.
+            let before = secret_store::kept(&info.id_hex).ok().flatten();
+            match secret_store::settle(&info.id_hex, &secret_key) {
+                Ok(now) if typed || before != Some(now) => eprintln!("{}", kept_message(Some(now))),
+                Ok(_) => {}
+                Err(err) if typed => return Err(err),
+                Err(err) => eprintln!("warning: {err:#}"),
+            }
         }
         state.save()?;
 
