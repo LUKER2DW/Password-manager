@@ -2,8 +2,9 @@
 //!
 //! - Never reallocates, so no stale copies are left on the heap.
 //! - Every removed byte is overwritten with zeros (backspace, clear, drop).
-//! - On Windows the pages are locked in RAM (`VirtualLock`) so they are not written to the
-//!   pagefile (KeePass CVE-2023-32784 is the cautionary tale).
+//! - It lives in a [`SecretSlot`]: on Windows, in the one area of memory the process locks in
+//!   RAM (`VirtualLock`, never written to the pagefile; KeePass CVE-2023-32784 is the
+//!   cautionary tale) and keeps out of crash reports.
 //!
 //! The UI only learns how many characters were typed.
 
@@ -11,11 +12,13 @@ use std::fmt;
 
 use zeroize::Zeroize;
 
+use crate::secure_memory::{SLOT_BYTES, SecretSlot};
+
 /// Maximum secret length in UTF-8 bytes.
-pub const MAX_SECRET_BYTES: usize = 1024;
+pub const MAX_SECRET_BYTES: usize = SLOT_BYTES;
 
 pub struct SecretBuffer {
-    bytes: Box<[u8; MAX_SECRET_BYTES]>,
+    bytes: SecretSlot,
     len: usize,
     chars: usize,
 }
@@ -34,13 +37,16 @@ impl Default for SecretBuffer {
 
 impl SecretBuffer {
     pub fn new() -> Self {
-        let buffer = Self {
-            bytes: Box::new([0u8; MAX_SECRET_BYTES]),
+        Self {
+            bytes: SecretSlot::new(),
             len: 0,
             chars: 0,
-        };
-        lock_pages(buffer.bytes.as_ptr(), MAX_SECRET_BYTES);
-        buffer
+        }
+    }
+
+    /// Whether the buffer is in memory locked in RAM (see [`SecretSlot::is_locked`]).
+    pub fn is_locked(&self) -> bool {
+        self.bytes.is_locked()
     }
 
     /// Whether `c` can be part of a secret: control characters and private-use code points
@@ -175,37 +181,10 @@ impl SecretBuffer {
 
 impl Drop for SecretBuffer {
     fn drop(&mut self) {
+        // The slot wipes itself too; this keeps the counts right until then.
         self.clear();
-        unlock_pages(self.bytes.as_ptr(), MAX_SECRET_BYTES);
     }
 }
-
-#[cfg(windows)]
-#[allow(unsafe_code)]
-fn lock_pages(ptr: *const u8, len: usize) {
-    use windows_sys::Win32::System::Memory::VirtualLock;
-    // SAFETY: `ptr..ptr+len` is a live heap allocation owned by the buffer for its whole life.
-    // Failure (e.g. working-set quota) only loses the pagefile protection, so it is ignored.
-    unsafe {
-        VirtualLock(ptr.cast(), len);
-    }
-}
-
-#[cfg(windows)]
-#[allow(unsafe_code)]
-fn unlock_pages(ptr: *const u8, len: usize) {
-    use windows_sys::Win32::System::Memory::VirtualUnlock;
-    // SAFETY: same allocation that was locked in `lock_pages`, still alive during `drop`.
-    unsafe {
-        VirtualUnlock(ptr.cast(), len);
-    }
-}
-
-#[cfg(not(windows))]
-fn lock_pages(_ptr: *const u8, _len: usize) {}
-
-#[cfg(not(windows))]
-fn unlock_pages(_ptr: *const u8, _len: usize) {}
 
 #[cfg(test)]
 mod tests {
@@ -275,6 +254,26 @@ mod tests {
         full.push_str(&"a".repeat(MAX_SECRET_BYTES));
         assert_eq!(full.insert_str(3, "b"), 0);
         assert_eq!(full.as_str(), "a".repeat(MAX_SECRET_BYTES));
+    }
+
+    /// On Windows a buffer is in the locked area; two buffers never share bytes.
+    #[test]
+    fn buffers_are_locked_and_apart() {
+        let _turn = crate::secure_memory::AREA_TURN
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut a = SecretBuffer::new();
+        let mut b = SecretBuffer::new();
+        assert_eq!(a.is_locked(), cfg!(windows));
+        a.push_str("first");
+        b.push_str("second");
+        drop(a);
+        assert_eq!(
+            b.as_str(),
+            "second",
+            "dropping one leaves the other as it was"
+        );
+        assert_eq!(b.is_locked(), cfg!(windows), "and still locked");
     }
 
     #[test]
