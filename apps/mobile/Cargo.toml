@@ -80,3 +80,7 @@ tempfile = "3.27"
 # Phone sync against a real server on a local port.
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync"] }
 vault-server = { path = "../server" }
+
+# The tests keep Secret Keys under a stand-in for the TPM (the phone's own run on Windows).
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+vault-platform = { path = "../../crates/platform", features = ["test-chip"] }

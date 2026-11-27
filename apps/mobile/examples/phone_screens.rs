@@ -206,6 +206,10 @@ fn main() {
     unsafe {
         std::env::set_var("VAULT_HOME", home.path());
     }
+    // The demo's Secret Key goes under a stand-in for the TPM: no key is made in the chip.
+    vault_platform::secret_store::use_key_wrapper(Some(std::sync::Arc::new(
+        vault_platform::secret_store::MemoryChip::default(),
+    )));
 
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
     slint::platform::set_platform(Box::new(OffscreenPlatform {

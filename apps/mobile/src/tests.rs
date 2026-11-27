@@ -96,9 +96,17 @@ fn flip(bytes: &[u8]) -> Vec<u8> {
 /// leak watch, caches) at a folder of their own: one at a time.
 static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
-/// Takes this test's turn and points `VAULT_HOME` at `home` while it is held.
+/// Takes this test's turn and points `VAULT_HOME` at `home` while it is held. The Secret Keys
+/// the tests keep go under a stand-in for the security chip (CRYPTO.md §2.2.1), so none makes
+/// a key in this computer's TPM.
 fn app_home(home: &Path) -> MutexGuard<'static, ()> {
     let turn = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+    static CHIP: std::sync::Once = std::sync::Once::new();
+    CHIP.call_once(|| {
+        vault_platform::secret_store::use_key_wrapper(Some(std::sync::Arc::new(
+            vault_platform::secret_store::MemoryChip::default(),
+        )));
+    });
     // SAFETY: every test that sets the environment holds this turn while it does, and the
     // other tests of this crate don't read it.
     #[allow(unsafe_code)]
