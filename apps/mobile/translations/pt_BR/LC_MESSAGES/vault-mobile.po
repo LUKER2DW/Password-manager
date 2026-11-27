@@ -3419,3 +3419,7 @@ msgstr "Uma passkey para “{}” foi salva."
 msgctxt "PhoneWindow"
 msgid "Passkeys"
 msgstr "Passkeys"
+
+msgctxt "PhoneWindow"
+msgid "Your vault's passkeys in the phone's browsers and apps (Android 14 and later: turn Vault on in the phone's settings, under passwords and accounts), a filter for every item with a passkey, and the protected export now keeps attached files and passkeys."
+msgstr "As passkeys do seu cofre nos navegadores e apps do celular (Android 14 em diante: ative o Vault nas configurações do celular, em senhas e contas), um filtro para todo item com passkey, e a exportação protegida agora leva anexos e passkeys."
