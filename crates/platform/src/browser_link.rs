@@ -123,7 +123,40 @@ pub fn register_host(host_exe: &Path) -> Result<()> {
         }
         std::fs::write(path, json).with_context(|| format!("writing {}", path.display()))?;
     }
-    imp::register(&chromium, &firefox)
+    imp::register(&BROWSER_KEYS, &chromium, &firefox)
+}
+
+/// Whether the browsers would still start this app's host: each browser's registry value names
+/// this app's manifest, and each manifest is exactly what [`register_host`] writes for
+/// `host_exe` (read without following a link). Another program of this user could point a
+/// browser at a host of its own, which would then sit between the browser and the app: the
+/// app checks this while its link runs, and puts it back.
+pub fn registration_intact(host_exe: &Path) -> bool {
+    let (Ok(chromium), Ok(firefox)) = (manifest_path(), firefox_manifest_path()) else {
+        return false;
+    };
+    same_json(&chromium, &manifest_json(host_exe))
+        && same_json(&firefox, &firefox_manifest_json(host_exe))
+        && imp::registered(&BROWSER_KEYS, &chromium, &firefox)
+}
+
+/// Whether the file at `path` (not a link) holds the same JSON as `expected`.
+fn same_json(path: &Path, expected: &str) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if crate::files::is_link(&meta) || !meta.is_file() {
+        return false;
+    }
+    let (Ok(found), Ok(wanted)) = (
+        std::fs::read(path)
+            .map_err(anyhow::Error::from)
+            .and_then(|text| Ok(serde_json::from_slice::<serde_json::Value>(&text)?)),
+        serde_json::from_str::<serde_json::Value>(expected),
+    ) else {
+        return false;
+    };
+    found == wanted
 }
 
 /// Undoes [`register_host`]: browsers can no longer start the host.
@@ -264,8 +297,12 @@ mod imp {
             .open(name);
     }
 
-    pub(super) fn register(chromium: &Path, firefox: &Path) -> Result<()> {
-        for (key, manifest) in BROWSER_KEYS {
+    pub(super) fn register(
+        keys: &[(&str, HostManifest)],
+        chromium: &Path,
+        firefox: &Path,
+    ) -> Result<()> {
+        for &(key, manifest) in keys {
             let manifest = match manifest {
                 HostManifest::Chromium => chromium,
                 HostManifest::Firefox => firefox,
@@ -292,6 +329,22 @@ mod imp {
             }
         }
         Ok(())
+    }
+
+    /// Whether every browser's value under `keys` names the manifest it should read.
+    pub(super) fn registered(
+        keys: &[(&str, HostManifest)],
+        chromium: &Path,
+        firefox: &Path,
+    ) -> bool {
+        keys.iter().all(|&(key, manifest)| {
+            let wanted = match manifest {
+                HostManifest::Chromium => chromium,
+                HostManifest::Firefox => firefox,
+            };
+            crate::registry::read_text(HKEY_CURRENT_USER, &format!(r"{key}\{HOST_NAME}"), None)
+                .is_some_and(|value| value.eq_ignore_ascii_case(&wanted.display().to_string()))
+        })
     }
 
     pub(super) fn unregister() {
@@ -590,8 +643,22 @@ mod imp {
 
     use anyhow::{Result, bail};
 
-    pub(super) fn register(_chromium: &Path, _firefox: &Path) -> Result<()> {
+    use super::HostManifest;
+
+    pub(super) fn register(
+        _keys: &[(&str, HostManifest)],
+        _chromium: &Path,
+        _firefox: &Path,
+    ) -> Result<()> {
         bail!("the browser extension link is available on Windows only for now")
+    }
+
+    pub(super) fn registered(
+        _keys: &[(&str, HostManifest)],
+        _chromium: &Path,
+        _firefox: &Path,
+    ) -> bool {
+        false
     }
 
     pub(super) fn unregister() {}
@@ -623,6 +690,75 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The registry values (under throwaway keys of this user's) and the manifests (in a
+    /// temporary folder) are checked as the browsers would read them: a value pointing
+    /// elsewhere, or a manifest with another program or one more origin, is noticed.
+    #[cfg(windows)]
+    #[test]
+    fn a_changed_registration_is_noticed() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let root = format!(
+            r"Software\vault-browser-link-test-{}-{nanos}",
+            std::process::id()
+        );
+        let (chrome, firefox_key) = (format!(r"{root}\Chrome"), format!(r"{root}\Firefox"));
+        let keys = [
+            (chrome.as_str(), HostManifest::Chromium),
+            (firefox_key.as_str(), HostManifest::Firefox),
+        ];
+        let dir = tempfile::tempdir().unwrap();
+        let (chromium, firefox) = (dir.path().join("a.json"), dir.path().join("b.json"));
+        let exe = Path::new(r"C:\Apps\vault-desktop.exe");
+        let outcome = (|| -> Result<()> {
+            assert!(!imp::registered(&keys, &chromium, &firefox), "nothing yet");
+            imp::register(&keys, &chromium, &firefox)?;
+            assert!(imp::registered(&keys, &chromium, &firefox));
+            imp::register(&keys, &dir.path().join("other.json"), &firefox)?;
+            assert!(
+                !imp::registered(&keys, &chromium, &firefox),
+                "a value moved"
+            );
+
+            std::fs::write(&chromium, manifest_json(exe))?;
+            assert!(same_json(&chromium, &manifest_json(exe)));
+            // The same JSON, laid out otherwise, is the same.
+            let pretty = serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(
+                &manifest_json(exe),
+            )?)?;
+            std::fs::write(&chromium, pretty)?;
+            assert!(same_json(&chromium, &manifest_json(exe)));
+            std::fs::write(
+                &chromium,
+                manifest_json(Path::new(r"C:\Users\Test\Downloads\relay.exe")),
+            )?;
+            assert!(
+                !same_json(&chromium, &manifest_json(exe)),
+                "another program"
+            );
+            let mut wider: serde_json::Value = serde_json::from_str(&manifest_json(exe))?;
+            wider["allowed_origins"]
+                .as_array_mut()
+                .unwrap()
+                .push("chrome-extension://abcdefghijklmnopabcdefghijklmnop/".into());
+            std::fs::write(&chromium, wider.to_string())?;
+            assert!(
+                !same_json(&chromium, &manifest_json(exe)),
+                "one more origin"
+            );
+            std::fs::write(&chromium, "not json")?;
+            assert!(!same_json(&chromium, &manifest_json(exe)));
+            assert!(!same_json(
+                &dir.path().join("missing.json"),
+                &manifest_json(exe)
+            ));
+            Ok(())
+        })();
+        crate::registry::delete_tree(&root);
+        outcome.unwrap();
+    }
 
     #[test]
     fn frames_round_trip_and_are_bounded() {
