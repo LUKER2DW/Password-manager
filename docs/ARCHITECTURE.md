@@ -56,7 +56,11 @@ Keyfile [optional] ────────────────────�
 - **Random Vault Key**: changing the master password only re-wraps this key (fast, no
   re-encryption).
 - **Secret Key** combined with the password (the "two-secret" model): even a mediocre master
-  password can't be cracked offline from the file alone.
+  password can't be cracked offline from the file alone. Each device keeps it in the OS
+  credential store; on Windows, where there is a TPM, under a key that never leaves the chip
+  (an RSA key in the TPM wraps the key that seals it, `crates/platform/src/tpm.rs`,
+  CRYPTO.md §2.2.1), so a copied disk, profile or Credential Manager doesn't carry it. Without
+  a TPM it stays with DPAPI alone, which Settings → Security says is weaker.
 - **Item lock**: with a PIN or a second password, the secrets of locked items are sealed under
   a guard key only that PIN or password unwraps, so an unlocked vault taken from memory still
   doesn't show them (CRYPTO.md §3.2).
@@ -88,6 +92,7 @@ Keyfile [optional] ────────────────────�
 | Encryption | **XChaCha20-Poly1305**, made key-committing | A fresh key and commitment per message from HKDF over a random 192-bit nonce |
 | Browser drop box | libsodium sealed box (X25519) | Only for logins saved while the vault is locked |
 | Sync server requests | **Ed25519** signatures | One key per device and vault; no password reaches the server |
+| The Secret Key kept on Windows | **RSA-2048 OAEP-SHA-256** in the TPM (NCrypt's Platform Crypto Provider) | Wraps a random key that seals the Secret Key with the AEAD above; not exportable, no prompt (CRYPTO.md §2.2.1) |
 | Randomness | OS CSPRNG (`getrandom`) | |
 | Memory | `zeroize`; a global allocator that wipes every block it frees; typed secrets in one area locked in RAM; the vault and guard keys encrypted between uses (`CryptProtectMemory`, Windows) | A test reads the running app's memory after it locks (THREAT_MODEL §3) |
 

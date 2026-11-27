@@ -86,6 +86,7 @@ filesystem policy** beyond atomic writes.
 | `health.rs` | Strength (zxcvbn), reuse, age, and the k-anonymous breach query |
 | `sealed_export.rs` | An export sealed under a password of its own (`.vaultx`) |
 | `drop_box.rs` | Logins saved from the browser while locked, sealed to a public key only the open vault reads |
+| `kept_key.rs` | The Secret Key as a Windows device keeps it: sealed under a random key the TPM wraps (CRYPTO.md §2.2.1) |
 | `locked_fill.rs` | Logins the extension may fill while the vault is locked (CRYPTO.md §3.4) |
 | `passkey.rs` | Passkeys in logins: ES256 keys, authenticator data, attestation, signatures (CRYPTO.md §3.7) |
 | `totp.rs` | RFC 6238 one-time codes, and RFC 4226 counter-based ones (`otpauth://hotp/`) |
@@ -96,7 +97,12 @@ filesystem policy** beyond atomic writes.
 ### 2.2 `crates/platform` (vault-platform)
 
 Everything that touches the operating system: Secret Key in the credential store
-(`secret_store.rs`; the Android Keystore on a phone), per-device state and rollback detection
+(`secret_store.rs`; the Android Keystore on a phone), on Windows under a key in the TPM where
+there is one (`tpm.rs`: RSA-2048 made in the chip through NCrypt's Platform Crypto Provider,
+not exportable, CRYPTO.md §2.2.1; the plain form kept only without a TPM, an older one moved
+under the chip after an unlock, checked first; the chip behind `KeyWrapper`, and the tests'
+stand-in `MemoryChip` behind the `test-chip` feature, so the apps' tests make no keys in the
+real chip), per-device state and rollback detection
 (`device.rs`), clipboard that stays out of history (`clipboard.rs`, `clipboard_android.rs`),
 screen-capture blocking (`screen.rs`), typed secrets (`secure_buffer.rs`) kept in one area
 locked in RAM, and the Windows key shield (`secure_memory.rs`), the global allocator that wipes

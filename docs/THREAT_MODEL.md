@@ -70,6 +70,25 @@ On top of that:
 - A keylogger may capture the master password, **but it cannot open the vault on its own**: it
   also needs the Secret Key (protected by the OS) and, if configured, the hardware key with a
   physical touch.
+- **The Secret Key on Windows** is kept under a key in the computer's TPM where it has one
+  (CRYPTO.md §2.2.1): an RSA key made in the chip, which can't be exported, wraps the key that
+  seals it. What it protects and what it doesn't:
+  - A copy of the disk, of the user's profile or of Credential Manager (what an infostealer
+    usually takes, or a backup) no longer carries it: opened anywhere but in this computer's
+    chip it is useless, even with the user's Windows password or a domain's DPAPI backup key.
+    Before, DPAPI alone protected it, and a copied profile opened with the Windows password.
+  - Malware running as the same Windows user while the computer is on can still ask the chip
+    to decrypt it, without a prompt, as it could ask DPAPI; with the master password caught by
+    a keylogger, it opens the vault there. The chip makes it work on this computer only, not
+    for this program only.
+  - Without a TPM (older PCs, virtual machines without one, a TPM turned off) or with one that
+    refuses the key, the Secret Key stays with DPAPI alone, and Settings → Security says this is
+    weaker. A chip cleared or replaced (Clear TPM, a firmware update that resets a firmware TPM,
+    a new motherboard) makes the kept key useless: the unlock says so and asks once for the
+    Secret Key from the emergency kit, which is then kept again under a new chip key. An error
+    that may pass (the chip busy) deletes nothing.
+  - The credential store's entries are kept on this computer only, never in a domain's roaming
+    profile.
 - Quick unlock (Windows Hello / biometrics) avoids typing the master password day to day, which
   reduces keylogger exposure. What it does and doesn't protect:
   - The file it keeps (`quick-unlock-*.bin`) is useless when copied: it needs this PC's TPM.
@@ -113,8 +132,9 @@ On top of that:
 - What this doesn't cover: while the vault is open, the item in use and what the window
   shows are in memory as they are (wiped when hidden, and at the lock); memory C code
   allocates for itself is freed but not wiped (the renderer drawing a revealed password,
-  the strings UI Automation hands out, a credential Windows returns); the phone has the
-  wiping allocator and the cleared stack but no key shield and no locked area, so its keys
+  the strings UI Automation hands out, a credential Windows returns, the key the TPM
+  unwraps for the Secret Key inside NCrypt); the phone has the wiping allocator and the
+  cleared stack but no key shield and no locked area, so its keys
   and the Secret Key are in memory as they are while the vault is open (Android doesn't swap
   memory to disk, and the app locks on leaving it); and nothing keeps memory out of
   the hibernation file: that is why the vault locks, and its keys are wiped, before Windows

@@ -664,7 +664,23 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   checksum, a keyfile's digest, the password KEK) and when the vault locks. Subkeys are
   derived for each use and wiped right after. Not covered: memory the renderer and Windows
   allocate for themselves, and the phone's keys while its vault is open (THREAT_MODEL §3).
-- ⬜ S12. The Secret Key on Windows wrapped by a non-exportable TPM key (DPAPI as fallback).
+- ✅ S12. The Secret Key on Windows kept under a key in the TPM (CRYPTO.md §2.2.1): an
+  RSA-2048 key made in the chip per user and vault through NCrypt's Platform Crypto Provider
+  (decrypt only, not exportable, no prompt) wraps, with OAEP-SHA-256, a random key that seals
+  the Secret Key (`tpm.rs`, `vault_core::kept_key`, `secret_store.rs`). Written, read back and
+  compared before it counts; a key kept the older way is moved after the next unlock
+  (`settle`), the plain entry deleted only once the new one opened to the same key. Without a
+  TPM, DPAPI alone, which Settings → Security says is weaker; a cleared or replaced chip asks
+  once for the kit's Secret Key, an error that may pass deletes nothing; entries no longer
+  roam with a domain profile. The desktop app and the CLI use it. The apps' tests use a
+  stand-in chip (`MemoryChip`); the TPM's own tests an ephemeral key and a named one they
+  delete (skipped in CI and without a TPM); the CLI's end-to-end test and the memory test go
+  through the real chip, their keys removed with the vault's.
+  Measured on a firmware TPM: the key made in 1.4–5 s once (off the UI thread), the Secret
+  Key unwrapped in about 65 ms at each unlock (up to 0.9 s while the chip is still busy after
+  making a key). The TPM takes only zero-terminated OAEP labels of up to about 34 bytes.
+  Later: that unwrap moved into the unlock's job, off the UI thread; Windows Hello asked for
+  the Secret Key too, as an option.
 - ✅ S13. Android: Android 12 at least (`minSdk 31`, the native library built for it too).
   Other apps' overlays hidden over every window of the app (`setHideOverlayWindows`,
   `Shield.java`), and Android 12 blocks taps through another app's window by itself: the
