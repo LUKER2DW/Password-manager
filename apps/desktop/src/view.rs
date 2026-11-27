@@ -246,7 +246,7 @@ pub fn now_month_year() -> (u32, u32) {
 }
 
 /// Index tabs: 0 all, 1 favorites, 2 logins, 3 cards, 4 secure notes, 5 SSH keys.
-pub const CATEGORY_COUNT: usize = 6;
+pub const CATEGORY_COUNT: usize = 7;
 
 pub fn kind_to_int(kind: ItemKind) -> i32 {
     match kind {
@@ -365,6 +365,8 @@ pub fn in_category(summary: &ItemSummary, category: i32) -> bool {
         3 => summary.kind == ItemKind::Card,
         4 => summary.kind == ItemKind::SecureNote,
         5 => summary.kind == ItemKind::SshKey,
+        // Every item that keeps a passkey, whatever its kind: where they are all seen.
+        6 => summary.passkeys > 0,
         _ => true,
     }
 }
@@ -627,6 +629,9 @@ mod tests {
         .unwrap();
         let mut github = ItemData::login("GitHub", "octocat", "p", "https://github.com");
         github.favorite = true;
+        github
+            .passkeys
+            .push(vault_core::Passkey::new("github.com", b"user-1", "octocat", "Octo").unwrap());
         vault.add_item(&github).unwrap();
         vault
             .add_item(&ItemData::login(
@@ -649,7 +654,7 @@ mod tests {
     fn categories_counts_and_order() {
         let all = summaries();
         let (visible, counts) = filter(&all, 0, None, "");
-        assert_eq!(counts, [4, 1, 2, 1, 1, 0]);
+        assert_eq!(counts, [4, 1, 2, 1, 1, 0, 1]);
         let titles: Vec<&str> = visible.iter().map(|&i| all[i].title.as_str()).collect();
         assert_eq!(
             titles,
@@ -658,6 +663,10 @@ mod tests {
         );
         let (favorites, _) = filter(&all, 1, None, "");
         assert_eq!(favorites.len(), 1);
+        // Passkeys: every item that keeps one.
+        let (passkeys, _) = filter(&all, 6, None, "");
+        let titles: Vec<&str> = passkeys.iter().map(|&i| all[i].title.as_str()).collect();
+        assert_eq!(titles, ["GitHub"]);
     }
 
     #[test]

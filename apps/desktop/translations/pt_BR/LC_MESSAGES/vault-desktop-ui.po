@@ -3325,14 +3325,6 @@ msgid "Remove the backup…"
 msgstr "Remover o backup…"
 
 msgctxt "SettingsPage"
-msgid "Chrome and Edge"
-msgstr "Chrome e Edge"
-
-msgctxt "SettingsPage"
-msgid "Fills and saves your logins in Chrome and Edge, and suggests strong passwords made here. Passwords are shown, copied and filled one at a time, through the item lock."
-msgstr "Preenche e salva os seus logins no Chrome e no Edge, e sugere senhas fortes criadas aqui. As senhas são mostradas, copiadas e preenchidas uma por vez, pela trava de itens."
-
-msgctxt "SettingsPage"
 msgid "The extension keeps no passwords. The first time, it asks to be connected and this app asks for your master password; after that only that extension gets answers, only while the vault is open, only for the exact site a login was saved for (write *.example.com as the website to include every site under it), and only on pages with https. A login behind the item lock is opened for one fill, show or copy by Windows Hello or by its PIN, typed in the extension's own window. Copies are made by this app, out of clipboard history. Limit: a malicious program already running under your Windows account could copy the browser's data and ask like the extension, which is why the accounts that matter belong behind the item lock."
 msgstr "A extensão não guarda senhas. Na primeira vez, ela pede para ser conectada, e este aplicativo pede a sua senha mestra; depois disso, só essa extensão recebe respostas, só enquanto o cofre estiver aberto, só para o site exato em que um login foi salvo (escreva *.example.com como site para incluir todos os sites abaixo dele) e só em páginas com https. Um login protegido pela trava de itens é aberto para um único preenchimento, exibição ou cópia por Windows Hello ou pelo PIN dele, digitado na própria janela da extensão. As cópias são feitas por este aplicativo, fora do histórico da área de transferência. Limite: um programa malicioso já em execução na sua conta do Windows poderia copiar os dados do navegador e pedir como a extensão faria, por isso as contas que importam devem ficar atrás da trava de itens."
 
@@ -4459,3 +4451,15 @@ msgstr "Todos os itens em um só arquivo, com anexos e passkeys, criptografado c
 msgctxt "TransferPage"
 msgid "Every item in one file, attached files and passkeys included, encrypted with a password you choose for it. Import reads it back, here or on another computer. Without that password nobody can, you included."
 msgstr "Todos os itens em um arquivo, com anexos e passkeys, criptografado com uma senha que você escolhe para ele. A opção Importar o lê de volta, aqui ou em outro computador. Sem essa senha ninguém consegue, nem você."
+
+msgctxt "VaultIndex"
+msgid "Passkeys"
+msgstr "Passkeys"
+
+msgctxt "SettingsPage"
+msgid "Chrome, Edge and Firefox"
+msgstr "Chrome, Edge e Firefox"
+
+msgctxt "SettingsPage"
+msgid "Fills and saves your logins in Chrome, Edge and Firefox, and suggests strong passwords made here. Passwords are shown, copied and filled one at a time, through the item lock."
+msgstr "Preenche e salva os seus logins no Chrome, no Edge e no Firefox, e sugere senhas fortes criadas aqui. As senhas são mostradas, copiadas e preenchidas uma por vez, pela trava de itens."

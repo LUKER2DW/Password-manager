@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: vault-desktop-ui VERSION\n"
-"POT-Creation-Date: 2026-11-27 00:03+0000\n"
+"POT-Creation-Date: 2026-11-27 00:40+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -4329,13 +4329,13 @@ msgstr ""
 
 #: ui/pages.slint:2877
 msgctxt "SettingsPage"
-msgid "Chrome and Edge"
+msgid "Chrome, Edge and Firefox"
 msgstr ""
 
 #: ui/pages.slint:2878
 msgctxt "SettingsPage"
 msgid ""
-"Fills and saves your logins in Chrome and Edge, and suggests strong "
+"Fills and saves your logins in Chrome, Edge and Firefox, and suggests strong "
 "passwords made here. Passwords are shown, copied and filled one at a time, "
 "through the item lock."
 msgstr ""
@@ -5439,99 +5439,104 @@ msgstr ""
 
 #: ui/vault.slint:367
 msgctxt "VaultIndex"
+msgid "Passkeys"
+msgstr ""
+
+#: ui/vault.slint:368
+msgctxt "VaultIndex"
 msgid "Authenticator"
 msgstr ""
 
-#: ui/vault.slint:375
+#: ui/vault.slint:376
 msgctxt "VaultIndex"
 msgid "Folders"
 msgstr ""
 
-#: ui/vault.slint:388
+#: ui/vault.slint:389
 msgctxt "VaultIndex"
 msgid "New folder"
 msgstr ""
 
-#: ui/vault.slint:432
+#: ui/vault.slint:433
 msgctxt "VaultIndex"
 msgid "Group items, e.g. all your Google accounts. Click + to add one."
 msgstr ""
 
-#: ui/vault.slint:441
+#: ui/vault.slint:442
 msgctxt "VaultIndex"
 msgid "Password health"
 msgstr ""
 
-#: ui/vault.slint:442
+#: ui/vault.slint:443
 msgctxt "VaultIndex"
 msgid "Password generator"
 msgstr ""
 
-#: ui/vault.slint:443
+#: ui/vault.slint:444
 msgctxt "VaultIndex"
 msgid "Emergency kit"
 msgstr ""
 
-#: ui/vault.slint:444
+#: ui/vault.slint:445
 msgctxt "VaultIndex"
 msgid "Import & export"
 msgstr ""
 
-#: ui/vault.slint:445
+#: ui/vault.slint:446
 msgctxt "VaultIndex"
 msgid "Settings"
 msgstr ""
 
-#: ui/vault.slint:447
+#: ui/vault.slint:448
 msgctxt "VaultIndex"
 msgid "Lock now"
 msgstr ""
 
-#: ui/vault.slint:448
+#: ui/vault.slint:449
 msgctxt "VaultIndex"
 msgid "Switch vault"
 msgstr ""
 
-#: ui/vault.slint:488
+#: ui/vault.slint:489
 msgctxt "ItemList"
 msgid "Search"
 msgstr ""
 
-#: ui/vault.slint:493
+#: ui/vault.slint:494
 msgctxt "ItemList"
 msgid "New item"
 msgstr ""
 
-#: ui/vault.slint:528
+#: ui/vault.slint:529
 msgctxt "ItemList"
 msgid "Edit"
 msgstr ""
 
-#: ui/vault.slint:533
+#: ui/vault.slint:534
 msgctxt "ItemList"
 msgid "Delete"
 msgstr ""
 
-#: ui/vault.slint:545
+#: ui/vault.slint:546
 msgctxt "ItemList"
 msgid ""
 "Nothing here yet. Add your first login with New item, or bring everything "
 "over from another password manager in Import & export."
 msgstr ""
 
-#: ui/vault.slint:546
+#: ui/vault.slint:547
 msgctxt "ItemList"
 msgid "Nothing matches “{}”."
 msgstr ""
 
-#: ui/vault.slint:547
+#: ui/vault.slint:548
 msgctxt "ItemList"
 msgid ""
 "This folder is empty. Choose it in an item's Folder box to file the item "
 "here."
 msgstr ""
 
-#: ui/vault.slint:548
+#: ui/vault.slint:549
 msgctxt "ItemList"
 msgid "Nothing here yet."
 msgstr ""

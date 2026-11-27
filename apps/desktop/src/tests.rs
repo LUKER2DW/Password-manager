@@ -224,7 +224,7 @@ fn whole_app_flow_headless() {
     app.invoke_save_item();
     assert_eq!(app.get_total_items(), 2);
     let counts: Vec<i32> = app.get_counts().iter().collect();
-    assert_eq!(counts, [2, 0, 1, 0, 1, 0]);
+    assert_eq!(counts, [2, 0, 1, 0, 1, 0, 0]);
 
     // ---- sync through a folder: another computer's copy is merged in ----
     let sync_dir = dir.path().join("sync folder");

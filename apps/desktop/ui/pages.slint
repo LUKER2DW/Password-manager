@@ -2874,8 +2874,8 @@ export component SettingsPage inherits Rectangle {
                     PageTitle { text: @tr("Browser extension"); }
                     SettingsCard {
                         icon: "browser";
-                        title: @tr("Chrome and Edge");
-                        summary: @tr("Fills and saves your logins in Chrome and Edge, and suggests strong passwords made here. Passwords are shown, copied and filled one at a time, through the item lock.");
+                        title: @tr("Chrome, Edge and Firefox");
+                        summary: @tr("Fills and saves your logins in Chrome, Edge and Firefox, and suggests strong passwords made here. Passwords are shown, copied and filled one at a time, through the item lock.");
                         hint: @tr("The extension keeps no passwords. The first time, it asks to be connected and this app asks for your master password; after that only that extension gets answers, only while the vault is open, only for the exact site a login was saved for (write *.example.com as the website to include every site under it), and only on pages with https. A login behind the item lock is opened for one fill, show or copy by Windows Hello or by its PIN, typed in the extension's own window. Copies are made by this app, out of clipboard history. Limit: a malicious program already running under your Windows account could copy the browser's data and ask like the extension, which is why the accounts that matter belong behind the item lock.");
                         Check {
                             text: @tr("Let the browser extension ask this app for logins");

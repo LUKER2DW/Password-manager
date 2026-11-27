@@ -364,6 +364,7 @@ export component VaultIndex inherits Rectangle {
                 IndexTab { text: @tr("Cards"); icon: "card"; count: root.counts[3]; active: root.category == 3 && root.browsing; clicked => { root.select-category(3); } }
                 IndexTab { text: @tr("Secure notes"); icon: "note"; count: root.counts[4]; active: root.category == 4 && root.browsing; clicked => { root.select-category(4); } }
                 IndexTab { text: @tr("SSH keys"); icon: "terminal"; count: root.counts[5]; active: root.category == 5 && root.browsing; clicked => { root.select-category(5); } }
+                IndexTab { text: @tr("Passkeys"); icon: "fingerprint"; count: root.counts[6]; active: root.category == 6 && root.browsing; clicked => { root.select-category(6); } }
                 IndexTab { text: @tr("Authenticator"); icon: "clock"; count: root.totp-count; active: root.panel == Panel.authenticator; clicked => { root.open-authenticator(); } }
 
                 Rectangle { height: 16px; }
