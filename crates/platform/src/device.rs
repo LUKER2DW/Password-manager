@@ -170,6 +170,10 @@ pub struct Settings {
     /// The browser extension may make and use the vault's passkeys. On by default; off, the
     /// browser's own passkeys are used.
     pub browser_passkeys: bool,
+    /// The browser extension warns when the password of a login is pasted or sent on a page
+    /// that isn't that login's site, and when a page only looks like a site of the vault (the
+    /// app compares, from the vault's own sites). On by default.
+    pub browser_warnings: bool,
     /// A notice in the app for every login the extension fills. On by default.
     pub browser_fill_notices: bool,
     /// Every password, one-time code or passkey the browser extension uses asks for Windows
@@ -201,6 +205,7 @@ impl Default for Settings {
             leak_watch: false,
             browser_saves: true,
             browser_passkeys: true,
+            browser_warnings: true,
             browser_fill_notices: true,
             browser_always_asks: true,
             backdrop: true,
