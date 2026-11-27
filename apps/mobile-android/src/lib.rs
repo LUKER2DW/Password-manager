@@ -17,6 +17,11 @@ mod scan;
 mod shell;
 mod system;
 
+/// Every block of Rust's heap is wiped before it is freed (`vault_platform::wiping_alloc`).
+#[global_allocator]
+static ALLOCATOR: vault_platform::wiping_alloc::WipingAllocator =
+    vault_platform::wiping_alloc::WipingAllocator;
+
 /// Called by the activity on its own thread once the app starts.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
