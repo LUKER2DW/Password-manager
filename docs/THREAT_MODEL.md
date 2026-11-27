@@ -411,6 +411,12 @@ On top of that:
   the app's private cache (closed to other apps) while its pages are drawn, then is overwritten
   and deleted, and a leftover is wiped at the next start. Nothing is handed to another app.
   Residual risk: the renderer is Android's code, run on whatever PDF was attached.
+- **The phone's keyboard** sees every key typed in any field it serves, as in any app. The app
+  asks it, in every field, not to learn what is typed (`IME_FLAG_NO_PERSONALIZED_LEARNING`),
+  and asks for a password keyboard in the secret fields, so a keyboard that follows Android's
+  rules keeps no titles, usernames, notes, card numbers or codes to suggest elsewhere.
+  Residual risk: a keyboard app that ignores the flags, or sends what is typed away, gets it
+  all; the item lock's PIN is typed on the app's own pad, never the keyboard.
 - **Other apps on the phone** (installed by the person, with no root): one with the "display
   over other apps" permission can't draw over the app's windows (Android hides every such
   overlay while they show), so it can't lay a false unlock screen or button over them or pass

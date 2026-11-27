@@ -721,7 +721,11 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   internationalised names shown in punycode (from the vault's own sites, offline).
 - ⬜ S22. Android autofill against the AutoFail cases (USENIX Security 2026): sandboxed
   frames, only the focused form's fields, the account oracle.
-- ⬜ S23. Android's keyboard learns nothing typed in the vault's fields.
+- ✅ S23. Android's keyboard learns nothing typed in the vault's fields: every text field asks
+  it not to (`IME_FLAG_NO_PERSONALIZED_LEARNING`), through Slint's Android backend built from
+  `vendor/` with that one line added (Slint's Java side has no way to set it), a test failing
+  when a Slint update leaves the copy unused (`vendor/update-slint-android.ps1` makes it
+  again). ⬜ Tried on a device (Gboard's incognito mark in a note and the search).
 - ⬜ S24. The extension frame's address changes each session (`use_dynamic_url`), so pages
   can't detect Vault.
 - ⬜ S25. A minimum extension version the app accepts, and a warning when an exe older than

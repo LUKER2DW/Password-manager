@@ -57,6 +57,8 @@ docs/
   spec/VAULT_FORMAT.md  exact file format (normative)
   spec/SYNC.md          sync: the merge, the targets, the server protocol
 research/               local notes, git-ignored, never committed
+vendor/                 third-party crates built from here with one change each (README.md):
+                        Slint's Android backend, whose fields ask the keyboard not to learn
 .github/                CI and security workflows, Dependabot, secret scanning paths
 deny.toml               cargo-deny: every advisory fails the check, none ignored
 .gitleaks.toml          gitleaks: the test keys and test values the repository keeps on purpose
