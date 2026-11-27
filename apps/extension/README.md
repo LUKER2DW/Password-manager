@@ -1,4 +1,4 @@
-# Browser extension (Chrome, Edge)
+# Browser extension (Chrome, Edge, Firefox)
 
 Fills, shows and saves logins from the desktop app, and suggests strong passwords. It keeps
 no passwords and does no cryptography of its own: it asks the app on the same computer. The
@@ -34,10 +34,13 @@ Status: alpha, like the rest of the project (loaded unpacked; not in a store yet
   asks in a window of its own: *Save* keeps it with your login for that site and username (a
   new login when there is none). When a site asks for one, the same window lists the passkeys
   Vault has for it; pick one to sign in. *Use another device* hands the request to the browser
-  (a phone, a security key, Windows Hello). Sites with no passkey in Vault, the field's
-  autofill list and security keys go to the browser as before. On the item page in the app
-  you see a login's passkeys; the editor takes one out. Turn it off in the extension's
-  Settings: "Vault keeps passkeys, not the browser".
+  (a phone, a security key, Windows Hello). When a site suggests passkeys in its sign-in field
+  (`mediation: "conditional"`, the field's autofill list), the card under the field lists the
+  passkeys Vault has for that site above the logins; pick one to sign in (a locked login asks
+  for Windows Hello, or opens the passkey window for its PIN). Sites with no passkey in Vault,
+  a locked vault (for the field's list) and security keys go to the browser as before. On the
+  item page in the app you see a login's passkeys; the editor takes one out. Turn it off in
+  the extension's Settings: "Vault keeps passkeys, not the browser".
 - **Its window** (the toolbar button or Ctrl+Shift+L) has three tabs:
   - *This site*: the logins for the page in front, to fill; *Details* opens one.
   - *All logins*: search the whole vault; show a password or copy username, password or
@@ -82,6 +85,11 @@ Status: alpha, like the rest of the project (loaded unpacked; not in a store yet
   cancelled) in between stays in the vault, unknown to the site: the window says so instead of
   closing. A new passkey takes the place of the one kept before for the same site and account
   (as a security key does); when that happened too, the window says the earlier one is gone.
+  A site's request for the field's suggestions opens no window: it waits in the page that
+  asked until you pick a passkey in the card under a sign-in field (the same click check as
+  for a fill, below), and the answer goes to that very document only, after the same checks.
+  The page aborting it, leaving, or asking for another passkey ends it; closing the passkey
+  window opened for a PIN doesn't (as closing the browser's own list doesn't).
 
 - Every password comes from the app, which decides whether a page may have it: the exact site
   saved in the login, top frame only, nothing while the vault is locked. Each fill or shown
@@ -143,9 +151,9 @@ one below it (`*.amazonaws.com` doesn't cover `x.s3.amazonaws.com`, someone else
 1. Build the app (`cargo build --release -p vault-desktop`), or take `vault-desktop.exe` from a
    release.
 2. Run the app with a test vault and turn on **Settings → Browser extension**. This writes the
-   host's manifest (pointing at this `vault-desktop.exe`) under the app's data folder and
-   points Chrome and Edge at it (one registry value each, for your Windows user). Turning it
-   off removes them.
+   host's manifests (pointing at this `vault-desktop.exe`; one for Chrome and Edge, one for
+   Firefox) under the app's data folder and points Chrome, Edge and Firefox at them (one
+   registry value each, for your Windows user). Turning it off removes them.
 3. Open `chrome://extensions` (or `edge://extensions`), turn on *Developer mode*, choose
    *Load unpacked* and pick this folder (`apps/extension`). Pin the extension to the toolbar. After an
    update of this folder, click the reload arrow on the extension's card.
@@ -157,19 +165,53 @@ closed to the notification area) with the browser extension turned on. After mov
 replacing `vault-desktop.exe`, start it once so it points the browsers at its new place.
 Restart the browser after turning the setting on for the first time.
 
-The `key` in `manifest.json` fixes the extension's id, which is the only id the host accepts.
+The `key` in `manifest.json` fixes the extension's id in Chrome and Edge, and
+`browser_specific_settings.gecko.id` its id in Firefox: the only ids the host accepts. Neither
+is a secret (any copy of this folder has them): what makes the app answer is the connection
+you allow in it.
+
+## Firefox
+
+The same folder runs in Firefox 153 or later (desktop). Firefox reads `background.scripts`
+(an event page) where Chrome reads `background.service_worker`, and ignores `key`,
+`minimum_chrome_version` and the `favicon` permission (with a warning on `about:debugging`).
+
+1. Steps 1 and 2 above: the app's setting points Firefox at the host too.
+2. Open `about:debugging#/runtime/this-firefox`, choose *Load Temporary Add-on…* and pick
+   `manifest.json` in this folder (or the release's zip). It stays until Firefox closes; a
+   copy that stays must be signed by Mozilla (see the release notes).
+3. In `about:addons`, open the extension's *Permissions* and check that *Access your data for
+   all websites* is on (the content scripts need it on https pages).
+4. Click the extension's button and choose *Connect*, as above.
+
+What differs in Firefox:
+
+- **No card in pages.** Firefox can't tell a frame in a page whether something covers it
+  (IntersectionObserver v2's `isVisible`), and a click in the card counts only when the
+  browser says it was in full view. So nothing is drawn inside pages: fill from the
+  extension's window (the toolbar button or Ctrl+Shift+L), which offers the logins of the site
+  in front. After a sign-in Vault could save, the toolbar button shows **1**; its window
+  offers *Save* or *Update* (with the vault open; while it is locked, the offer waits there
+  until it is unlocked or two minutes pass).
+- **Passkeys:** making one and signing in with one work as in Chrome (Vault's own window).
+  A site's passkey suggestions in a field stay Firefox's own, since they would be listed in
+  the card under the field.
+- **Site icons:** Firefox has no `favicon` cache for extensions: the first letter of the site
+  shows instead.
+- **Firefox's own saving:** "Vault offers to save passwords, not the browser" turns off
+  Firefox's *Ask to save passwords* the same way (the `privacy` permission).
 
 ## Files
 
 | File | Role |
 |---|---|
-| `manifest.json` | Manifest V3: `activeTab`, `scripting`, `nativeMessaging`, `storage`, `favicon`, `privacy`; https pages for the content scripts |
+| `manifest.json` | Manifest V3 for Chrome, Edge and Firefox: `activeTab`, `scripting`, `nativeMessaging`, `storage`, `favicon` (Chrome, Edge), `privacy`; https pages for the content scripts |
 | `popup.html`, `popup.css`, `popup.js` | The extension's window: this site, all logins, generator, new login |
 | `content.js`, `fields.js` | Content script: sign-in and new-password fields, submitted forms, placing the frame |
-| `inline.html`, `inline.css`, `inline.js` | The frame under a field (logins or a new password) and the save offer |
+| `inline.html`, `inline.css`, `inline.js` | The frame under a field (logins, the site's passkeys, or a new password) and the save offer |
 | `background.js` | The worker between the content script, the frame and the app |
 | `passkeys-page.js` | In the page's own world: stands in front of `navigator.credentials` for passkeys |
-| `passkeys.js` | Content script: relays passkey requests between the page and the worker |
+| `passkeys.js` | Content script: relays passkey requests between the page and the worker, and holds a request for a field's suggestions while it waits |
 | `passkey-worker.js` | The worker's side of passkeys: asks the app, opens the passkey window, answers the page |
 | `passkey.html`, `passkey.css`, `passkey.js` | The passkey window: the site, its passkeys or the one to make, the item lock's check |
 | `app.js` | Native messaging calls, and the login waiting to be saved |

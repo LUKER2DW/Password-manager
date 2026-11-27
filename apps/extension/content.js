@@ -1,19 +1,35 @@
 // Runs in every https page (top frame only), in the extension's isolated world.
 //
 // It does two small things and holds no secret of the vault:
-// - when a sign-in field is focused and the app has a login for this site, it places a small
-//   frame under the field. The frame is the extension's own page (inline.html): this script
-//   and the web page can position it but can't read or script what is inside;
+// - when a sign-in field is focused and the app has a login for this site (or a passkey, when
+//   the page waits for a field's suggestions: passkeys.js), it places a small frame under the
+//   field. The frame is the extension's own page (inline.html): this script and the web page
+//   can position it but can't read or script what is inside;
 // - when a sign-in form is sent, it tells the background worker what was typed, so the
 //   person can be asked whether to save it.
 //
 // A page can cover or move the frame. The frame defends itself (it ignores clicks unless the
 // browser reports it fully visible), and a click there can only ever fill a login into the
-// site that login is saved for.
+// site that login is saved for, or answer this page's own passkey request.
+//
+// A browser that can't report the frame fully visible (IntersectionObserver v2's `isVisible`:
+// Firefox) gets no frame in pages at all, since every click in it would be refused: the
+// extension's window fills there, and offers a login waiting to be saved, which the toolbar
+// button then marks.
 
 (() => {
-  const { isSignInField, isNewPasswordField, isCodeField, fieldRules, destinationOf, putNewPassword, typedLogin, sentScope } =
-    globalThis.VaultFields;
+  const {
+    isSignInField,
+    isNewPasswordField,
+    isCodeField,
+    isPasskeyField,
+    fieldRules,
+    destinationOf,
+    putNewPassword,
+    typedLogin,
+    sentScope,
+  } = globalThis.VaultFields;
+  const framed = typeof IntersectionObserverEntry === "function" && "isVisible" in IntersectionObserverEntry.prototype;
   const inputs = () => Array.from(document.querySelectorAll("input"));
   const frames = { logins: null, save: null };
   // What each frame shows and which offer it is, kept here: the page can read and change a
@@ -161,7 +177,7 @@
   }
 
   async function offer(field) {
-    if (retired) return;
+    if (retired || !framed) return;
     if (frames.logins && anchor === field) return;
     if (dismissed.has(field)) return;
     const all = inputs();
@@ -169,9 +185,22 @@
     const fresh = isNewPasswordField(field, all);
     // A one-time code field (the second step of a sign-in) gets the logins that have a code.
     const code = !fresh && isCodeField(field);
-    if (!fresh && !code && !isSignInField(field, all)) return;
+    const signIn = !fresh && !code && isSignInField(field, all);
+    // The page waits for a field's suggestions: a sign-in field, or one marked for passkeys,
+    // lists the site's passkeys too. The worker is told the request again (it may have been
+    // stopped since the page asked).
+    const waiting = !fresh && !code ? globalThis.VaultPasskeys?.waiting() : undefined;
+    const passkey = waiting && (signIn || isPasskeyField(field)) ? waiting : undefined;
+    if (!fresh && !code && !signIn && !passkey) return;
     const id = newId();
-    const answer = await say({ kind: "field-focused", fresh, code, offer: id, rules: fresh ? fieldRules(field) : undefined });
+    const answer = await say({
+      kind: "field-focused",
+      fresh,
+      code,
+      offer: id,
+      rules: fresh ? fieldRules(field) : undefined,
+      passkey,
+    });
     if (!answer?.show || document.activeElement !== field) return;
     close("logins");
     anchor = field;
@@ -184,6 +213,10 @@
   // A newer offer (another sign-in on this page) replaces the card on screen: a new frame
   // loads the offer that waits now, and counts clicks only once it has been seen anew.
   function offerSave() {
+    if (!framed) {
+      say({ kind: "offer-waiting" });
+      return;
+    }
     close("save");
     const frame = makeFrame("save");
     frame.style.setProperty("top", "8px", "important");

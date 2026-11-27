@@ -45,6 +45,7 @@ let answers = {};
 const session = {};
 const local = {};
 const told = [];
+const badges = [];
 const storageListeners = [];
 let onMessage;
 const ignored = { addListener() {} };
@@ -98,7 +99,12 @@ globalThis.chrome = {
       return [{ result: "both" }];
     },
   },
-  action: { openPopup: async () => {} },
+  action: {
+    openPopup: async () => {},
+    setBadgeText: async (details) => {
+      badges.push(details);
+    },
+  },
   privacy: { services: { passwordSavingEnabled: { get: async () => ({}), set: async () => {}, clear: async () => {} } } },
 };
 
@@ -117,7 +123,7 @@ function tab() {
     });
   return {
     id,
-    page: (message) => send(message, { frameId: 0, url: tabs.get(id).url }),
+    page: (message) => send(message, { frameId: 0, url: tabs.get(id).url, documentId: `doc-${id}` }),
     frame: (message) => send(message, { frameId: 7, url: chrome.runtime.getURL("inline.html#logins|normal|x") }),
   };
 }
@@ -471,4 +477,49 @@ test("the card says when the login was changed in Vault since the update was off
   await card.press("save-yes");
   assert.equal(card.$("save-note").textContent, "updateChangedSince");
   assert.equal(card.$("save-yes").hidden, true);
+});
+
+test("where the browser shows no card in pages, a login waiting to be saved marks the toolbar button", async () => {
+  answers = { logins: LOGINS };
+  const t = tab();
+  badges.length = 0;
+  // Asked with nothing waiting: no mark.
+  await t.page({ kind: "offer-waiting" });
+  assert.deepEqual(badges, []);
+  await t.page({ kind: "submitted", username: "new-one", password: "new-pw" });
+  await t.page({ kind: "offer-waiting" });
+  assert.deepEqual(badges.at(-1), { tabId: t.id, text: "1" });
+  // The offer answered (here "Not now"): the mark goes with it.
+  const shown = await t.frame({ kind: "frame-save-info" });
+  await t.frame({ kind: "frame-dismiss", which: "save", offer: shown.id });
+  assert.deepEqual(badges.at(-1), { tabId: t.id, text: "" });
+});
+
+test("under a sign-in field, the page's request for a field's suggestions lists the site's passkeys", async () => {
+  answers = {
+    logins: { ...LOGINS, items: [] },
+    passkeys: {
+      type: "passkeys",
+      origin: ORIGIN,
+      rp_id: "login.example",
+      check: "app",
+      hello: false,
+      items: [{ id: "item-9", credential: "Y3JlZA", title: "Login", user_name: "me", display_name: "", locked: false }],
+    },
+  };
+  const waiting = { id: "r1", request: { kind: "get", rpId: "", challenge: "AQ", allow: [], conditional: true } };
+  const t = tab();
+  assert.deepEqual(await t.page({ kind: "field-focused", fresh: false, code: false, passkey: waiting }), { show: true });
+  const lookup = asked.findLast((request) => request.type === "passkeys");
+  assert.equal(lookup.url, `${ORIGIN}/sign-in`, "for the tab's own address");
+  const listed = await t.frame({ kind: "frame-logins" });
+  assert.equal(listed.origin, ORIGIN);
+  assert.deepEqual(listed.items, []);
+  assert.deepEqual(listed.passkeys.items, [
+    { id: "item-9", credential: "Y3JlZA", title: "Login", userName: "me", displayName: "", locked: false },
+  ]);
+  // Without the page's request, a field lists no passkey (and has no login to list here).
+  const other = tab();
+  assert.deepEqual(await other.page({ kind: "field-focused", fresh: false, code: false }), { show: false });
+  assert.equal((await other.frame({ kind: "frame-logins" })).passkeys, undefined);
 });

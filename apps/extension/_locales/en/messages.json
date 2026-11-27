@@ -501,10 +501,21 @@
   "passkeyClose": {
     "message": "Close"
   },
+  "passkeyRow": {
+    "message": "Passkey"
+  },
+  "passkeyRowFor": {
+    "message": "Passkey for $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
   "prefsPasskeys": {
     "message": "Vault keeps passkeys, not the browser"
   },
   "prefsPasskeysHint": {
-    "message": "When a site makes or asks for a passkey, Vault offers its own in a window of its own. Choose “Use another device” there for a phone or security key. Turned off, the browser handles passkeys as before."
+    "message": "When a site makes or asks for a passkey, Vault offers its own: in a window of its own, or under the sign-in field when the site suggests passkeys there. Choose “Use another device” in the window for a phone or security key. Turned off, the browser handles passkeys as before."
   }
 }

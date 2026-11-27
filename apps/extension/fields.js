@@ -51,6 +51,16 @@
     return !looksLikeUser(el) && CODE.test(words(el));
   }
 
+  /**
+   * Whether `el` is marked for the browser's passkey suggestions (`autocomplete="username
+   * webauthn"`): where the site expects them when it asks for a field's suggestions.
+   */
+  function isPasskeyField(el) {
+    if (!el || el.tagName !== "INPUT" || !usable(el)) return false;
+    if (!textLike(el) && type(el) !== "password") return false;
+    return (el.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/).includes("webauthn");
+  }
+
   /** What the site allows in a new password, as the field says it. */
   function fieldRules(el) {
     const text = (value) => (typeof value === "string" && value.length <= 512 ? value : undefined);
@@ -224,6 +234,7 @@
     isSignInField,
     isNewPasswordField,
     isCodeField,
+    isPasskeyField,
     fieldRules,
     destinationOf,
     putNewPassword,

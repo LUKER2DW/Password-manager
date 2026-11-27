@@ -11,12 +11,14 @@
 // - the small frame shown in a page (inline.html) gets names and usernames, never a
 //   password;
 // - a page's passkey request is answered only after the person chose in the extension's own
-//   window, and only for the tab's own origin (passkey-worker.js).
+//   window, or in the frame under a field for the page's own request for a field's
+//   suggestions, and only for the tab's own origin (passkey-worker.js).
 
 import {
   ask,
   dropPendingSave,
   dropPendingSaves,
+  markOffer,
   originOf,
   pendingSave,
   setPendingSave,
@@ -25,7 +27,15 @@ import {
 } from "./app.js";
 import { fillCode, fillLogin } from "./fill.js";
 import { fallbacks, patternTest, rulesFor } from "./generator.js";
-import { fromPasskeyWindow, passkeyCancelled, passkeyFromPage, passkeyFromWindow } from "./passkey-worker.js";
+import {
+  fromPasskeyWindow,
+  passkeyCancelled,
+  passkeyFromFrame,
+  passkeyFromPage,
+  passkeyFromWindow,
+  passkeySuggestions,
+  passkeysForField,
+} from "./passkey-worker.js";
 
 const INLINE = chrome.runtime.getURL("inline.html");
 
@@ -288,7 +298,9 @@ async function handle(message, sender) {
           return { show: status.type === "logins" || status.code === "locked" };
         }
         const listed = await loginsFor(tab);
-        return { show: listed.type === "logins" && listed.items.length > 0 };
+        // The site's passkeys too, when this document waits for a field's suggestions.
+        const passkeys = await passkeysForField(tab, sender.documentId, message.passkey);
+        return { show: (listed.type === "logins" && listed.items.length > 0) || passkeys > 0 };
       }
       case "username-step":
         if (!(await vaultSaves())) return undefined;
@@ -301,6 +313,11 @@ async function handle(message, sender) {
         return undefined;
       case "pending":
         return { offer: Boolean(await pendingSave(tab.id)) };
+      case "offer-waiting":
+        // A browser that shows no card in pages (content.js): the toolbar button says that a
+        // login waits to be saved, and the extension's window offers it.
+        if (await pendingSave(tab.id)) markOffer(tab.id, true);
+        return undefined;
       case "passkey":
         // The document that asked (the browser's id for it): answered for that document only.
         return passkeyFromPage(tab, String(message.id), message.request, sender.documentId);
@@ -315,7 +332,10 @@ async function handle(message, sender) {
   switch (message.kind) {
     case "frame-logins": {
       const listed = await loginsFor(tab);
-      if (listed.type !== "logins") return { items: [] };
+      // The site's passkeys, when the page waits for a field's suggestions: who they are
+      // for, never a key.
+      const passkeys = passkeySuggestions(tab);
+      if (listed.type !== "logins") return passkeys ? { origin: passkeys.origin, items: [], passkeys } : { items: [] };
       return {
         origin: listed.origin,
         hello: listed.hello,
@@ -327,7 +347,13 @@ async function handle(message, sender) {
           locked,
           has_code,
         })),
+        passkeys,
       };
+    }
+    case "frame-passkey": {
+      const outcome = await passkeyFromFrame(tab, { id: String(message.id), credential: String(message.credential) });
+      tell(tab.id, { kind: "close", which: "logins" });
+      return outcome;
     }
     case "frame-fill": {
       const outcome = await fillFromFrame(tab, String(message.id), String(message.offer ?? ""));

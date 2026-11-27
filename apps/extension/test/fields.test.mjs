@@ -228,12 +228,21 @@ test("a role=button inside a form sends that form when it reads like a sign-in",
 
 const CONTENT = readFileSync(new URL("../content.js", import.meta.url), "utf8");
 
+/** IntersectionObserverEntry as a browser that reports a frame's visibility has it (v2). */
+class VouchingEntry {
+  get isVisible() {
+    return false;
+  }
+}
+
 /**
  * content.js (with fields.js) on the stand-in page `inputs`: `fire` sends an event to its
  * listeners, `submitted` is what reached the worker. `saves` is the extension's setting, as
- * stored (`held`: not read yet until `release()`).
+ * stored (`held`: not read yet until `release()`). `vouches`: the browser reports whether the
+ * frame is fully visible (Firefox doesn't). `waiting`: the request for a field's suggestions
+ * that passkeys.js holds, if any.
  */
-async function contentScript(inputs, { saves = true, held = false } = {}) {
+async function contentScript(inputs, { saves = true, held = false, vouches = true, waiting } = {}) {
   const listeners = {};
   const toWorker = [];
   const fromWorker = [];
@@ -275,6 +284,8 @@ async function contentScript(inputs, { saves = true, held = false } = {}) {
     },
     window: { addEventListener() {}, innerHeight: 800, innerWidth: 1200 },
     getComputedStyle: () => ({ colorScheme: "normal", borderBottomWidth: "0", boxShadow: "none", backgroundColor: "transparent" }),
+    IntersectionObserverEntry: vouches ? VouchingEntry : class {},
+    VaultPasskeys: { waiting: () => waiting },
     performance: { now: () => now },
     crypto: { randomUUID: () => `offer-${++ids}` },
     chrome: {
@@ -429,4 +440,45 @@ test("where a form sends is read as the browser reads it: the base URL, and each
   form.action = { value: "https://login.example.com/session" };
   assert.ok(sandbox.VaultFields.destinationOf(form).startsWith("https://cdn.example.net/session"));
   assert.equal(sandbox.VaultFields.destinationOf(null), "");
+});
+
+test("a browser that can't vouch for the frame shows none in pages; a waiting login marks the button", async () => {
+  const { inputs, user } = signInForm();
+  const page = await contentScript(inputs, { vouches: false });
+  page.sandbox.document.activeElement = user;
+  page.fire("focusin", { target: user });
+  await settle();
+  assert.equal(page.appended.length, 0, "no frame under the field");
+  assert.ok(!page.toWorker.some((message) => message.kind === "field-focused"));
+  page.tell({ kind: "offer-save" });
+  assert.equal(page.appended.length, 0, "no save card either");
+  assert.ok(page.toWorker.some((message) => message.kind === "offer-waiting"), "the toolbar button says so");
+});
+
+test("while the page waits for a field's suggestions, a sign-in or passkey field lists the site's passkeys", async () => {
+  const waiting = { id: "r1", request: { kind: "get", rpId: "example.com", challenge: "AQ", allow: [], conditional: true } };
+  const { body, el, inputs } = page();
+  // No sign-in field by its looks, but marked for the browser's passkey suggestions.
+  const handle = el("INPUT", body, { name: "handle", attributes: { autocomplete: "webauthn" } });
+  const code = el("INPUT", body, { name: "otp", attributes: { autocomplete: "one-time-code" } });
+  const form = el("FORM", body);
+  const password = el("INPUT", form, { type: "password", form });
+
+  const asked = async (field, options) => {
+    const content = await contentScript(inputs, options);
+    content.sandbox.document.activeElement = field;
+    content.fire("focusin", { target: field });
+    await settle();
+    return content.toWorker.find((message) => message.kind === "field-focused");
+  };
+  assert.deepEqual((await asked(handle, { waiting })).passkey, waiting);
+  assert.deepEqual((await asked(password, { waiting })).passkey, waiting);
+  // Nothing waits: the marked field is no sign-in field, and nothing is offered under it.
+  assert.equal(await asked(handle, {}), undefined);
+  // A one-time code field never lists passkeys.
+  assert.equal((await asked(code, { waiting })).passkey, undefined);
+  const { isPasskeyField } = load();
+  assert.ok(isPasskeyField(el("INPUT", body, { attributes: { autocomplete: "username webauthn" } })));
+  assert.ok(!isPasskeyField(el("INPUT", body, { attributes: { autocomplete: "username" } })));
+  assert.ok(!isPasskeyField(el("INPUT", body, { type: "checkbox", attributes: { autocomplete: "webauthn" } })));
 });

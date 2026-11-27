@@ -7,10 +7,14 @@
 // extension's own window and the app for the answer. The page gets back only what WebAuthn
 // would give it: a credential for its own origin, written and signed by the app.
 //
+// A request for the suggestions of a field (`mediation: "conditional"`) waits, as in the
+// browser, until the person picks one of Vault's passkeys in the frame under a sign-in field
+// (content.js, inline.html), the page aborts it, or a later request of the page ends it.
+//
 // When Vault has no passkey for the site, isn't running, or the person picks another device,
 // the request goes to the browser's own handler, as if Vault weren't there. So do requests
-// for the autofill list of a field (`mediation: "conditional"`) and for a security key
-// (`authenticatorAttachment: "cross-platform"`).
+// for a security key (`authenticatorAttachment: "cross-platform"`), and a field's suggestions
+// while the vault is locked or in a browser that can't show the frame in pages (passkeys.js).
 
 (() => {
   const credentials = globalThis.navigator?.credentials;
@@ -19,6 +23,8 @@
   const origin = globalThis.location.origin;
   const browser = { get: credentials.get.bind(credentials), create: credentials.create.bind(credentials) };
   const waiting = new Map();
+  /** The request for a field's suggestions that waits, if any: `{ id }`. */
+  let suggesting = null;
 
   globalThis.addEventListener("message", (event) => {
     if (event.source !== globalThis || event.origin !== origin) return;
@@ -27,30 +33,33 @@
     const done = waiting.get(data.id);
     if (!done) return;
     waiting.delete(data.id);
+    if (suggesting?.id === data.id) suggesting = null;
     done(data.answer && typeof data.answer === "object" ? data.answer : { fallback: true });
   });
 
+  /** Ends request `id` before its answer: Vault is told, the page gets AbortError. */
+  function drop(id) {
+    const done = waiting.get(id);
+    if (!done) return;
+    waiting.delete(id);
+    if (suggesting?.id === id) suggesting = null;
+    globalThis.postMessage({ channel: CHANNEL, direction: "cancel", id }, origin);
+    done({ error: "AbortError" });
+  }
+
   /** One request to the extension; resolves with its answer (or AbortError when aborted). */
   function ask(request, signal) {
+    // A later request ends the one waiting for a field's suggestions, as in the browser.
+    if (suggesting) drop(suggesting.id);
     return new Promise((resolve) => {
+      if (signal?.aborted) {
+        resolve({ error: "AbortError" });
+        return;
+      }
       const id = globalThis.crypto.randomUUID();
       waiting.set(id, resolve);
-      if (signal) {
-        if (signal.aborted) {
-          waiting.delete(id);
-          resolve({ error: "AbortError" });
-          return;
-        }
-        signal.addEventListener(
-          "abort",
-          () => {
-            if (!waiting.delete(id)) return;
-            globalThis.postMessage({ channel: CHANNEL, direction: "cancel", id }, origin);
-            resolve({ error: "AbortError" });
-          },
-          { once: true },
-        );
-      }
+      if (request.conditional) suggesting = { id };
+      signal?.addEventListener("abort", () => drop(id), { once: true });
       globalThis.postMessage({ channel: CHANNEL, direction: "ask", id, request }, origin);
     });
   }
@@ -170,11 +179,11 @@
   async function get(options) {
     const key = options?.publicKey;
     const challenge = b64u(key?.challenge);
-    if (!key || !challenge || options.mediation === "conditional") return browser.get(options);
-    const answer = await ask(
-      { kind: "get", rpId: text(key.rpId, 253), challenge, allow: ids(key.allowCredentials) },
-      options.signal,
-    );
+    if (!key || !challenge) return browser.get(options);
+    const request = { kind: "get", rpId: text(key.rpId, 253), challenge, allow: ids(key.allowCredentials) };
+    // The suggestions of a field: answered only when the person picks a passkey under one.
+    if (options.mediation === "conditional") request.conditional = true;
+    const answer = await ask(request, options.signal);
     if (answer.assertion) return assertion(answer.assertion);
     if (answer.error) throw failure(answer.error);
     return browser.get(options);

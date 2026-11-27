@@ -76,6 +76,18 @@ async function stored() {
   return (await chrome.storage.session.get(PENDING))[PENDING] || {};
 }
 
+/**
+ * The mark on the toolbar button for a login waiting to be saved in tab `tabId`: set where the
+ * browser shows no card in pages (content.js, background.js), taken off with the offer.
+ */
+export function markOffer(tabId, on) {
+  try {
+    chrome.action.setBadgeText({ tabId: Number(tabId), text: on ? "1" : "" }).catch(() => {});
+  } catch {
+    // No toolbar button to mark (or no such tab any more).
+  }
+}
+
 // The helpers below run inside `alone` only.
 
 async function clearAll() {
@@ -84,6 +96,7 @@ async function clearAll() {
   await chrome.storage.session.set({ [PENDING]: {} });
   for (const tab of Object.keys(all)) {
     chrome.tabs.sendMessage(Number(tab), { kind: "close", which: "save" }, { frameId: 0 }).catch(() => {});
+    markOffer(tab, false);
   }
 }
 
@@ -98,6 +111,7 @@ async function current() {
   for (const tab of Object.keys(all)) {
     if (now - all[tab].at > PENDING_FOR_MS) {
       delete all[tab];
+      markOffer(tab, false);
       dropped = true;
     }
   }
@@ -121,7 +135,10 @@ export function setPendingSave(tabId, pending) {
     const all = await current();
     if (pending && !(await vaultSaves())) return;
     if (pending) all[tabId] = { ...pending, at: Date.now() };
-    else delete all[tabId];
+    else {
+      delete all[tabId];
+      markOffer(tabId, false);
+    }
     await chrome.storage.session.set({ [PENDING]: all });
     // Turned off while this was written: nothing typed stays.
     if (pending && !(await vaultSaves())) await clearAll();
@@ -137,6 +154,7 @@ export function dropPendingSave(tabId, id) {
     const all = await current();
     if (typeof id !== "string" || all[tabId]?.id !== id) return false;
     delete all[tabId];
+    markOffer(tabId, false);
     await chrome.storage.session.set({ [PENDING]: all });
     return true;
   });

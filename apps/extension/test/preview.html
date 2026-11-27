@@ -6,8 +6,9 @@
   http://localhost:8766/test/preview.html?state=logins
   Popup states: logins, offer, vault, entry, revealed, generator, new_login, pin, wrong_pin, hello, pair, pair_wait,
   empty, locked, not_running, insecure, item_locked, username.
-  In-page frames: inline (the logins under a field), suggest (a new password), save (the
-  save offer).
+  In-page frames: inline (the logins under a field), inline_passkeys (with the site's passkeys,
+  while the page waits for a field's suggestions), suggest (a new password), save (the save
+  offer).
   A stand-in for the browser's `chrome` object answers with fixed test data; nothing here
   talks to the app.
 -->
@@ -66,7 +67,20 @@
         runtime: {
           getURL: (path) => `../${path}`,
           sendMessage: async (message) => {
-            if (message.kind === "frame-logins") return { origin: logins.origin, hello: true, check: "pin", items: logins.items };
+            if (message.kind === "frame-logins") {
+              const passkeys = {
+                origin: logins.origin,
+                site: "github.com",
+                check: "pin",
+                hello: true,
+                items: [
+                  { id: "01", credential: "Y3JlZA", title: "GitHub", userName: "octocat", displayName: "The Octocat", locked: false },
+                  { id: "02", credential: "d29yaw", title: "GitHub (work)", userName: "hubot@work.example", displayName: "", locked: true },
+                ],
+              };
+              const listed = { origin: logins.origin, hello: true, check: "pin", items: logins.items };
+              return state === "inline_passkeys" ? { ...listed, items: logins.items.slice(0, 1), passkeys } : listed;
+            }
             if (message.kind === "frame-suggest") return { password: "q7#Vm2-kTz9@pLw4Rx8n", bits: 129 };
             if (message.kind === "frame-save-info") return { origin: "https://github.com", username: "new.user@example.com" };
             return undefined;
@@ -122,7 +136,7 @@
       };
       window.close = () => {};
 
-      const frame = state === "inline" || state === "save" || state === "suggest";
+      const frame = ["inline", "inline_passkeys", "save", "suggest"].includes(state);
       const html = await (await fetch(frame ? "../inline.html" : "../popup.html")).text();
       const doc = new DOMParser().parseFromString(html, "text/html");
       for (const href of frame ? ["../tokens.css", "../inline.css"] : ["../tokens.css", "../popup.css"]) {

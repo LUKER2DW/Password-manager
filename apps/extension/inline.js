@@ -10,6 +10,10 @@
 // scheme, then `|` and the offer: which field of the page the card was shown under. A login
 // picked here is typed into that field's form only (fill.js). The content script changes only
 // the first part when the card has to move above, which doesn't reload this page.
+//
+// Under a sign-in field, while the page waits for a field's suggestions (a passkey request
+// with `mediation: "conditional"`), the site's passkeys in Vault come first: picking one has
+// the app sign in to that page (passkey-worker.js), with the same click check.
 
 const t = (key, ...parts) => chrome.i18n.getMessage(key, parts) || key;
 const $ = (id) => document.getElementById(id);
@@ -46,6 +50,7 @@ new IntersectionObserver(
     // `isVisible` is the browser's own word that nothing covers, fades or distorts us; every
     // Chrome and Edge this extension runs in (127 and later) gives it. Not given, or the frame
     // not wholly inside the viewport, counts as not visible: a click then does nothing.
+    // (Firefox doesn't give it, and content.js shows this frame nowhere there.)
     const visible = seen.isIntersecting && seen.intersectionRatio >= 1 && seen.isVisible === true;
     visibleSince = visible ? visibleSince || performance.now() : 0;
   },
@@ -113,6 +118,34 @@ function lockIcon(title) {
   return svg;
 }
 
+/** A passkey (Lucide's key-round), for the rows of the site's passkeys. */
+function passkeyIcon() {
+  const ns = "http://www.w3.org/2000/svg";
+  const box = document.createElement("span");
+  box.className = "key passkey";
+  box.setAttribute("aria-hidden", "true");
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  const bow = document.createElementNS(ns, "path");
+  bow.setAttribute(
+    "d",
+    "M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z",
+  );
+  const hole = document.createElementNS(ns, "circle");
+  for (const [name, value] of Object.entries({ cx: 16.5, cy: 7.5, r: 0.5 })) hole.setAttribute(name, String(value));
+  svg.append(bow, hole);
+  box.append(svg);
+  return box;
+}
+
+/** What opens a locked entry, said on its lock: Windows Hello, the PIN, or the app. */
+function opensWith(listing) {
+  if (listing.hello) return t("asksHelloLong");
+  if (listing.check === "pin") return t("asksPinLong");
+  if (listing.check === "password") return t("asksPasswordLong");
+  return t("lockedItem");
+}
+
 /** Always the same number of dots: the password's length is not shown. */
 const DOTS = "••••••••••••";
 
@@ -120,21 +153,46 @@ const DOTS = "••••••••••••";
 
 async function showLogins() {
   const listed = await say({ kind: "frame-logins" });
-  // Under a one-time code field: only the logins that have a code.
+  // Under a one-time code field: only the logins that have a code, and no passkeys.
   const codes = mode === "code";
-  if (codes && listed?.items) listed.items = listed.items.filter((entry) => entry.has_code);
-  if (!listed?.items?.length) return say({ kind: "frame-dismiss", which });
+  const items = (listed?.items ?? []).filter((entry) => !codes || entry.has_code);
+  const passkeys = codes ? undefined : listed?.passkeys;
+  const keys = passkeys?.items ?? [];
+  if (!items.length && !keys.length) return say({ kind: "frame-dismiss", which });
   // The logins are those of the page this card sits in, or they are not shown.
   if (around && around[0] !== listed.origin) return say({ kind: "frame-dismiss", which });
   $("logins").hidden = false;
   const site = listed.origin.replace(/^https:\/\//, "");
-  const typed = listed.check === "pin" || listed.check === "password";
-  const asks = listed.hello
-    ? t("asksHelloLong")
-    : typed
-      ? t(listed.check === "pin" ? "asksPinLong" : "asksPasswordLong")
-      : t("lockedItem");
-  const rows = listed.items.map((entry) => {
+  const asks = opensWith(listed);
+  const rows = [];
+  for (const entry of keys) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "row";
+    row.setAttribute("role", "option");
+    row.title = entry.title;
+    const lines = document.createElement("span");
+    lines.className = "lines";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = entry.userName || entry.displayName || (entry.title || "").trim() || t("noUsername");
+    const kind = document.createElement("span");
+    kind.className = "kind";
+    // The site the passkey belongs to, as the app checked it, when it is not this page's host
+    // (a page under example.com using example.com's passkeys).
+    const elsewhere = passkeys.site && passkeys.site !== site.replace(/:\d+$/, "");
+    kind.textContent = elsewhere ? t("passkeyRowFor", passkeys.site) : t("passkeyRow");
+    lines.append(name, kind);
+    row.append(passkeyIcon(), lines);
+    if (entry.locked) row.append(lockIcon(opensWith(passkeys)));
+    row.addEventListener("click", async (event) => {
+      if (!genuine(event)) return;
+      for (const other of rows) other.disabled = true;
+      await say({ kind: "frame-passkey", id: entry.id, credential: entry.credential });
+    });
+    rows.push(row);
+  }
+  for (const entry of items) {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "row";
@@ -158,8 +216,8 @@ async function showLogins() {
       for (const other of rows) other.disabled = true;
       await say({ kind: codes ? "frame-code" : "frame-fill", id: entry.id, offer });
     });
-    return row;
-  });
+    rows.push(row);
+  }
   $("list").replaceChildren(...rows);
   $("manage-text").textContent = t("managePasswords");
   $("manage").onclick = (event) => genuine(event) && say({ kind: "frame-manage" });

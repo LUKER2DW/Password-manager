@@ -13,9 +13,20 @@
 // - one request per tab at a time, and a closed window is a "no" (until the person chose and
 //   the app is at work, see `work`).
 //
+// A request for the suggestions of a field (`mediation: "conditional"`) opens no window: when
+// Vault has passkeys for the site, the page is told it waits (`waits`), and the request waits
+// in the document that asked (passkeys.js). When a sign-in field is focused, the frame under
+// it (inline.html, the extension's own page, which counts only clicks the browser vouches were
+// on it in full view) lists them (`passkeysForField`); the person's pick there is signed by the
+// same `work` as a pick in the window, and the answer goes to that document alone
+// (`deliver`). A login behind the item lock that Windows Hello doesn't open takes the person
+// to the window, where the PIN is typed; closing it leaves the request waiting, as closing
+// the browser's own suggestions does. A later request of the tab, the page aborting or going
+// away, or passkeys turned off end it.
+//
 // When Vault has nothing to offer (passkeys left to the browser in the extension's settings,
-// the app not running, no passkey for the site), the page is told to use the browser's own
-// handler, as if Vault weren't there.
+// the app not running, no passkey for the site; for a field's suggestions, a locked vault
+// too), the page is told to use the browser's own handler, as if Vault weren't there.
 
 import { ask, originOf } from "./app.js";
 
@@ -47,7 +58,10 @@ export function cleaned(request) {
   const rpId = text(request.rpId ?? "", 253);
   const challenge = text(request.challenge, 1400);
   if (rpId === null || !challenge) return null;
-  if (request.kind === "get") return { kind: "get", rpId, challenge, allow: ids(request.allow) };
+  if (request.kind === "get") {
+    const get = { kind: "get", rpId, challenge, allow: ids(request.allow) };
+    return request.conditional === true ? { ...get, conditional: true } : get;
+  }
   if (request.kind !== "create") return null;
   const userId = text(request.userId, 100);
   const userName = text(request.userName ?? "", 256);
@@ -83,7 +97,9 @@ async function look(asked, url) {
     return { listed };
   }
   if (listed.code === "wrong_site") return { answer: { error: "SecurityError" } };
-  if (listed.code === "locked") return { locked: true };
+  // Locked: the window says so and can try again. A field's suggestions have no window, and
+  // Vault can't tell whether it has a passkey there: the browser's own suggestions stay.
+  if (listed.code === "locked") return asked.conditional ? { answer: { fallback: true } } : { locked: true };
   return { answer: { fallback: true } };
 }
 
@@ -97,6 +113,9 @@ export async function passkeyFromPage(tab, id, request, documentId) {
   const url = tab.url;
   if (!asked || typeof url !== "string" || !url.startsWith("https://")) return { fallback: true };
   if (typeof documentId !== "string" || !documentId) return { fallback: true };
+  // A later request of the tab ends the one waiting for a field's suggestions, as in the
+  // browser (unless the app is already signing for it: then this one is refused below).
+  endSuggestions(tab.id, (wait) => !wait.working);
   for (const wait of asking.values()) {
     if (wait.tabId === tab.id && !wait.settled) return { error: "NotAllowedError" };
   }
@@ -131,10 +150,144 @@ async function prepare(tab, token, wait) {
   if (asking.get(token) !== wait) return;
   if (state.answer) {
     finish(token, state.answer);
+  } else if (wait.asked.conditional) {
+    wait.state = state;
+    waitsInDocument(wait);
   } else {
     wait.state = state;
     openWindow(tab, token);
   }
+}
+
+// ---- a field's suggestions ----
+
+/**
+ * The page is told its request for a field's suggestions waits. From then on its answer goes
+ * to the document that asked, by the browser's id for it, and to no other (`deliver`).
+ */
+function waitsInDocument(wait) {
+  const respond = wait.resolve;
+  wait.resolve = (answer) => deliver(wait, answer);
+  respond({ waits: true });
+}
+
+function deliver(wait, answer) {
+  chrome.tabs
+    .sendMessage(wait.tabId, { kind: "passkey-answer", id: wait.id, answer }, { documentId: wait.documentId })
+    .catch(() => {});
+}
+
+/** The tab's requests for a field's suggestions, with their tokens. */
+function suggestionsOf(tabId) {
+  return [...asking].filter(([, wait]) => wait.tabId === tabId && wait.asked.conditional && !wait.settled);
+}
+
+/** Ends the tab's requests for a field's suggestions that `which` picks (AbortError). */
+function endSuggestions(tabId, which) {
+  for (const [token, wait] of suggestionsOf(tabId)) {
+    if (which(wait)) finish(token, { error: "AbortError" });
+  }
+}
+
+/**
+ * A sign-in field was focused in document `documentId` of `tab`, which holds `waiting`, the
+ * request for a field's suggestions it waits on (passkeys.js), if any. The number of passkeys
+ * the frame under the field may list: Vault's for that site, as the app lists them now (the
+ * vault may have been unlocked or locked since the request).
+ *
+ * This worker may have been stopped since the request came (the browser stops it when idle),
+ * and then knows nothing of it: the document tells it again here, and it is taken as a new
+ * one, checked as the first was. Requests of the tab's other documents are gone.
+ */
+export async function passkeysForField(tab, documentId, waiting) {
+  endSuggestions(tab.id, (wait) => !wait.working && wait.documentId !== documentId);
+  if (!waiting || typeof waiting !== "object" || typeof waiting.id !== "string" || waiting.id.length > 64) return 0;
+  if (typeof documentId !== "string" || !documentId || !(await vaultPasskeys())) return 0;
+  let [token, wait] = suggestionsOf(tab.id).find(([, one]) => one.documentId === documentId && one.id === waiting.id) ?? [];
+  if (!wait) {
+    const asked = cleaned(waiting.request);
+    const url = tab.url;
+    if (!asked?.conditional || typeof url !== "string" || !url.startsWith("https://")) return 0;
+    for (const other of asking.values()) {
+      if (other.tabId === tab.id && !other.settled) return 0;
+    }
+    token = crypto.randomUUID();
+    wait = {
+      id: waiting.id,
+      asked,
+      url,
+      origin: originOf(url),
+      tabId: tab.id,
+      documentId,
+      resolve: () => {},
+      state: {},
+      windowId: undefined,
+      settled: false,
+      working: false,
+    };
+    wait.resolve = (answer) => deliver(wait, answer);
+    asking.set(token, wait);
+  }
+  if (wait.working) return wait.state?.listed?.items.length ?? 0;
+  const listed = await ask({ type: "passkeys", url: wait.url, rp_id: wait.asked.rpId, allow: wait.asked.allow });
+  if (asking.get(token) !== wait) return 0;
+  wait.state = listed.type === "passkeys" ? { listed } : {};
+  return wait.state.listed?.items.length ?? 0;
+}
+
+/**
+ * What the frame under a field shows of the site's passkeys, for the request of a field's
+ * suggestions that waits in `tab`: who they are for, never a key. `undefined` when none.
+ */
+export function passkeySuggestions(tab) {
+  const [, wait] = suggestionsOf(tab.id)[0] ?? [];
+  const listed = wait?.state?.listed;
+  if (!listed?.items.length || originOf(tab.url) !== wait.origin) return undefined;
+  return {
+    origin: listed.origin,
+    site: listed.rp_id,
+    check: listed.check,
+    hello: Boolean(listed.hello),
+    items: listed.items.map(({ id, credential, title, user_name, display_name, locked }) => ({
+      id,
+      credential,
+      title,
+      userName: user_name,
+      displayName: display_name,
+      locked,
+    })),
+  };
+}
+
+/**
+ * The person picked passkey `credential` of login `id` in the frame under a field of `tab`
+ * (a click the frame counted: see inline.js). Signed as a pick in the window is (`work`), for
+ * the request waiting in the tab. A login behind the item lock that Windows Hello doesn't open
+ * (or the person closed its prompt) is taken on by the passkey window, where the PIN or the
+ * item password is typed (`popup`).
+ */
+export async function passkeyFromFrame(tab, message) {
+  const [token, wait] = suggestionsOf(tab.id)[0] ?? [];
+  if (!wait || originOf(tab.url) !== wait.origin) return { done: false };
+  const listed = wait.state?.listed;
+  const entry = (listed?.items ?? []).find((item) => item.id === message.id && item.credential === message.credential);
+  if (!entry) return { done: false };
+  const outcome = await work(token, wait, {
+    type: "passkey_get",
+    url: wait.url,
+    rp_id: wait.asked.rpId,
+    id: entry.id,
+    credential: entry.credential,
+    challenge: wait.asked.challenge,
+    hello: entry.locked && Boolean(listed.hello),
+  });
+  if (outcome.done) return { done: true };
+  const typed = outcome.code === "item_locked" || outcome.code === "wrong_check";
+  if (typed && asking.get(token) === wait && !wait.settled) {
+    if (wait.windowId === undefined) await openWindow(tab, token);
+    return { done: false, popup: true };
+  }
+  return { done: false };
 }
 
 async function openWindow(tab, token) {
@@ -175,6 +328,13 @@ function finish(token, answer, keepWindow = false) {
   if (!keepWindow && wait.windowId !== undefined) chrome.windows.remove(wait.windowId).catch(() => {});
 }
 
+/** Closes the request's window, if it has one, and leaves the request as it is. */
+function closeWindow(wait) {
+  const opened = wait.windowId;
+  wait.windowId = undefined;
+  if (opened !== undefined) chrome.windows.remove(opened).catch(() => {});
+}
+
 /** The page aborted its request (its AbortSignal). */
 export function passkeyCancelled(tabId, id) {
   for (const [token, wait] of asking) {
@@ -186,7 +346,8 @@ chrome.windows.onRemoved.addListener((windowId) => {
   for (const [token, wait] of asking) {
     if (wait.windowId !== windowId) continue;
     // Closed after the person chose, while the app is at work: that choice stands (`work`).
-    if (wait.working) wait.windowId = undefined;
+    // A field's suggestions go on waiting, as when the browser's own are closed.
+    if (wait.working || wait.asked.conditional) wait.windowId = undefined;
     else finish(token, { error: "NotAllowedError" });
   }
 });
@@ -330,8 +491,9 @@ async function work(token, wait, request) {
   if (reply.code === "wrong_site") ended = { error: "SecurityError" };
   else if (making && reply.code === "exists") ended = { error: "InvalidStateError" };
   else if (making && reply.code === "unsupported") ended = { fallback: true };
-  // Ended meanwhile, or its window closed: nobody is left to choose again.
-  else if (wait.settled || wait.windowId === undefined) ended = { error: "NotAllowedError" };
+  // Ended meanwhile, or its window closed: nobody is left to choose again. (A field's
+  // suggestions need no window: the person may pick again under the field.)
+  else if (wait.settled || (wait.windowId === undefined && !wait.asked.conditional)) ended = { error: "NotAllowedError" };
   if (ended) {
     finish(token, ended);
     return { gone: true };
@@ -361,9 +523,12 @@ export async function passkeyFromWindow(message, sender) {
     case "passkey-ping":
       return {};
     case "passkey-retry": {
-      const state = await look(wait.asked, wait.url);
+      // Asked as for any window: a vault still locked says so there.
+      const state = await look({ ...wait.asked, conditional: false }, wait.url);
       if (state.answer) {
-        finish(token, state.answer);
+        // A field's suggestions go on waiting (with nothing to list now, the frame shows none).
+        if (wait.asked.conditional) closeWindow(wait);
+        else finish(token, state.answer);
         return { gone: true };
       }
       wait.state = state;
@@ -407,6 +572,11 @@ export async function passkeyFromWindow(message, sender) {
     case "passkey-no":
       // While the app is at work, the choice made stands: what came of it is told when it ends.
       if (wait.working) return { code: "busy" };
+      if (message.kind === "passkey-no" && wait.asked.conditional) {
+        // Only the window closes: the request goes on waiting for a pick under a field.
+        closeWindow(wait);
+        return { gone: true };
+      }
       finish(token, message.kind === "passkey-other" ? { fallback: true } : { error: "NotAllowedError" });
       return { gone: true };
     default:

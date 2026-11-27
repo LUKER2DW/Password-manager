@@ -162,6 +162,11 @@ section {
   color: var(--marker);
 }
 
+/* A passkey row's key: plain, so that the one yellow thing stays the suggestion's key. */
+.key.passkey {
+  color: var(--graphite);
+}
+
 .key svg,
 .lock,
 .mark {
@@ -204,6 +209,15 @@ section {
   font-size: 15px;
   line-height: 15px;
   letter-spacing: 0.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What a row is when it is no password: "Passkey", "Passkey for example.com". */
+.kind {
+  color: var(--graphite);
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

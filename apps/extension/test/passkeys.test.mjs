@@ -173,9 +173,15 @@ test("without Vault's passkey the browser's own handler answers, unchanged", asy
   answer({ fallback: true });
   assert.equal(await pending, "from the browser");
   assert.equal(browserCalls[0][1], options, "the very same options");
-  // The autofill list of a field, a security key, and anything without publicKey: never asked.
+  // A field's suggestions Vault has nothing for: the browser's own, with the same options.
   const conditional = { mediation: "conditional", publicKey: { challenge: new Uint8Array([1]) } };
-  assert.equal(await win.navigator.credentials.get(conditional), "from the browser");
+  const suggested = win.navigator.credentials.get(conditional);
+  await tick();
+  assert.equal(posted[1].request.conditional, true);
+  answer({ fallback: true });
+  assert.equal(await suggested, "from the browser");
+  assert.equal(browserCalls[1][1], conditional);
+  // A security key, and anything without publicKey: never asked.
   const key = {
     publicKey: {
       challenge: new Uint8Array([1]),
@@ -185,7 +191,52 @@ test("without Vault's passkey the browser's own handler answers, unchanged", asy
   };
   assert.equal(await win.navigator.credentials.create(key), "from the browser");
   assert.equal(await win.navigator.credentials.get({ password: true }), "from the browser");
-  assert.equal(posted.length, 1);
+  assert.equal(posted.length, 2);
+});
+
+test("a field's suggestions wait for a pick; a later request or an abort ends them", async () => {
+  const { win, posted, answer } = page();
+  const suggestions = () => ({ mediation: "conditional", publicKey: { challenge: new Uint8Array([1]) } });
+  const first = win.navigator.credentials.get(suggestions());
+  await tick();
+  assert.deepEqual(plain(posted[0].request), { kind: "get", rpId: "", challenge: b64u([1]), allow: [], conditional: true });
+  // A later request, of any kind, ends the one waiting, and Vault hears so first.
+  const later = win.navigator.credentials.get({ publicKey: { challenge: new Uint8Array([2]) } });
+  await assert.rejects(first, (error) => error.name === "AbortError");
+  assert.deepEqual(plain(posted.slice(1).map(({ direction, id }) => [direction, id])), [
+    ["cancel", posted[0].id],
+    ["ask", posted[2].id],
+  ]);
+  answer({ error: "NotAllowedError" });
+  await assert.rejects(later, (error) => error.name === "NotAllowedError");
+
+  // A pick under the field answers it, much later.
+  const picked = win.navigator.credentials.get(suggestions());
+  await tick();
+  answer({
+    assertion: {
+      origin: ORIGIN,
+      credential: b64u([7]),
+      client_data: b64u(Buffer.from("{}")),
+      authenticator_data: b64u([5]),
+      signature: b64u([4]),
+      user_handle: "",
+    },
+  });
+  assert.equal((await picked).id, b64u([7]));
+
+  // The page's own abort.
+  const controller = new AbortController();
+  const aborted = win.navigator.credentials.get({ ...suggestions(), signal: controller.signal });
+  await tick();
+  controller.abort();
+  await assert.rejects(aborted, (error) => error.name === "AbortError");
+  assert.equal(posted.at(-1).direction, "cancel");
+  // Nothing waits any more: the next request ends nothing.
+  win.navigator.credentials.get({ publicKey: { challenge: new Uint8Array([3]) } });
+  await tick();
+  assert.equal(posted.at(-1).direction, "ask");
+  assert.equal(posted.at(-2).direction, "cancel");
 });
 
 test("a refusal is the WebAuthn error the page expects, and an abort is told to Vault", async () => {
@@ -355,22 +406,36 @@ function held(answer) {
 let nextTab = 1;
 let nextDocument = 1;
 
-/** One document of a tab, with the relay (passkeys.js) in it. */
-function load(tabId, url) {
+/** IntersectionObserverEntry as a browser that reports a frame's visibility has it (v2). */
+class VouchingEntry {
+  get isVisible() {
+    return false;
+  }
+}
+
+/**
+ * One document of a tab, with the relay (passkeys.js) in it. `restarted`: the worker answers
+ * a field's suggestions with "waits" and then forgets them, as one the browser stopped since.
+ * `vouches`: the browser reports a frame's visibility (Firefox doesn't).
+ */
+function load(tabId, url, { restarted = false, vouches = true } = {}) {
   const documentId = `doc-${nextDocument++}`;
   const origin = new URL(url).origin;
   const heard = { message: [], pagehide: [] };
   const answers = new Map();
   const win = {
     location: { origin },
+    IntersectionObserverEntry: vouches ? VouchingEntry : class {},
     addEventListener: (type, listener) => heard[type]?.push(listener),
     postMessage: (data) => answers.set(data.id, data.answer),
     chrome: {
+      storage: { onChanged: { addListener: (listener) => browser.heard.storage.push(listener) } },
       runtime: {
         // To the background worker, a moment later, as the browser relays it.
         sendMessage: async (message) => {
           await new Promise((done) => setImmediate(done));
           const tab = await chrome.tabs.get(tabId);
+          if (message.kind === "passkey" && restarted && message.request.conditional) return { waits: true };
           if (message.kind === "passkey") {
             return worker.passkeyFromPage(tab, String(message.id), message.request, documentId);
           }
@@ -395,8 +460,11 @@ function load(tabId, url) {
     for (const listener of heard.message) listener({ source: inner, origin, data: { channel: "vault-passkeys", ...data } });
   };
   return {
+    documentId,
     ask: (id, request) => post({ direction: "ask", id, request }),
     cancel: (id) => post({ direction: "cancel", id }),
+    /** What passkeys.js tells content.js: the request for a field's suggestions that waits. */
+    waiting: () => vm.runInContext("VaultPasskeys", win).waiting(),
     /** The page goes away. `quietly`: its last word (the relay's cancel) never arrives. */
     leave: ({ quietly = false } = {}) => {
       if (!quietly) for (const listener of heard.pagehide) listener({});
@@ -407,10 +475,10 @@ function load(tabId, url) {
 }
 
 /** A tab on `url`; `navigate` loads another document in it. */
-function openTab(url) {
+function openTab(url, options) {
   const id = nextTab++;
   browser.tabs.set(id, { id, url, windowId: 1 });
-  const tab = { id, doc: load(id, url) };
+  const tab = { id, doc: load(id, url, options), now: () => chrome.tabs.get(id) };
   tab.navigate = (next, how) => {
     tab.doc.leave(how);
     browser.tabs.get(id).url = next;
@@ -484,6 +552,9 @@ test("the worker takes only plain, bounded requests", async () => {
   });
   assert.deepEqual(made.algorithms, [-7, -257]);
   assert.equal(made.rpId, "");
+  assert.equal(cleaned({ kind: "get", challenge: "AQ", conditional: true }).conditional, true);
+  assert.equal(cleaned({ kind: "get", challenge: "AQ", conditional: "yes" }).conditional, undefined);
+  assert.equal(cleaned({ ...made, kind: "create", conditional: true }).conditional, undefined);
   assert.ok(fromPasskeyWindow({ url: "chrome-extension://vault/passkey.html?ask=1" }));
   assert.ok(!fromPasskeyWindow({ url: "https://example.com/passkey.html" }));
   assert.ok(!fromPasskeyWindow({}));
@@ -669,6 +740,168 @@ test("a passkey that replaced the one kept before, but never reached the page, i
   making.open();
   assert.deepEqual(await saving, { code: "made_not_sent", replaced: true });
   assert.deepEqual(await win.say("passkey-no"), { gone: true });
+});
+
+// ---- a field's suggestions (`mediation: "conditional"`) ----
+
+const SUGGEST = { ...GET, conditional: true };
+const PICK = { id: "item-1", credential: "Y3JlZA" };
+const pause = (ms = 10) => new Promise((done) => setTimeout(done, ms));
+
+test("a field's suggestions wait in the page until a passkey is picked under a field", async () => {
+  reset({ passkeys: LISTED, passkey_get: ASSERTION });
+  const windows = browser.windows.length;
+  const tab = openTab(PAGE_URL);
+  tab.doc.ask("r1", SUGGEST);
+  await until(() => tab.doc.waiting(), "the request waits in the page");
+  assert.equal(tab.doc.answer("r1"), undefined, "the page is not answered");
+  assert.equal(browser.windows.length, windows, "no window opens");
+  assert.ok(!madeAny());
+  // A sign-in field is focused: the frame under it lists the site's passkeys, never a key.
+  assert.equal(await worker.passkeysForField(await tab.now(), tab.doc.documentId, tab.doc.waiting()), 1);
+  const shown = worker.passkeySuggestions(await tab.now());
+  assert.equal(shown.site, "example.com");
+  assert.equal(shown.origin, PAGE_ORIGIN);
+  assert.deepEqual(Object.keys(shown.items[0]).sort(), ["credential", "displayName", "id", "locked", "title", "userName"]);
+  assert.equal(shown.items[0].userName, "me@example.com");
+  // Only a passkey the frame listed is signed.
+  assert.deepEqual(await worker.passkeyFromFrame(await tab.now(), { ...PICK, credential: "other" }), { done: false });
+  assert.ok(!madeAny());
+  assert.deepEqual(await worker.passkeyFromFrame(await tab.now(), PICK), { done: true });
+  const signed = browser.asked.find((request) => request.type === "passkey_get");
+  assert.equal(signed.url, PAGE_URL, "for the tab's own address");
+  assert.equal(signed.challenge, "AQ");
+  assert.equal(signed.hello, false);
+  await until(() => tab.doc.answer("r1"), "the page is answered");
+  assert.equal(tab.doc.answer("r1").assertion.signature, ASSERTION.signature);
+  assert.equal(tab.doc.waiting(), undefined);
+  assert.equal(worker.passkeySuggestions(await tab.now()), undefined, "nothing is left to pick");
+  assert.equal(browser.windows.length, windows);
+});
+
+test("no passkey for the site, a locked vault, or a browser with no frame: the browser's own suggestions", async () => {
+  for (const passkeys of [{ ...LISTED, items: [] }, { type: "error", code: "locked" }, { type: "error", code: "not_running" }]) {
+    reset({ passkeys });
+    const tab = openTab(PAGE_URL);
+    tab.doc.ask("r1", SUGGEST);
+    await until(() => tab.doc.answer("r1"), "the page is answered");
+    assert.deepEqual(plain(tab.doc.answer("r1")), { fallback: true });
+    assert.equal(tab.doc.waiting(), undefined);
+  }
+  // Firefox can't vouch for a frame in a page: Vault isn't even asked.
+  reset({ passkeys: LISTED });
+  const tab = openTab(PAGE_URL, { vouches: false });
+  tab.doc.ask("r1", SUGGEST);
+  await until(() => tab.doc.answer("r1"), "the page is answered");
+  assert.deepEqual(plain(tab.doc.answer("r1")), { fallback: true });
+  assert.equal(browser.asked.length, 0);
+});
+
+test("a field's suggestions end with an abort, a later request, a navigation or passkeys turned off", async () => {
+  reset({ passkeys: LISTED, passkey_get: ASSERTION });
+  const tab = openTab(PAGE_URL);
+  const waits = async (id) => {
+    tab.doc.ask(id, SUGGEST);
+    await until(() => tab.doc.waiting()?.id === id, "the request waits in the page");
+    assert.equal(await worker.passkeysForField(await tab.now(), tab.doc.documentId, tab.doc.waiting()), 1);
+  };
+
+  // The page aborts: nothing is left to pick, and nothing is signed.
+  await waits("r1");
+  tab.doc.cancel("r1");
+  await pause();
+  assert.equal(tab.doc.waiting(), undefined);
+  assert.equal(worker.passkeySuggestions(await tab.now()), undefined);
+  assert.deepEqual(await worker.passkeyFromFrame(await tab.now(), PICK), { done: false });
+  assert.ok(!madeAny());
+
+  // A later request of the page ends it (AbortError), and is taken as usual.
+  await waits("r2");
+  const windows = browser.windows.length;
+  tab.doc.ask("r3", GET);
+  await until(() => tab.doc.answer("r2"), "the waiting request is answered");
+  assert.equal(tab.doc.answer("r2").error, "AbortError");
+  const win = await windowAfter(windows);
+  assert.equal(worker.passkeySuggestions(await tab.now()), undefined);
+  assert.deepEqual(await win.say("passkey-no"), { gone: true });
+  await until(() => tab.doc.answer("r3"), "the window's request is answered");
+
+  // Passkeys turned off: the browser's own handler takes it.
+  await waits("r4");
+  await chrome.storage.local.set({ vaultPasskeys: false });
+  try {
+    await until(() => tab.doc.answer("r4"), "the page is answered");
+    assert.deepEqual(plain(tab.doc.answer("r4")), { fallback: true });
+    assert.equal(worker.passkeySuggestions(await tab.now()), undefined);
+  } finally {
+    await chrome.storage.local.set({ vaultPasskeys: true });
+  }
+
+  // The tab goes to another site: nothing is left to pick there.
+  await waits("r5");
+  tab.navigate("https://other.example/");
+  assert.equal(worker.passkeySuggestions(await tab.now()), undefined);
+  assert.deepEqual(await worker.passkeyFromFrame(await tab.now(), PICK), { done: false });
+  assert.ok(!madeAny());
+});
+
+test("a worker stopped meanwhile hears the request again from the page; only a page that waits is answered", async () => {
+  reset({ passkeys: LISTED, passkey_get: ASSERTION });
+  const tab = openTab(PAGE_URL, { restarted: true });
+  tab.doc.ask("r1", SUGGEST);
+  await until(() => tab.doc.waiting(), "the request waits in the page");
+  assert.equal(worker.passkeySuggestions(await tab.now()), undefined, "the worker knows nothing of it");
+  // A request the page doesn't hold, told by someone else: listed, but never signed.
+  const made = { id: "made-up", request: SUGGEST };
+  assert.equal(await worker.passkeysForField(await tab.now(), tab.doc.documentId, made), 1);
+  assert.deepEqual(await worker.passkeyFromFrame(await tab.now(), PICK), { done: false });
+  assert.ok(!madeAny(), "nothing signed for a request no page waits for");
+  // The field focused again: the page tells the request it holds.
+  assert.equal(await worker.passkeysForField(await tab.now(), tab.doc.documentId, tab.doc.waiting()), 1);
+  assert.deepEqual(await worker.passkeyFromFrame(await tab.now(), PICK), { done: true });
+  await until(() => tab.doc.answer("r1"), "the page is answered");
+  assert.equal(tab.doc.answer("r1").assertion.credential, ASSERTION.credential);
+  // Another document's request is no request of this one.
+  tab.doc.ask("r2", SUGGEST);
+  await until(() => tab.doc.waiting(), "the request waits in the page");
+  assert.equal(await worker.passkeysForField(await tab.now(), "doc-elsewhere", tab.doc.waiting()), 1);
+  assert.deepEqual(await worker.passkeyFromFrame(await tab.now(), PICK), { done: false });
+  assert.equal(tab.doc.answer("r2"), undefined);
+});
+
+test("a locked login takes the person to the window for its PIN; closing it leaves the request waiting", async () => {
+  const locked = { ...LISTED, check: "pin", items: [{ ...LISTED.items[0], locked: true }] };
+  let pin;
+  reset({
+    passkeys: locked,
+    passkey_get: (request) => {
+      pin = request.check;
+      return request.check === "1234" ? ASSERTION : { type: "error", code: "item_locked", check: "pin" };
+    },
+  });
+  const tab = openTab(PAGE_URL);
+  tab.doc.ask("r1", SUGGEST);
+  await until(() => tab.doc.waiting(), "the request waits in the page");
+  await worker.passkeysForField(await tab.now(), tab.doc.documentId, tab.doc.waiting());
+  const windows = browser.windows.length;
+  assert.deepEqual(await worker.passkeyFromFrame(await tab.now(), PICK), { done: false, popup: true });
+  assert.equal(pin, undefined, "nothing typed in the page");
+  const first = await windowAfter(windows);
+  assert.equal((await first.say("passkey-window")).items[0].locked, true);
+  // Closed (Cancel, or the window's own close): the page still waits, the frame still lists it.
+  assert.deepEqual(await first.say("passkey-no"), { gone: true });
+  assert.ok(browser.removed.includes(first.id));
+  for (const listener of browser.heard.windowRemoved) listener(first.id);
+  assert.equal(tab.doc.answer("r1"), undefined);
+  assert.ok(tab.doc.waiting());
+  assert.equal(worker.passkeySuggestions(await tab.now()).items.length, 1);
+  // Picked again: the PIN typed in the window signs in.
+  assert.deepEqual(await worker.passkeyFromFrame(await tab.now(), PICK), { done: false, popup: true });
+  const second = await windowAfter(windows + 1);
+  assert.deepEqual(await second.say("passkey-use", { ...PICK, check: "1234" }), { done: true });
+  await until(() => tab.doc.answer("r1"), "the page is answered");
+  assert.equal(tab.doc.answer("r1").assertion.signature, ASSERTION.signature);
+  assert.ok(browser.removed.includes(second.id));
 });
 
 // ---- the window itself (passkey.js), on a stand-in page ----
