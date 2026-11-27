@@ -251,7 +251,8 @@ Rules:
   the master password is typed there (never in the browser), and the extension carries on
   by itself once connected
 - ✅ Export protected by a password (`.vaultx`): every item in one file encrypted with a
-  password chosen for it; Import (app and CLI) reads it back
+  password chosen for it, whole (earlier passwords, attached files, passkeys with their
+  private keys, the passkey item kind); Import (app and CLI) reads it back
 - ✅ Extension 0.2: connect on first open; tabs for this site, all logins (show or copy one
   at a time, through the item lock; copying done by the app) and the generator; a form for a
   new login; a frame under sign-in fields with the site's logins; a strong password offered on
@@ -525,7 +526,7 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   - Import: website rules narrower than an origin kept, not filled (N-04); duplicates only
     when an entry brings nothing new (N-07); what each export format leaves out is reported
     (`export_report`) and shown in the desktop's and the phone's export dialogs, and the phone
-    shows an import's warnings. ⬜ attachments and passkeys in `.vaultx`.
+    shows an import's warnings; `.vaultx` carries attachments and passkeys.
   - Phone: `*.` rules over a public suffix fill nothing (N-05); the generator's history
     follows the item lock (PM-01); two recovery parts are retired before the key is kept
     (PM-07); leaving the app locks also while a job holds the vault (PM-08); the 14 days of

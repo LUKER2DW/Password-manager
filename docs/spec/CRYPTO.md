@@ -178,6 +178,12 @@ The header is checked against the Argon2id floor and ceiling (§4) before any ha
 is part of the associated data, so its cost can't be lowered. Contents are padded like the
 vault body (§7).
 
+The contents are every item whole (`vault_import::export_sealed`): earlier passwords,
+attached files (base64) and passkeys with their private keys (the 32-byte P-256 scalar,
+base64url), in keys only this app reads (`attachedFiles`, `passkeys`, `passkeyItem`). The plain
+JSON export never holds files or passkey keys. Whoever opens the file can sign in with those
+passkeys, so its password is all that guards them: the apps ask for a long one.
+
 ### 3.1 Device unlock (Windows Hello)
 
 A per-device wrapping of the vault key, kept **outside** the vault file

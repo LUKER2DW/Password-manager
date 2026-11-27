@@ -234,9 +234,9 @@ What each format keeps:
 | Recovery codes | codes, used marks | codes, used marks | as `.vaultx`, in clear | one text field, hidden again by name |
 | Earlier passwords | kept | kept | left out (named on import) | left out |
 | Created, changed, password set dates | kept | kept | kept | left out |
-| Attached files | kept | left out (counted, named on import) | left out | left out |
-| Passkeys | kept | left out (their private keys never leave the vault) | left out | left out |
-| Item kind | kept | passkey items come back as logins | as `.vaultx` | cards and SSH keys as notes, passkey items as logins |
+| Attached files | kept | kept (name, date, bytes) | left out (counted, named on import) | left out |
+| Passkeys | kept | kept, with their private keys (sealed under the file's password) | left out (a key in clear would sign in as you) | left out |
+| Item kind | kept | kept | passkey items as logins | cards and SSH keys as notes, passkey items as logins |
 | Folders | name, icon, colour, picture, order | names | names | a name per item |
 | Item lock | kept | not carried (the importing vault's applies) | not carried | not carried |
 | Items whose secrets are locked | sealed | export refused until they are opened | refused | refused |
