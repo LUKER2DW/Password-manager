@@ -16,8 +16,15 @@ members = [
     "apps/mobile-web",
     "apps/server",
 ]
-# cargo-fuzz targets (fuzz/README.md): built by `cargo fuzz` on nightly, not with the workspace.
-exclude = ["fuzz"]
+# cargo-fuzz targets (fuzz/README.md): built by `cargo fuzz` on nightly, not with the workspace;
+# vendor/ holds third-party crates built from here (below), not members either.
+exclude = ["fuzz", "vendor"]
+
+# Slint's Android backend with one line added: every text field asks the keyboard not to learn
+# what is typed (vendor/README.md, M10 S23). A Slint update needs the copy made again
+# (vendor/update-slint-android.ps1); apps/mobile's tests fail while it isn't.
+[patch.crates-io]
+i-slint-backend-android-activity = { path = "vendor/i-slint-backend-android-activity" }
 
 [workspace.package]
 edition = "2024"
