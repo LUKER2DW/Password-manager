@@ -40,6 +40,10 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Tests
         run: cargo test --workspace --locked
+      # Also part of the run above; again here so the log shows what was found where
+      # (apps/desktop/tests/memory.rs: the app's memory read after it locks).
+      - name: Secrets after a lock (memory test)
+        run: cargo test -p vault-desktop --test memory --locked -- --nocapture
 
   web:
     name: Phone app in a browser (WebAssembly)
