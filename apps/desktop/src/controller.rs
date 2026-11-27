@@ -2068,14 +2068,15 @@ impl Controller {
         };
         match made {
             Ok(parts) if self.save_vault() => {
+                // Printed straight into the page's text (a wiped string, no other copy).
+                let shown = self
+                    .state
+                    .borrow()
+                    .session
+                    .as_ref()
+                    .map(|s| s.secret_key.to_display_string());
                 app.set_kit_secret_key(SharedString::from(
-                    self.state
-                        .borrow()
-                        .session
-                        .as_ref()
-                        .map(|s| s.secret_key.to_display_string().to_string())
-                        .unwrap_or_default()
-                        .as_str(),
+                    shown.as_ref().map_or("", |text| text.as_str()),
                 ));
                 show_kit_parts(&app, &parts);
                 app.set_vault_recovery(2);

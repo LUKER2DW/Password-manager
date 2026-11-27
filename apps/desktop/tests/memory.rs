@@ -1,7 +1,15 @@
-//! The memory test (Windows): a running copy of the app opens a vault, shows a guarded item's
-//! secrets and locks; its whole memory is read from outside before and after the lock. After
-//! it nothing of the vault's secrets may be left; before it, the vault key and the guard key
-//! may not be found either (they are kept encrypted between uses, `vault_core::memory`).
+//! The memory test (Windows): a running copy of the app opens a vault (master password,
+//! Secret Key, keyfile), shows a guarded item's secrets, hides the password again, shows the
+//! emergency kit and hides it, and locks. Its whole memory is read from outside at each of
+//! those moments:
+//!
+//! - the vault key, the guard key, the Secret Key's bytes, the keyfile (its digest and the
+//!   file's own bytes) and the master password are never found in the clear: the keys are
+//!   kept encrypted between uses (`vault_core::memory`), what was typed is wiped;
+//! - the Secret Key's text only while the kit shows it;
+//! - the item's password only while it is shown (and there it must be found: else the search
+//!   proves nothing);
+//! - after the lock, nothing at all.
 //!
 //! The copy is this test again, as a process of its own (`CHILD` set), started like the app
 //! (the release build's process protection and the key shield on) and driven through the
@@ -11,13 +19,13 @@
 //! `VirtualQueryEx` and `ReadProcessMemory`: no dump file, nothing written to disk.
 //!
 //! What is looked for: the master password, the Secret Key (its bytes and its text), the
-//! vault key, the item guard key, and the item's password, one-time code secret (text and
-//! bytes) and notes; text in UTF-8 and UTF-16 (what Windows and the UI convert to). Every
-//! 16-byte piece of each is looked for, not only the whole value: the heap writes its own
-//! bookkeeping over the first bytes of a freed block and leaves the rest. All of them are
-//! made here at run time (a literal would be in the test's own image) and the copy gets the
-//! master password and the PIN through its standard input, read past the standard library's
-//! buffer (the environment and the command line stay in its memory).
+//! keyfile, the vault key, the item guard key, and the item's password, one-time code secret
+//! (text and bytes) and notes; text in UTF-8 and UTF-16 (what Windows and the UI convert to).
+//! Every 16-byte piece of each is looked for, not only the whole value: the heap writes its own
+//! bookkeeping over the first bytes of a freed block and leaves the rest. All of them are made
+//! here at run time (a literal would be in the test's own image) and the copy gets the master
+//! password and the PIN through its standard input, read past the standard library's buffer
+//! (the environment and the command line stay in its memory).
 //!
 //! Slint's testing backend draws nothing and serves no UI Automation: copies made by the
 //! renderer (Skia) or a screen reader's requests aren't covered here.
@@ -35,14 +43,14 @@ use std::{
 use aho_corasick::AhoCorasick;
 use slint::ComponentHandle;
 use vault_core::{
-    GuardCheck, ItemData, ItemKind, KdfParams, SecretKey, Vault,
+    GuardCheck, ItemData, ItemKind, KdfParams, Keyfile, SecretKey, Vault,
     generator::{PasswordOptions, generate_password},
     memory_test,
 };
 use vault_desktop::{
     apply_sketches,
     controller::{Controller, Runner},
-    ui::{AppWindow, Screen, Secrets},
+    ui::{AppWindow, Panel, Screen, Secrets},
 };
 use vault_platform::secret_store;
 use windows_sys::Win32::{
@@ -61,15 +69,22 @@ use zeroize::Zeroizing;
 
 /// Set in the copy of this test that plays the app.
 const CHILD: &str = "VAULT_MEMORY_TEST_CHILD";
-/// The vault file the copy opens.
+/// The vault file the copy opens, and its keyfile.
 const FILE: &str = "VAULT_MEMORY_TEST_FILE";
+const KEYFILE: &str = "VAULT_MEMORY_TEST_KEYFILE";
 /// The length of the pieces looked for.
 const PIECE: usize = 16;
 
 /// Secret fields of the window (`controller::field`): the master password on the lock
-/// screen, and the item lock's PIN or password.
+/// screen, the current master password a sensitive page asks for, and the item lock's PIN or
+/// password.
 const MASTER_FIELD: i32 = 0;
+const CURRENT_FIELD: i32 = 5;
 const ITEM_LOCK_FIELD: i32 = 11;
+
+/// The moments the copy's memory is read, in order: what the copy did just before each is
+/// in `play_the_app`.
+const MOMENTS: [&str; 5] = ["shown", "hidden", "kit", "kit hidden", "locked"];
 
 #[test]
 fn secrets_leave_memory_when_the_vault_locks() {
@@ -99,6 +114,10 @@ fn play_the_app() {
     let path = PathBuf::from(std::env::var_os(FILE).unwrap());
     let _controller = Controller::install(&app, path, Runner::Inline, None).unwrap();
 
+    // Unlocked with the master password, the Secret Key this device keeps and the keyfile.
+    assert!(app.get_needs_keyfile(), "the vault asks for its keyfile");
+    let keyfile = std::env::var(KEYFILE).unwrap();
+    app.set_keyfile_path(keyfile.as_str().into());
     type_into(&app, MASTER_FIELD, master);
     app.invoke_unlock();
     assert_eq!(app.get_screen(), Screen::Vault, "unlocked");
@@ -121,7 +140,33 @@ fn play_the_app() {
     unsafe {
         GetCurrentThreadStackLimits(&raw mut low, &raw mut high);
     }
-    say(&format!("open {low} {high}"));
+    say(&format!("shown {low} {high}"));
+
+    wait_for("hide");
+    app.invoke_conceal();
+    assert!(app.get_revealed_password().is_empty(), "password hidden");
+    say("hidden");
+
+    // The kit page, shown after the master password is typed again (it comes once more, just
+    // for this, and is wiped before the memory is read).
+    let told = read_message();
+    let master = std::str::from_utf8(&told).unwrap().trim_end();
+    app.invoke_open_kit();
+    assert_eq!(app.get_panel(), Panel::Kit);
+    type_into(&app, CURRENT_FIELD, master);
+    app.invoke_show_kit();
+    assert!(
+        !app.get_kit_secret_key().is_empty(),
+        "the kit shows the Secret Key"
+    );
+    drop(told);
+    say("kit");
+
+    wait_for("hide kit");
+    app.invoke_hide_kit();
+    assert!(app.get_kit_secret_key().is_empty(), "the kit hidden");
+    say("kit hidden");
+
     wait_for("lock");
     app.invoke_lock();
     assert_eq!(app.get_screen(), Screen::Unlock, "locked");
@@ -241,9 +286,41 @@ impl Drop for ForgetOnDrop {
     }
 }
 
+/// What may be found of `value` at `moment`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rule {
+    /// Must be found: it is on screen (proof the search sees the copy's memory).
+    Found,
+    /// Never in the clear here.
+    None,
+    /// On screen or in use right now; not counted.
+    Free,
+}
+
+fn rule(value: &Wanted, moment: &str) -> Rule {
+    if moment == "locked" {
+        return Rule::None;
+    }
+    match (value.secret, moment) {
+        ("item password", "shown") if value.form == "UTF-8" => Rule::Found,
+        ("item password", "shown") => Rule::Free,
+        ("item password", _) => Rule::None,
+        // The kit page shows the Secret Key's text (its bytes stay shielded).
+        ("Secret Key", "kit") if value.form != "bytes" => Rule::Free,
+        (
+            "master password" | "Secret Key" | "keyfile" | "keyfile's bytes" | "vault key"
+            | "guard key",
+            _,
+        ) => Rule::None,
+        // The item page still shows the notes and the one-time code.
+        _ => Rule::Free,
+    }
+}
+
 fn look_into_the_app() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("memory.vault");
+    let keyfile_path = dir.path().join("memory.keyfile");
 
     let master = random_text(28, true);
     let pin = random_text(8, false);
@@ -252,9 +329,19 @@ fn look_into_the_app() {
     let totp_bytes = random_text(20, true).into_bytes();
     let totp = base32(&totp_bytes);
     let secret_key = SecretKey::generate().unwrap();
+    let (keyfile, keyfile_bytes) = Keyfile::generate().unwrap();
+    std::fs::write(&keyfile_path, &keyfile_bytes).unwrap();
 
     let mut vault =
         Vault::create(&master, &secret_key, None, KdfParams::minimum().unwrap()).unwrap();
+    vault
+        .change_password(
+            &master,
+            &secret_key,
+            Some(&keyfile),
+            KdfParams::minimum().unwrap(),
+        )
+        .unwrap();
     let mut item = ItemData::new(ItemKind::Login, "Memory test");
     item.username = "memory-test@example.com".into();
     item.password = password.clone();
@@ -273,6 +360,8 @@ fn look_into_the_app() {
         Wanted::text("master password", &master),
         Wanted::bytes("Secret Key", &*memory_test::secret_key(&secret_key)),
         Wanted::text("Secret Key", &secret_key.to_display_string()),
+        Wanted::bytes("keyfile", &*memory_test::keyfile(&keyfile)),
+        Wanted::bytes("keyfile's bytes", &keyfile_bytes),
         Wanted::bytes("vault key", &*memory_test::vault_key(&vault)),
         Wanted::bytes("guard key", &*memory_test::guard_key(&vault).unwrap()),
         Wanted::text("item password", &password),
@@ -294,6 +383,7 @@ fn look_into_the_app() {
         ])
         .env(CHILD, "1")
         .env(FILE, &path)
+        .env(KEYFILE, &keyfile_path)
         .env("VAULT_HOME", dir.path().join("home"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -317,57 +407,67 @@ fn look_into_the_app() {
         }
     };
 
+    let handle = child.as_raw_handle();
+    let mut found: Vec<Vec<Vec<usize>>> = Vec::new();
     send(&mut input, &format!("{master}\t{pin}"));
-    let stack = expect("open");
+    let stack = expect("shown");
     let (low, high) = stack.split_once(' ').unwrap();
     let stack = low.parse::<usize>().unwrap()..high.parse::<usize>().unwrap();
-    let handle = child.as_raw_handle();
-    let open = search(handle, &wanted);
-    send(&mut input, "lock");
-    expect("locked");
-    let locked = search(handle, &wanted);
+    found.push(search(handle, &wanted));
+    for (said, moment) in [
+        ("hide", "hidden"),
+        (master.as_str(), "kit"),
+        ("hide kit", "kit hidden"),
+        ("lock", "locked"),
+    ] {
+        send(&mut input, said);
+        expect(moment);
+        found.push(search(handle, &wanted));
+    }
     send(&mut input, "quit");
     let ended = child.wait().unwrap();
 
     println!(
-        "{:<36} {:>5} {:>7}",
-        "found in the app's memory", "open", "locked"
+        "{:<36}{}",
+        "found in the app's memory",
+        MOMENTS.map(|m| format!("{m:>11}")).concat()
     );
-    let mut left = Vec::new();
-    let mut open_keys = Vec::new();
+    let mut wrong = Vec::new();
     for (index, value) in wanted.iter().enumerate() {
         let name = format!("{} ({})", value.secret, value.form);
-        println!(
-            "{name:<36} {:>5} {:>7}",
-            open[index].len(),
-            locked[index].len()
-        );
-        for &at in &locked[index] {
-            let place = if stack.contains(&at) {
-                "the UI thread's stack"
-            } else {
-                "the heap or other memory"
+        let counts: String = found
+            .iter()
+            .map(|moment| format!("{:>11}", moment[index].len()))
+            .collect();
+        println!("{name:<36}{counts}");
+        for (moment, places) in MOMENTS.iter().zip(&found) {
+            let places = &places[index];
+            let ok = match rule(value, moment) {
+                Rule::Found => !places.is_empty(),
+                Rule::None => places.is_empty(),
+                Rule::Free => true,
             };
-            println!("    after the lock at {at:#x}: {place}");
-            left.push((name.clone(), place));
-        }
-        // The keys are encrypted between uses (the key shield), even while the vault is open.
-        if matches!(value.secret, "vault key" | "guard key") && !open[index].is_empty() {
-            open_keys.push(name.clone());
+            if ok {
+                continue;
+            }
+            if places.is_empty() {
+                println!("    {moment}: not found, though it is on screen");
+            }
+            for &at in places {
+                let place = if stack.contains(&at) {
+                    "the UI thread's stack"
+                } else {
+                    "the heap or other memory"
+                };
+                println!("    {moment}: at {at:#x}, on {place}");
+            }
+            wrong.push(format!("{name} {moment}"));
         }
     }
     assert!(ended.success(), "the app's copy did what it was asked");
     assert!(
-        wanted
-            .iter()
-            .zip(&open)
-            .any(|(value, places)| value.secret == "item password" && !places.is_empty()),
-        "the shown password is found while the vault is open (else the search proves nothing)"
-    );
-    assert!(left.is_empty(), "left in memory after the lock: {left:?}");
-    assert!(
-        open_keys.is_empty(),
-        "in the clear while the vault is open: {open_keys:?}"
+        wrong.is_empty(),
+        "found where it must not be (or missing): {wrong:?}"
     );
 }
 
