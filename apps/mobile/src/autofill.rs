@@ -241,6 +241,8 @@ fn known_browser(package: &str) -> Option<&'static [&'static str]> {
 }
 
 /// Whether `package` is a browser known here, signed with one of its release certificates.
+// For passkeys (`crate::passkeys`), which the browser preview has none of.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn is_known_browser(package: &str, signers: &[[u8; 32]]) -> bool {
     known_browser(package).is_some_and(|certificates| {
         signers.iter().any(|signer| {
@@ -251,11 +253,15 @@ pub(crate) fn is_known_browser(package: &str, signers: &[[u8; 32]]) -> bool {
 }
 
 /// Whether `package` has the name of a browser known here, whoever signed it.
+// For passkeys (`crate::passkeys`), which the browser preview has none of.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn is_browser_package(package: &str) -> bool {
     known_browser(package).is_some()
 }
 
 /// The browsers known here: package, and the SHA-256 of their release certificates (hex).
+// For passkeys (`crate::passkeys`), which the browser preview has none of.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn browser_certificates() -> impl Iterator<Item = (&'static str, &'static [&'static str])>
 {
     BROWSERS.iter().copied()

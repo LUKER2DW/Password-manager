@@ -475,7 +475,10 @@ pub fn create(
         None => {
             let host = site_origin.host();
             let title = host.strip_prefix("www.").unwrap_or(host);
-            let mut item = ItemData::login(title, user_name, "", site_origin.as_str());
+            // A login for the passkey alone: no password.
+            let mut item = ItemData::new(ItemKind::Login, title);
+            item.username = user_name.to_owned();
+            item.urls.push(site_origin.as_str().to_owned());
             item.passkeys.push(passkey.clone());
             vault.add_item(&item).map_err(|_| Refusal::NotKept)?;
             item.title.clone()
