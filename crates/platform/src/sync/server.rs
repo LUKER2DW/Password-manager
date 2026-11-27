@@ -129,9 +129,15 @@ impl ServerTarget {
         self.json(Method::GET, &self.path("/enrolled"))
     }
 
-    /// A one-time invite for one more device (good for an hour).
+    /// A one-time invite for one more device (good for an hour). It is shown as a QR code and a
+    /// line typed on another device, so what the server hands back must be an invite and
+    /// nothing else: the line then carries nothing the server chose.
     pub fn invite(&self) -> Result<Invite> {
-        self.json(Method::POST, &self.path("/invites"))
+        let invite: Invite = self.json(Method::POST, &self.path("/invites"))?;
+        if !wire::is_id(&invite.invite) {
+            bail!("the server's answer isn't an invite");
+        }
+        Ok(invite)
     }
 
     /// The phone app's update on this server, when its owner published one.
