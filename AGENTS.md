@@ -243,9 +243,12 @@ picker, "save as", Back, screenshots, updates), `Biometrics` (the Keystore key b
 fingerprint), `VaultAutofillService`, `AutofillActivity`, `Autofill`, `Fields` and `Place`
 (autofill, and who would receive a login), `VaultCredentialService`, `PasskeyActivity` and
 `Passkeys` (passkeys through the Credential Manager, Android 14+), `PdfPreview` and `Wipe`
-(previews of attached PDFs), `Updates` and `InstallReceiver` (updates). `res/` holds
+(previews of attached PDFs), `Updates` and `InstallReceiver` (updates), `Shield` (what every
+window of the app gets: other apps' overlays hidden, accessibility tools only). `res/` holds
 the launcher icon and the words and layouts of autofill and the passkey provider. Build:
-`apps/mobile-android/build.ps1` (docs/MOBILE.md §7.2).
+`apps/mobile-android/build.ps1` (docs/MOBILE.md §7.2), which runs `check-library.ps1` (the
+native library loads on Android 12, the oldest it installs on) and `check-manifest.ps1` (the
+built APK's manifest keeps its protections and opens nothing else); the release runs both.
 
 ### 2.7 `crates/sync-wire` and `apps/server`
 

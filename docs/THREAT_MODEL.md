@@ -344,8 +344,8 @@ On top of that:
   open the vault without the master password and the Secret Key. A one-time code's setup key
   scanned the same way passes through Play services too, as it would through any authenticator
   app's scanner.
-- **Unlocking the phone app with the phone's screen lock** (Android 11+, when the person turns
-  on unlock with the phone): the Keystore key that opens the vault answers to a strong
+- **Unlocking the phone app with the phone's screen lock** (when the person turns on unlock
+  with the phone): the Keystore key that opens the vault answers to a strong
   fingerprint or face, or to the phone's PIN, pattern or password. Someone who knows that PIN
   and has the phone in hand can open the vault, for up to 14 days after the
   last master password (turning fingerprint unlock off and on again doesn't start them anew,
@@ -391,6 +391,17 @@ On top of that:
   the app's private cache (closed to other apps) while its pages are drawn, then is overwritten
   and deleted, and a leftover is wiped at the next start. Nothing is handed to another app.
   Residual risk: the renderer is Android's code, run on whatever PDF was attached.
+- **Other apps on the phone** (installed by the person, with no root): one with the "display
+  over other apps" permission can't draw over the app's windows (Android hides every such
+  overlay while they show), so it can't lay a false unlock screen or button over them or pass
+  taps through; Android 12 and later, the only versions the app installs on, block taps
+  through another app's window by themselves too. No task affinity: another app's activity
+  can't be slipped into the app's task to look like it (task hijacking). Nothing of the app is
+  in Android's cloud backup or its copy to a new phone. On Android 14 and later, accessibility
+  services other than accessibility tools can't read the app's windows or act in them.
+  Residual risk: an accessibility tool the person turned on (a screen reader) sees what the
+  app shows, as it must; a toast or a notification another app shows is still drawn; a phone
+  with root is out of scope (§4).
 - **The phone in the recent apps view** shows no picture of the app's screen (Android 13+
   turns it off for the app; before that, the secure flag is set while the app is in the
   background), so an open vault isn't on show to someone who looks over the app switcher,

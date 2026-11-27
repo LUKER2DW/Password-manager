@@ -42,7 +42,7 @@ is optional and only ever moves sealed copies.
 ## Platforms
 
 Windows 10 and 11 for the desktop app and the CLI, Chrome, Edge and Firefox for the extension,
-Android 9 and later for the phone, and any machine that runs Docker for the server. Linux is
+Android 12 and later for the phone, and any machine that runs Docker for the server. Linux is
 planned and not supported yet (the server aside); macOS comes after it.
 
 ## Repository layout

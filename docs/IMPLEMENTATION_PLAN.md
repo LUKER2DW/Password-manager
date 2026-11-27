@@ -408,7 +408,7 @@ Plan, screens and security decisions: [MOBILE.md](MOBILE.md).
   export; "Check this password" (strength and leak check); ✅ scanning the invite's QR code;
   ✅ scanning a one-time code's QR code
 - ✅ M7.3 Fingerprint unlock (BiometricPrompt Class 3, Keystore/StrongBox, CRYPTO.md
-  §3.1.1), and on Android 11+ the phone's screen lock too; lock as soon as the app is left,
+  §3.1.1), and the phone's screen lock too; lock as soon as the app is left,
   screenshots kept out unless allowed; ⬜ the first prompt at start tried on a device
 - ✅ The phone's pages rebuilt (2026-11): each page scrolls on its own with a stretch at the
   ends and a thin bar, swiping between the four places, sync and the vaults pages redone,
@@ -631,10 +631,10 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
 - ✅ S7. The docs say only what the code does: what is locked in RAM and what isn't, the
   hibernation file, how far the release pipeline is trusted, the revealed password's Slint
   copy (THREAT_MODEL, ARCHITECTURE).
-- 🚧 S8. Releases: the Gradle wrapper's download checked against its pinned SHA-256
-  (`distributionSha256Sum`). Owner: a required reviewer on the `android-release` environment
-  (GitHub → Settings → Environments), so no push alone signs and publishes an APK the phones
-  take within the hour.
+- ✅ S8. Releases: the Gradle wrapper's download checked against its pinned SHA-256
+  (`distributionSha256Sum`); the `android-release` environment (the APK's signing key) needs
+  the maintainer's approval for each run, admins included, and only `main` may use it, so no
+  push alone signs and publishes an APK the phones take within the hour.
 - ✅ S9. Revealed passwords, codes and the Secret Key kept out of the accessibility tree: on
   the desktop each such text names what it is instead of its value (item page, notes,
   recovery codes, generator, authenticator, kit); the headless test walks the whole tree for
@@ -664,8 +664,18 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   derived for each use and wiped right after. Not covered: memory the renderer and Windows
   allocate for themselves, and the phone's keys while its vault is open (THREAT_MODEL §3).
 - ⬜ S12. The Secret Key on Windows wrapped by a non-exportable TPM key (DPAPI as fallback).
-- ⬜ S13. Android: overlays hidden and obscured touches refused on secret screens, task
-  affinity, data extraction rules.
+- ✅ S13. Android: Android 12 at least (`minSdk 31`, the native library built for it too).
+  Other apps' overlays hidden over every window of the app (`setHideOverlayWindows`,
+  `Shield.java`), and Android 12 blocks taps through another app's window by itself: the
+  app's screen is one NativeActivity surface, whose touches skip Android's views, so
+  `filterTouchesWhenObscured` can't apply (a Slint patch would be needed for that, and isn't
+  with the overlays hidden); accessibility tools only on Android 14
+  (`setAccessibilityDataSensitive`); no task affinity (`taskAffinity=""`; StrandHogg 2 fixed
+  in every Android the app installs on); nothing in cloud backup or a copy to a new phone
+  (`data_extraction_rules.xml`, every domain). `check-manifest.ps1` checks the built APK's
+  merged manifest in `build.ps1` and the release: those protections, the permissions listed
+  and no exported part but those meant to be. ⬜ Tried on a device (an overlay app over the
+  unlock screen, `bmgr backupnow`).
 - 🚧 S14. Tests: memory searched for secrets after a lock, a hostile sync target and server,
   more fuzz targets run on a schedule. Done: the memory test (`apps/desktop/tests/memory.rs`,
   a step of its own in CI): a running copy of the app opens a vault with a keyfile, shows a

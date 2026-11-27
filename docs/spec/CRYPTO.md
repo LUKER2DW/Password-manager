@@ -261,8 +261,8 @@ device_secret = 32 random bytes (Vault::new_device_secret), made when fingerprin
                 turned on
 hardware      = AES-256-GCM(K_keystore, device_secret)   (IV ‖ ciphertext ‖ tag)
 K_keystore    = Android Keystore key "vault-unlock-" ‖ vault_id_hex (StrongBox when the phone
-                has it): usable only right after a strong (Class 3) biometric check or, on
-                Android 11+ (API 30), the phone's screen lock (PIN, pattern or password;
+                has it): usable only right after a strong (Class 3) biometric check or the
+                phone's screen lock (PIN, pattern or password;
                 AUTH_BIOMETRIC_STRONG | AUTH_DEVICE_CREDENTIAL, timeout 0), once per use, and
                 deleted by Android when a fingerprint is added
 file          = unlock-<vault id>.json next to the vault: { sealed_key: device_unlock,
@@ -272,8 +272,9 @@ file          = unlock-<vault id>.json next to the vault: { sealed_key: device_u
 - The device secret crosses to the Java side only to be sealed or after the prompt opened it,
   and is wiped there and in Rust once used.
 - A key made before the screen lock was allowed (biometrics only) keeps working as it was; the
-  prompt offers the screen lock only for a key that accepts it (`KeyInfo`). Below Android 11
-  the key is biometrics only.
+  prompt offers the screen lock only for a key that accepts it (`KeyInfo`): one made on
+  Android 10 or before, the phone updated since, is biometrics only. The app installs on
+  Android 12 and later.
 - With the screen lock allowed, whoever knows the phone's PIN or pattern can open the vault on
   that phone within the 14 days: the Keystore still rate-limits guesses, but a short PIN is
   weaker than the master password (THREAT_MODEL.md, the phone).
