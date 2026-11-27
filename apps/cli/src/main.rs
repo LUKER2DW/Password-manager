@@ -357,6 +357,8 @@ fn main() {
         vault_platform::process::protect_memory();
     }
     vault_platform::process::apply_mitigations();
+    // The vault key and the item guard key stay encrypted between uses (CryptProtectMemory).
+    vault_platform::secure_memory::install_key_shield();
     if let Err(error) = run() {
         eprintln!("error: {error:#}");
         std::process::exit(1);
