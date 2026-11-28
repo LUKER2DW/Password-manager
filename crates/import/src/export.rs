@@ -206,7 +206,12 @@ fn iso8601(unix: i64) -> String {
 /// copy to carry elsewhere that is not readable by whoever finds the file. Unlike the plain
 /// JSON it keeps every item whole: earlier passwords, attached files and passkeys (with their
 /// private keys, [`own_keys`]). Nobody reads them without the file's password.
+/// A password below the one-factor floor is refused before anything is read
+/// ([`vault_core::Error::WeakPassword`], `sealed_export::password_holds`).
 pub fn export_sealed(vault: &Vault, password: &str) -> Result<Vec<u8>, vault_core::Error> {
+    if !vault_core::sealed_export::password_holds(password) {
+        return Err(vault_core::Error::WeakPassword);
+    }
     let json = document(vault, true)?;
     vault_core::sealed_export::seal(password, json.as_bytes())
 }
@@ -779,7 +784,14 @@ mod tests {
         };
         assert!(refused(export_json(&vault).map(drop)));
         assert!(refused(export_csv(&vault).map(drop)));
-        assert!(refused(export_sealed(&vault, "a file password").map(drop)));
+        assert!(refused(
+            export_sealed(&vault, "a long password for the file").map(drop)
+        ));
+        // A password below the one-factor floor is refused before anything is read.
+        assert!(matches!(
+            export_sealed(&vault, "a file password"),
+            Err(vault_core::Error::WeakPassword)
+        ));
         assert!(refused(export_report(&vault, ExportFormat::Json).map(drop)));
         // Once the secrets are open, the export holds them.
         assert!(vault.unlock_secrets("2468").unwrap());
@@ -847,9 +859,14 @@ mod tests {
     #[test]
     fn the_protected_export_brings_back_every_item_whole() {
         let vault = full_vault();
-        let sealed = export_sealed(&vault, "a file password").unwrap();
-        let report =
-            crate::import(&sealed, crate::Format::Sealed, "a file password", None).unwrap();
+        let sealed = export_sealed(&vault, "a long password for the file").unwrap();
+        let report = crate::import(
+            &sealed,
+            crate::Format::Sealed,
+            "a long password for the file",
+            None,
+        )
+        .unwrap();
         let back = |title: &str| report.items.iter().find(|i| i.title == title).unwrap();
 
         let (gmail, original) = (back("Gmail"), titled(&vault, "Gmail"));
@@ -971,10 +988,16 @@ mod tests {
         let json = export_json(&vault).unwrap();
         // No room to grow: nothing of it was left behind in a smaller buffer.
         assert_eq!(json.capacity(), json.len());
-        let sealed = export_sealed(&vault, "a file password").unwrap();
+        let sealed = export_sealed(&vault, "a long password for the file").unwrap();
         for report in [
             import_json(json.as_bytes()).unwrap(),
-            crate::import(&sealed, crate::Format::Sealed, "a file password", None).unwrap(),
+            crate::import(
+                &sealed,
+                crate::Format::Sealed,
+                "a long password for the file",
+                None,
+            )
+            .unwrap(),
         ] {
             assert!(report.warnings.is_empty(), "{:?}", report.warnings);
             for title in [
@@ -1031,9 +1054,15 @@ mod tests {
            "fields": [], "card": {"cardholderName": "A HOLDER", "code": null}}
         ]}"#;
         let sealed =
-            vault_core::sealed_export::seal("an older password", older.as_bytes()).unwrap();
-        let report =
-            crate::import(&sealed, crate::Format::Sealed, "an older password", None).unwrap();
+            vault_core::sealed_export::seal("a long password for the file", older.as_bytes())
+                .unwrap();
+        let report = crate::import(
+            &sealed,
+            crate::Format::Sealed,
+            "a long password for the file",
+            None,
+        )
+        .unwrap();
         assert!(report.warnings.is_empty(), "{:?}", report.warnings);
         assert_eq!(report.items.len(), 3);
         let gmail = &report.items[0];

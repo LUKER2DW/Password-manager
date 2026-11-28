@@ -611,8 +611,14 @@ mod tests {
         vault
             .add_item(&ItemData::new(ItemKind::SecureNote, "Other"))
             .unwrap();
-        let sealed = export::export_sealed(&vault, "export pass").unwrap();
-        let report = import(&sealed, Format::Sealed, "export pass", None).unwrap();
+        let sealed = export::export_sealed(&vault, "a long password for the file").unwrap();
+        let report = import(
+            &sealed,
+            Format::Sealed,
+            "a long password for the file",
+            None,
+        )
+        .unwrap();
         assert_eq!(report.items.len(), 3);
         let mut restored = empty_vault();
         let outcome = report.add_to_vault(&mut restored).unwrap();
