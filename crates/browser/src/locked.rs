@@ -164,6 +164,7 @@ fn finish(response: Response, filled: Option<String>, copy: Option<Copy>) -> Ans
         passkey_saved: None,
         passkey_used: None,
         lock: false,
+        signals: Vec::new(),
     }
 }
 
@@ -342,7 +343,15 @@ pub fn answer_locked(message: &[u8], logins: &[LockedLogin], gate: &mut dyn Lock
         // Passkeys need the open vault: the extension asks the person to unlock it.
         | Request::Passkeys { .. }
         | Request::PasskeyGet { .. }
-        | Request::PasskeyCreate { .. } => finish(error(ErrorCode::Locked), None, None),
+        | Request::PasskeyCreate { .. }
+        | Request::PasskeySignal { .. }
+        // Cards, site rules, weighing and icons need the open vault too.
+        | Request::Cards { .. }
+        | Request::CardFill { .. }
+        | Request::SiteRule { .. }
+        | Request::Weigh { .. }
+        | Request::Icons { .. }
+        | Request::PasswordRules { .. } => finish(error(ErrorCode::Locked), None, None),
     }
 }
 

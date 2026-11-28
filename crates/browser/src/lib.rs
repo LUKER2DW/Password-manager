@@ -11,6 +11,8 @@
 //!   shown (in punycode when it mixes scripts).
 //! - [`kit`]: the emergency kit's keys, recognised in what a page sends, never taken.
 //! - [`protocol`]: the JSON messages.
+//! - [`resources`]: where a site changes its password, and its password rules (built in).
+//! - [`rules`]: the person's rules per site (never save, no card, never fill, no passkeys).
 //! - [`service`]: how the app answers them from an unlocked vault.
 //! - [`locked`]: how it answers while the vault is locked (Windows Hello only).
 //! - [`host`]: the relay the native host runs.
@@ -22,4 +24,6 @@ pub mod lookalike;
 pub mod origin;
 pub mod pairing;
 pub mod protocol;
+pub mod resources;
+pub mod rules;
 pub mod service;

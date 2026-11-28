@@ -4,6 +4,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use sha2::{Digest as _, Sha256};
 use vault_core::{
     ItemData, ItemId, ItemKind, Passkey, Vault,
+    card::{self, CardDetails},
     generator::{self, PassphraseOptions, PasswordOptions, WordCase},
     passkey::{ES256, attestation_object},
     totp::Totp,
@@ -15,9 +16,9 @@ use crate::{
     lookalike::{display_host, lookalike, same_owner, saved_host, shown_site},
     origin::{Origin, PageProblem, item_matches, passkey_site},
     protocol::{
-        Assertion, Attestation, Check, CopyWhat, Credentials, ErrorCode, GeneratedPassword,
-        LoginEntry, OneTimeCode, PasskeyEntry, Request, Response, Revealed, Secret, Shown,
-        ShownCode, Symbols, UserVerification, VaultEntry,
+        Assertion, Attestation, CardEntry, CardFill, Check, CopyWhat, Credentials, ErrorCode,
+        GeneratedPassword, LoginEntry, OneTimeCode, PasskeyEntry, Request, Response, Revealed,
+        Secret, Shown, ShownCode, SignalKind, Symbols, UserVerification, VaultEntry,
     },
 };
 
@@ -42,6 +43,27 @@ pub struct Answer {
     pub passkey_used: Option<String>,
     /// The extension asked to lock the vault: the app locks it.
     pub lock: bool,
+    /// What a site said of passkeys of the vault (the Signal API): the app notes it for the
+    /// person, who decides on the item's page.
+    pub signals: Vec<PasskeyNote>,
+}
+
+/// What a site said of one passkey of the vault ([`Request::PasskeySignal`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PasskeyNote {
+    /// The login it is kept in.
+    pub item: ItemId,
+    pub credential: Vec<u8>,
+    pub said: Said,
+}
+
+/// What the site said.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Said {
+    /// It doesn't know this passkey (any more): the person may remove it.
+    Gone,
+    /// The account's names are these now: the person may take them.
+    Renamed { name: String, display_name: String },
 }
 
 /// A generated password that was used, and the site it was made for ("" when none).
@@ -140,6 +162,7 @@ pub fn wants_hello(message: &[u8]) -> bool {
             | Request::Reveal { hello: true, .. }
             | Request::Copy { hello: true, .. }
             | Request::Update { hello: true, .. }
+            | Request::CardFill { hello: true, .. }
             | Request::PasskeyGet { hello: true, .. }
             | Request::PasskeyCreate { hello: true, .. })
     )
@@ -178,7 +201,10 @@ impl Held for GateHeld<'_> {
 /// other request.
 pub fn answer_generator(message: &[u8], held: &mut dyn Held) -> Option<Answer> {
     let request = serde_json::from_slice::<Request>(message).ok()?;
-    if !matches!(request, Request::Generate { .. } | Request::Keep { .. }) {
+    if !matches!(
+        request,
+        Request::Generate { .. } | Request::Keep { .. } | Request::PasswordRules { .. }
+    ) {
         return None;
     }
     Some(finish(generator_outcome(request, held)))
@@ -198,6 +224,7 @@ fn finish(outcome: Outcome) -> Answer {
         passkey_saved: outcome.passkey_saved,
         passkey_used: outcome.passkey_used,
         lock: outcome.lock,
+        signals: outcome.signals,
     }
 }
 
@@ -262,6 +289,14 @@ fn generator_outcome(request: Request, held: &mut dyn Held) -> Outcome {
             })
             .into()
         }
+        // What the built-in list says the site accepts (F19), for a field that doesn't say.
+        Request::PasswordRules { url } => match page_origin(&url) {
+            Ok(origin) => Response::PasswordRules {
+                rules: crate::resources::password_rules_for(origin.as_str()).map(str::to_owned),
+            }
+            .into(),
+            Err(response) => response.into(),
+        },
         Request::Keep { id, copy } => match held.take(&id) {
             Some(kept) => Outcome {
                 copy: copy.then(|| Copy {
@@ -303,6 +338,7 @@ struct Outcome {
     passkey_saved: Option<String>,
     passkey_used: Option<String>,
     lock: bool,
+    signals: Vec<PasskeyNote>,
 }
 
 impl From<Response> for Outcome {
@@ -317,6 +353,7 @@ impl From<Response> for Outcome {
             passkey_saved: None,
             passkey_used: None,
             lock: false,
+            signals: Vec::new(),
         }
     }
 }
@@ -472,11 +509,37 @@ fn with_login<R>(
     belongs: impl Fn(&ItemData) -> bool,
     act: impl FnOnce(&mut Vault, &ItemId, ItemData, bool) -> R,
 ) -> Result<R, Response> {
+    with_item(
+        vault,
+        gate,
+        ItemKind::Login,
+        id,
+        check,
+        hello,
+        verify,
+        belongs,
+        act,
+    )
+}
+
+/// [`with_login`] for an item of any `kind` (a card).
+#[allow(clippy::too_many_arguments)]
+fn with_item<R>(
+    vault: &mut Vault,
+    gate: &mut dyn Gate,
+    kind: ItemKind,
+    id: &str,
+    check: Option<Secret>,
+    hello: bool,
+    verify: Option<UserVerification>,
+    belongs: impl Fn(&ItemData) -> bool,
+    act: impl FnOnce(&mut Vault, &ItemId, ItemData, bool) -> R,
+) -> Result<R, Response> {
     let id = ItemId::from_hex(id).ok_or_else(|| error(ErrorCode::NoMatch))?;
     let pairing = gate.pairing();
     let read = |vault: &Vault| {
         vault.get_item(&id).ok().filter(|item| {
-            item.kind == ItemKind::Login && vault.reaches_browser(item, pairing) && belongs(item)
+            item.kind == kind && vault.reaches_browser(item, pairing) && belongs(item)
         })
     };
     let item = read(vault).ok_or_else(|| error(ErrorCode::NoMatch))?;
@@ -496,6 +559,35 @@ fn with_login<R>(
         .map(|item| act(vault, &id, item, true));
     gate.close(vault);
     done.ok_or_else(|| item_locked(kind))
+}
+
+/// One card as the extension lists it: never its number or security code. Its hint ("Visa
+/// •••• 4242") is the one a locked card keeps readable, or made the same way.
+fn card_entry(vault: &Vault, gate: &dyn Gate, id: &ItemId, item: &ItemData) -> CardEntry {
+    let details = CardDetails::from_item(item);
+    let (hint, brand) = match &item.sealed {
+        Some(sealed) => (sealed.card_hint.clone(), sealed.card_brand),
+        None if details.number.is_empty() => (String::new(), card::Brand::Unknown),
+        None => {
+            // "Visa •••• 4242", as a locked card's hint reads.
+            (
+                card::masked(&details.number),
+                card::detect_brand(&details.number),
+            )
+        }
+    };
+    let expiry = card::parse_expiry(&details.expiry);
+    let expired = expiry.is_some_and(|expiry| card::is_expired(expiry, card::this_month()));
+    CardEntry {
+        id: id.to_hex(),
+        title: item.title.clone(),
+        holder: item.username.clone(),
+        hint,
+        brand: brand.name().to_owned(),
+        expiry: expiry.map(card::format_expiry).unwrap_or_default(),
+        expired,
+        locked: item.is_locked() || gate.locked(vault, item),
+    }
 }
 
 /// Which version of item `id` is stored now ([`Vault::item_stamp`], base64url): what an
@@ -602,7 +694,10 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
         | Request::Update { url, .. }
         | Request::Passkeys { url, .. }
         | Request::PasskeyGet { url, .. }
-        | Request::PasskeyCreate { url, .. } => match page_origin(url) {
+        | Request::PasskeyCreate { url, .. }
+        | Request::Cards { url }
+        | Request::PasskeySignal { url, .. }
+        | Request::CardFill { url, .. } => match page_origin(url) {
             Ok(origin) => Some(origin),
             Err(response) => return response.into(),
         },
@@ -824,6 +919,133 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 Err(response) => response.into(),
             }
         }
+        (
+            Request::PasskeySignal {
+                rp_id,
+                signal,
+                credential,
+                user_id,
+                accepted,
+                name,
+                display_name,
+                ..
+            },
+            Some(origin),
+        ) => {
+            let Some(rp_id) = passkey_site(&rp_id, &origin) else {
+                return error(ErrorCode::WrongSite).into();
+            };
+            let user = unbase64(&user_id);
+            let accepted: Vec<Vec<u8>> = accepted
+                .iter()
+                .take(MAX_LISTED)
+                .filter_map(|id| unbase64(id))
+                .collect();
+            let credential = unbase64(&credential);
+            let short = |text: &str| text.chars().take(256).collect::<String>();
+            let mut signals = Vec::new();
+            // Only logins the browser may reach (S18): one kept out of it is none of a page's
+            // business.
+            for (id, item) in browser_logins(vault, gate) {
+                for passkey in item.passkeys.iter().filter(|p| p.rp_id == rp_id) {
+                    let said = match signal {
+                        SignalKind::Unknown => credential
+                            .as_ref()
+                            .is_some_and(|c| *c == passkey.credential_id)
+                            .then_some(Said::Gone),
+                        // A list longer than read is not trusted to be whole: nothing is noted.
+                        SignalKind::Accepted => (user.as_ref() == Some(&passkey.user_handle)
+                            && accepted.len() < MAX_LISTED
+                            && !accepted.contains(&passkey.credential_id))
+                        .then_some(Said::Gone),
+                        SignalKind::Details => (user.as_ref() == Some(&passkey.user_handle)
+                            && (short(&name) != passkey.user_name
+                                || short(&display_name) != passkey.display_name)
+                            && !name.trim().is_empty())
+                        .then(|| Said::Renamed {
+                            name: short(&name),
+                            display_name: short(&display_name),
+                        }),
+                    };
+                    if let Some(said) = said {
+                        signals.push(PasskeyNote {
+                            item: id,
+                            credential: passkey.credential_id.clone(),
+                            said,
+                        });
+                    }
+                }
+            }
+            Outcome {
+                signals: signals.clone(),
+                ..Response::Signaled {
+                    noted: u32::try_from(signals.len()).unwrap_or(u32::MAX),
+                }
+                .into()
+            }
+        }
+        (Request::Cards { .. }, Some(origin)) => {
+            let mut items: Vec<CardEntry> = vault
+                .item_ids()
+                .filter_map(|id| {
+                    let item = vault.get_item(&id).ok()?;
+                    // A card kept out of the browser (or in a folder kept out of it) is not
+                    // listed (S18); `card_fill` refuses it too (`with_item`).
+                    (item.kind == ItemKind::Card && vault.reaches_browser(&item, gate.pairing()))
+                        .then(|| card_entry(vault, &*gate, &id, &item))
+                })
+                .collect();
+            items.sort_by_key(|entry| (entry.expired, entry.title.to_lowercase()));
+            Response::Cards {
+                origin: origin.as_str().to_owned(),
+                check: gate.check(vault),
+                hello: gate.hello(vault),
+                always_asks: gate.always(),
+                items,
+            }
+            .into()
+        }
+        (
+            Request::CardFill {
+                id, check, hello, ..
+            },
+            Some(origin),
+        ) => {
+            let read = with_item(
+                vault,
+                gate,
+                ItemKind::Card,
+                &id,
+                check,
+                hello,
+                None,
+                |_| true,
+                |_, _, item, _| item,
+            );
+            match read {
+                Ok(item) => {
+                    let details = CardDetails::from_item(&item);
+                    if details.number.is_empty() {
+                        return error(ErrorCode::NoMatch).into();
+                    }
+                    let (month, year) = card::parse_expiry(&details.expiry).unwrap_or((0, 0));
+                    Outcome {
+                        filled: Some(item.title.clone()),
+                        ..Response::CardFill(Box::new(CardFill {
+                            origin: origin.as_str().to_owned(),
+                            holder: item.username.clone(),
+                            number: details.number.clone(),
+                            month,
+                            year,
+                            security_code: details.security_code.clone(),
+                            brand: card::detect_brand(&details.number).name().to_owned(),
+                        }))
+                        .into()
+                    }
+                }
+                Err(response) => response.into(),
+            }
+        }
         (Request::Vault { url }, _) => {
             // Only the open page's logins, unless the person let the window list them all: a
             // stolen pairing learns no more than the sites it asks about (S18).
@@ -1013,9 +1235,12 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 Err(_) => error(ErrorCode::BadRequest).into(),
             }
         }
-        (request @ (Request::Generate { .. } | Request::Keep { .. }), _) => {
-            generator_outcome(request, &mut GateHeld(gate))
-        }
+        (
+            request @ (Request::Generate { .. }
+            | Request::Keep { .. }
+            | Request::PasswordRules { .. }),
+            _,
+        ) => generator_outcome(request, &mut GateHeld(gate)),
         (
             Request::Passkeys {
                 rp_id, allow: list, ..
@@ -2945,5 +3170,198 @@ mod tests {
                 String::from_utf8_lossy(raw)
             );
         }
+    }
+
+    /// A card in the vault: the one in `vault()` plus a Visa, the second behind the item lock.
+    fn with_cards(vault: &mut Vault) -> (String, String) {
+        let mut card = ItemData::new(ItemKind::Card, "Everyday card");
+        card.username = "Test Person".into();
+        CardDetails {
+            number: "4242 4242 4242 4242".into(),
+            expiry: "03/31".into(),
+            security_code: "123".into(),
+        }
+        .apply(&mut card);
+        let open = vault.add_item(&card).unwrap();
+        let mut locked = ItemData::new(ItemKind::Card, "Locked card");
+        CardDetails {
+            number: "5555555555554444".into(),
+            expiry: "01/20".into(),
+            security_code: "999".into(),
+        }
+        .apply(&mut locked);
+        locked.reprompt = true;
+        let locked = vault.add_item(&locked).unwrap();
+        (open.to_hex(), locked.to_hex())
+    }
+
+    #[test]
+    fn cards_are_listed_without_their_numbers_and_filled_through_the_lock() {
+        let (mut vault, _, _) = vault();
+        let (open, locked) = with_cards(&mut vault);
+        let mut gate = TestGate::new(Check::Pin);
+        let url = "https://shop.example/checkout";
+        let (listed, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "cards", "url": url}),
+        );
+        assert_eq!(listed["type"], "cards", "{listed}");
+        let text = listed.to_string();
+        for secret in ["4242424242424242", "123", "5555555555554444", "999"] {
+            assert!(!text.contains(secret), "{secret} listed");
+        }
+        let items = listed["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        // A valid card first, an expired one after.
+        assert_eq!(items[0]["id"], open);
+        assert_eq!(items[0]["hint"], "Visa •••• 4242");
+        assert_eq!(items[0]["holder"], "Test Person");
+        assert_eq!(items[0]["expiry"], "03/31");
+        assert_eq!(items[0]["locked"], false);
+        assert_eq!(items[1]["expired"], true);
+        assert_eq!(items[1]["locked"], true);
+
+        let (filled, title) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "card_fill", "url": url, "id": open}),
+        );
+        assert_eq!(filled["type"], "card_fill", "{filled}");
+        assert_eq!(filled["origin"], "https://shop.example");
+        assert_eq!(filled["number"], "4242424242424242");
+        assert_eq!(
+            (filled["month"].as_u64(), filled["year"].as_u64()),
+            (Some(3), Some(2031))
+        );
+        assert_eq!(filled["security_code"], "123");
+        assert_eq!(title.as_deref(), Some("Everyday card"));
+
+        // Behind the item lock: the PIN first, for that one request.
+        let (refused, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "card_fill", "url": url, "id": locked}),
+        );
+        assert_eq!(refused["code"], "item_locked");
+        let (opened, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "card_fill", "url": url, "id": locked, "check": "4821"}),
+        );
+        assert_eq!(opened["number"], "5555555555554444");
+        assert!(!gate.open, "closed again");
+        // A login is not a card, and a page without https gets nothing.
+        let github = vault
+            .item_ids()
+            .find(|id| vault.get_item(id).unwrap().title == "GitHub")
+            .unwrap()
+            .to_hex();
+        let (none, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "card_fill", "url": url, "id": github}),
+        );
+        assert_eq!(none["code"], "no_match");
+        let (plain, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "cards", "url": "http://shop.example/"}),
+        );
+        assert_eq!(plain["code"], "insecure_page");
+        // Every use asks: the open card asks too.
+        gate.always = true;
+        let (asks, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "card_fill", "url": url, "id": open}),
+        );
+        assert_eq!(asks["code"], "item_locked");
+    }
+
+    #[test]
+    fn a_sites_word_about_its_passkeys_is_noted_never_acted_on() {
+        let (mut vault, _, _) = vault();
+        let mut gate = TestGate::new(Check::Pin);
+        let user = URL_SAFE_NO_PAD.encode(b"user-42");
+        let (made, _) = passkey_answer(
+            &mut vault,
+            &mut gate,
+            json!({
+                "type": "passkey_create",
+                "url": "https://example.com/new",
+                "user_id": user,
+                "user_name": "me@example.com",
+                "challenge": URL_SAFE_NO_PAD.encode([7u8; 32]),
+                "check": "4821",
+            }),
+        );
+        let credential = made["credential"].as_str().unwrap().to_owned();
+        let signal = |vault: &mut Vault, request: Value| {
+            let answer = answer(
+                request.to_string().as_bytes(),
+                Some(vault),
+                &mut TestGate::new(Check::Pin),
+            );
+            let reply: Value = serde_json::from_slice(&answer.bytes).unwrap();
+            (reply, answer.signals)
+        };
+        let count = |vault: &Vault| {
+            vault
+                .item_ids()
+                .map(|id| vault.get_item(&id).unwrap().passkeys.len())
+                .sum::<usize>()
+        };
+        let (reply, notes) = signal(
+            &mut vault,
+            json!({"type": "passkey_signal", "url": "https://example.com/", "signal": "unknown", "credential": credential}),
+        );
+        assert_eq!(reply["noted"], 1, "{reply}");
+        assert_eq!(notes[0].said, Said::Gone);
+        // Nothing changed in the vault.
+        assert_eq!(count(&vault), 1);
+        // Every passkey of the account still accepted: nothing to note.
+        let (_, notes) = signal(
+            &mut vault,
+            json!({"type": "passkey_signal", "url": "https://example.com/", "signal": "accepted", "user_id": user, "accepted": [credential]}),
+        );
+        assert!(notes.is_empty());
+        let (_, notes) = signal(
+            &mut vault,
+            json!({"type": "passkey_signal", "url": "https://example.com/", "signal": "accepted", "user_id": user, "accepted": []}),
+        );
+        assert_eq!(notes.len(), 1);
+        let (_, notes) = signal(
+            &mut vault,
+            json!({"type": "passkey_signal", "url": "https://example.com/", "signal": "details", "user_id": user, "name": "new@example.com", "display_name": "New"}),
+        );
+        assert_eq!(
+            notes[0].said,
+            Said::Renamed {
+                name: "new@example.com".into(),
+                display_name: "New".into()
+            }
+        );
+        // Another site's page can't speak for this one.
+        let (reply, notes) = signal(
+            &mut vault,
+            json!({"type": "passkey_signal", "url": "https://evil.example/", "rp_id": "example.com", "signal": "unknown", "credential": credential}),
+        );
+        assert_eq!(reply["code"], "wrong_site");
+        assert!(notes.is_empty());
+    }
+
+    #[test]
+    fn password_rules_come_from_the_built_in_list_without_a_vault() {
+        let mut gate = TestGate::new(Check::App);
+        let answer = answer_generator(
+            json!({"type": "password_rules", "url": "https://unlisted.example.test/"})
+                .to_string()
+                .as_bytes(),
+            &mut GateHeld(&mut gate),
+        )
+        .unwrap();
+        let reply: Value = serde_json::from_slice(&answer.bytes).unwrap();
+        assert_eq!(reply, json!({"type": "password_rules", "rules": null}));
     }
 }

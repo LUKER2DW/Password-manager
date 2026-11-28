@@ -284,6 +284,76 @@ pub enum Request {
         #[serde(default)]
         hello: bool,
     },
+    /// The page at `url` used the WebAuthn Signal API (F23): a passkey the site doesn't know
+    /// (`unknown`, with `credential`), the passkeys it still accepts for an account (`accepted`,
+    /// with `user_id` and `accepted`), or the account's names now (`details`, with `user_id`,
+    /// `name` and `display_name`). The site `rp_id` must be one the page speaks for. The app
+    /// changes nothing by itself: it notes what the site said on the passkeys concerned, and
+    /// the person removes or renames them on the item's page.
+    PasskeySignal {
+        url: String,
+        #[serde(default)]
+        rp_id: String,
+        signal: SignalKind,
+        #[serde(default)]
+        credential: String,
+        #[serde(default)]
+        user_id: String,
+        #[serde(default)]
+        accepted: Vec<String>,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        display_name: String,
+    },
+    /// Whether `password`, about to be offered for saving on the page at `url`, is the password
+    /// of other logins of the vault (outside the item lock, saved for other sites), and whether
+    /// it turned up in known breaches (only while the leak watch is on: the leak check's
+    /// k-anonymous question). Answered by the app with counts, never which logins; the password
+    /// is compared and dropped.
+    Weigh { url: String, password: Secret },
+    /// The icons the app has for these sites (saved websites, at most 40), for the extension's
+    /// window: answered by the app from its own sealed cache, only while Settings → Website
+    /// icons is on, as `data:` addresses. The extension fetches nothing for them.
+    Icons { sites: Vec<String> },
+    /// What the site of the page at `url` accepts in a password, as the built-in list says
+    /// ([`crate::resources`]), for a new-password field that doesn't say it itself. Needs no
+    /// vault.
+    PasswordRules { url: String },
+    /// The vault's payment cards, offered for the payment fields of the page at `url`: who and
+    /// which (the name on the card, the brand and last four digits, the expiry), never a number
+    /// or a security code. Locked cards too.
+    Cards { url: String },
+    /// The details of card `id`, to type into the payment fields of the page at `url` (and of
+    /// the frames in it the extension may fill: [`crate::rules::card_frame_allowed`]). A card
+    /// behind the item lock, or every card when every use asks, is opened first, as for a fill.
+    CardFill {
+        url: String,
+        id: String,
+        #[serde(default)]
+        check: Option<Secret>,
+        #[serde(default)]
+        hello: bool,
+    },
+    /// Changes the person's rule for the site of the page at `url` (the extension's window, for
+    /// the site in front): answered by the app itself, with the rule as it is now
+    /// ([`crate::rules`]). Kept on this device.
+    SiteRule {
+        url: String,
+        rule: crate::rules::RuleChange,
+    },
+}
+
+/// Which of the Signal API's calls a [`Request::PasskeySignal`] reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SignalKind {
+    /// `signalUnknownCredential`.
+    Unknown,
+    /// `signalAllAcceptedCredentials`.
+    Accepted,
+    /// `signalCurrentUserDetails`.
+    Details,
 }
 
 /// Which symbols a generated password may use.
@@ -406,6 +476,25 @@ pub enum Response {
     },
     Fill(Credentials),
     Code(OneTimeCode),
+    /// The answer to [`Request::PasskeySignal`]: how many of the vault's passkeys it concerns
+    /// (noted for the person, nothing changed).
+    Signaled {
+        noted: u32,
+    },
+    /// The answer to [`Request::PasswordRules`]: `passwordrules` text, or none.
+    PasswordRules {
+        rules: Option<String>,
+    },
+    /// The vault's cards ([`Request::Cards`]).
+    Cards {
+        origin: String,
+        check: Check,
+        hello: bool,
+        always_asks: bool,
+        items: Vec<CardEntry>,
+    },
+    /// What a card fill types ([`Request::CardFill`]).
+    CardFill(Box<CardFill>),
     Vault {
         check: Check,
         hello: bool,
@@ -501,6 +590,48 @@ pub struct LoginEntry {
     pub locked: bool,
     /// It has a one-time code (unknown, and so `false`, while the vault is locked).
     pub has_code: bool,
+}
+
+/// One card offered for a page's payment fields: never its number or security code.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct CardEntry {
+    pub id: String,
+    pub title: String,
+    /// The name on the card.
+    pub holder: String,
+    /// "Visa •••• 4242" (empty when no number is saved).
+    pub hint: String,
+    pub brand: String,
+    /// "MM/YY", or empty.
+    pub expiry: String,
+    pub expired: bool,
+    pub locked: bool,
+}
+
+/// What is typed into a page's payment fields. Wiped from memory when dropped.
+#[derive(Serialize, Zeroize, ZeroizeOnDrop)]
+pub struct CardFill {
+    /// The origin the top page must still have when the fields are filled.
+    #[zeroize(skip)]
+    pub origin: String,
+    pub holder: String,
+    pub number: String,
+    /// The expiry month (1–12) and four-digit year; 0 when none is saved.
+    #[zeroize(skip)]
+    pub month: u32,
+    #[zeroize(skip)]
+    pub year: u32,
+    pub security_code: String,
+    #[zeroize(skip)]
+    pub brand: String,
+}
+
+impl std::fmt::Debug for CardFill {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CardFill")
+            .field("origin", &self.origin)
+            .finish_non_exhaustive()
+    }
 }
 
 /// One passkey offered for a site: whose it is, never its key.
@@ -687,6 +818,9 @@ pub enum ErrorCode {
     /// What a page sent as a password is one of the emergency kit's keys
     /// ([`crate::kit`]): it is never saved, compared or kept.
     KitKey,
+    /// The person's rule for the page's site forbids it (never save, never fill, no passkeys:
+    /// [`crate::rules`]).
+    SiteRule,
     /// The extension is older than [`MIN_EXTENSION_VERSION`] (or names no version): nothing
     /// it asks is answered, and connecting it is refused.
     OutdatedExtension,
