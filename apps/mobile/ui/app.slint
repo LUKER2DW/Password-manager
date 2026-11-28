@@ -7,7 +7,7 @@ import { Theme, Sketch, Secrets, Gesture } from "../../desktop/ui/theme.slint";
 // The monospace font, built in (see Theme.mono-font): a phone has none of its own.
 import "../../desktop/ui/fonts/JetBrainsMono-Regular.ttf";
 import "../../desktop/ui/fonts/JetBrainsMono-SemiBold.ttf";
-import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Slider, Choice, ItemIcon, MarkStroke, Logo, Rule, Backdrop } from "../../desktop/ui/widgets.slint";
+import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Slider, Choice, ItemIcon, MarkStroke, Logo, Rule, Backdrop, Countdown } from "../../desktop/ui/widgets.slint";
 import { Glyph, FolderLook, FieldColors, BrandMark, IconLook } from "../../desktop/ui/icons.slint";
 import { StrengthMeter } from "../../desktop/ui/strength.slint";
 import { ExportCounts, Messages, SecurityLine } from "../../desktop/ui/model.slint";
@@ -1100,41 +1100,6 @@ component ScanButton inherits Rectangle {
     accessible-label: @tr("Scan the QR code");
     Glyph { width: 22px; height: 22px; name: "qr"; tint: Theme.ink; }
     touch := TouchArea { clicked => { root.clicked(); } }
-}
-
-// How much of a one-time code's time is left: a disc that empties like a clock hand sweeping
-// back to twelve, going from green through yellow to red.
-component Countdown inherits Rectangle {
-    in property <int> left;
-    in property <int> period: 30;
-    in property <length> size: 24px;
-    property <float> share: Math.clamp(root.left / Math.max(1, root.period), 0, 1);
-    // Green while there is time, yellow half way, red at the end.
-    out property <color> tone: root.share > 0.5
-        ? Theme.good.mix(Theme.marker, (root.share - 0.5) * 2)
-        : Theme.marker.mix(Theme.seal, root.share * 2);
-    width: root.size;
-    height: root.size;
-    accessible-role: progress-indicator;
-    accessible-value: root.left;
-    Rectangle {
-        border-radius: self.width / 2;
-        border-width: 1.5px;
-        border-color: root.tone.transparentize(0.55);
-    }
-    Path {
-        width: parent.width;
-        height: parent.height;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        fill: root.tone;
-        stroke: transparent;
-        commands: root.share >= 0.995
-            ? "M 3 12 A 9 9 0 1 0 21 12 A 9 9 0 1 0 3 12 Z"
-            : "M 12 12 L 12 3 A 9 9 0 " + (root.share > 0.5 ? "1" : "0") + " 1 "
-                + (12 + 9 * Math.sin(root.share * 360deg)) + " "
-                + (12 - 9 * Math.cos(root.share * 360deg)) + " Z";
-    }
 }
 
 // What a sensitive action asks before it happens: a sheet over the screen, its words, Cancel
