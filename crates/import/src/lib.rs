@@ -7,6 +7,8 @@
 //! - **CSV**: exports from browsers and most managers, read by their header row
 //! - **CXF**: the FIDO Alliance's Credential Exchange Format (JSON), read and written
 //!   ([`export_cxf`])
+//! - one-time code keys from authenticator apps: `otpauth://` and `otpauth-migration://`
+//!   links and the apps' JSON exports ([`authenticator`])
 //!
 //! [`Source`] lists where an export can come from, for the app to explain how to make one.
 //! On Windows, [`browser`] can also read a browser's own password store directly, when the user
@@ -14,6 +16,7 @@
 //!
 //! Importers only produce [`ItemData`]; they never touch the vault or its keys.
 
+pub mod authenticator;
 #[cfg(feature = "browser")]
 pub mod browser;
 mod csv_import;
@@ -25,11 +28,11 @@ mod kdbx;
 mod kdbx_export;
 
 pub use cxf::export_cxf;
-pub use kdbx_export::{KDF as KDBX_KDF, KdfParams as KdbxKdf, export_kdbx};
 pub use export::{
     ExportFormat, ExportReport, InClear, LeftOut, export_csv, export_json, export_report,
     export_sealed,
 };
+pub use kdbx_export::{KDF as KDBX_KDF, KdfParams as KdbxKdf, export_kdbx};
 
 pub(crate) use csv_import::import_csv;
 pub(crate) use json::import_json;
@@ -47,6 +50,7 @@ pub fn import(
         Format::Json => import_json(bytes),
         Format::Csv => import_csv(bytes),
         Format::Kdbx => import_kdbx(bytes, password, keyfile),
+        Format::OtpLinks => authenticator::import_links(bytes),
         Format::Sealed => {
             let plain = vault_core::sealed_export::open(password, bytes)
                 .map_err(|_| ImportError::SealedExport)?;
@@ -68,6 +72,9 @@ pub enum Format {
     Kdbx,
     /// This app's own export protected by a password (JSON inside).
     Sealed,
+    /// `otpauth://` (and `otpauth-migration://`) links, one per line: an authenticator app's
+    /// plain-text export.
+    OtpLinks,
 }
 
 impl Format {
@@ -86,9 +93,12 @@ pub fn detect_format(bytes: &[u8]) -> Format {
     if bytes.starts_with(&[0x03, 0xd9, 0xa2, 0x9a]) {
         return Format::Kdbx;
     }
+    if authenticator::is_link_list(bytes) {
+        return Format::OtpLinks;
+    }
     let text = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     match text.iter().find(|b| !b.is_ascii_whitespace()) {
-        Some(b'{') => Format::Json,
+        Some(b'{' | b'[') => Format::Json,
         _ => Format::Csv,
     }
 }

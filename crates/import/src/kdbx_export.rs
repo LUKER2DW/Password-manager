@@ -19,7 +19,7 @@ use keepass::config::{
 };
 use keepass::db::{CustomDataItem, CustomDataValue, Entry, History, Value, fields};
 use keepass::{Database, DatabaseKey};
-use vault_core::{ItemData, ItemKind, Passkey, Vault};
+use vault_core::{ItemData, Passkey, Vault};
 use zeroize::Zeroizing;
 
 use crate::export::{RECOVERY_CODES_FIELD, codes_text, export_items};
@@ -127,11 +127,13 @@ pub(crate) fn write(
 
 /// An entry's fields: name, value, protected.
 type Fields = Vec<(String, Zeroizing<String>, bool)>;
+/// This app's own data of an entry: key and text.
+type OwnData = Vec<(&'static str, String)>;
 
 /// What one entry holds before it is put in the database.
 struct EntryParts {
-    fields: Vec<(String, Zeroizing<String>, bool)>,
-    data: Vec<(&'static str, String)>,
+    fields: Fields,
+    data: OwnData,
     attachments: Vec<(String, Zeroizing<Vec<u8>>)>,
     history: Vec<(Zeroizing<String>, i64)>,
     created: i64,
@@ -141,7 +143,7 @@ struct EntryParts {
 /// The entries of an item: one, and one more for each passkey after its first (an entry
 /// holds one passkey in KeePassXC's fields).
 fn entries_of(item: &ItemData) -> Vec<EntryParts> {
-    let mut fields: Vec<(String, Zeroizing<String>, bool)> = Vec::new();
+    let mut fields: Fields = Vec::new();
     fn put(fields: &mut Fields, name: &str, value: &str, protected: bool) {
         if !value.is_empty() {
             fields.push((name.to_owned(), Zeroizing::new(value.to_owned()), protected));
@@ -203,7 +205,7 @@ fn entries_of(item: &ItemData) -> Vec<EntryParts> {
         };
         if n > 0 {
             // A passkey of its own: the item's name, user and websites, and the passkey.
-            let mut fields: Vec<(String, Zeroizing<String>, bool)> = entries[0]
+            let mut fields: Fields = entries[0]
                 .fields
                 .iter()
                 .filter(|(name, ..)| {
@@ -236,11 +238,8 @@ fn entries_of(item: &ItemData) -> Vec<EntryParts> {
 /// Two fields of one name would be one in KeePass (a map by name), and a name of its own
 /// (Title, otp, a passkey's) would replace that: such a field gets a number after its name.
 /// The first `standard` are KeePass's own (Title … otp), put first in `entries_of`.
-fn unique_names(
-    fields: Vec<(String, Zeroizing<String>, bool)>,
-    standard: usize,
-) -> Vec<(String, Zeroizing<String>, bool)> {
-    let mut out: Vec<(String, Zeroizing<String>, bool)> = Vec::with_capacity(fields.len());
+fn unique_names(fields: Fields, standard: usize) -> Fields {
+    let mut out: Fields = Vec::with_capacity(fields.len());
     for (at, (name, value, protected)) in fields.into_iter().enumerate() {
         let taken = |name: &str, out: &[(String, Zeroizing<String>, bool)]| {
             out.iter().any(|(n, ..)| n.eq_ignore_ascii_case(name))
@@ -266,12 +265,7 @@ fn unique_names(
 /// A passkey as KeePassXC keeps it in an entry, and what it has that KeePassXC has no field
 /// for (the display name, when it was made) as custom data. `None` for a passkey without its
 /// key (a locked item, which never gets this far).
-fn passkey_parts(
-    passkey: &Passkey,
-) -> Option<(
-    Vec<(String, Zeroizing<String>, bool)>,
-    Vec<(&'static str, String)>,
-)> {
+fn passkey_parts(passkey: &Passkey) -> Option<(Fields, OwnData)> {
     let der = passkey.private_key_pkcs8().ok()?;
     let body = Zeroizing::new(STANDARD.encode(der.as_slice()));
     let mut pem = Zeroizing::new(String::with_capacity(body.len() + body.len() / 64 + 64));
@@ -379,6 +373,7 @@ fn fill(entry: &mut Entry, parts: &EntryParts) {
 pub(crate) mod tests {
     use super::*;
     use crate::{Format, import};
+    use vault_core::ItemKind;
     use vault_core::{
         Attachment, CustomField, GuardCheck, KdfParams as VaultKdf, PasswordChange, RecoveryCode,
         SecretKey,
