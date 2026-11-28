@@ -818,6 +818,8 @@ impl Controller {
             app.global::<Theme>().set_backdrop(0);
         }
         app.set_app_version(env!("CARGO_PKG_VERSION").into());
+        // Shown with its switch on the first screen, before any vault is open.
+        app.set_update_checks(controller.state.borrow().settings.update_checks);
         let language = controller.state.borrow().settings.language.clone();
         crate::i18n::apply(&language);
         app.set_language(crate::i18n::choice_of(&language));
@@ -1137,6 +1139,7 @@ impl Controller {
         on!(on_use_generated, |c| c.use_generated());
 
         on!(on_settings_changed, |c| c.save_settings());
+        on!(on_first_update_checks, |c, on| c.first_update_checks(on));
         on!(on_start_at_sign_in_changed, |c, on| c
             .set_start_at_sign_in(on));
         on!(on_ed_url_changed, |c| c.editor_site_icon());

@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: vault-desktop-ui VERSION\n"
-"POT-Creation-Date: 2026-11-28 00:38+0000\n"
+"POT-Creation-Date: 2026-11-28 01:44+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -54,66 +54,66 @@ msgctxt "AppWindow"
 msgid "Vault"
 msgstr ""
 
-#: ui/app.slint:1377
+#: ui/app.slint:1381
 msgctxt "AppWindow"
 msgid "Light"
 msgstr ""
 
-#: ui/app.slint:1377
+#: ui/app.slint:1381
 msgctxt "AppWindow"
 msgid "Standard"
 msgstr ""
 
-#: ui/app.slint:1377
+#: ui/app.slint:1381
 msgctxt "AppWindow"
 msgid "Strong"
 msgstr ""
 
-#: ui/app.slint:1377
+#: ui/app.slint:1381
 msgctxt "AppWindow"
 msgid "Maximum"
 msgstr ""
 
-#: ui/app.slint:1384
+#: ui/app.slint:1388
 msgctxt "AppWindow"
 msgid "Show your emergency kit?"
 msgstr ""
 
-#: ui/app.slint:1385
+#: ui/app.slint:1389
 msgctxt "AppWindow"
 msgid ""
 "It shows your Secret Key (and the recovery parts, right after they are "
 "issued). Make sure no one can see your screen."
 msgstr ""
 
-#: ui/app.slint:1386
+#: ui/app.slint:1390
 msgctxt "AppWindow"
 msgid "Show my kit"
 msgstr ""
 
-#: ui/app.slint:1410
+#: ui/app.slint:1414
 msgctxt "AppWindow"
 msgid "Issue new recovery parts?"
 msgstr ""
 
-#: ui/app.slint:1411
+#: ui/app.slint:1415
 msgctxt "AppWindow"
 msgid ""
 "The recovery parts (or Recovery Key) of your old kits will stop working. "
 "Print the new kit right after, and keep each part in a different place."
 msgstr ""
 
-#: ui/app.slint:1412
+#: ui/app.slint:1416
 msgctxt "AppWindow"
 msgid "Issue new parts"
 msgstr ""
 
-#: ui/app.slint:1425
+#: ui/app.slint:1429
 msgctxt "AppWindow"
 msgid "Renew the vault key?"
 msgstr ""
 
-#: ui/app.slint:1426
+#: ui/app.slint:1430
 msgctxt "AppWindow"
 msgid ""
 "The vault gets a new key, a new Secret Key and a new kit; the master "
@@ -123,17 +123,17 @@ msgid ""
 "Secret Key. Print the new kit right after."
 msgstr ""
 
-#: ui/app.slint:1427
+#: ui/app.slint:1431
 msgctxt "AppWindow"
 msgid "Renew the key"
 msgstr ""
 
-#: ui/app.slint:1449
+#: ui/app.slint:1453
 msgctxt "AppWindow"
 msgid "Change the unlock protection?"
 msgstr ""
 
-#: ui/app.slint:1450
+#: ui/app.slint:1454
 msgctxt "AppWindow"
 msgid ""
 "The vault's password lock is written again with {}. Your items stay as they "
@@ -141,27 +141,27 @@ msgid ""
 "per unlock. Windows Hello turns off until you turn it on again."
 msgstr ""
 
-#: ui/app.slint:1451
+#: ui/app.slint:1455
 msgctxt "AppWindow"
 msgid "Apply"
 msgstr ""
 
-#: ui/app.slint:1475
+#: ui/app.slint:1479
 msgctxt "AppWindow"
 msgid "Make a keyfile?"
 msgstr ""
 
-#: ui/app.slint:1476
+#: ui/app.slint:1480
 msgctxt "AppWindow"
 msgid "Use another file as the keyfile?"
 msgstr ""
 
-#: ui/app.slint:1477
+#: ui/app.slint:1481
 msgctxt "AppWindow"
 msgid "Remove the keyfile?"
 msgstr ""
 
-#: ui/app.slint:1478
+#: ui/app.slint:1482
 msgctxt "AppWindow"
 msgid ""
 "A new file with a random key is written where you choose, and from then on "
@@ -170,7 +170,7 @@ msgid ""
 "you turn it on again."
 msgstr ""
 
-#: ui/app.slint:1479
+#: ui/app.slint:1483
 msgctxt "AppWindow"
 msgid ""
 "Any file that never changes, not even by one byte, can be the keyfile: from "
@@ -178,54 +178,54 @@ msgid ""
 "copy apart from it. Windows Hello turns off until you turn it on again."
 msgstr ""
 
-#: ui/app.slint:1480
+#: ui/app.slint:1484
 msgctxt "AppWindow"
 msgid ""
 "The vault opens with your master password alone again. The file itself is "
 "left where it is. Windows Hello turns off until you turn it on again."
 msgstr ""
 
-#: ui/app.slint:1481
+#: ui/app.slint:1485
 msgctxt "AppWindow"
 msgid "Choose where to save it…"
 msgstr ""
 
-#: ui/app.slint:1482
+#: ui/app.slint:1486
 msgctxt "AppWindow"
 msgid "Choose the file…"
 msgstr ""
 
-#: ui/app.slint:1483
+#: ui/app.slint:1487
 msgctxt "AppWindow"
 msgid "Remove the keyfile"
 msgstr ""
 
-#: ui/app.slint:1496
+#: ui/app.slint:1500
 msgctxt "AppWindow"
 msgid "Stop syncing this vault here?"
 msgstr ""
 
-#: ui/app.slint:1497
+#: ui/app.slint:1501
 msgctxt "AppWindow"
 msgid "Remove {}?"
 msgstr ""
 
-#: ui/app.slint:1498
+#: ui/app.slint:1502
 msgctxt "AppWindow"
 msgid "Add a device?"
 msgstr ""
 
-#: ui/app.slint:1499
+#: ui/app.slint:1503
 msgctxt "AppWindow"
 msgid "Remove the backup server?"
 msgstr ""
 
-#: ui/app.slint:1500
+#: ui/app.slint:1504
 msgctxt "AppWindow"
 msgid "Disconnect the browser extension?"
 msgstr ""
 
-#: ui/app.slint:1501
+#: ui/app.slint:1505
 msgctxt "AppWindow"
 msgid ""
 "This computer stops syncing and forgets its key for the server (or the "
@@ -233,7 +233,7 @@ msgid ""
 "syncing. You can join again later."
 msgstr ""
 
-#: ui/app.slint:1502
+#: ui/app.slint:1506
 msgctxt "AppWindow"
 msgid ""
 "It leaves the vault's list of devices: every device refuses its copies from "
@@ -242,7 +242,7 @@ msgid ""
 "can join again later as a new device, with a new invite."
 msgstr ""
 
-#: ui/app.slint:1503
+#: ui/app.slint:1507
 msgctxt "AppWindow"
 msgid ""
 "The server makes an invite that works once, for an hour: a QR code to scan "
@@ -251,116 +251,116 @@ msgid ""
 "password and Secret Key."
 msgstr ""
 
-#: ui/app.slint:1504
+#: ui/app.slint:1508
 msgctxt "AppWindow"
 msgid ""
 "This computer stops syncing through it and forgets its key there. Its copy "
 "there is left, and the main place goes on as before."
 msgstr ""
 
-#: ui/app.slint:1505
+#: ui/app.slint:1509
 msgctxt "AppWindow"
 msgid ""
 "It can't ask for logins any more until it is connected again, which asks for "
 "the master password and the code its window shows."
 msgstr ""
 
-#: ui/app.slint:1506
+#: ui/app.slint:1510
 msgctxt "AppWindow"
 msgid "Stop syncing"
 msgstr ""
 
-#: ui/app.slint:1507
+#: ui/app.slint:1511
 msgctxt "AppWindow"
 msgid "Remove"
 msgstr ""
 
-#: ui/app.slint:1508
+#: ui/app.slint:1512
 msgctxt "AppWindow"
 msgid "Make an invite"
 msgstr ""
 
-#: ui/app.slint:1509
+#: ui/app.slint:1513
 msgctxt "AppWindow"
 msgid "Remove the backup"
 msgstr ""
 
-#: ui/app.slint:1510
+#: ui/app.slint:1514
 msgctxt "AppWindow"
 msgid "Disconnect"
 msgstr ""
 
-#: ui/app.slint:1600
+#: ui/app.slint:1604
 msgctxt "AppWindow"
 msgid "Open"
 msgstr ""
 
-#: ui/app.slint:1605
+#: ui/app.slint:1609
 msgctxt "AppWindow"
 msgid "Folder settings…"
 msgstr ""
 
-#: ui/app.slint:1611
+#: ui/app.slint:1615
 msgctxt "AppWindow"
 msgid "Move up"
 msgstr ""
 
-#: ui/app.slint:1617
+#: ui/app.slint:1621
 msgctxt "AppWindow"
 msgid "Move down"
 msgstr ""
 
-#: ui/app.slint:1624
+#: ui/app.slint:1628
 msgctxt "AppWindow"
 msgid "Delete folder…"
 msgstr ""
 
-#: ui/app.slint:1640
+#: ui/app.slint:1644
 msgctxt "AppWindow"
 msgid "Copy name on card"
 msgstr ""
 
-#: ui/app.slint:1640
+#: ui/app.slint:1644
 msgctxt "AppWindow"
 msgid "Copy username"
 msgstr ""
 
-#: ui/app.slint:1646
+#: ui/app.slint:1650
 msgctxt "AppWindow"
 msgid "Copy PIN"
 msgstr ""
 
-#: ui/app.slint:1646
+#: ui/app.slint:1650
 msgctxt "AppWindow"
 msgid "Copy password"
 msgstr ""
 
-#: ui/app.slint:1652
+#: ui/app.slint:1656
 msgctxt "AppWindow"
 msgid "Copy one-time code"
 msgstr ""
 
-#: ui/app.slint:1658
+#: ui/app.slint:1662
 msgctxt "AppWindow"
 msgid "Open website"
 msgstr ""
 
-#: ui/app.slint:1665
+#: ui/app.slint:1669
 msgctxt "AppWindow"
 msgid "Edit"
 msgstr ""
 
-#: ui/app.slint:1671
+#: ui/app.slint:1675
 msgctxt "AppWindow"
 msgid "Remove from favorites"
 msgstr ""
 
-#: ui/app.slint:1671
+#: ui/app.slint:1675
 msgctxt "AppWindow"
 msgid "Add to favorites"
 msgstr ""
 
-#: ui/app.slint:1677
+#: ui/app.slint:1681
 msgctxt "AppWindow"
 msgid "Delete…"
 msgstr ""
@@ -6136,75 +6136,88 @@ msgctxt "VaultChooser"
 msgid "Back"
 msgstr ""
 
-#: ui/welcome.slint:455
+#: ui/welcome.slint:458
 msgctxt "OnboardingScreen"
 msgid "Recovered"
 msgstr ""
 
-#: ui/welcome.slint:455
+#: ui/welcome.slint:458
 msgctxt "OnboardingScreen"
 msgid "New vault"
 msgstr ""
 
-#: ui/welcome.slint:463 ui/welcome.slint:518 ui/welcome.slint:605
+#: ui/welcome.slint:466 ui/welcome.slint:551 ui/welcome.slint:638
 msgctxt "OnboardingScreen"
 msgid "Master password"
 msgstr ""
 
-#: ui/welcome.slint:469
+#: ui/welcome.slint:472
 msgctxt "OnboardingScreen"
 msgid "Item lock"
 msgstr ""
 
-#: ui/welcome.slint:475
+#: ui/welcome.slint:478
 msgctxt "OnboardingScreen"
 msgid "Emergency kit"
 msgstr ""
 
-#: ui/welcome.slint:481
+#: ui/welcome.slint:484
 msgctxt "OnboardingScreen"
 msgid "Your passwords"
 msgstr ""
 
-#: ui/welcome.slint:488
+#: ui/welcome.slint:491
 msgctxt "OnboardingScreen"
 msgid "Everything is encrypted on this computer before it is saved."
 msgstr ""
 
-#: ui/welcome.slint:489
+#: ui/welcome.slint:492
 msgctxt "OnboardingScreen"
 msgid "Opening it takes your master password plus a Secret Key the app creates."
 msgstr ""
 
-#: ui/welcome.slint:490
-msgctxt "OnboardingScreen"
-msgid "Nothing is sent anywhere."
-msgstr ""
-
-#: ui/welcome.slint:491
+#: ui/welcome.slint:493
 msgctxt "OnboardingScreen"
 msgid ""
 "The item lock asks again before a password shows, even with the vault open."
 msgstr ""
 
-#: ui/welcome.slint:492
+#: ui/welcome.slint:494
 msgctxt "OnboardingScreen"
 msgid "Your emergency kit is the way back in if you forget the password."
 msgstr ""
 
-#: ui/welcome.slint:511
+#: ui/welcome.slint:509
+msgctxt "OnboardingScreen"
+msgid "Looking for updates"
+msgstr ""
+
+#: ui/welcome.slint:515
+msgctxt "OnboardingScreen"
+msgid ""
+"Once an hour the app asks GitHub whether a newer version is out: one "
+"request, with nothing about you or your vault in it. Nothing else is sent "
+"unless you turn it on (sync, the leak check, website icons)."
+msgstr ""
+
+#: ui/welcome.slint:521
+msgctxt "OnboardingScreen"
+msgid "Look for updates by itself"
+msgstr ""
+
+#: ui/welcome.slint:544
 msgctxt "OnboardingScreen"
 msgid "Choose a master password"
 msgstr ""
 
-#: ui/welcome.slint:513
+#: ui/welcome.slint:546
 msgctxt "OnboardingScreen"
 msgid ""
 "It's the only password you'll need to remember. Nobody can reset it for you, "
 "so pick one you won't forget."
 msgstr ""
 
-#: ui/welcome.slint:520
+#: ui/welcome.slint:553
 msgctxt "OnboardingScreen"
 msgid ""
 "Something you'll remember that nobody could guess: several random words work "
@@ -6212,54 +6225,54 @@ msgid ""
 "every time you unlock, and it can't be reset."
 msgstr ""
 
-#: ui/welcome.slint:527
+#: ui/welcome.slint:560
 msgctxt "OnboardingScreen"
 msgid "Type it again"
 msgstr ""
 
-#: ui/welcome.slint:537
+#: ui/welcome.slint:570
 msgctxt "OnboardingScreen"
 msgid "Suggest a passphrase"
 msgstr ""
 
-#: ui/welcome.slint:537
+#: ui/welcome.slint:570
 msgctxt "OnboardingScreen"
 msgid "Suggest another"
 msgstr ""
 
-#: ui/welcome.slint:543
+#: ui/welcome.slint:576
 msgctxt "OnboardingScreen"
 msgid ""
 "Six random words from the EFF word list: about 77 bits of entropy, far "
 "beyond guessing, and easier to remember than a jumble of symbols."
 msgstr ""
 
-#: ui/welcome.slint:565
+#: ui/welcome.slint:598
 msgctxt "OnboardingScreen"
 msgid "Use this passphrase"
 msgstr ""
 
-#: ui/welcome.slint:569
+#: ui/welcome.slint:602
 msgctxt "OnboardingScreen"
 msgid "Learn it by heart before you continue."
 msgstr ""
 
-#: ui/welcome.slint:581 ui/welcome.slint:743
+#: ui/welcome.slint:614 ui/welcome.slint:776
 msgctxt "OnboardingScreen"
 msgid "Continue"
 msgstr ""
 
-#: ui/welcome.slint:587
+#: ui/welcome.slint:620
 msgctxt "OnboardingScreen"
 msgid "I already have a vault: open it"
 msgstr ""
 
-#: ui/welcome.slint:600
+#: ui/welcome.slint:633
 msgctxt "OnboardingScreen"
 msgid "Lock your items"
 msgstr ""
 
-#: ui/welcome.slint:602
+#: ui/welcome.slint:635
 msgctxt "OnboardingScreen"
 msgid ""
 "With the vault open, each password, code and hidden field still asks for one "
@@ -6268,17 +6281,17 @@ msgid ""
 "5 minutes."
 msgstr ""
 
-#: ui/welcome.slint:605
+#: ui/welcome.slint:638
 msgctxt "OnboardingScreen"
 msgid "PIN"
 msgstr ""
 
-#: ui/welcome.slint:605
+#: ui/welcome.slint:638
 msgctxt "OnboardingScreen"
 msgid "Another password"
 msgstr ""
 
-#: ui/welcome.slint:610
+#: ui/welcome.slint:643
 msgctxt "OnboardingScreen"
 msgid ""
 "Recommended. Locked secrets are encrypted with a key only the PIN opens, so "
@@ -6286,41 +6299,41 @@ msgid ""
 "to 8 digits."
 msgstr ""
 
-#: ui/welcome.slint:611
+#: ui/welcome.slint:644
 msgctxt "OnboardingScreen"
 msgid ""
 "Locked secrets are encrypted with a key only this password opens. At least 6 "
 "characters, different from your master password."
 msgstr ""
 
-#: ui/welcome.slint:612
+#: ui/welcome.slint:645
 msgctxt "OnboardingScreen"
 msgid ""
 "You type your master password again. A check only: nothing extra is "
 "encrypted."
 msgstr ""
 
-#: ui/welcome.slint:617
+#: ui/welcome.slint:650
 msgctxt "OnboardingScreen"
 msgid "PIN: 4 to 8 digits"
 msgstr ""
 
-#: ui/welcome.slint:617
+#: ui/welcome.slint:650
 msgctxt "OnboardingScreen"
 msgid "Item password: at least 6 characters"
 msgstr ""
 
-#: ui/welcome.slint:623
+#: ui/welcome.slint:656
 msgctxt "OnboardingScreen"
 msgid "Lock every item (otherwise only items you mark)"
 msgstr ""
 
-#: ui/welcome.slint:630
+#: ui/welcome.slint:663
 msgctxt "OnboardingScreen"
 msgid "Open locked items with Windows Hello too"
 msgstr ""
 
-#: ui/welcome.slint:636
+#: ui/welcome.slint:669
 msgctxt "OnboardingScreen"
 msgid ""
 "Your face, fingerprint or Windows PIN opens locked items on this computer, "
@@ -6328,46 +6341,46 @@ msgid ""
 "Hello once."
 msgstr ""
 
-#: ui/welcome.slint:649
+#: ui/welcome.slint:682
 msgctxt "OnboardingScreen"
 msgid "Create vault"
 msgstr ""
 
-#: ui/welcome.slint:650
+#: ui/welcome.slint:683
 msgctxt "OnboardingScreen"
 msgid "Creating your vault…"
 msgstr ""
 
-#: ui/welcome.slint:655
+#: ui/welcome.slint:688
 msgctxt "OnboardingScreen"
 msgid "Back"
 msgstr ""
 
-#: ui/welcome.slint:664
+#: ui/welcome.slint:697
 msgctxt "OnboardingScreen"
 msgid "Set up later"
 msgstr ""
 
-#: ui/welcome.slint:676
+#: ui/welcome.slint:709
 msgctxt "OnboardingScreen"
 msgid ""
 "Set up later creates the vault without an item lock. You can turn it on any "
 "time in Settings → Item lock."
 msgstr ""
 
-#: ui/welcome.slint:686
+#: ui/welcome.slint:719
 msgctxt "OnboardingScreen"
 msgid "Save your emergency kit"
 msgstr ""
 
-#: ui/welcome.slint:689
+#: ui/welcome.slint:722
 msgctxt "OnboardingScreen"
 msgid ""
 "You have a new Secret Key, and the recovery parts you used no longer work. "
 "Print the new kit."
 msgstr ""
 
-#: ui/welcome.slint:690
+#: ui/welcome.slint:723
 msgctxt "OnboardingScreen"
 msgid ""
 "If you lose this computer or forget your master password, these keys are the "
@@ -6375,393 +6388,393 @@ msgid ""
 "part in different safe places."
 msgstr ""
 
-#: ui/welcome.slint:695
+#: ui/welcome.slint:728
 msgctxt "OnboardingScreen"
 msgid "Make new recovery parts"
 msgstr ""
 
-#: ui/welcome.slint:697
+#: ui/welcome.slint:730
 msgctxt "OnboardingScreen"
 msgid "Working…"
 msgstr ""
 
-#: ui/welcome.slint:710
+#: ui/welcome.slint:743
 msgctxt "OnboardingScreen"
 msgid "Print the keys"
 msgstr ""
 
-#: ui/welcome.slint:710
+#: ui/welcome.slint:743
 msgctxt "OnboardingScreen"
 msgid "Print empty boxes to fill in by hand"
 msgstr ""
 
-#: ui/welcome.slint:718
+#: ui/welcome.slint:751
 msgctxt "OnboardingScreen"
 msgid "Print"
 msgstr ""
 
-#: ui/welcome.slint:723
+#: ui/welcome.slint:756
 msgctxt "OnboardingScreen"
 msgid "Save as PDF…"
 msgstr ""
 
-#: ui/welcome.slint:727
+#: ui/welcome.slint:760
 msgctxt "OnboardingScreen"
 msgid "Save each part apart…"
 msgstr ""
 
-#: ui/welcome.slint:737
+#: ui/welcome.slint:770
 msgctxt "OnboardingScreen"
 msgid "I wrote these down and keep them somewhere safe"
 msgstr ""
 
-#: ui/welcome.slint:743
+#: ui/welcome.slint:776
 msgctxt "OnboardingScreen"
 msgid "Open my vault"
 msgstr ""
 
-#: ui/welcome.slint:762
+#: ui/welcome.slint:795
 msgctxt "OnboardingScreen"
 msgid "Bring your passwords along"
 msgstr ""
 
-#: ui/welcome.slint:764
+#: ui/welcome.slint:797
 msgctxt "OnboardingScreen"
 msgid ""
 "Already keep passwords in a browser or another password manager? Import them "
 "now and they are encrypted into this vault. Nothing is sent anywhere."
 msgstr ""
 
-#: ui/welcome.slint:768
+#: ui/welcome.slint:801
 msgctxt "OnboardingScreen"
 msgid "Chrome, Edge, Brave and Firefox, read directly on this computer"
 msgstr ""
 
-#: ui/welcome.slint:769
+#: ui/welcome.slint:802
 msgctxt "OnboardingScreen"
 msgid "Bitwarden, 1Password, KeePass and others, from their export files"
 msgstr ""
 
-#: ui/welcome.slint:770
+#: ui/welcome.slint:803
 msgctxt "OnboardingScreen"
 msgid "You review every login before anything is added"
 msgstr ""
 
-#: ui/welcome.slint:776
+#: ui/welcome.slint:809
 msgctxt "OnboardingScreen"
 msgid "Import passwords"
 msgstr ""
 
-#: ui/welcome.slint:780
+#: ui/welcome.slint:813
 msgctxt "OnboardingScreen"
 msgid "Skip for now"
 msgstr ""
 
-#: ui/welcome.slint:787
+#: ui/welcome.slint:820
 msgctxt "OnboardingScreen"
 msgid "You can import later from Import & export in the menu."
 msgstr ""
 
-#: ui/welcome.slint:838
+#: ui/welcome.slint:871
 msgctxt "UnlockScreen"
 msgid "Locked"
 msgstr ""
 
-#: ui/welcome.slint:845
+#: ui/welcome.slint:878
 msgctxt "UnlockScreen"
 msgid "Everything inside is encrypted on this computer."
 msgstr ""
 
-#: ui/welcome.slint:895
+#: ui/welcome.slint:928
 msgctxt "UnlockScreen"
 msgid "This computer needs your Secret Key once"
 msgstr ""
 
-#: ui/welcome.slint:896
+#: ui/welcome.slint:929
 msgctxt "UnlockScreen"
 msgid "Secret Key saved on this computer"
 msgstr ""
 
-#: ui/welcome.slint:902
+#: ui/welcome.slint:935
 msgctxt "UnlockScreen"
 msgid "Windows Hello is set up"
 msgstr ""
 
-#: ui/welcome.slint:903
+#: ui/welcome.slint:936
 msgctxt "UnlockScreen"
 msgid "Windows Hello is off (Settings → Locking)"
 msgstr ""
 
-#: ui/welcome.slint:908
+#: ui/welcome.slint:941
 msgctxt "UnlockScreen"
 msgid "Locks itself when you step away"
 msgstr ""
 
-#: ui/welcome.slint:932
+#: ui/welcome.slint:965
 msgctxt "UnlockScreen"
 msgid "Unlock your vault"
 msgstr ""
 
-#: ui/welcome.slint:935
+#: ui/welcome.slint:968
 msgctxt "UnlockScreen"
 msgid "Use Windows Hello, or your master password."
 msgstr ""
 
-#: ui/welcome.slint:936
+#: ui/welcome.slint:969
 msgctxt "UnlockScreen"
 msgid "Type your master password to open it."
 msgstr ""
 
-#: ui/welcome.slint:942
+#: ui/welcome.slint:975
 msgctxt "UnlockScreen"
 msgid "Unlock with Windows Hello"
 msgstr ""
 
-#: ui/welcome.slint:943
+#: ui/welcome.slint:976
 msgctxt "UnlockScreen"
 msgid "Waiting for Windows Hello…"
 msgstr ""
 
-#: ui/welcome.slint:956
+#: ui/welcome.slint:989
 msgctxt "UnlockScreen"
 msgid "or use your master password"
 msgstr ""
 
-#: ui/welcome.slint:970
+#: ui/welcome.slint:1003
 msgctxt "UnlockScreen"
 msgid ""
 "This computer hasn't opened this vault before. Type the Secret Key from your "
 "emergency kit once; it will be remembered here."
 msgstr ""
 
-#: ui/welcome.slint:974
+#: ui/welcome.slint:1007
 msgctxt "UnlockScreen"
 msgid "Secret Key"
 msgstr ""
 
-#: ui/welcome.slint:978
+#: ui/welcome.slint:1011
 msgctxt "UnlockScreen"
 msgid ""
 "From your emergency kit: S0- and four groups of seven characters. Dashes, "
 "spaces and capitals don't matter."
 msgstr ""
 
-#: ui/welcome.slint:987
+#: ui/welcome.slint:1020
 msgctxt "UnlockScreen"
 msgid "Lost the Secret Key? Use two recovery parts"
 msgstr ""
 
-#: ui/welcome.slint:995
+#: ui/welcome.slint:1028
 msgctxt "UnlockScreen"
 msgid ""
 "Type any two of your three recovery parts. They bring back the Secret Key, "
 "which this computer then remembers. Your master password is still needed."
 msgstr ""
 
-#: ui/welcome.slint:999
+#: ui/welcome.slint:1032
 msgctxt "UnlockScreen"
 msgid "A recovery part"
 msgstr ""
 
-#: ui/welcome.slint:1003
+#: ui/welcome.slint:1036
 msgctxt "UnlockScreen"
 msgid ""
 "A0-, B0- or C0- and four groups of seven characters. Which two, their order, "
 "dashes, spaces and capitals don't matter."
 msgstr ""
 
-#: ui/welcome.slint:1009
+#: ui/welcome.slint:1042
 msgctxt "UnlockScreen"
 msgid "Another part"
 msgstr ""
 
-#: ui/welcome.slint:1022
+#: ui/welcome.slint:1055
 msgctxt "UnlockScreen"
 msgid "Read a part from a file…"
 msgstr ""
 
-#: ui/welcome.slint:1027
+#: ui/welcome.slint:1060
 msgctxt "UnlockScreen"
 msgid "Type the Secret Key instead"
 msgstr ""
 
-#: ui/welcome.slint:1034
+#: ui/welcome.slint:1067
 msgctxt "UnlockScreen"
 msgid "Master password"
 msgstr ""
 
-#: ui/welcome.slint:1045
+#: ui/welcome.slint:1078
 msgctxt "UnlockScreen"
 msgid "Keyfile"
 msgstr ""
 
-#: ui/welcome.slint:1061
+#: ui/welcome.slint:1094
 msgctxt "UnlockScreen"
 msgid "No file chosen"
 msgstr ""
 
-#: ui/welcome.slint:1072
+#: ui/welcome.slint:1105
 msgctxt "UnlockScreen"
 msgid "Choose…"
 msgstr ""
 
-#: ui/welcome.slint:1084
+#: ui/welcome.slint:1117
 msgctxt "UnlockScreen"
 msgid "Unlock"
 msgstr ""
 
-#: ui/welcome.slint:1085 ui/welcome.slint:1090
+#: ui/welcome.slint:1118 ui/welcome.slint:1123
 msgctxt "UnlockScreen"
 msgid "Unlocking…"
 msgstr ""
 
-#: ui/welcome.slint:1090
+#: ui/welcome.slint:1123
 msgctxt "UnlockScreen"
 msgid "Unlock with password"
 msgstr ""
 
-#: ui/welcome.slint:1100
+#: ui/welcome.slint:1133
 msgctxt "UnlockScreen"
 msgid "Forgot it? Use your emergency kit"
 msgstr ""
 
-#: ui/welcome.slint:1106
+#: ui/welcome.slint:1139
 msgctxt "UnlockScreen"
 msgid "Use another vault"
 msgstr ""
 
-#: ui/welcome.slint:1135
+#: ui/welcome.slint:1168
 msgctxt "RecoverScreen"
 msgid "Recover access"
 msgstr ""
 
-#: ui/welcome.slint:1141
+#: ui/welcome.slint:1174
 msgctxt "RecoverScreen"
 msgid "Recovery parts"
 msgstr ""
 
-#: ui/welcome.slint:1141 ui/welcome.slint:1220
+#: ui/welcome.slint:1174 ui/welcome.slint:1253
 msgctxt "RecoverScreen"
 msgid "Recovery Key"
 msgstr ""
 
-#: ui/welcome.slint:1142 ui/welcome.slint:1230
+#: ui/welcome.slint:1175 ui/welcome.slint:1263
 msgctxt "RecoverScreen"
 msgid "New master password"
 msgstr ""
 
-#: ui/welcome.slint:1143
+#: ui/welcome.slint:1176
 msgctxt "RecoverScreen"
 msgid "New emergency kit"
 msgstr ""
 
-#: ui/welcome.slint:1148
+#: ui/welcome.slint:1181
 msgctxt "RecoverScreen"
 msgid "Your items stay exactly as they are."
 msgstr ""
 
-#: ui/welcome.slint:1149
+#: ui/welcome.slint:1182
 msgctxt "RecoverScreen"
 msgid "You get a new Secret Key; the old one stops working."
 msgstr ""
 
-#: ui/welcome.slint:1150
+#: ui/welcome.slint:1183
 msgctxt "RecoverScreen"
 msgid "Recovery parts work once: you make new ones at the end."
 msgstr ""
 
-#: ui/welcome.slint:1150
+#: ui/welcome.slint:1183
 msgctxt "RecoverScreen"
 msgid "Your Recovery Key keeps working."
 msgstr ""
 
-#: ui/welcome.slint:1161
+#: ui/welcome.slint:1194
 msgctxt "RecoverScreen"
 msgid "Use your emergency kit"
 msgstr ""
 
-#: ui/welcome.slint:1163
+#: ui/welcome.slint:1196
 msgctxt "RecoverScreen"
 msgid ""
 "Type the Recovery Key from your emergency kit, then choose a new master "
 "password."
 msgstr ""
 
-#: ui/welcome.slint:1164
+#: ui/welcome.slint:1197
 msgctxt "RecoverScreen"
 msgid "Type the three recovery parts from your emergency kit."
 msgstr ""
 
-#: ui/welcome.slint:1165
+#: ui/welcome.slint:1198
 msgctxt "RecoverScreen"
 msgid "The parts are right. Choose a new master password."
 msgstr ""
 
-#: ui/welcome.slint:1171
+#: ui/welcome.slint:1204
 msgctxt "RecoverScreen"
 msgid "Part A"
 msgstr ""
 
-#: ui/welcome.slint:1175
+#: ui/welcome.slint:1208
 msgctxt "RecoverScreen"
 msgid ""
 "A0-, B0- and C0- and four groups of seven characters. Their order, dashes, "
 "spaces and capitals don't matter."
 msgstr ""
 
-#: ui/welcome.slint:1181
+#: ui/welcome.slint:1214
 msgctxt "RecoverScreen"
 msgid "Part B"
 msgstr ""
 
-#: ui/welcome.slint:1190
+#: ui/welcome.slint:1223
 msgctxt "RecoverScreen"
 msgid "Part C"
 msgstr ""
 
-#: ui/welcome.slint:1202
+#: ui/welcome.slint:1235
 msgctxt "RecoverScreen"
 msgid "Read a part from a file…"
 msgstr ""
 
-#: ui/welcome.slint:1211
+#: ui/welcome.slint:1244
 msgctxt "RecoverScreen"
 msgid "Continue"
 msgstr ""
 
-#: ui/welcome.slint:1212
+#: ui/welcome.slint:1245
 msgctxt "RecoverScreen"
 msgid "Checking…"
 msgstr ""
 
-#: ui/welcome.slint:1222
+#: ui/welcome.slint:1255
 msgctxt "RecoverScreen"
 msgid ""
 "Copy it from your emergency kit: the longer key, starting with R0- and nine "
 "groups of six characters. Dashes, spaces and capitals don't matter."
 msgstr ""
 
-#: ui/welcome.slint:1237
+#: ui/welcome.slint:1270
 msgctxt "RecoverScreen"
 msgid "Type it again"
 msgstr ""
 
-#: ui/welcome.slint:1248
+#: ui/welcome.slint:1281
 msgctxt "RecoverScreen"
 msgid "Recover vault"
 msgstr ""
 
-#: ui/welcome.slint:1249
+#: ui/welcome.slint:1282
 msgctxt "RecoverScreen"
 msgid "Recovering…"
 msgstr ""
 
-#: ui/welcome.slint:1258
+#: ui/welcome.slint:1291
 msgctxt "RecoverScreen"
 msgid "Back to the parts"
 msgstr ""
 
-#: ui/welcome.slint:1263
+#: ui/welcome.slint:1296
 msgctxt "RecoverScreen"
 msgid "Back to unlock"
 msgstr ""

@@ -28,7 +28,7 @@ use vault_platform::{
     files,
     updates::{self, PackageError},
 };
-use vault_sync_wire::releases::Release;
+use vault_sync_wire::releases::{ManifestError, Verified};
 use zeroize::Zeroizing;
 
 use super::{CURRENT, Controller, Runner, error, notice};
@@ -262,7 +262,7 @@ impl Controller {
     /// The app looked at GitHub's newest release: its extension is downloaded when it is newer
     /// than what the app has and the person hasn't chosen a folder of theirs (off the UI
     /// thread; never in tests, which call `take_extension_release`).
-    pub(super) fn release_seen(&self, release: &Release) {
+    pub(super) fn release_seen(&self, release: &Verified) {
         if self.state.borrow().runner == Runner::Inline || self.state.borrow().extension_fetching {
             return;
         }
@@ -273,8 +273,8 @@ impl Controller {
             .filter(|kept| extension_source::newer(kept, VERSION))
             .unwrap_or_else(|| VERSION.to_owned());
         if choice.folder.is_some()
-            || release.extension_package().is_none()
-            || !extension_source::newer(&release.version, &have)
+            || matches!(release.extension_package(), Err(ManifestError::NoFile(_)))
+            || !extension_source::newer(release.version(), &have)
         {
             return;
         }
@@ -283,12 +283,14 @@ impl Controller {
         std::thread::spawn(move || {
             let taken = match updates::extension_package(&release) {
                 Ok(zip) => {
+                    // As the release's signed manifest lists it (the download was checked
+                    // against it too).
                     let sha256 = release
                         .extension_package()
-                        .and_then(|asset| asset.sha256.clone())
+                        .map(|package| package.sha256)
                         .unwrap_or_default();
                     Some(
-                        extension_source::keep_release(&release.version, &sha256, &zip)
+                        extension_source::keep_release(release.version(), &sha256, &zip)
                             .map(drop)
                             .map_err(|err| format!("{err:#}")),
                     )
@@ -297,7 +299,7 @@ impl Controller {
                 // None listed, or the network failed: the next look tries again.
                 Err(PackageError::None | PackageError::Network(_)) => None,
             };
-            let version = release.version;
+            let version = release.version().to_owned();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(controller) = CURRENT.with(|c| c.borrow().upgrade()) {
                     controller.state.borrow_mut().extension_fetching = false;
@@ -309,9 +311,9 @@ impl Controller {
         });
     }
 
-    /// Takes a release's zip downloaded for `version` with the SHA-256 GitHub listed (`sha256`):
-    /// what the app does once one is downloaded, which the headless tests do with zips of their
-    /// own.
+    /// Takes a release's zip downloaded for `version` with the SHA-256 its signed manifest lists
+    /// (`sha256`): what the app does once one is downloaded, which the headless tests do with
+    /// zips of their own.
     pub fn take_extension_release(&self, version: &str, sha256: &str, zip: &[u8]) {
         let taken = extension_source::keep_release(version, sha256, zip)
             .map(drop)

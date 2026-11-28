@@ -73,6 +73,8 @@ vault-core = { path = "../../crates/core", features = ["memory-test"] }
 # The headless tests and the screenshots keep Secret Keys under a stand-in for the TPM.
 vault-platform = { path = "../../crates/platform", features = ["test-chip"] }
 aho-corasick = "1.1"
+# Releases signed with test keys (Check for updates, in src/tests.rs).
+vault-sync-wire = { path = "../../crates/sync-wire", features = ["test-signing"] }
 
 # The memory test reads another process's memory.
 [target.'cfg(windows)'.dev-dependencies]

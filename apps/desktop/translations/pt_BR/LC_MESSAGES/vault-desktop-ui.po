@@ -4061,10 +4061,6 @@ msgid "Opening it takes your master password plus a Secret Key the app creates."
 msgstr "Para abri-lo, você precisa da sua senha mestra e de uma chave secreta que o aplicativo cria."
 
 msgctxt "OnboardingScreen"
-msgid "Nothing is sent anywhere."
-msgstr "Nada é enviado para lugar nenhum."
-
-msgctxt "OnboardingScreen"
 msgid "The item lock asks again before a password shows, even with the vault open."
 msgstr "A trava de itens pede confirmação de novo antes de mostrar uma senha, mesmo com o cofre aberto."
 
@@ -4839,3 +4835,15 @@ msgstr "As chaves do kit e a senha do PDF estão atrás da trava de itens. Sua s
 msgctxt "KitPage"
 msgid "Opens a temporary PDF that asks for the PDF password, wiped from this computer when the vault locks."
 msgstr "Abre um PDF temporário que pede a senha do PDF, apagado deste computador quando o cofre trava."
+
+msgctxt "OnboardingScreen"
+msgid "Looking for updates"
+msgstr "Busca por atualizações"
+
+msgctxt "OnboardingScreen"
+msgid "Once an hour the app asks GitHub whether a newer version is out: one request, with nothing about you or your vault in it. Nothing else is sent unless you turn it on (sync, the leak check, website icons)."
+msgstr "Uma vez por hora o app pergunta ao GitHub se saiu uma versão mais nova: um pedido, sem nada sobre você ou o seu cofre. Nada mais é enviado a menos que você ligue (sincronização, verificação de vazamentos, ícones dos sites)."
+
+msgctxt "OnboardingScreen"
+msgid "Look for updates by itself"
+msgstr "Procurar atualizações sozinho"

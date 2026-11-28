@@ -428,6 +428,9 @@ export component OnboardingScreen inherits Rectangle {
     in-out property <bool> guard-all: true;
     in-out property <bool> guard-hello: true;
     in property <bool> quick-available;
+    // The look for updates (Settings → About), told at first run with its switch.
+    in-out property <bool> update-checks: true;
+    callback update-checks-changed(bool);
     callback back();
     callback import();
     callback create();
@@ -487,9 +490,39 @@ export component OnboardingScreen inherits Rectangle {
                 vertical-stretch: 0;
                 Fact { text: @tr("Everything is encrypted on this computer before it is saved."); }
                 Fact { text: @tr("Opening it takes your master password plus a Secret Key the app creates."); }
-                Fact { text: @tr("Nothing is sent anywhere."); }
                 Fact { text: @tr("The item lock asks again before a password shows, even with the vault open."); }
                 Fact { text: @tr("Your emergency kit is the way back in if you forget the password."); }
+            }
+            Rectangle { height: 22px; vertical-stretch: 0; }
+            // What the app sends by itself, said before anything else happens: the look for
+            // updates, with its switch (also in Settings → About).
+            Rectangle {
+                vertical-stretch: 0;
+                border-radius: 10px;
+                background: Theme.dark ? #FFFFFF06 : #1F2A3D08;
+                border-width: 1px;
+                border-color: Theme.rule;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 8px;
+                    Text {
+                        text: @tr("Looking for updates");
+                        font-size: Theme.small;
+                        font-weight: 600;
+                        color: Theme.ink;
+                    }
+                    Text {
+                        text: @tr("Once an hour the app asks GitHub whether a newer version is out: one request, with nothing about you or your vault in it. Nothing else is sent unless you turn it on (sync, the leak check, website icons).");
+                        font-size: Theme.small;
+                        color: Theme.graphite;
+                        wrap: word-wrap;
+                    }
+                    Check {
+                        text: @tr("Look for updates by itself");
+                        checked <=> root.update-checks;
+                        toggled(on) => { root.update-checks-changed(on); }
+                    }
+                }
             }
         }
         Rectangle { width: 1px; background: Theme.rule; }

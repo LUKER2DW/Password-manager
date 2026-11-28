@@ -1,17 +1,19 @@
 //! Updates (Settings → About): GitHub's newest release of the project, looked for by itself a
 //! moment after the app starts and then every hour while it runs (unless the person turns that
 //! off), and whenever the person presses Check for updates (`vault_platform::updates`: one
-//! anonymous request, nothing about the vault in it). A newer version is told once, in a
-//! notice, and its release page on github.com opens when asked. Nothing is downloaded or
-//! installed here: the person replaces the program with the new one.
+//! anonymous request, nothing about the vault in it). A release counts only with its manifest
+//! signed by the project's release key (`vault_platform::updates::latest`, CRYPTO.md §9). A
+//! newer version is told once, in a notice, and its release page on github.com opens when
+//! asked; a version older than one already told isn't shown in its place. Nothing is
+//! downloaded or installed here: the person replaces the program with the new one.
 
 use std::time::Duration;
 
 use slint::TimerMode;
-use vault_platform::files;
-use vault_sync_wire::releases::Release;
+use vault_platform::{DeviceState, files};
+use vault_sync_wire::releases::Verified;
 
-use super::{CURRENT, Controller, Runner, notice};
+use super::{CURRENT, Controller, Runner, error, notice};
 
 /// The first look on its own, once the app has started.
 const FIRST_LOOK: Duration = Duration::from_secs(30);
@@ -75,23 +77,31 @@ impl Controller {
         });
     }
 
-    pub(crate) fn finish_update_check(&self, result: Result<Release, String>, quietly: bool) {
+    pub(crate) fn finish_update_check(&self, result: Result<Verified, String>, quietly: bool) {
         let app = self.app();
         // The browser extension of that release, when it is newer than what the app has.
         if let Ok(release) = &result {
             self.release_seen(release);
         }
+        // Older than a version already told (an old release handed out again): the newer one
+        // stays shown.
+        let told = self.state.borrow().update_told.clone();
+        if let (Ok(release), Some(told)) = (&result, &told)
+            && vault_sync_wire::is_newer(told, release.version())
+        {
+            return;
+        }
         match result {
             Ok(release) if release.is_newer_than(env!("CARGO_PKG_VERSION")) => {
-                app.set_update_version(release.version.as_str().into());
+                let version = release.version().to_owned();
+                app.set_update_version(version.as_str().into());
                 app.set_update_state(3);
-                let told = self.state.borrow().update_told.as_deref() == Some(&release.version);
-                if !told {
-                    self.notify_long(notice::UPDATE_OUT, &release.version);
+                if told.as_deref() != Some(version.as_str()) {
+                    self.notify_long(notice::UPDATE_OUT, &version);
                 }
                 let mut state = self.state.borrow_mut();
-                state.update_told = Some(release.version);
-                state.release_page = Some(release.page);
+                state.update_told = Some(version);
+                state.release_page = Some(release.page().to_owned());
             }
             Ok(_) => {
                 self.state.borrow_mut().release_page = None;
@@ -103,6 +113,21 @@ impl Controller {
                 app.set_update_detail(detail.as_str().into());
                 app.set_update_state(4);
             }
+        }
+    }
+
+    /// The first screen's switch (a new vault's): only this setting changes, saved at once;
+    /// the others aren't on screen yet.
+    pub(super) fn first_update_checks(&self, on: bool) {
+        let mut device_state = DeviceState::load().unwrap_or_default();
+        device_state.settings.update_checks = on;
+        if let Err(err) = device_state.save() {
+            self.set_error(error::FILE, &err.to_string());
+            return;
+        }
+        let was = std::mem::replace(&mut self.state.borrow_mut().settings.update_checks, on);
+        if on && !was {
+            self.update_checks_turned_on();
         }
     }
 

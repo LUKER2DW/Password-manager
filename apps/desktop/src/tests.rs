@@ -3038,11 +3038,39 @@ fn check_for_updates_says_what_github_answered() {
     let app = AppWindow::new().unwrap();
     let controller =
         Controller::install(&app, dir.path().join("none.vault"), Runner::Inline, None).unwrap();
-    let release = |version: &str| vault_sync_wire::releases::Release {
-        version: version.to_owned(),
-        page: format!("https://github.com/o/r/releases/tag/v{version}"),
-        assets: Vec::new(),
+    // Releases as `vault_platform::updates::latest` hands them back: each one's manifest
+    // signed (here with a key made for this test) and checked.
+    let key = vault_sync_wire::releases::testing::TestKey::new();
+    let release = |version: &str| {
+        vault_sync_wire::releases::testing::verified(
+            version,
+            &[("vault-desktop.exe", b"a test program")],
+            &key,
+        )
     };
+
+    // The first screen (a new vault's) tells of the look for updates with its switch, on as
+    // the setting is; the switch changes that setting alone, at once.
+    assert_eq!(app.get_screen(), Screen::Onboarding);
+    assert!(app.get_update_checks());
+    app.invoke_first_update_checks(false);
+    let saved = vault_platform::DeviceState::load().unwrap().settings;
+    assert!(!saved.update_checks);
+    assert_eq!(
+        saved,
+        vault_platform::device::Settings {
+            update_checks: false,
+            ..Default::default()
+        },
+        "nothing else changed"
+    );
+    app.invoke_first_update_checks(true);
+    assert!(
+        vault_platform::DeviceState::load()
+            .unwrap()
+            .settings
+            .update_checks
+    );
 
     // Inline (tests): the button asks nothing, and nothing is looked for by itself.
     app.invoke_check_updates();
@@ -3068,8 +3096,17 @@ fn check_for_updates_says_what_github_answered() {
         0,
         "the same version isn't told twice"
     );
+    // An older release handed out again (still newer than this app): the newer one told
+    // stays.
+    controller.finish_update_check(Ok(release("98.0.0")), false);
+    assert_eq!(
+        (app.get_update_state(), app.get_update_version().as_str()),
+        (3, "99.0.0")
+    );
+    assert_eq!(app.get_notice_code(), 0);
 
-    // A look on its own that fails says nothing; the button says why.
+    // A look on its own that fails says nothing; the button says why (a release without its
+    // signed manifest is one: `latest` never hands it back).
     controller.finish_update_check(Err("offline".to_owned()), true);
     assert_eq!(app.get_update_state(), 3);
     controller.finish_update_check(Err("offline".to_owned()), false);

@@ -699,6 +699,8 @@ export component AppWindow inherits Window {
     in property <int> vault-recovery;
     callback vault-settings-changed();
     callback settings-changed();
+    // The first screen's switch for the look for updates: that setting alone.
+    callback first-update-checks(bool);
     callback start-at-sign-in-changed(bool);
     callback appearance-changed(bool);
     // 0 follows Windows, then src/i18n.rs → LANGUAGES in order.
@@ -786,6 +788,8 @@ export component AppWindow inherits Window {
         guard-all <=> root.guard-all;
         guard-hello <=> root.guard-hello;
         quick-available: root.quick-unlock-available;
+        update-checks <=> root.update-checks;
+        update-checks-changed(on) => { root.first-update-checks(on); }
         back => { root.onboarding-step = 1; }
         create => { root.create-vault(); }
         suggest => { root.suggest-passphrase(); }
