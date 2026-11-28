@@ -202,6 +202,34 @@ fn full_lifecycle() {
     env.ok(&["--allow-rollback", "list"], &[MASTER]);
     std::fs::copy(&newest_copy, &env.vault).unwrap();
 
+    // A newer version of the apps opened this vault here before: an older one opens it all
+    // the same and says so on stderr, every time, and the newest stays recorded.
+    let state_path = env.home.join("state.json");
+    let state = std::fs::read_to_string(&state_path).unwrap();
+    let ours = format!(r#""highest_version": "{}""#, env!("CARGO_PKG_VERSION"));
+    assert!(state.contains(&ours), "{state}");
+    std::fs::write(
+        &state_path,
+        state.replace(&ours, r#""highest_version": "999.0.0""#),
+    )
+    .unwrap();
+    for _ in 0..2 {
+        let output = env.run(&["list"], &[MASTER]);
+        assert!(output.status.success());
+        let warned = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            warned.contains("vault 999.0.0 has already opened this vault")
+                && warned.contains("known fault"),
+            "{warned}"
+        );
+    }
+    assert!(
+        std::fs::read_to_string(&state_path)
+            .unwrap()
+            .contains(r#""highest_version": "999.0.0""#)
+    );
+    std::fs::write(&state_path, &state).unwrap();
+
     // new device: forget the Secret Key, then type it from the kit
     env.ok(&["forget"], &[]);
     assert!(

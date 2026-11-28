@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow, bail};
 use vault_core::{Error as CoreError, Keyfile, SecretKey, Unlock, Vault, storage};
 use vault_platform::{
-    DeviceState, RollbackStatus, device, keyfile, paths,
+    DeviceState, RollbackStatus, VersionStatus, device, keyfile, paths,
     secret_store::{self, Kept, Loaded},
 };
 use zeroize::Zeroizing;
@@ -50,6 +50,14 @@ pub fn kept_message(kept: Option<Kept>) -> &'static str {
         }
         None => "This device didn't keep the Secret Key.",
     }
+}
+
+/// What the CLI says when a newer version of the apps (`highest`) opened the vault on this
+/// computer before the one running: an old copy may have been put back in its place.
+pub fn older_version_message(running: &str, highest: &str) -> String {
+    format!(
+        "this is vault {running}, but vault {highest} has already opened this vault on this          computer. If you didn't go back to an older version yourself, someone may have put          back an old one with a known fault. Get the newest from the project's releases on          GitHub (the desktop app: Settings → About → Check for updates)."
+    )
 }
 
 pub fn record_new_vault(vault: &Vault) -> Result<()> {
@@ -167,6 +175,13 @@ impl Session {
             eprintln!("warning: {message}");
         }
         state.record_revision(&info.id_hex, vault.revision());
+        // A newer version of the apps opened this vault here before: this one may be an old
+        // copy put back with a fault fixed since. Said, never refused.
+        if let VersionStatus::Older { running, highest } =
+            state.note_version(&info.id_hex, env!("CARGO_PKG_VERSION"))
+        {
+            eprintln!("warning: {}", older_version_message(&running, &highest));
+        }
 
         let keep_secret_key = || -> Result<()> {
             secret_store::store(&info.id_hex, &secret_key)?;
