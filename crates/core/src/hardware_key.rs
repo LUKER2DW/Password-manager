@@ -1,4 +1,4 @@
-//! A hardware security key as a factor of the vault (CRYPTO.md §3.11, M10 F6; designed).
+//! A hardware security key as a factor of the vault (CRYPTO.md §3.12, M10 F6; designed).
 //!
 //! The key answers through FIDO2's `hmac-secret`: 32 bytes for a salt, after a touch
 //! (`vault_platform::hardware_key` asks it). Each enrolled key wraps the vault's one
@@ -78,7 +78,7 @@ pub fn open_factor(
     Ok(factor)
 }
 
-/// `hardware_factor_key`: what joins the password slot's KEK (CRYPTO.md §3.11), after the
+/// `hardware_factor_key`: what joins the password slot's KEK (CRYPTO.md §3.12), after the
 /// password key, the Secret Key and the keyfile's digest.
 pub fn factor_key(factor: &[u8; FACTOR_LEN], vault_id: &[u8; 16]) -> Zeroizing<[u8; 32]> {
     hkdf32(factor, vault_id, b"vault-v0/hardware-key/factor")
