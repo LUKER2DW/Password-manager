@@ -3258,7 +3258,15 @@ impl Controller {
         };
         self.items.set_vec(rows);
         app.set_counts(ModelRc::from(Rc::new(VecModel::from(counts.to_vec()))));
-        app.set_total_items(self.state.borrow().summaries.len() as i32);
+        // Items in use: the trash, the archive and templates have their own lists.
+        let in_use = self
+            .state
+            .borrow()
+            .summaries
+            .iter()
+            .filter(|s| s.is_active())
+            .count();
+        app.set_total_items(i32::try_from(in_use).unwrap_or(i32::MAX));
         app.set_totp_count(
             i32::try_from(
                 self.state
@@ -3453,14 +3461,22 @@ impl Controller {
             SharedString::from(view::date(item.expires_at))
         });
         app.set_detail_expired(item.expires_at != 0 && item.expires_at <= view::now_unix());
+        let offset = vault_platform::locale::utc_offset_minutes();
         let versions: Vec<VersionRow> = if locked {
             Vec::new()
         } else {
+            // Each version, with what the change that replaced it altered (against the next
+            // version, or the item as it is now).
             item.versions
                 .iter()
-                .map(|version| VersionRow {
-                    date: SharedString::from(view::date(version.saved_at)),
-                    summary: SharedString::from(view::version_summary(item, &version.item)),
+                .enumerate()
+                .map(|(i, version)| {
+                    let after = item.versions.get(i + 1).map_or(item, |next| &next.item);
+                    let changes = view::version_changes(&version.item, after);
+                    VersionRow {
+                        date: SharedString::from(view::date_time(version.saved_at, offset)),
+                        changes: ModelRc::from(Rc::new(VecModel::from(changes))),
+                    }
                 })
                 .collect()
         };

@@ -5447,3 +5447,45 @@ msgstr "Arquivo"
 msgctxt "VaultIndex"
 msgid "Trash"
 msgstr "Lixeira"
+
+msgctxt "Messages"
+msgid "title"
+msgstr "título"
+
+msgctxt "Messages"
+msgid "username"
+msgstr "usuário"
+
+msgctxt "Messages"
+msgid "password"
+msgstr "senha"
+
+msgctxt "Messages"
+msgid "websites"
+msgstr "sites"
+
+msgctxt "Messages"
+msgid "notes"
+msgstr "notas"
+
+msgctxt "Messages"
+msgid "one-time code"
+msgstr "código de uso único"
+
+msgctxt "Messages"
+msgid "fields"
+msgstr "campos"
+
+msgctxt "Messages"
+msgid "recovery codes"
+msgstr "códigos de recuperação"
+
+msgctxt "Messages"
+msgid "other details"
+msgstr "outros detalhes"
+
+msgctxt "DetailPage"
+msgid "then changed:"
+msgstr "depois mudou:"
+
+

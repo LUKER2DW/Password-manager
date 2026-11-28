@@ -3831,3 +3831,41 @@ msgstr "{} ainda usa uma versão mais antiga do Vault, então a cópia dele não
 msgctxt "Messages"
 msgid "A device still runs an older version of Vault, so its copy can't be used here. Update Vault on that device; it syncs again once it is updated."
 msgstr "Um dispositivo ainda usa uma versão mais antiga do Vault, então a cópia dele não pode ser usada aqui. Atualize o Vault nesse dispositivo; ele volta a sincronizar quando estiver atualizado."
+
+msgctxt "Messages"
+msgid "title"
+msgstr "título"
+
+msgctxt "Messages"
+msgid "username"
+msgstr "usuário"
+
+msgctxt "Messages"
+msgid "password"
+msgstr "senha"
+
+msgctxt "Messages"
+msgid "websites"
+msgstr "sites"
+
+msgctxt "Messages"
+msgid "notes"
+msgstr "notas"
+
+msgctxt "Messages"
+msgid "one-time code"
+msgstr "código de uso único"
+
+msgctxt "Messages"
+msgid "fields"
+msgstr "campos"
+
+msgctxt "Messages"
+msgid "recovery codes"
+msgstr "códigos de recuperação"
+
+msgctxt "Messages"
+msgid "other details"
+msgstr "outros detalhes"
+
+

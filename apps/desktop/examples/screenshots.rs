@@ -430,9 +430,21 @@ fn main() {
     app.set_notes_shown(true);
     app.invoke_copy_username();
     camera.shot("vault-notes-notice", "Notes shown, copy notice");
+    // The trash: an item put there, its list and page, and the question before it goes for good.
+    select_title(&app, "Netflix");
+    app.invoke_delete_item();
+    app.invoke_select_category(10);
+    app.invoke_select(0);
+    camera.shot(
+        "vault-trash",
+        "The trash: kept 30 days, with Restore and Delete for good",
+    );
     app.set_confirming_delete(true);
-    camera.shot("vault-delete-confirm", "Delete confirmation");
+    camera.shot("vault-delete-confirm", "Delete for good: asked first");
     app.set_confirming_delete(false);
+    app.invoke_restore_item();
+    app.invoke_select_category(0);
+    select_title(&app, "GitHub");
     // An older exe opened a vault a newer one opened here before; an extension below the floor.
     app.set_notice_arg("0.4.9".into());
     app.set_notice_code(121);
@@ -542,6 +554,20 @@ fn main() {
     app.invoke_reveal_history(0);
     camera.shot("vault-history", "Password history, one entry shown");
     app.invoke_hide_history();
+    // The item's earlier versions (the password change above kept one).
+    app.set_detail_versions_shown(true);
+    camera.shot(
+        "vault-versions",
+        "Earlier versions of the whole item, each with Restore",
+    );
+    app.set_detail_versions_shown(false);
+    // A new identity starts with every detail it offers.
+    app.invoke_select_category(7);
+    app.invoke_new_item();
+    camera.shot("editor-identity", "A new identity: its details as fields");
+    app.invoke_cancel_edit();
+    app.invoke_select_category(0);
+    select_title(&app, "GitHub");
     app.invoke_new_item();
     app.invoke_save_item();
     camera.shot("editor-new-error", "New item: title required");

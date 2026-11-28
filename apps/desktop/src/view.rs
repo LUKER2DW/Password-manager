@@ -403,15 +403,29 @@ pub fn matches_search(summary: &ItemSummary, query: &str) -> bool {
             .any(|tag| tag.to_lowercase().contains(query.trim_start_matches('#')))
 }
 
-/// What an earlier version of an item was, in a line of its own words: its title, and its
-/// username when it had one (both are the person's data, not the app's words).
-pub fn version_summary(current: &vault_core::ItemData, version: &vault_core::ItemData) -> String {
-    let mut parts = vec![version.title.clone()];
-    if !version.username.is_empty() && version.username != current.username {
-        parts.push(version.username.clone());
+/// What a change altered, for the item's earlier versions (`Messages.change-name`): 1 the
+/// title, 2 the username, 3 the password, 4 the websites, 5 the notes, 6 the one-time code,
+/// 7 the fields, 8 the recovery codes, 9 anything else (tags, expiry, kind, icon...).
+pub fn version_changes(before: &vault_core::ItemData, after: &vault_core::ItemData) -> Vec<i32> {
+    let mut changes = Vec::new();
+    for (code, differs) in [
+        (1, before.title != after.title),
+        (2, before.username != after.username),
+        (3, before.password != after.password),
+        (4, before.urls != after.urls),
+        (5, before.notes != after.notes),
+        (6, before.totp != after.totp),
+        (7, before.custom_fields != after.custom_fields),
+        (8, before.recovery_codes != after.recovery_codes),
+    ] {
+        if differs {
+            changes.push(code);
+        }
     }
-    parts.retain(|part| !part.is_empty());
-    parts.join(" · ")
+    if changes.is_empty() {
+        changes.push(9);
+    }
+    changes
 }
 
 /// A date typed as `YYYY-MM-DD` (the form [`date`] writes), as Unix seconds at midnight UTC.
@@ -747,6 +761,18 @@ mod tests {
         // A tag is searched like the title; `#` before it is allowed.
         all[3].tags = vec!["Family".into()];
         assert_eq!(filter(&all, 0, None, "#fam").0, [3]);
+    }
+
+    #[test]
+    fn a_version_tells_what_the_next_change_altered() {
+        let before = ItemData::login("Site", "me", "old", "https://s.example");
+        let mut after = before.clone();
+        after.password = "new".into();
+        after.notes = "added".into();
+        assert_eq!(version_changes(&before, &after), [3, 5]);
+        let mut tagged = before.clone();
+        tagged.tags = vec!["work".into()];
+        assert_eq!(version_changes(&before, &tagged), [9], "anything else");
     }
 
     #[test]

@@ -280,7 +280,7 @@ fn whole_app_flow_headless() {
     app.invoke_save_item();
     assert_eq!(app.get_total_items(), 2);
     let counts: Vec<i32> = app.get_counts().iter().collect();
-    assert_eq!(counts, [2, 0, 1, 0, 1, 0, 0]);
+    assert_eq!(counts, [2, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0]);
 
     // ---- sync through a folder: another computer's copy is merged in ----
     let sync_dir = dir.path().join("sync folder");
@@ -427,6 +427,8 @@ fn whole_app_flow_headless() {
     app.set_ed_username("hubot".into());
     app.invoke_save_item();
     assert_eq!(app.get_detail_username(), "hubot");
+    // The version before the change is kept (format v11).
+    assert_eq!(app.get_detail_versions().row_count(), 1);
     app.invoke_reveal();
     assert_eq!(app.get_revealed_password(), "gh-item-pass");
 
@@ -434,7 +436,40 @@ fn whole_app_flow_headless() {
     app.invoke_select(0);
     app.invoke_delete_item();
     assert_eq!(app.get_total_items(), 1);
+    assert_eq!(app.get_notice_code(), 125, "in the trash");
+    // ---- the trash: listed apart, restored, then deleted for good ----
+    // (with the login deleted earlier, "From the laptop")
+    assert_eq!(app.get_counts().row_data(10), Some(2));
+    app.invoke_select_category(10);
+    assert_eq!(app.get_items().row_count(), 2);
+    let note = (0..app.get_items().row_count())
+        .find(|&i| app.get_items().row_data(i).unwrap().title == "Alarm code")
+        .unwrap();
+    app.invoke_select(i32::try_from(note).unwrap());
+    assert!(app.get_detail_trashed());
+    app.invoke_restore_item();
+    assert_eq!(app.get_notice_code(), 126);
+    assert_eq!(app.get_total_items(), 2);
+    assert_eq!(app.get_counts().row_data(10), Some(1));
+    app.invoke_select_category(4);
+    app.invoke_select(0);
+    // Archived: out of the list, in the Archive.
+    app.invoke_toggle_archive();
+    assert_eq!(app.get_notice_code(), 127);
+    assert_eq!(app.get_counts().row_data(4), Some(0));
+    assert_eq!(app.get_counts().row_data(9), Some(1));
+    app.invoke_select_category(9);
+    app.invoke_select(0);
+    app.invoke_delete_item();
+    app.invoke_select_category(10);
+    let note = (0..app.get_items().row_count())
+        .find(|&i| app.get_items().row_data(i).unwrap().title == "Alarm code")
+        .unwrap();
+    app.invoke_select(i32::try_from(note).unwrap());
+    app.invoke_delete_for_good();
     assert_eq!(app.get_notice_code(), 6);
+    assert_eq!(app.get_total_items(), 1);
+    assert_eq!(app.get_counts().row_data(10), Some(1));
 
     // ---- an SSH key made here, with a file attached ----
     app.invoke_select_category(5);

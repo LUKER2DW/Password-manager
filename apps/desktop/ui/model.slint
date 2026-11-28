@@ -57,7 +57,7 @@ export struct HistoryRow {
 // An earlier version of the item shown (Earlier versions, format v11), oldest first.
 export struct VersionRow {
     date: string,     // when it stopped being the current version
-    summary: string,  // what differs from the item now, in a few words
+    changes: [int],   // what the change after it altered (Messages.change-name)
 }
 
 // A password made by the generator and used (Generator page, newest first).
@@ -203,6 +203,19 @@ export global Messages {
     out property <string> tray-tooltip: @tr("Vault");
     // What Explorer calls a .vault file (its "Type" column).
     out property <string> vault-file-type: @tr("Password vault");
+
+    // What a change to an item altered (`view::version_changes`).
+    public pure function change-name(code: int) -> string {
+        if (code == 1) { return @tr("title"); }
+        if (code == 2) { return @tr("username"); }
+        if (code == 3) { return @tr("password"); }
+        if (code == 4) { return @tr("websites"); }
+        if (code == 5) { return @tr("notes"); }
+        if (code == 6) { return @tr("one-time code"); }
+        if (code == 7) { return @tr("fields"); }
+        if (code == 8) { return @tr("recovery codes"); }
+        return @tr("other details");
+    }
 
     public pure function kind-name(kind: int) -> string {
         if (kind == 1) { return @tr("Card"); }
