@@ -749,4 +749,93 @@ mod tests {
         drop(second);
         server.join().unwrap();
     }
+
+    /// Windows' own OpenSSH tools against the agent's protocol on a test pipe, with a key
+    /// made here: `ssh-add -L` lists it, `ssh-keygen -Y sign` has the agent sign a file and
+    /// `ssh-keygen -Y verify` checks that signature. Never the person's agent or keys.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "runs Windows' own OpenSSH tools against a test pipe"]
+    fn windows_openssh_signs_through_the_agent() {
+        use std::process::Command;
+        let tools = std::path::Path::new(r"C:\Windows\System32\OpenSSH");
+        if !tools.join("ssh-keygen.exe").exists() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let pair = vault_core::ssh::generate_ed25519("agent-test@example.invalid").unwrap();
+        let blob = vault_core::ssh::public_key_blob(&pair.public_key).unwrap();
+        let name = format!(
+            r"\\.\pipe\vault-ssh-agent-test-openssh-{}",
+            std::process::id()
+        );
+        let mut listener = Listener::bind(std::slice::from_ref(&name)).unwrap();
+        let private = pair.private_key.clone();
+        let listed_blob = blob.clone();
+        std::thread::spawn(move || {
+            while let Ok((connection, _)) = listener.accept() {
+                let private = private.clone();
+                let blob = listed_blob.clone();
+                std::thread::spawn(move || {
+                    let _ = serve(connection, |request| match request {
+                        Request::Identities => identities_answer(&[Identity {
+                            blob: blob.clone(),
+                            comment: "test key".into(),
+                        }]),
+                        Request::Sign { key, data, flags } if key == blob => {
+                            vault_core::ssh::agent_sign(&private, &data, flags)
+                                .map_or_else(|_| failure(), |signed| sign_response(&signed))
+                        }
+                        _ => failure(),
+                    });
+                });
+            }
+        });
+        let listed = Command::new(tools.join("ssh-add.exe"))
+            .arg("-L")
+            .env("SSH_AUTH_SOCK", &name)
+            .output()
+            .unwrap();
+        let listed_text = String::from_utf8_lossy(&listed.stdout);
+        let base64 = pair.public_key.split(' ').nth(1).unwrap();
+        assert!(listed.status.success(), "{listed:?}");
+        assert!(listed_text.contains(base64), "{listed_text}");
+        assert!(listed_text.contains("test key"));
+
+        let public = dir.path().join("key.pub");
+        std::fs::write(&public, format!("{}\n", pair.public_key)).unwrap();
+        let data = dir.path().join("data.txt");
+        std::fs::write(&data, b"a file signed through the agent\n").unwrap();
+        let signed = Command::new(tools.join("ssh-keygen.exe"))
+            .args(["-Y", "sign", "-n", "file", "-f"])
+            .arg(&public)
+            .arg(&data)
+            .env("SSH_AUTH_SOCK", &name)
+            .output()
+            .unwrap();
+        assert!(signed.status.success(), "{signed:?}");
+        let allowed = dir.path().join("allowed");
+        std::fs::write(
+            &allowed,
+            format!("agent-test@example.invalid {}\n", pair.public_key),
+        )
+        .unwrap();
+        let verified = Command::new(tools.join("ssh-keygen.exe"))
+            .args([
+                "-Y",
+                "verify",
+                "-n",
+                "file",
+                "-I",
+                "agent-test@example.invalid",
+                "-f",
+            ])
+            .arg(&allowed)
+            .arg("-s")
+            .arg(dir.path().join("data.txt.sig"))
+            .stdin(std::fs::File::open(&data).unwrap())
+            .output()
+            .unwrap();
+        assert!(verified.status.success(), "{verified:?}");
+    }
 }

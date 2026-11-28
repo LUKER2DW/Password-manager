@@ -189,6 +189,9 @@ pub struct Settings {
     pub website_icons: bool,
     /// Let the browser extension ask this app for logins. Off by default.
     pub browser_extension: bool,
+    /// Answer as the SSH agent (`ssh_agent.rs`): programs sign with the vault's SSH keys, each
+    /// signature approved in the app. Off by default.
+    pub ssh_agent: bool,
     /// Closing the window keeps the app running in the notification area. On by default.
     pub close_to_tray: bool,
     /// Started by Windows at sign-in, the app waits in the notification area instead of
@@ -285,6 +288,7 @@ impl Default for Settings {
             dark_theme: true,
             website_icons: false,
             browser_extension: false,
+            ssh_agent: false,
             close_to_tray: true,
             start_in_tray: true,
             browser_locked_fill: true,

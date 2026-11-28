@@ -4,6 +4,7 @@
 //! protect them. Cryptography stays in `vault-core`.
 
 pub mod autostart;
+pub mod autotype;
 pub mod browser_link;
 pub mod browsers;
 #[cfg(not(target_os = "android"))]
@@ -18,6 +19,7 @@ pub mod extension_folder;
 pub mod extension_source;
 pub mod file_types;
 pub mod files;
+pub mod hardware_key;
 pub mod keyfile;
 pub mod kit_pdf;
 pub mod leak_check;
