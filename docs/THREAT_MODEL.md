@@ -734,6 +734,58 @@ On top of that:
   file, a confirmation, refused while items are behind the item lock), and offers the protected
   export first.
 
+**The security log** (M10 S26; Settings → Security on the desktop and the phone). Each device
+keeps, per vault, what was done with it there: unlocks and failed unlocks (how: the master
+password, Windows Hello or the fingerprint, the kit's parts), each use through the browser
+extension (which site, which item's title, what was given: a fill, a copy, a one-time code, a
+passkey, a password shown, a login saved) and through Android's autofill and passkeys, exports
+(their format), the kit shown, saved or printed, devices joined or removed, the vault key
+renewed or taken, the master password changed (CRYPTO.md §3.11).
+- What it helps with: noticing use the person didn't make. A fill on a site at 3 a.m., an
+  export, a device joining, or a row of wrong master passwords stands out; so does a log that
+  starts again ("its key had been replaced", "couldn't be read") or an entry that doesn't open.
+- What it can't do: prove anything. Malware running as the person can delete the file, write
+  entries of its own (the key it is sealed to is public, so the locked app can write), or swap
+  its key (the next unlock says the log started again, and why). It can't read the log without
+  the open vault, nor make an entry say what the vault didn't do without that showing to the
+  person as something they didn't do. A log on one device says nothing of the others: each
+  keeps its own, never synced.
+- What is in it: no secret. No password, code, key or item contents, only the item's title and
+  the site, both as private as the vault itself (sealed so only the open vault reads them), so
+  a copy of the file tells an infostealer nothing about where the person has accounts.
+- Bounded: 500 entries, the oldest go first. Clearing it leaves one line saying when.
+
+**The master password on a secure desktop** (M10 S27; Windows; off by default, Settings →
+Security → Master password). The unlock screen then offers "Type it on a secure desktop": the
+app makes a desktop of its own (`CreateDesktop`, a random name), switches to it
+(`SwitchDesktop`) and asks for the master password in a small native window, the way Windows'
+own credential prompts and UAC keep other programs out; then it switches back.
+- What it stops: programs on the person's normal desktop reading the keys
+  (`SetWindowsHookEx` keyboard hooks, raw input, `GetAsyncKeyState` polling, which only see
+  their own desktop's input), sending keys or messages to the prompt, and capturing it (screen
+  capture of the normal desktop shows nothing of it). A common infostealer's keylogger is of
+  that kind.
+- What it doesn't: a program running as the person can list the desktops, open this one (it
+  is made with the person's own default access) and hook or capture it there, or inject into
+  the app itself; a driver, a kernel keylogger, a hardware keylogger or an administrator see
+  everything, as everywhere. Its name is random only so that a program waiting for it by name
+  doesn't find it at once. It is a raised bar for the keylogger that is already watching,
+  not a wall.
+- Accessibility: screen readers, the on-screen keyboard, input method editors (CJK input)
+  and other programs that help with input run on the normal desktop and don't reach the
+  prompt. It is therefore off by default, and the normal field stays on the unlock screen.
+- Several screens: while the secure desktop shows, every screen shows it; the window covers
+  all of them and asks on the main one.
+- Never stuck on it: Enter unlocks, Escape goes back, and after two minutes it goes back by
+  itself. The switch back is done by the thread that switched, whatever ends the prompt (a
+  panic included: a guard's `Drop`). If the app is killed or crashes meanwhile, its desktop
+  goes with its last handle and Windows shows the normal desktop again; Ctrl+Alt+Del works on
+  every desktop. The prompt doesn't start unless the desktop to come back to is known (not
+  while another, like the lock screen or a UAC prompt, has the input). The typed password goes
+  from each `WM_CHAR` straight into a `SecretBuffer` (no edit control, no Slint string), and
+  the window draws only how many characters there are. Not tried by hand yet: killing the app
+  while the prompt shows, and two screens of different scaling.
+
 > **Honest limit:** malware running as the user while the vault is unlocked can, in theory, read
 > whatever the app decrypts. Complementary defenses outside the vault: passkeys or 2FA on important
 > accounts (so a stolen password is not enough) and general system hygiene.

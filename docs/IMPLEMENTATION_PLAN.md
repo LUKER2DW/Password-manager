@@ -734,10 +734,12 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   on Linux with AddressSanitizer and debug assertions, seeded from `fuzz/seeds/` and the test
   vaults. Found and fixed: a picture said to hold part C whose header named a huge size made
   the app allocate it (over 100 GB) and stop; refused at the header now.
-  Still to do: the phone saying when it refuses a copy (SYNC.md §4.1, §8; it says nothing
-  today), the desktop and the phone naming a copy they couldn't read (only the device's last
-  sync shows it), and the same reading of the release exe's memory by hand (the renderer and
-  UI Automation, which the test's backend doesn't have).
+  Done: the copies a round couldn't use, named (SYNC.md §8): the phone says when it refuses
+  one, as the desktop did, and both say when a copy couldn't be read, each once, with the
+  device's name; Settings → Sync shows under that device why and since when until a copy from
+  it is used again (`sync::CopyProblems`, one entry per device, the item lock's and another
+  vault key's said apart). Still to do: the same reading of the release exe's memory by hand
+  (the renderer and UI Automation, which the test's backend doesn't have).
 - 🚧 S15. A signed release manifest every updater checks, and the groundwork for Authenticode
   signing through the SignPath Foundation. Done: every release holds `manifest.json` (each
   file's name, size and SHA-256, the commit, the APK's certificate) and its signature in
@@ -857,9 +859,27 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   one opens the vault all the same and says so, every time: the desktop app in a notice after
   the unlock, the CLI on stderr, with how to get the newest. The phone: Android refuses a
   lower `versionCode` over the installed app (docs/MOBILE.md), nothing to build.
-- ⬜ S26. A local security log (unlocks, failures, each use through the extension, exports,
-  the kit, devices), sealed on this device.
-- ⬜ S27. The master password typed on a secure desktop (Windows).
+- ✅ S26. A local security log, sealed on this device (`vault_platform::security_log`,
+  CRYPTO.md §3.11, THREAT_MODEL §3): unlocks and failed unlocks (master password, Windows
+  Hello or fingerprint, the kit's parts), each use through the browser extension (site, item
+  title, what was given: fill, copy, code, passkey, a password shown, a login saved or
+  changed; while locked too), Android's autofill and passkeys on the phone, exports, the kit
+  shown, saved or printed (desktop), devices joined or removed (also those a sync round brings),
+  the vault key renewed or taken, the master password changed. Each entry is sealed to a key
+  pair whose private half is sealed under the vault key (the drop box's construction): the
+  locked app writes, only the open vault reads; no secret in it. 500 entries at most; a file
+  that doesn't open, or whose key was swapped, starts again with a line saying so; clearing
+  leaves one line. Settings → Security → Security log on the desktop (newest first, "Show
+  older", "Clear the log…") and Settings, Security on the phone. Not in the CLI.
+- ✅ S27. The master password typed on a secure desktop (Windows; Settings → Security →
+  Master password, off by default): the unlock screen's "Type it on a secure desktop" makes a
+  desktop of its own, switches to it and asks in a native window (`vault_platform::
+  secure_desktop`), each `WM_CHAR` into a `SecretBuffer`, only dots drawn; Enter unlocks,
+  Escape or two minutes go back, the switch back done by a guard whatever ends the prompt.
+  What it stops and doesn't, accessibility, several screens and getting back:
+  THREAT_MODEL §3. Tested: the typing and the window on a desktop of its own that isn't shown
+  (keys sent to it). ⬜ Tried by hand: the switch itself, the app killed while it shows, two
+  screens.
 - ✅ S28. Tabs driven by an AI agent get no offers in the page, only the extension's window:
   while the browser says a program drives it (`navigator.webdriver`, read in the isolated
   world) or the person turns on "An AI agent or a program is using this browser" in the

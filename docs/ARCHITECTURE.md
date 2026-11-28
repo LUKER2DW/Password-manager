@@ -71,6 +71,12 @@ Keyfile [optional] ────────────────────�
   - Any platform ⬜: YubiKey touch (`hmac-secret`).
   - Policy: the master password is asked every 14 days; changing it revokes every device
     unlock; failed attempts are rate-limited by Windows Hello / the TPM itself.
+- **Secure desktop** (Windows, opt-in): the master password typed in a native window on a
+  desktop of the app's own, out of reach of the normal desktop's keyboard hooks and screen
+  capture (`crates/platform/src/secure_desktop.rs`, THREAT_MODEL §3).
+- **Security log**: each device keeps, per vault, what was done with it there (unlocks and
+  failures, the extension's and autofill's uses, exports, the kit, devices), sealed so only the
+  open vault reads it (`crates/platform/src/security_log.rs`, CRYPTO.md §3.11).
 - **Emergency kit**: a printable PDF with the Secret Key, room to write the master password,
   and three **recovery parts** (A, B, C), one per page, to keep in different places: any two
   bring back the Secret Key, all three open the vault so a new master password can be set,
@@ -94,6 +100,7 @@ Keyfile [optional] ────────────────────�
 | Subkey derivation | **HKDF-SHA-256** | Domain separation by label |
 | Encryption | **XChaCha20-Poly1305**, made key-committing | A fresh key and commitment per message from HKDF over a random 192-bit nonce |
 | Browser drop box | libsodium sealed box (X25519) | Only for logins saved while the vault is locked |
+| Security log | libsodium sealed box (X25519), a key pair of its own | Each entry written with the public key (also while locked), read only with the open vault (CRYPTO.md §3.11) |
 | Sync server requests | **Ed25519** signatures | One key per device and vault; no password reaches the server |
 | Releases | **Ed25519** in minisign's format (`minisign-verify`) | Every release's `manifest.json` (each file's size and SHA-256) signed in the release workflow after the maintainer's approval; every updater checks it against two embedded keys (CRYPTO.md §9) |
 | The Secret Key kept on Windows | **RSA-2048 OAEP-SHA-256** in the TPM (NCrypt's Platform Crypto Provider) | Wraps a random key that seals the Secret Key with the AEAD above; not exportable, no prompt (CRYPTO.md §2.2.1) |

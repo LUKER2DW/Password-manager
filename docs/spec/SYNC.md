@@ -577,7 +577,11 @@ open one.
   Settings → Sync asks once for the new Secret Key, from the new emergency kit." (§4.7)
 - Refusals (§4.1) say what happened and what to do: "A copy from Phone is older than one
   already seen. It was not used. If you restored a backup on that phone, remove it and add it
-  again."
+  again." The desktop and the phone both say it once, naming the device (or "a device not in
+  this vault's list"), and a copy that couldn't be read at all (the place answered, the copy
+  didn't come) is said the same way. Settings → Sync then shows, under that device, why and
+  since when (`sync::CopyProblems`), until a copy from it is used again. Copies under another
+  vault key (§4.7) and those waiting for the item lock are said apart.
 
 ## 9. Tests that must exist before it ships
 

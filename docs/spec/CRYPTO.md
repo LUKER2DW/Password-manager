@@ -754,6 +754,35 @@ both reads it, as they would read the paper kit. While the kit page shows the pa
 request, for 15 seconds) a program that reads the screen sees it, as it would see the keys,
 and one that reads the open vault's memory could derive it.
 
+### 3.11 The security log (not part of the vault file)
+
+Kept **outside** the vault file and never synced, per vault and per device: on the desktop in
+`<app dir>/security-log-<vault id>.bin`, on the phone next to its vaults
+(`vault_platform::security_log`). It is the drop box's construction (§3.5) with a key pair of
+its own:
+
+```
+sk, pk      = X25519 key pair (sk = 32 random bytes), made at the first unlock
+sealed_key  = seal_local("security-log", sk)                     (vault-key subkey, §6)
+entry       = crypto_box_seal(pk, vault_id_hex ‖ pad(postcard(at, kind, site, title, detail)))
+file        = postcard(version = 1, pk, sealed_key, [entry…])
+```
+
+- Each entry is written with `pk` alone, so the locked app can write one (a failed unlock, a
+  fill while locked) and cannot read the log back; reading needs the open vault (`sk` from
+  `sealed_key`, then each entry with its vault id prefix checked). Entries are padded like
+  items (256-byte steps) and their texts cut to 200 characters.
+- At most 500 entries: the oldest go first. Each write replaces the file atomically and
+  removes the `.bak` copy, so what was dropped or cleared stays gone.
+- At each unlock the file is checked: a file that doesn't parse, a `sealed_key` that doesn't
+  open with this vault, or a `pk` that isn't `sk`'s (swapped by someone, so what was written
+  since was sealed to their key) is set aside as `….bin.unreadable` and a new key pair starts
+  a new log whose first entry says why. An entry that doesn't open is shown as such.
+- Clearing makes a new key pair and a log holding one entry saying when.
+- A renewed vault key (§3.8) seals `sealed_key` again; `sk` and `pk` stay.
+- `pk` isn't authenticated while locked, as for the drop box: anyone who can write the file can
+  add entries or swap the key; the log is a way to notice, not evidence (THREAT_MODEL.md §3).
+
 ## 4. Argon2id parameters
 
 | | memory (KiB) | iterations | parallelism |

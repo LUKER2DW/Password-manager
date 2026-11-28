@@ -121,7 +121,9 @@ screen-capture blocking (`screen.rs`), typed secrets (`secure_buffer.rs`) kept i
 locked in RAM, and the Windows key shield (`secure_memory.rs`), the global allocator that wipes
 every block it frees (`wiping_alloc.rs`),
 the leak check and the leak watch's sealed memory (`leak_check.rs`),
-Windows Hello quick unlock (`quick_unlock.rs`), DPAPI (`dpapi.rs`), keyfiles on disk
+Windows Hello quick unlock (`quick_unlock.rs`), the master password typed on a secure desktop
+of its own (`secure_desktop.rs`), the security log of each vault on this device
+(`security_log.rs`, sealed to a key only the open vault reads), DPAPI (`dpapi.rs`), keyfiles on disk
 (`keyfile.rs`), the person's language (`locale.rs`), installed browsers and the default one (`browsers.rs`), the
 extension's local pipe and host registration (`browser_link.rs`), the extension's own folder
 that the browser loads it from, kept as the app wrote it (`extension_folder.rs`), where its
@@ -226,6 +228,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/attempts.rs` | Unlock attempts: counted in the device state, the wait enforced and counted down, told once at the next unlock |
 | `src/controller/updates.rs` | Updates: GitHub's newest release, looked for every hour (Settings → About → Look for updates by itself) and on Check for updates; a newer one installs itself (Install updates by itself, or Install now: `vault_platform::self_update`), each step shown in the title bar and About, then Restart now or Later |
 | `src/controller/toolbar.rs` | The title bar's toolbar: the sidebar hidden or shown (device setting), search from anywhere (Ctrl+F), the vault's name and its icon on this computer (device state), the alerts (marked as read for a week, by count, in device state) and Windows' own notification of new leaks |
+| `src/controller/security.rs` | The security log (what is recorded, Settings → Security → Security log) and the unlock screen's secure desktop |
 | `src/tray.rs` | The notification area icon (tray mode) and its menu window (`ui/tray.slint`) |
 | `src/i18n.rs` | The app's language: picks a compiled-in catalogue from `translations/` |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
@@ -263,7 +266,7 @@ PDFs), `icons.rs` (website icons and the preset `glyph:` icons), `each_use.rs` (
 secret asks the phone's check first: a fingerprint, a face or the screen lock, else the item
 lock's PIN), `folders.rs`, `health.rs`
 (password health), `generated.rs` (the generator's sealed history) and `passkeys.rs` (passkeys
-for other apps from the open vault). `prefs.rs` is the
+for other apps from the open vault), `security.rs` (the security log on the phone). `prefs.rs` is the
 phone's own settings file, `bio.rs` a vault's fingerprint unlock file, `autofill.rs` which
 logins belong to the app or site asking (and the drop box for logins saved while locked),
 `passkeys.rs` which passkeys answer a browser's page or an app through Android's Credential
