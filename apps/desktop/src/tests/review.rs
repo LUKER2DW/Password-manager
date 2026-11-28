@@ -492,13 +492,17 @@ fn json_field(json: &str, name: &str) -> String {
 }
 
 impl<'a> Extension<'a> {
-    /// Connects as the extension does: the key agreement, then the code it shows typed into
-    /// the app with the master password.
+    /// Connects as the extension does: the key agreement (naming its version), then the code
+    /// both show compared, and the master password typed in the app.
     fn pair(controller: &'a Controller, app: &AppWindow) -> Self {
         let joiner = vault_browser::pairing::Joiner::new().unwrap();
         let offer = raw(
             controller,
-            &format!(r#"{{"type":"pair","commit":"{}"}}"#, joiner.commit_hex()),
+            &format!(
+                r#"{{"type":"pair","commit":"{}","version":"{}"}}"#,
+                joiner.commit_hex(),
+                env!("CARGO_PKG_VERSION")
+            ),
         );
         let agreed = joiner.finish(&json_field(&offer, "key")).unwrap();
         raw(
@@ -526,9 +530,14 @@ impl<'a> Extension<'a> {
 
     fn ask(&self, message: &str) -> String {
         self.counter.set(self.counter.get() + 1);
+        // With the extension's version around it (protocol.rs `asked`).
+        let text = format!(
+            r#"{{"version":"{}","request":{message}}}"#,
+            env!("CARGO_PKG_VERSION")
+        );
         let (request, nonce) = self
             .key
-            .seal_request(self.counter.get(), message.as_bytes())
+            .seal_request(self.counter.get(), text.as_bytes())
             .unwrap();
         let answer = raw(self.controller, &request);
         // Sealed to this request, as the extension opens it (pairing.rs).

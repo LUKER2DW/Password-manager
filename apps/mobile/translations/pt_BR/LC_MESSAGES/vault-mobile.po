@@ -1471,10 +1471,6 @@ msgid "Windows Hello no longer opens the item lock on this computer (its PIN or 
 msgstr "O Windows Hello não abre mais a trava de itens neste computador (o PIN ou a senha dele foi trocado). Use o PIN e depois ligue o Windows Hello de novo em Configurações → Trava de itens."
 
 msgctxt "Messages"
-msgid "That isn't the code the extension shows. Look at the extension's window and type its six digits."
-msgstr "Este não é o código que a extensão mostra. Veja a janela da extensão e digite os seis números."
-
-msgctxt "Messages"
 msgid "The browser extension can't reach this window: its channel is already in use, by another window of the app or by another program. Close the other window, then turn the extension setting off and on again."
 msgstr "A extensão do navegador não consegue alcançar esta janela: o canal dela já está em uso, por outra janela do app ou por outro programa. Feche a outra janela e desligue e ligue de novo a configuração da extensão."
 
@@ -3623,3 +3619,11 @@ msgstr "Não foi possível ler agora a chave secreta guardada neste computador (
 msgctxt "Messages"
 msgid "The Secret Key couldn't be kept on this computer just now ({}). The vault is open; if the next unlock asks for the Secret Key, type it from your emergency kit."
 msgstr "Não foi possível guardar agora a chave secreta neste computador ({}). O cofre está aberto; se o próximo desbloqueio pedir a chave secreta, digite a do seu kit de emergência."
+
+msgctxt "Messages"
+msgid "Vault {} has already opened this vault on this computer, and this copy is older. If you didn't go back to an older version yourself, someone may have put back an old one with a known fault: get the newest in Settings → About → Check for updates."
+msgstr "O Vault {} já abriu este cofre neste computador, e esta cópia é mais antiga. Se não foi você quem voltou para uma versão anterior, alguém pode ter posto de volta uma versão antiga com uma falha conhecida: pegue a mais nova em Configurações → Sobre → Procurar atualizações."
+
+msgctxt "Messages"
+msgid "The browser extension is older than this Vault accepts (it needs {} or later), so Vault doesn't answer it. Settings → Browser extension → Add to a browser writes the newest one into its folder; then reload it on the browser's extensions page."
+msgstr "A extensão do navegador é mais antiga do que este Vault aceita (precisa ser a {} ou mais nova), então o Vault não responde a ela. Configurações → Extensão do navegador → Adicionar a um navegador grava a mais nova na pasta dela; depois recarregue-a na página de extensões do navegador."

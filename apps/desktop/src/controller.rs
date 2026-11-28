@@ -28,7 +28,7 @@ use vault_core::{
 };
 use vault_import::ExportFormat;
 use vault_platform::{
-    DeviceState, RollbackStatus, SecretBuffer, StateFile, clipboard, device, files,
+    DeviceState, RollbackStatus, SecretBuffer, StateFile, VersionStatus, clipboard, device, files,
     kit_pdf::{self, KitContents},
     part_picture,
     quick_unlock::{self, DeviceVerifier, QuickUnlockError},
@@ -153,7 +153,6 @@ mod error {
     pub const LOCKED_FILL_NEEDS_HELLO: i32 = 40;
     pub const TOTP_REQUIRED: i32 = 41;
     pub const BROWSER_PIPE: i32 = 42;
-    pub const PAIRING_CODE: i32 = 43;
     pub const PARTS_WRONG: i32 = 44;
     pub const PART_TYPO: i32 = 45;
     pub const PARTS_SAME: i32 = 46;
@@ -310,6 +309,12 @@ mod notice {
     /// The Secret Key the vault opened with couldn't be kept on this computer (the argument
     /// says why): it is asked for at the next unlock.
     pub const SECRET_KEY_NOT_KEPT: i32 = 120;
+    /// A newer version of the app opened this vault on this computer before (the argument:
+    /// that version): someone may have put back an older one with a known fault.
+    pub const OLDER_APP: i32 = 121;
+    /// The browser extension asking is older than this app answers (the argument: the oldest
+    /// version it answers).
+    pub const EXTENSION_OUTDATED: i32 = 122;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -596,6 +601,8 @@ struct State {
     browser_offer: Option<vault_browser::pairing::Offer>,
     browser_pending: Option<vault_browser::pairing::Pending>,
     browser_replay: vault_browser::pairing::Replay,
+    /// An extension older than this app answers was told so in the app already (once a run).
+    outdated_told: bool,
     /// Generated passwords handed to the extension, until used (see `browser.rs`).
     browser_generated: Vec<(String, vault_browser::service::Kept)>,
     /// The history of generated passwords, once read; the entry shown.
@@ -770,6 +777,7 @@ impl Controller {
                 browser_offer: None,
                 browser_pending: None,
                 browser_replay: Default::default(),
+                outdated_told: false,
                 browser_generated: Vec::new(),
                 generated_history: None,
                 generated_pending: Vec::new(),
@@ -1451,6 +1459,13 @@ impl Controller {
                     return;
                 }
                 device_state.record_revision(&id, revision);
+                // A newer version of the apps opened this vault here before: this one may be
+                // an old copy put back with a fault fixed since. It opens all the same (the
+                // person must reach their vault), and says so once the vault is shown.
+                let older = match device_state.note_version(&id, env!("CARGO_PKG_VERSION")) {
+                    VersionStatus::Older { highest, .. } => Some(highest),
+                    VersionStatus::Ok => None,
+                };
                 if state_file != StateFile::Unreadable
                     && let Err(err) = device_state.save()
                 {
@@ -1474,6 +1489,9 @@ impl Controller {
                 self.enter_vault(session);
                 if used_parts {
                     self.retire_used_parts();
+                }
+                if let Some(highest) = older {
+                    self.notify_long(notice::OLDER_APP, &highest);
                 }
                 self.offer_pending_pairing(!pairing_by_password);
             }
@@ -2796,7 +2814,6 @@ impl Controller {
             app.set_vault_name(SharedString::new());
             app.set_folder_dialog(-1);
             app.set_pairing_code(SharedString::new());
-            app.set_pairing_typed(SharedString::new());
             app.set_can_go_back(false);
             app.set_can_go_forward(false);
         }

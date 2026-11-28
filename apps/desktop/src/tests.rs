@@ -690,12 +690,13 @@ fn whole_app_flow_headless() {
             .as_millis() as u64
             * vault_browser::pairing::COUNTER_SCALE,
     );
-    // The extension seals each request and reads only the answer sealed to it (pairing.rs);
-    // only "not connected" and its like come plain.
-    let sealed = |key: &[u8], message: &str| {
+    // The extension seals each request, with its version, and reads only the answer sealed to
+    // it (pairing.rs, protocol.rs `asked`); only "not connected" and its like come plain.
+    let extension_version = env!("CARGO_PKG_VERSION");
+    let sealed_as = |key: &[u8], text: &str| {
         counter.set(counter.get() + 1);
         let key = vault_browser::pairing::PairingKey::from_bytes(key).unwrap();
-        let (request, nonce) = key.seal_request(counter.get(), message.as_bytes()).unwrap();
+        let (request, nonce) = key.seal_request(counter.get(), text.as_bytes()).unwrap();
         assert!(!request.contains("github"), "nothing readable on the way");
         let answer = raw(&request);
         match key.open_answer(counter.get(), &nonce, answer.as_bytes()) {
@@ -709,29 +710,38 @@ fn whole_app_flow_headless() {
             }
         }
     };
-    // An extension older than sealed requests signs them, and is answered plain.
-    let signed = |key: &[u8], message: &str| {
-        use hmac::{Hmac, KeyInit, Mac};
-        counter.set(counter.get() + 1);
-        let mut mac = <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(key).unwrap();
-        mac.update(&counter.get().to_le_bytes());
-        mac.update(message.as_bytes());
-        let mac: String = mac
-            .finalize()
-            .into_bytes()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        let body = message.replace('\\', "\\\\").replace('"', "\\\"");
-        raw(&format!(
-            r#"{{"type":"signed","counter":{},"body":"{body}","mac":"{mac}"}}"#,
-            counter.get()
-        ))
+    let sealed = |key: &[u8], message: &str| {
+        sealed_as(
+            key,
+            &format!(r#"{{"version":"{extension_version}","request":{message}}}"#),
+        )
     };
     let logins_request = r#"{"type":"logins","url":"https://github.com/login"}"#;
     assert!(raw(logins_request).contains("bad_request"));
     assert!(sealed(&[9u8; 32], logins_request).contains("not_paired"));
-    assert!(signed(&[9u8; 32], logins_request).contains("not_paired"));
+    // An extension older than sealed requests signed them: whatever it signs, it hears only
+    // that it is too old (plain: it can't open anything), and the app says so once.
+    let old_signed = format!(
+        r#"{{"type":"signed","counter":{},"body":"{{\"type\":\"status\"}}","mac":"{}"}}"#,
+        counter.get(),
+        "00".repeat(32)
+    );
+    let refused = raw(&old_signed);
+    assert!(
+        refused.contains(r#""code":"outdated_extension""#)
+            && refused.contains(vault_browser::protocol::MIN_EXTENSION_VERSION)
+            && !refused.contains("extension_version"),
+        "{refused}"
+    );
+    assert_eq!(app.get_notice_code(), 122);
+    assert_eq!(
+        app.get_notice_arg(),
+        vault_browser::protocol::MIN_EXTENSION_VERSION
+    );
+    app.set_notice_code(0);
+    assert!(raw(&old_signed).contains("outdated_extension"));
+    assert_eq!(app.get_notice_code(), 0, "said once a run");
+    let json = |text: String| serde_json::from_str::<serde_json::Value>(&text).unwrap();
     let field = |json: &str, name: &str| {
         json.split(&format!(r#""{name}":""#))
             .nth(1)
@@ -739,13 +749,28 @@ fn whole_app_flow_headless() {
             .unwrap()
             .to_owned()
     };
-    // The extension asks to connect: the two agree on a key without sending it, and the app
-    // waits for the person to type the code the extension shows (the app itself never shows
-    // it).
+    // An extension older than the key agreement asked to be handed a key, and one that names
+    // no version or an older one asks to connect: neither is, and nothing waits.
+    for old in [
+        r#"{"type":"pair"}"#.to_owned(),
+        format!(
+            r#"{{"type":"pair","commit":"{}"}}"#,
+            vault_browser::pairing::Joiner::new().unwrap().commit_hex()
+        ),
+        format!(
+            r#"{{"type":"pair","commit":"{}","version":"0.4.6"}}"#,
+            vault_browser::pairing::Joiner::new().unwrap().commit_hex()
+        ),
+    ] {
+        assert!(raw(&old).contains("outdated_extension"), "{old}");
+    }
+    assert_eq!(app.get_pairing_code(), "");
+    // The extension asks to connect: the two agree on a key without sending it, and both show
+    // the same code for the person to compare.
     let connect = || {
         let extension = vault_browser::pairing::Joiner::new().unwrap();
         let offer = raw(&format!(
-            r#"{{"type":"pair","commit":"{}"}}"#,
+            r#"{{"type":"pair","commit":"{}","version":"{extension_version}"}}"#,
             extension.commit_hex()
         ));
         let agreed = extension
@@ -761,7 +786,7 @@ fn whole_app_flow_headless() {
     // A key other than the one committed to is refused, and spends the offer.
     let committed = vault_browser::pairing::Joiner::new().unwrap();
     raw(&format!(
-        r#"{{"type":"pair","commit":"{}"}}"#,
+        r#"{{"type":"pair","commit":"{}","version":"{extension_version}"}}"#,
         committed.commit_hex()
     ));
     let stranger = vault_browser::pairing::Joiner::new().unwrap();
@@ -779,9 +804,7 @@ fn whole_app_flow_headless() {
     let key = pairing.key.as_bytes().to_vec();
     // The app shows the same code as the extension, to compare.
     assert_eq!(app.get_pairing_code(), pairing.code.as_str());
-    assert!(app.get_pairing_compare());
     assert_eq!(app.get_error_code(), 0);
-    assert_eq!(app.get_pairing_typed(), "");
     assert!(
         sealed(&key, logins_request).contains("not_paired"),
         "the key opens nothing until it is allowed in the app"
@@ -794,34 +817,14 @@ fn whole_app_flow_headless() {
     );
     // Another request to connect while the first one's master password is being checked:
     // neither key is stored (the approved one was replaced), and the newer request's own
-    // code is asked for. (An extension older than the key agreement asks: it is handed the
-    // key, with the code that follows from it.)
-    let key_of = |reply: &str| -> Vec<u8> {
-        (0..32)
-            .map(|i| u8::from_str_radix(&field(reply, "key")[2 * i..2 * i + 2], 16).unwrap())
-            .collect()
-    };
-    let first = raw(r#"{"type":"pair"}"#);
-    let second = controller.pair_again_while_checking();
-    assert!(sealed(&key_of(&first), logins_request).contains("not_paired"));
-    assert!(sealed(&key_of(&second), logins_request).contains("not_paired"));
-    assert_eq!(app.get_pairing_code(), field(&second, "code").as_str());
-    assert!(
-        !app.get_pairing_compare(),
-        "a key handed over: its code is typed"
-    );
-    assert_eq!(app.get_error_code(), 43);
+    // code is shown, said to be a new one.
+    let first = connect();
+    let second = controller.pair_again_while_checking(connect);
+    assert!(sealed(first.key.as_bytes(), logins_request).contains("not_paired"));
+    assert!(sealed(second.key.as_bytes(), logins_request).contains("not_paired"));
+    assert_eq!(app.get_pairing_code(), second.code.as_str());
+    assert_eq!(app.get_error_code(), 67);
     assert!(!app.get_browser_paired());
-    // Such a code must be the one typed, with or without the space.
-    type_into(&app, 14, PASSWORD);
-    app.invoke_pairing_decided(true);
-    assert_eq!(app.get_error_code(), 43, "no code typed");
-    app.set_pairing_typed("000 000".into());
-    if field(&second, "code") != "000 000" {
-        app.invoke_pairing_decided(true);
-        assert_eq!(app.get_error_code(), 43, "not the extension's code");
-        assert_ne!(app.get_pairing_code(), "", "the dialog stays open");
-    }
     app.invoke_pairing_decided(false);
     // A request to connect while another waits: the newer one's code is shown, and said to be
     // a new one.
@@ -846,7 +849,6 @@ fn whole_app_flow_headless() {
     app.invoke_pairing_decided(true);
     assert_eq!(app.get_error_code(), 0);
     assert_eq!(app.get_pairing_code(), "");
-    assert_eq!(app.get_pairing_typed(), "");
     assert_eq!(length(&app, 14), 0);
     assert_eq!(app.get_notice_code(), 41);
     assert!(app.get_browser_paired());
@@ -887,12 +889,18 @@ fn whole_app_flow_headless() {
         logins.contains(r#""origin":"https://github.com""#),
         "{logins}"
     );
-    // An extension older than sealed requests, with the same key: answered plain.
-    let plain = signed(&key, logins_request);
-    assert!(
-        plain.contains(r#""origin":"https://github.com""#),
-        "{plain}"
-    );
+    // The connected extension, older than this app answers (an old copy put back in its
+    // folder), or from before versions (a bare request): sealed, it hears only that, with the
+    // version this app carries (a copy in the app's folder reloads itself into it).
+    for old in [
+        format!(r#"{{"version":"0.4.6","request":{logins_request}}}"#),
+        logins_request.to_owned(),
+    ] {
+        let refused = json(sealed_as(&key, &old));
+        assert_eq!(refused["code"], "outdated_extension", "{refused}");
+        assert_eq!(refused["extension_version"], extension_version);
+        assert!(refused.get("origin").is_none());
+    }
     assert!(logins.contains(r#""title":"GitHub""#) && !logins.contains("password"));
     let id = logins
         .split(r#""id":""#)
@@ -909,7 +917,6 @@ fn whole_app_flow_headless() {
     // A page that only looks like a saved site is named with it (S21), a password a page was
     // given is compared with the other sites' here (S16), and the kit's keys are refused in
     // any page (S17). Settings turns the warnings off: nothing is compared, no lookalike named.
-    let json = |text: String| serde_json::from_str::<serde_json::Value>(&text).unwrap();
     let fake = json(ask(r#"{"type":"logins","url":"https://g1thub.com/login"}"#));
     assert_eq!(
         fake["lookalike"],
@@ -947,13 +954,7 @@ fn whole_app_flow_headless() {
     assert!(filled.contains(r#""username":""#) && filled.contains(r#""password":""#));
     assert_eq!(app.get_notice_code(), 40, "a fill is announced in the app");
     assert_eq!(app.get_notice_arg(), "GitHub");
-    // The same request sent again is refused, and so is one from another time.
-    let replayed = format!(
-        r#"{{"type":"signed","counter":{},"body":"{{}}","mac":"{}"}}"#,
-        counter.get(),
-        "00".repeat(32)
-    );
-    assert!(raw(&replayed).contains("not_paired"));
+    // The same request sent again is refused.
     counter.set(counter.get() + 1);
     let (again, _) = vault_browser::pairing::PairingKey::from_bytes(&key)
         .unwrap()

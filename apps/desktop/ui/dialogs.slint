@@ -57,11 +57,9 @@ component Modal inherits Rectangle {
 // extension was handed its key: whatever asked knows that code, so the person types the one
 // the extension's window shows and the dialog never shows it.
 export component PairingDialog inherits Modal {
-    in-out property <string> typed-code;
     in property <string> code;
     // The code's characters, one per box (the dash goes between the fourth and the fifth).
     in property <[string]> code-chars;
-    in property <bool> compare;
     in property <bool> needs-password;
     in property <bool> busy;
     in property <int> error-code;
@@ -75,14 +73,12 @@ export component PairingDialog inherits Modal {
         color: Theme.ink;
     }
     Text {
-        text: root.compare
-            ? @tr("The browser extension on this computer asks to fill logins from this vault. Connect it only if you just clicked “Connect” in the extension and its window shows this same code:")
-            : @tr("The browser extension on this computer asks to fill logins from this vault. Connect it only if you just clicked “Connect” in the extension: type the six-digit code its window shows.");
+        text: @tr("The browser extension on this computer asks to fill logins from this vault. Connect it only if you just clicked “Connect” in the extension and its window shows this same code:");
         font-size: Theme.body;
         color: Theme.graphite;
         wrap: word-wrap;
     }
-    if root.compare: Rectangle {
+    Rectangle {
         height: 64px;
         accessible-role: text;
         accessible-label: @tr("Code: {}", root.code);
@@ -121,17 +117,6 @@ export component PairingDialog inherits Modal {
                 }
             }
         }
-    }
-    if !root.compare: LineField {
-        label: @tr("Code shown by the extension");
-        icon: "pin";
-        required: true;
-        mono: true;
-        placeholder: "000 000";
-        error: root.error-code == 43;
-        text <=> root.typed-code;
-        accepted => { root.decided(true); }
-        init => { self.focus(); }
     }
     if root.needs-password: SecretField {
         field: 14;

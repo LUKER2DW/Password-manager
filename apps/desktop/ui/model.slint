@@ -258,7 +258,6 @@ export global Messages {
         if (code == 40) { return @tr("Filling while the vault is locked uses Windows Hello: turn it on in Settings → Item lock first (with a PIN or another password)."); }
         if (code == 39) { return @tr("Windows Hello no longer opens the item lock on this computer (its PIN or password was changed). Use the PIN, then turn Windows Hello on again in Settings → Item lock."); }
         if (code == 38) { return @tr("Vault couldn't find its own program file, which the browsers start for the extension, so the extension can't be connected."); }
-        if (code == 43) { return @tr("That isn't the code the extension shows. Look at the extension's window and type its six digits."); }
         if (code == 42) { return @tr("The browser extension can't reach this window: its channel is already in use, by another window of the app or by another program. Close the other window, then turn the extension setting off and on again."); }
         if (code == 37) { return @tr("Locked secrets are in the way. Open the item lock first: type its PIN or password on a locked item or on the Authenticator page, then try again."); }
 
@@ -414,6 +413,8 @@ export global Messages {
         if (code == 98) { return @tr("Vault couldn't check the browser extension's files ({}). It tries again in a few minutes; if this keeps coming back, restart the browser, then Vault.", arg); }
         if (code == 88) { return @tr("The vault key was renewed, but the vault locked before the new kit showed. Open Emergency kit and issue new recovery parts: the ones made then can't be shown again."); }
         if (code == 120) { return @tr("The Secret Key couldn't be kept on this computer just now ({}). The vault is open; if the next unlock asks for the Secret Key, type it from your emergency kit.", arg); }
+        if (code == 121) { return @tr("Vault {} has already opened this vault on this computer, and this copy is older. If you didn't go back to an older version yourself, someone may have put back an old one with a known fault: get the newest in Settings → About → Check for updates.", arg); }
+        if (code == 122) { return @tr("The browser extension is older than this Vault accepts (it needs {} or later), so Vault doesn't answer it. Settings → Browser extension → Add to a browser writes the newest one into its folder; then reload it on the browser's extensions page.", arg); }
         return "";
     }
 

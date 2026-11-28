@@ -314,9 +314,6 @@ export component AppWindow inherits Window {
     in property <string> pairing-code;
     // The code's characters, shown one per box.
     in property <[string]> pairing-code-chars;
-    // The code is compared (shown here and in the extension), not typed.
-    in property <bool> pairing-compare;
-    in-out property <string> pairing-typed;
     in property <bool> pairing-needs-password: true;
     in-out property <bool> browser-paired;
     callback pairing-decided(bool);
@@ -1329,10 +1326,8 @@ export component AppWindow inherits Window {
     if root.screen == Screen.vault && root.pairing-code != "": PairingDialog {
         width: root.width;
         height: root.height;
-        typed-code <=> root.pairing-typed;
         code: root.pairing-code;
         code-chars: root.pairing-code-chars;
-        compare: root.pairing-compare;
         needs-password: root.pairing-needs-password;
         busy: root.busy;
         error-code: root.error-code;

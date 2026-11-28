@@ -404,6 +404,21 @@ fn main() {
     app.set_confirming_delete(true);
     camera.shot("vault-delete-confirm", "Delete confirmation");
     app.set_confirming_delete(false);
+    // An older exe opened a vault a newer one opened here before; an extension below the floor.
+    app.set_notice_arg("0.4.9".into());
+    app.set_notice_code(121);
+    camera.shot(
+        "notice-older-app",
+        "A newer version opened this vault here before: someone may have put back an old one",
+    );
+    app.set_notice_arg("0.4.8".into());
+    app.set_notice_code(122);
+    camera.shot(
+        "notice-extension-outdated",
+        "The browser extension is older than this app answers: how to update it",
+    );
+    app.set_notice_code(0);
+    app.set_notice_arg("".into());
 
     // A login's passkey, made through the browser extension (the rows are set directly here:
     // a real one needs a site and the extension).
@@ -686,7 +701,6 @@ fn main() {
     app.set_extension_steps(false);
     app.set_extension_steps_firefox(false);
     // The extension asks to connect: the code both show, to compare, then the master password.
-    app.set_pairing_compare(true);
     app.set_pairing_code("74At LSYM".into());
     app.set_pairing_code_chars(slint::ModelRc::new(slint::VecModel::from(
         "74AtLSYM"
@@ -699,7 +713,6 @@ fn main() {
         "The browser extension asks to connect: compare its code, then the master password",
     );
     app.set_pairing_code("".into());
-    app.set_pairing_compare(false);
     app.set_browser_extension(false);
     app.set_settings_section(4);
     // Starting at sign-in on, so its second check shows too.
@@ -1087,14 +1100,6 @@ fn main() {
     app.invoke_cancel_edit();
     app.invoke_open_settings();
     camera.shot("settings-item-lock", "Settings with a PIN item lock");
-    app.set_pairing_code("482 913".into());
-    app.set_pairing_typed("482 913".into());
-    camera.shot(
-        "pairing-typed",
-        "An extension older than the key agreement asks to connect: type the code it shows",
-    );
-    app.set_pairing_code("".into());
-    app.set_pairing_typed("".into());
     app.invoke_open_settings();
     app.set_guard_check(0);
     app.set_guard_all(false);
