@@ -933,7 +933,17 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   Still to do (owner): publishing on the Chrome Web Store, Edge Add-ons and addons.mozilla.org
   (no browser lets a program add an off-store extension by itself on a normal Windows
   computer, and Firefox keeps only signed add-ons past a restart), then the store's own
-  updates; an installer; the desktop app replacing itself.
+  updates; an installer.
+  Done too: the desktop app replacing itself (`vault_platform::self_update`): a newer release
+  found by the hourly look (or Check for updates) downloads its `vault-desktop.exe` in the
+  background, checks it against the signed manifest (size and SHA-256), renames the running
+  program aside and puts the new one in its place, with a rollback; the title bar's update
+  button and Settings → About show each step (manifest, download with MB and %, SHA-256,
+  install) and what failed; then "Version X is installed. Restart now?" (Restart locks the
+  vault, starts the new program, which waits for this one to end, and quits; Later leaves it
+  to the next start). Settings → About → "Install updates by itself" (on by default); off, the
+  version is only told and Install now does the same. A folder that can't be written is told
+  and the release page opens.
 - ⬜ F13. Sharing and emergency access (a written design first, `docs/spec/SHARING.md`).
 - ⬜ F14. Passkey provider for Windows 11.
 - ⬜ F15. Linux, macOS, and the CLI level with the apps.

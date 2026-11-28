@@ -138,7 +138,9 @@ type for this user on Windows (icon, opens in the app; `file_types.rs`), startin
 (`process.rs`: DLLs from System32 only), file helpers and
 secure wiping (`files.rs`), app paths (`paths.rs`), the apps' updates from GitHub's releases
 (`updates.rs`: the release list, taken only with its manifest signed, and the phone's package
-and the extension's zip checked against that manifest), sync targets and one sync
+and the extension's zip checked against that manifest; `self_update.rs`: the desktop app's
+program downloaded, checked against that manifest and swapped in place of the running one,
+undone if that fails), sync targets and one sync
 round (`sync.rs`: the folder target, fetch, merge, this device joining the vault;
 `sync/server.rs` the sync server client, `sync/webdav.rs` WebDAV, `sync/http.rs` which
 addresses are allowed). The server key and the WebDAV password live in the credential store
@@ -222,7 +224,8 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/watch.rs` | The leak watch: every login checked once a day while open, new leaks told and shown on Password health |
 | `src/controller/passwords.rs` | A new password's review: the one-factor floor's warnings, the breach check of a new master password, the protected export's refusal (`ui/review.slint`) |
 | `src/controller/attempts.rs` | Unlock attempts: counted in the device state, the wait enforced and counted down, told once at the next unlock |
-| `src/controller/updates.rs` | Updates: GitHub's newest release, looked for every hour (Settings → About → Look for updates by itself) and on Check for updates; a notice tells of a newer one |
+| `src/controller/updates.rs` | Updates: GitHub's newest release, looked for every hour (Settings → About → Look for updates by itself) and on Check for updates; a newer one installs itself (Install updates by itself, or Install now: `vault_platform::self_update`), each step shown in the title bar and About, then Restart now or Later |
+| `src/controller/toolbar.rs` | The title bar's toolbar: the sidebar hidden or shown (device setting), search from anywhere (Ctrl+F), the vault's name and its icon on this computer (device state) |
 | `src/tray.rs` | The notification area icon (tray mode) and its menu window (`ui/tray.slint`) |
 | `src/i18n.rs` | The app's language: picks a compiled-in catalogue from `translations/` |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |

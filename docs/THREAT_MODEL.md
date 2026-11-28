@@ -773,8 +773,20 @@ On top of that:
    release counts only with its manifest signed by one of the two manifest keys the apps carry
    (CRYPTO.md §9): no newer version is told or offered without it, and none that isn't newer
    than the one installed (a desktop app that told of a version never goes back to an older
-   one). The desktop app downloads nothing but the browser extension's zip; the person
-   replaces the program. The phone takes a package from GitHub only from github.com and its
+   one). The desktop app takes its own program and the browser extension's zip, each only
+   from github.com and its file store over HTTPS, at most the size the signed manifest lists
+   and only when its SHA-256 is the one listed there (checked while it comes and again on disk,
+   before it is used). With "Install updates by itself" on (the default), the newer program
+   then replaces the running one by itself: written next to it, the running one renamed aside
+   and the new one put in its place, undone if that fails, so shortcuts, the start at sign-in
+   and the browser extension's native host start the new one. It runs only when the person
+   restarts (the vault locks first). What protects this: the manifest's signature, made in the
+   release workflow only after the maintainer approves that run (the signing environment's
+   required reviewer), with a backup key that never leaves the maintainer's computer
+   (docs/CODE_SIGNING.md); and GitHub's immutable releases (on), so a published release's
+   files can't be swapped afterwards. Someone who can write to the program's folder could
+   already replace the program; a folder the app can't write in (Program Files) is told, and
+   the release page opens instead. The phone takes a package from GitHub only from github.com and its
    file store over HTTPS, only when its size and SHA-256 match what the signed manifest lists,
    and checks it is this app, newer and signed with the same certificate before Android asks
    to install it; it may take its updates from its sync server instead. A sync server follows

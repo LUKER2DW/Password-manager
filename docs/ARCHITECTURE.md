@@ -191,7 +191,17 @@ Full design: [spec/SYNC.md](spec/SYNC.md). In short:
   computer. The manifest's version, its signed comment and the release's tag must agree, and a
   version not newer than the one installed is never offered.
 - A file is taken only as the manifest lists it (size and SHA-256): the phone's package, the
-  browser extension's zip the desktop app keeps. A sync server keeps the manifest and its
+  browser extension's zip the desktop app keeps, and the desktop app's own program
+  (`vault-desktop.exe`).
+- The desktop app replaces itself (`vault_platform::self_update`, `controller/updates.rs`):
+  the release read again and its manifest checked again, the program downloaded into
+  `vault-desktop.exe.download` next to the running one (same folder, same volume) with its size
+  capped and its SHA-256 checked as it comes and again on disk, then the running program
+  renamed to `vault-desktop.exe.old` and the new one renamed into its place (the first rename
+  undone if the second fails). The next start deletes what is left. Restart locks the vault,
+  starts the new program with `--after-update <pid>`, which waits for this one to end before
+  it claims the single running copy (`single_instance`), and quits. Never a version that isn't
+  newer; development builds don't install by themselves. A sync server keeps the manifest and its
   signature beside the phone app it hands on, and the phone checks them itself.
 - `tools/release` (`vault-release`) writes the manifest, signs it and checks it the apps' way,
   in the release workflow; `tools/release/make-manifest-keys.ps1` makes the keys
