@@ -312,6 +312,8 @@ impl Controller {
         if index < 0 {
             let (name, bytes) = self.state.borrow_mut().export_pending.take()?;
             self.state.borrow_mut().file_expected = Some(super::fingerprint(&bytes));
+            let format = name.rsplit_once('.').map_or("", |(_, extension)| extension);
+            self.log_event(super::security::kind::EXPORTED, "", "", format);
             return Some((name, bytes.to_vec()));
         }
         let item = self.selected_item()?;

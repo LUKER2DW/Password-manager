@@ -528,7 +528,21 @@ fn main() {
     app.set_ask_each_use(true);
     app.set_ask_each_use_state(0);
     app.set_settings_section(0);
-    tall(&mut camera, 1.9);
+    let line =
+        |kind, at: &str, site: &str, title: &str, detail: &str| vault_mobile::ui::SecurityLine {
+            kind,
+            at: at.into(),
+            site: site.into(),
+            title: title.into(),
+            detail: detail.into(),
+        };
+    app.set_security_log(slint::ModelRc::new(slint::VecModel::from(vec![
+        line(16, "2026-11-27 21:14", "github.com", "GitHub", "login"),
+        line(2, "2026-11-27 21:12", "", "", "password"),
+        line(1, "2026-11-27 08:03", "", "", "device"),
+    ])));
+    app.set_security_log_more(4);
+    tall(&mut camera, 2.35);
     camera.shot(
         "settings-security",
         "Security: fingerprint, every use asks, locking, screenshots, clipboard",
@@ -635,18 +649,23 @@ fn main() {
             added: "2026-11-20".into(),
             own: true,
             away: false,
+            ..Default::default()
         },
         vault_mobile::ui::DeviceRow {
             name: "Desktop".into(),
             added: "2026-11-02".into(),
             own: false,
             away: false,
+            problem: "this copy is older than one already seen from that device".into(),
+            problem_at: "2026-11-27 09:42".into(),
+            refused: true,
         },
         vault_mobile::ui::DeviceRow {
             name: "Laptop".into(),
             added: "2026-11-12".into(),
             own: false,
             away: true,
+            ..Default::default()
         },
     ])));
     app.set_sync_pinned(true);

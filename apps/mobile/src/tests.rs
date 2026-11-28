@@ -4109,3 +4109,34 @@ fn an_easy_new_master_password_is_warned_about_and_a_weak_export_refused() {
     app.invoke_export_vault(0);
     assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
 }
+
+#[test]
+fn the_security_log_keeps_unlocks_and_wrong_passwords_and_clears() {
+    let phone = Phone::open(|_, _| {});
+    let kinds = |phone: &Phone| -> Vec<i32> {
+        phone
+            .app
+            .get_security_log()
+            .iter()
+            .map(|line| line.kind)
+            .collect()
+    };
+    assert_eq!(kinds(&phone), [1], "the first unlock");
+    assert_eq!(
+        phone.app.get_security_log().row_data(0).unwrap().detail,
+        "password"
+    );
+    phone.app.invoke_lock_now();
+    type_secret(&phone.app, 0, "not the password");
+    phone.app.invoke_unlock();
+    assert_eq!(phone.app.get_error_code(), 1);
+    phone.unlock(PASSWORD);
+    assert_eq!(kinds(&phone), [1, 2, 1], "newest first");
+    // Sealed next to the vault: nothing of it reads without the vault.
+    let file = phone
+        .path
+        .with_file_name(format!("security-log-{}.bin", phone.vault_id));
+    assert!(file.exists());
+    phone.app.invoke_security_log_clear();
+    assert_eq!(kinds(&phone), [13]);
+}

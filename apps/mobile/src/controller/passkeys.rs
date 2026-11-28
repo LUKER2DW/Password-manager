@@ -33,9 +33,26 @@ impl Controller {
         request: &str,
         sent_hash: Option<&[u8]>,
     ) -> Option<Zeroizing<String>> {
-        let state = self.state.borrow();
-        let vault = state.vault.as_ref()?;
-        passkeys::assertion(vault, caller, item, credential, request, sent_hash)
+        let (signed, title) = {
+            let state = self.state.borrow();
+            let vault = state.vault.as_ref()?;
+            let signed = passkeys::assertion(vault, caller, item, credential, request, sent_hash)?;
+            let title = vault
+                .summaries()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|s| s.id.to_hex() == item)
+                .map(|s| s.title.clone())
+                .unwrap_or_default();
+            (signed, title)
+        };
+        self.log_event(
+            super::security::kind::PASSKEY_USED,
+            &caller.origin(),
+            &title,
+            super::security::gave::PASSKEY,
+        );
+        Some(signed)
     }
 
     /// Makes a passkey in the open vault and saves the vault (and syncs it), once the person

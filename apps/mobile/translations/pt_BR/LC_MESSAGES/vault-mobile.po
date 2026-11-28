@@ -1955,10 +1955,6 @@ msgid "The master password, keyfile or Recovery Key was changed on another devic
 msgstr "A senha mestra, o arquivo de chave ou a chave de recuperação foi alterado em outro aparelho. Use esse na próxima vez que destrancar."
 
 msgctxt "Messages"
-msgid "A copy in the sync folder was not used: {}. It may be an older copy put back, or come from a device that was removed."
-msgstr "Uma cópia na pasta de sincronização não foi usada: {}. Pode ser uma cópia antiga recolocada, ou vir de um aparelho que foi removido."
-
-msgctxt "Messages"
 msgid "This computer joined the server. The vault syncs through it from now on."
 msgstr "Este computador entrou no servidor. A partir de agora, o cofre sincroniza por ele."
 
@@ -3868,4 +3864,234 @@ msgctxt "Messages"
 msgid "other details"
 msgstr "outros detalhes"
 
+msgid "Clear the security log?"
+msgstr "Apagar o registro de segurança?"
+
+msgctxt "Words"
+msgid "Every line goes, and one line says when it was cleared. This can't be undone."
+msgstr "Todas as linhas saem, e uma linha diz quando foi apagado. Isso não pode ser desfeito."
+
+msgctxt "Words"
+msgid "A copy from a device not in this vault's list was not used. It may be an older copy put back, or come from a device that was removed."
+msgstr "Uma cópia de um aparelho que não está na lista deste cofre não foi usada. Pode ser uma cópia antiga recolocada, ou vir de um aparelho que foi removido."
+
+msgctxt "Words"
+msgid "The copy from {} was not used. It may be an older copy put back, or come from a device that was removed. Settings, Sync says why."
+msgstr "A cópia de {} não foi usada. Pode ser uma cópia antiga recolocada, ou vir de um aparelho que foi removido. Configurações, Sincronização diz por quê."
+
+msgctxt "Words"
+msgid "A copy from a device not in this vault's list couldn't be read."
+msgstr "Uma cópia de um aparelho que não está na lista deste cofre não pôde ser lida."
+
+msgctxt "Words"
+msgid "The copy from {} couldn't be read. Settings, Sync says why."
+msgstr "A cópia de {} não pôde ser lida. Configurações, Sincronização diz por quê."
+
+msgctxt "PhoneWindow"
+msgid "Security log"
+msgstr "Registro de segurança"
+
+msgctxt "PhoneWindow"
+msgid "What was done with this vault on this phone, newest first. Kept on this phone only, encrypted so that only the open vault reads it; no password is in it. Look here for anything you didn't do."
+msgstr "O que foi feito com este cofre neste celular, do mais novo ao mais antigo. Guardado só neste celular, criptografado para que só o cofre aberto o leia; não há nenhuma senha nele. Procure aqui algo que você não fez."
+
+msgctxt "PhoneWindow"
+msgid "Nothing yet"
+msgstr "Nada ainda"
+
+msgctxt "PhoneWindow"
+msgid "Show older ({})"
+msgstr "Mostrar mais antigos ({})"
+
+msgctxt "PhoneWindow"
+msgid "Clear the log"
+msgstr "Apagar o registro"
+
+msgctxt "PhoneWindow"
+msgid "Its copy wasn't used (found {}): {}"
+msgstr "A cópia dele não foi usada (visto em {}): {}"
+
+msgctxt "PhoneWindow"
+msgid "Its copy couldn't be read (found {}): {}"
+msgstr "A cópia dele não pôde ser lida (visto em {}): {}"
+
+msgctxt "Messages"
+msgid "Master password"
+msgstr "Senha mestra"
+
+msgctxt "Messages"
+msgid "Vault switched to a desktop of its own, where other programs can't see the keys you type or the screen. Type your master password. Your desktop comes back right after."
+msgstr "O Vault mudou para uma área de trabalho só dele, onde outros programas não veem as teclas que você digita nem a tela. Digite sua senha mestra. Sua área de trabalho volta logo em seguida."
+
+msgctxt "Messages"
+msgid "Enter unlocks · Esc goes back without unlocking · after 2 minutes it goes back by itself"
+msgstr "Enter destranca · Esc volta sem destrancar · depois de 2 minutos volta sozinho"
+
+msgctxt "Messages"
+msgid "An entry that couldn't be read: it was altered, or written with another key"
+msgstr "Um registro que não pôde ser lido: foi alterado, ou escrito com outra chave"
+
+msgctxt "Messages"
+msgid "Unlocked without the master password (Windows Hello or fingerprint)"
+msgstr "Destrancado sem a senha mestra (Windows Hello ou digital)"
+
+msgctxt "Messages"
+msgid "Unlocked with the emergency kit's recovery parts, and a new master password set"
+msgstr "Destrancado com as partes de recuperação do kit de emergência, e uma nova senha mestra definida"
+
+msgctxt "Messages"
+msgid "Unlocked with the master password"
+msgstr "Destrancado com a senha mestra"
+
+msgctxt "Messages"
+msgid "An unlock without the master password failed"
+msgstr "Uma tentativa de destrancar sem a senha mestra falhou"
+
+msgctxt "Messages"
+msgid "Recovery with the emergency kit failed: wrong parts"
+msgstr "A recuperação com o kit de emergência falhou: partes erradas"
+
+msgctxt "Messages"
+msgid "A wrong master password was typed"
+msgstr "Uma senha mestra errada foi digitada"
+
+msgctxt "Messages"
+msgid "The browser extension filled a login"
+msgstr "A extensão do navegador preencheu um login"
+
+msgctxt "Messages"
+msgid "The browser extension had a password copied"
+msgstr "A extensão do navegador pediu para copiar uma senha"
+
+msgctxt "Messages"
+msgid "The browser extension had a username copied"
+msgstr "A extensão do navegador pediu para copiar um nome de usuário"
+
+msgctxt "Messages"
+msgid "The browser extension was given a one-time code"
+msgstr "A extensão do navegador recebeu um código de uso único"
+
+msgctxt "Messages"
+msgid "The browser extension signed in with a passkey"
+msgstr "A extensão do navegador entrou com uma chave de acesso"
+
+msgctxt "Messages"
+msgid "The browser extension showed a password in its window"
+msgstr "A extensão do navegador mostrou uma senha na janela dela"
+
+msgctxt "Messages"
+msgid "The browser extension was given an item's details"
+msgstr "A extensão do navegador recebeu os dados de um item"
+
+msgctxt "Messages"
+msgid "The browser extension changed a login's password"
+msgstr "A extensão do navegador mudou a senha de um login"
+
+msgctxt "Messages"
+msgid "The browser extension saved a passkey"
+msgstr "A extensão do navegador salvou uma chave de acesso"
+
+msgctxt "Messages"
+msgid "The browser extension saved a login"
+msgstr "A extensão do navegador salvou um login"
+
+msgctxt "Messages"
+msgid "The browser extension was given a one-time code while the vault was locked"
+msgstr "A extensão do navegador recebeu um código de uso único com o cofre trancado"
+
+msgctxt "Messages"
+msgid "The browser extension had a password copied while the vault was locked"
+msgstr "A extensão do navegador pediu para copiar uma senha com o cofre trancado"
+
+msgctxt "Messages"
+msgid "The browser extension filled a login while the vault was locked"
+msgstr "A extensão do navegador preencheu um login com o cofre trancado"
+
+msgctxt "Messages"
+msgid "The vault was exported ({})"
+msgstr "O cofre foi exportado ({})"
+
+msgctxt "Messages"
+msgid "The emergency kit was shown"
+msgstr "O kit de emergência foi mostrado"
+
+msgctxt "Messages"
+msgid "The emergency kit was saved as a file"
+msgstr "O kit de emergência foi salvo como arquivo"
+
+msgctxt "Messages"
+msgid "The emergency kit was printed"
+msgstr "O kit de emergência foi impresso"
+
+msgctxt "Messages"
+msgid "A device joined the sync: {}"
+msgstr "Um aparelho entrou na sincronização: {}"
+
+msgctxt "Messages"
+msgid "A device was removed from the sync: {}"
+msgstr "Um aparelho foi removido da sincronização: {}"
+
+msgctxt "Messages"
+msgid "The vault key renewed on another device was taken here"
+msgstr "A chave do cofre renovada em outro aparelho passou a ser usada aqui"
+
+msgctxt "Messages"
+msgid "The vault key was renewed"
+msgstr "A chave do cofre foi renovada"
+
+msgctxt "Messages"
+msgid "The log was cleared: what came before is gone"
+msgstr "O registro foi apagado: o que havia antes não existe mais"
+
+msgctxt "Messages"
+msgid "The log started again: its key had been replaced, so what was written to it since couldn't be read"
+msgstr "O registro recomeçou: a chave dele tinha sido trocada, então o que foi escrito nele desde então não pôde ser lido"
+
+msgctxt "Messages"
+msgid "The log started again: the one before couldn't be read"
+msgstr "O registro recomeçou: o anterior não pôde ser lido"
+
+msgctxt "Messages"
+msgid "The master password was changed"
+msgstr "A senha mestra foi trocada"
+
+msgctxt "Messages"
+msgid "Autofill filled a password"
+msgstr "O preenchimento automático preencheu uma senha"
+
+msgctxt "Messages"
+msgid "Autofill filled a login"
+msgstr "O preenchimento automático preencheu um login"
+
+msgctxt "Messages"
+msgid "A passkey signed in"
+msgstr "Uma chave de acesso foi usada para entrar"
+
+msgctxt "Messages"
+msgid "Something this version of the app doesn't know"
+msgstr "Algo que esta versão do app não conhece"
+
+msgctxt "Messages"
+msgid "{} on {}"
+msgstr "{} em {}"
+
+msgctxt "Messages"
+msgid "The secure desktop couldn't be shown ({}). Type the master password in the field instead."
+msgstr "A área de trabalho segura não pôde ser mostrada ({}). Digite a senha mestra no campo."
+
+msgctxt "Messages"
+msgid "A copy from a device not in this vault's list was not used. It may be an older copy put back, or come from a device that was removed."
+msgstr "Uma cópia de um aparelho que não está na lista deste cofre não foi usada. Pode ser uma cópia antiga recolocada, ou vir de um aparelho que foi removido."
+
+msgctxt "Messages"
+msgid "The copy from {} was not used. It may be an older copy put back, or come from a device that was removed. Settings → Sync says why."
+msgstr "A cópia de {} não foi usada. Pode ser uma cópia antiga recolocada, ou vir de um aparelho que foi removido. Configurações → Sincronização diz por quê."
+
+msgctxt "Messages"
+msgid "A copy from a device not in this vault's list couldn't be read."
+msgstr "Uma cópia de um aparelho que não está na lista deste cofre não pôde ser lida."
+
+msgctxt "Messages"
+msgid "The copy from {} couldn't be read. Settings → Sync says why."
+msgstr "A cópia de {} não pôde ser lida. Configurações → Sincronização diz por quê."
 

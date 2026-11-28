@@ -10,9 +10,9 @@ import "../../desktop/ui/fonts/JetBrainsMono-SemiBold.ttf";
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Slider, Choice, ItemIcon, MarkStroke, Logo, Rule, Backdrop } from "../../desktop/ui/widgets.slint";
 import { Glyph, FolderLook, FieldColors, BrandMark, IconLook } from "../../desktop/ui/icons.slint";
 import { StrengthMeter } from "../../desktop/ui/strength.slint";
-import { ExportCounts, Messages } from "../../desktop/ui/model.slint";
+import { ExportCounts, Messages, SecurityLine } from "../../desktop/ui/model.slint";
 
-export { Theme, Sketch, Secrets }
+export { Theme, Sketch, Secrets, SecurityLine }
 
 // The phone opens a vault made on the computer; it never makes one.
 export enum Screen { start, unlock, vault, recover }
@@ -115,6 +115,11 @@ export struct DeviceRow {
     // In the vault's list, but without a copy where it syncs now (another server, or not
     // joined here yet).
     away: bool,
+    // Its copy couldn't be used (SYNC.md §8): why, and when that was found ("" when it could).
+    problem: string,
+    problem-at: string,
+    // Read but refused (otherwise it couldn't be read).
+    refused: bool,
 }
 
 // One line of the Codes place.
@@ -218,6 +223,7 @@ export global Words {
         if (kind == 12) { return @tr("Change the master password"); }
         if (kind == 13) { return @tr("“{}” is locked", arg); }
         if (kind == 14) { return @tr("Clear the list?"); }
+        if (kind == 22) { return @tr("Clear the security log?"); }
         if (kind == 15) { return @tr("Delete this password from the list?"); }
         if (kind == 16) { return @tr("Add a device to this vault?"); }
         if (kind == 17) { return @tr("The key has a passphrase"); }
@@ -240,6 +246,7 @@ export global Words {
         if (kind == 11) { return @tr("The file is protected. Type the password it was saved with; it is used only to read the file."); }
         if (kind == 12) { return @tr("The Secret Key and your emergency kit stay the same. Devices that sync this vault ask for the new password at their next unlock."); }
         if (kind == 14) { return @tr("Every password copied or used from the generator leaves this phone's list. This can't be undone."); }
+        if (kind == 22) { return @tr("Every line goes, and one line says when it was cleared. This can't be undone."); }
         if (kind == 15) { return @tr("It leaves this phone's list. A login that uses it keeps it."); }
         if (kind == 16) { return @tr("Your vault server makes a one-time invite and this phone shows it as a QR code, for an hour. The other device still needs your master password and Secret Key."); }
         if (kind == 17) { return @tr("Type it once to open the key. The vault keeps the key without it: the vault itself protects it, and the copy you take out works without a passphrase."); }
@@ -263,6 +270,7 @@ export global Words {
         if (kind == 12) { return @tr("Change password"); }
         if (kind == 13) { return @tr("Show the secrets"); }
         if (kind == 14) { return @tr("Clear"); }
+        if (kind == 22) { return @tr("Clear"); }
         if (kind == 15) { return @tr("Delete"); }
         if (kind == 16) { return @tr("Show the invite"); }
         if (kind == 17) { return @tr("Open the key"); }
@@ -343,6 +351,10 @@ export global Words {
         if (code == 29) { return @tr("This phone's copy of “{}” was removed after 10 failed tries to unlock it. The vault is still on your other devices and your sync server: join again with an invite to use it here.", arg); }
         if (code == 30) { return @tr("“{}” is in the trash: deleted for good after 30 days. The Trash filter brings it back.", arg); }
         if (code == 31) { return @tr("“{}” is back from the trash.", arg); }
+        if (code == 32 && arg == "") { return @tr("A copy from a device not in this vault's list was not used. It may be an older copy put back, or come from a device that was removed."); }
+        if (code == 32) { return @tr("The copy from {} was not used. It may be an older copy put back, or come from a device that was removed. Settings, Sync says why.", arg); }
+        if (code == 33 && arg == "") { return @tr("A copy from a device not in this vault's list couldn't be read."); }
+        if (code == 33) { return @tr("The copy from {} couldn't be read. Settings, Sync says why.", arg); }
         if (code == 40) { return @tr("Only the first {} pages are shown: the rest would take too much of the phone's memory. Save the file to see all of it.", arg); }
         if (code == 41) { return @tr("This PDF's pages are too large to show here. Save the file to see it."); }
         return "";
@@ -2335,6 +2347,12 @@ export component PhoneWindow inherits Window {
     in property <string> sync-total;
     in property <string> sync-own;
     in property <[DeviceRow]> sync-devices;
+    // Settings, Security: the security log, newest first, and how many older lines aren't
+    // shown yet.
+    in property <[SecurityLine]> security-log;
+    in property <int> security-log-more;
+    callback security-log-show-more();
+    callback security-log-clear();
     in-out property <int> sync-removing: -1;
     in-out property <bool> sync-explained;
     callback sync-remove-device(int);
@@ -2434,6 +2452,7 @@ export component PhoneWindow inherits Window {
         if ((kind >= 1 && kind <= 4) || kind == 16 || kind == 21) { root.check-master(kind); }
         if (kind == 5) { root.delete-item(); }
         if (kind == 14) { root.gen-history-clear(); }
+        if (kind == 22) { root.security-log-clear(); }
         if (kind == 15) {
             root.gen-history-delete(root.gen-deleting);
             root.gen-deleting = -1;
@@ -4217,6 +4236,37 @@ export component PhoneWindow inherits Window {
                                                 clicked => { root.ask(12); }
                                             }
                                         }
+                                        Section {
+                                            title: @tr("Security log");
+                                            note: @tr("What was done with this vault on this phone, newest first. Kept on this phone only, encrypted so that only the open vault reads it; no password is in it. Look here for anything you didn't do.");
+                                            if root.security-log.length == 0: SetRow {
+                                                icon: "history";
+                                                text: @tr("Nothing yet");
+                                            }
+                                            for line[index] in root.security-log: VerticalLayout {
+                                                if index > 0: RowRule { }
+                                                SetRow {
+                                                    icon: "history";
+                                                    text: Messages.security-event(line.kind, line.detail);
+                                                    detail: line.site != "" || line.title != "" ? line.at + " · " + Messages.security-where(line.site, line.title) : line.at;
+                                                    danger: line.kind == 0 || line.kind == 2 || line.kind == 14;
+                                                }
+                                            }
+                                            if root.security-log-more > 0: RowRule { }
+                                            if root.security-log-more > 0: SetRow {
+                                                icon: "history";
+                                                text: @tr("Show older ({})", root.security-log-more);
+                                                chevron: true;
+                                                clicked => { root.security-log-show-more(); }
+                                            }
+                                            RowRule { }
+                                            SetRow {
+                                                icon: "trash";
+                                                text: @tr("Clear the log");
+                                                danger: true;
+                                                clicked => { root.ask(22); }
+                                            }
+                                        }
                                 }
                             }
 
@@ -4796,7 +4846,11 @@ export component PhoneWindow inherits Window {
                                                     SetRow {
                                                         icon: "phone";
                                                         text: device.name;
-                                                        detail: device.own ? @tr("This phone, since {}", device.added) : device.away ? @tr("No copy here yet: it synced somewhere else") : @tr("Since {}", device.added);
+                                                        detail: device.own ? @tr("This phone, since {}", device.added)
+                                                            : device.problem != "" && device.refused ? @tr("Its copy wasn't used (found {}): {}", device.problem-at, device.problem)
+                                                            : device.problem != "" ? @tr("Its copy couldn't be read (found {}): {}", device.problem-at, device.problem)
+                                                            : device.away ? @tr("No copy here yet: it synced somewhere else") : @tr("Since {}", device.added);
+                                                        danger: device.problem != "";
                                                         value: device.own ? "" : @tr("Remove");
                                                         clicked => {
                                                             if (!device.own) {
@@ -6552,7 +6606,7 @@ export component PhoneWindow inherits Window {
                 + (root.export-notes == "" ? "" : "\n\n" + root.export-notes)
                 + (root.export-notes != "" && root.export-recounted ? "\n\n" + @tr("This was counted again because the vault changed. Tap Export again to make the file.") : "");
         action: root.confirming == 20 ? @tr("Confirm") : Words.confirm-action(root.confirming);
-        danger: root.confirming <= 5 || root.confirming == 9 || root.confirming == 14 || root.confirming == 15;
+        danger: root.confirming <= 5 || root.confirming == 9 || root.confirming == 14 || root.confirming == 15 || root.confirming == 22;
         fields: root.sheet-fields;
         read-first: root.confirming >= 6 && root.confirming <= 8;
         asks-leak-check: root.confirming == 12;

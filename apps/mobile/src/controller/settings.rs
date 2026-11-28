@@ -696,6 +696,7 @@ impl Controller {
         self.lock();
         files::remove(&path);
         files::remove(&bak(&path));
+        self.remove_security_log(&id);
         let file = self.current_file();
         self.change_prefs(|prefs| {
             prefs.vaults.retain(|v| v.file != file);

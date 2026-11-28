@@ -231,6 +231,8 @@ mod native {
         renewed_told: bool,
         /// Devices whose copies are still sealed under a key this phone took.
         behind: Vec<DeviceId>,
+        /// Copies the rounds couldn't use (refused or unreadable), named in Settings, Sync.
+        problems: sync::CopyProblems,
     }
 
     impl SyncStatus {
@@ -412,7 +414,9 @@ mod native {
             self.sync_every.stop();
             self.sync_soon.stop();
             self.stop_watch();
-            self.state.borrow_mut().sync.tags = KnownTags::default();
+            let mut state = self.state.borrow_mut();
+            state.sync.tags = KnownTags::default();
+            state.sync.problems.clear();
         }
 
         fn stop_watch(&self) {
@@ -745,16 +749,19 @@ mod native {
                     state.sync.sizes.insert(*device, bytes.len());
                 }
             }
-            let (round, joined) = {
+            let (round, joined, before) = {
                 let mut state = self.state.borrow_mut();
                 let vault = state.vault.as_mut().expect("checked above");
+                let before = vault.sync_devices().to_vec();
                 let joined = sync::join(vault, place.device, DEVICE_NAME).unwrap_or(false)
                     | sync::retire(vault, &place.retired);
                 (
                     sync::merge_reading(vault, &reading, &mut place.place.seen),
                     joined,
+                    before,
                 )
             };
+            self.log_device_changes(&before);
             if round.removed_here {
                 // Removed, not barred: the phone takes a new id for this vault and can join
                 // again with a new invite, as a new device.
@@ -825,8 +832,35 @@ mod native {
                 .iter()
                 .map(|r| r.added + r.updated + r.removed)
                 .sum();
+            // Copies that couldn't be used, each said once (SYNC.md §8; those under another
+            // vault key or waiting for the item lock are said apart), named in Settings, Sync.
+            let problem = {
+                let mut state = self.state.borrow_mut();
+                let new = state.sync.problems.note(&reading, &round, unix_now());
+                new.into_iter().next().map(|p| {
+                    let name = state
+                        .vault
+                        .as_ref()
+                        .and_then(|v| {
+                            v.sync_devices()
+                                .iter()
+                                .find(|d| d.id == p.device)
+                                .map(|d| d.name.clone())
+                        })
+                        .unwrap_or_default();
+                    (p.refused, name)
+                })
+            };
             if tell_renewed {
                 self.notify(notice::SYNC_KEY_RENEWED, "");
+                self.show_sync();
+            } else if let Some((refused, name)) = problem {
+                let code = if refused {
+                    notice::SYNC_REFUSED
+                } else {
+                    notice::SYNC_UNREADABLE
+                };
+                self.notify(code, &name);
                 self.show_sync();
             } else if came > 0 {
                 self.notify(notice::SYNCED, &came.to_string());
@@ -1500,6 +1534,7 @@ mod native {
                 return;
             }
             self.state.borrow_mut().sync.sizes.remove(&id);
+            self.log_event(super::super::security::kind::DEVICE_REMOVED, "", "", &name);
             self.notify(super::super::notice::DEVICE_REMOVED, &name);
             if let Some(place) = self.sync_place() {
                 let job = move || {
@@ -1528,9 +1563,20 @@ mod native {
                 // This phone first, then the others as they joined.
                 devices.sort_by_key(|d| (d.id != own, d.added_at));
                 let here = state.sync.here.as_ref();
+                let offset = self.system().utc_offset_minutes();
+                let problems = &state.sync.problems;
                 let rows: Vec<DeviceRow> = devices
                     .iter()
                     .map(|d| DeviceRow {
+                        problem: problems
+                            .of(d.id)
+                            .map(|p| p.why.as_str().into())
+                            .unwrap_or_default(),
+                        problem_at: problems
+                            .of(d.id)
+                            .map(|p| view::date_time(p.at, offset).into())
+                            .unwrap_or_default(),
+                        refused: problems.of(d.id).is_some_and(|p| p.refused),
                         name: d.name.as_str().into(),
                         added: view::date(d.added_at).into(),
                         own: d.id == own,
@@ -1716,7 +1762,9 @@ mod native {
                 let _ = state.save();
             }
             let bio = self.reseal_after_new_key(&former);
+            self.reseal_security_log(&former);
             drop(former);
+            self.log_event(super::super::security::kind::KEY_RENEWED, "", "", "taken");
             self.clear_fields(&[field::SECRET_KEY, field::EXPORT_MASTER]);
             self.close_sheet(sheet::TAKE_KEY);
             // The copies refused until now are read again, under the new key; what that

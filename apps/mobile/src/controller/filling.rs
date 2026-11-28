@@ -19,9 +19,18 @@ impl Controller {
 
     /// One login of the open vault by its id, only while it still belongs to `to`.
     pub fn autofill_login(&self, id: &str, to: &Recipient) -> Option<Login> {
-        let state = self.state.borrow();
-        let vault = state.vault.as_ref()?;
-        autofill::login_by_id(vault, id, to)
+        let login = {
+            let state = self.state.borrow();
+            let vault = state.vault.as_ref()?;
+            autofill::login_by_id(vault, id, to)?
+        };
+        self.log_event(
+            super::security::kind::AUTOFILL_GAVE,
+            to.name(),
+            &login.title,
+            super::security::gave::LOGIN,
+        );
+        Some(login)
     }
 
     /// "Save to Vault?" from another app, with the vault open: the login is added (or its

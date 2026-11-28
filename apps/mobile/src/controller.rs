@@ -217,6 +217,7 @@ mod icons;
 mod passkeys;
 mod passwords;
 mod preview;
+mod security;
 mod settings;
 mod syncing;
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -275,6 +276,10 @@ mod notice {
     /// Format v11: an item went to the trash, or came back from it.
     pub const TRASHED: i32 = 30;
     pub const RESTORED: i32 = 31;
+    /// Another device's copy was refused (arg: its name, empty when not in the list).
+    pub const SYNC_REFUSED: i32 = 32;
+    /// Another device's copy couldn't be read (arg: its name, empty when not in the list).
+    pub const SYNC_UNREADABLE: i32 = 33;
 }
 
 /// How long a copied secret may stay on the clipboard (Settings), in seconds.
@@ -489,6 +494,10 @@ type HeldJob = Box<dyn FnOnce(&Controller)>;
 struct State {
     /// Slow work (password hashing) runs inline: headless tests and screenshots.
     inline: bool,
+    /// How many lines of the security log Settings shows (more with "Show older").
+    security_log_shown: usize,
+    /// How the unlock under way is made, when not as `Opened::by_password` says (a recovery).
+    unlock_how: Option<&'static str>,
     /// The phone's copy of the vault file.
     path: PathBuf,
     /// A vault file the person chose, waiting to prove itself before it replaces the copy.
@@ -674,6 +683,8 @@ impl Controller {
             icons: RefCell::default(),
             state: RefCell::new(State {
                 inline,
+                security_log_shown: 0,
+                unlock_how: None,
                 prefs: prefs.clone(),
                 path,
                 incoming: None,
@@ -987,6 +998,8 @@ impl Controller {
         on!(on_gen_history_delete, |c, index| c
             .delete_generated_entry(index));
         on!(on_gen_history_clear, |c| c.clear_generated());
+        on!(on_security_log_show_more, |c| c.security_log_more());
+        on!(on_security_log_clear, |c| c.clear_security_log());
         on!(on_import_retry, |c| c.import_retry());
         on!(on_use_checked, |c| c.use_lock_checked());
         on!(on_ask_each_use_changed, |c, on| c.ask_each_use_changed(on));
@@ -1751,7 +1764,12 @@ impl Controller {
     fn recovered(&self, result: Result<Recovered, (i32, String)>) {
         let (vault, secret_key, bytes, read) = match result {
             Ok(done) => done,
-            Err((code, detail)) => return self.set_error(code, &detail),
+            Err((code, detail)) => {
+                if code == error::PARTS_WRONG {
+                    self.log_failed(security::how::RECOVERY);
+                }
+                return self.set_error(code, &detail);
+            }
         };
         // An older file than one opened here before is refused, as `opened` refuses it, but
         // before anything is written: written over under a new Secret Key that `opened` would
@@ -1784,6 +1802,7 @@ impl Controller {
         self.forget_biometrics(&id);
         let shown = secret_key.to_display_string();
         self.forget_review();
+        self.state.borrow_mut().unlock_how = Some(security::how::RECOVERY);
         self.opened(Opened {
             vault: Ok(vault),
             vault_id: id,
@@ -1876,6 +1895,7 @@ impl Controller {
             Ok(vault) => vault,
             Err(CoreError::KeyfileRequired) => return self.set_error(error::KEYFILE, ""),
             Err(err) => {
+                self.log_failed(security::how::PASSWORD);
                 self.state.borrow_mut().secrets[field::MASTER].clear();
                 self.publish_lengths();
                 // A wrong master password (or Secret Key): counted, and maybe the last try
@@ -1947,8 +1967,22 @@ impl Controller {
             state.secret_key = Some(secret_key);
             state.file_hash = Some(hash);
         }
+        {
+            let how = self.state.borrow_mut().unlock_how.take();
+            let how = how.unwrap_or(if by_password {
+                security::how::PASSWORD
+            } else {
+                security::how::DEVICE
+            });
+            let state = self.state.borrow();
+            if let Some(vault) = state.vault.as_ref() {
+                self.log_unlocked(vault, how);
+            }
+        }
+        self.state.borrow_mut().security_log_shown = 0;
         self.enter_vault();
         self.tell_failed_unlocks(&id);
+        self.publish_security_log();
         if state_file != StateFile::Read {
             self.notify(notice::STATE_RESET, "");
         }
@@ -2421,6 +2455,7 @@ impl Controller {
                             c.close_password_change();
                         }
                         c.forget_review();
+                        c.log_event(security::kind::PASSWORD_CHANGED, "", "", "");
                         c.notify(notice::PASSWORD_CHANGED, "");
                         c.biometrics_revoked(&id);
                         if back {
