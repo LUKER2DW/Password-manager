@@ -8,7 +8,7 @@ use crate::{Error, Result, random};
 
 /// EFF large word list (CC BY 3.0 US, © Electronic Frontier Foundation). See `data/README.md`.
 const EFF_LARGE_WORDLIST: &str = include_str!("../data/eff_large_wordlist.txt");
-const EFF_WORD_COUNT: usize = 7776;
+pub(crate) const EFF_WORD_COUNT: usize = 7776;
 const MIN_WORDS: usize = 3;
 const MAX_WORDS: usize = 20;
 const MAX_SEPARATOR_CHARS: usize = 3;
@@ -329,7 +329,7 @@ impl PassphraseOptions {
     }
 }
 
-fn eff_words() -> &'static [&'static str] {
+pub(crate) fn eff_words() -> &'static [&'static str] {
     static WORDS: OnceLock<Vec<&'static str>> = OnceLock::new();
     WORDS.get_or_init(|| {
         EFF_LARGE_WORDLIST

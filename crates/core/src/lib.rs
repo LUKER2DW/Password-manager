@@ -26,6 +26,7 @@ mod guard;
 mod item;
 mod kdf;
 mod keys;
+mod kit_password;
 mod padding;
 mod random;
 mod vault;
@@ -52,6 +53,7 @@ pub use item::{
 };
 pub use kdf::{KdfMethod, KdfParams, KdfStrength, PasswordKdf};
 pub use keys::{Keyfile, PartLabel, RecoveryKey, RecoveryPart, RecoveryParts, SecretKey};
+pub use kit_password::KitPdfPassword;
 pub use passkey::Passkey;
 pub use vault::{FormerKey, RenewedKey, Unlock, Vault, VaultInfo, VaultSnapshot};
 

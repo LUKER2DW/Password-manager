@@ -33,6 +33,7 @@ fn later(previous: i64) -> i64 {
 const SUBKEY_BODY: &[u8] = b"body";
 const SUBKEY_ITEM_WRAP: &[u8] = b"item-wrap";
 const SUBKEY_PARTS: &[u8] = b"parts";
+const SUBKEY_KIT_PDF: &[u8] = b"kit-pdf";
 
 /// What each sealed value of the recovery parts is (the last byte of its AAD).
 mod part_role {
@@ -1017,6 +1018,21 @@ impl Vault {
     /// Recovery parts open this vault (format v8).
     pub fn has_recovery_parts(&self) -> bool {
         self.header.parts.is_some()
+    }
+
+    /// The password of the emergency kit's saved PDF files (CRYPTO.md §3.10), `secret_key`
+    /// being this vault's Secret Key: derived from the vault key, the Secret Key and the
+    /// current kit, never stored. The same until one of them changes (a new Secret Key, new
+    /// recovery parts, a renewed vault key), so it can be shown again whenever the vault is
+    /// open.
+    pub fn kit_pdf_password(&self, secret_key: &SecretKey) -> crate::KitPdfPassword {
+        let vault_id = &self.header.vault_id;
+        crate::kit_password::derive(
+            &self.vault_key.subkey(SUBKEY_KIT_PDF, vault_id),
+            secret_key,
+            vault_id,
+            self.header.parts.as_ref().map(|parts| &parts.kit_id),
+        )
     }
 
     pub fn len(&self) -> usize {

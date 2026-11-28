@@ -245,3 +245,65 @@ fn the_parts_follow_the_header_through_sync() {
     let old = PartLabel::ALL.map(|label| f.parts.part(label));
     assert!(Vault::open(&merged, Unlock::Parts(old)).is_err());
 }
+
+/// The password of the kit's saved PDF files (CRYPTO.md §3.10): the same whenever the vault
+/// is open, new with a new kit, a new Secret Key or a renewed vault key.
+#[test]
+fn the_kit_pdf_password_follows_the_kit() {
+    let mut f = fixture();
+    let first = f.vault.kit_pdf_password(&f.secret_key);
+    let text = first.as_str().to_owned();
+    assert_eq!(text.split(' ').count(), 4, "four words");
+    assert_eq!(format!("{first:?}"), "KitPdfPassword(<redacted>)");
+
+    // Shown again after the vault is opened again: nothing was stored for it.
+    let bytes = f.vault.to_bytes().unwrap();
+    let reopened = Vault::open(
+        &bytes,
+        Unlock::Password {
+            password: PASSWORD,
+            secret_key: &f.secret_key,
+        },
+    )
+    .unwrap();
+    assert_eq!(reopened.kit_pdf_password(&f.secret_key).as_str(), text);
+
+    // A new master password keeps it.
+    f.vault
+        .change_password(
+            "another test password",
+            &f.secret_key,
+            None,
+            KdfParams::minimum().unwrap(),
+        )
+        .unwrap();
+    assert_eq!(f.vault.kit_pdf_password(&f.secret_key).as_str(), text);
+
+    // A new Secret Key changes it.
+    let other_key = SecretKey::generate().unwrap();
+    assert_ne!(f.vault.kit_pdf_password(&other_key).as_str(), text);
+
+    // New recovery parts change it.
+    f.vault
+        .set_recovery_parts(&RecoveryParts::generate().unwrap(), &f.secret_key)
+        .unwrap();
+    let after_parts = f.vault.kit_pdf_password(&f.secret_key).as_str().to_owned();
+    assert_ne!(after_parts, text);
+
+    // A vault without parts has one too, and its own.
+    f.vault.clear_recovery_parts();
+    let without_parts = f.vault.kit_pdf_password(&f.secret_key).as_str().to_owned();
+    assert_ne!(without_parts, after_parts);
+
+    // So does a renewed vault key (with its new Secret Key and kit).
+    let renewed = f
+        .vault
+        .renew_key("another test password", &f.secret_key, None)
+        .unwrap();
+    let after_renewal = f
+        .vault
+        .kit_pdf_password(&renewed.secret_key)
+        .as_str()
+        .to_owned();
+    assert!(![text, after_parts, without_parts].contains(&after_renewal));
+}
