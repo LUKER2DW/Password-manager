@@ -10,12 +10,23 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# `releases::testing`: release manifests signed with keys made for a test. Only tests turn it
+# on (this crate's, and the apps' through their dev-dependencies); it adds no trusted key.
+test-signing = ["dep:minisign"]
+
 [dependencies]
 ed25519-dalek = { version = "2.2", features = ["zeroize"] }
 getrandom = "0.4"
+# The release manifest's signature (releases.rs, CRYPTO.md §9): minisign's own verifier.
+minisign-verify = "0.3"
+minisign = { version = "0.10", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 # The project's releases on GitHub, read for updates (releases.rs).
 serde_json = "1.0"
 sha2 = "0.11"
 subtle = "2.6"
 zeroize = "1.9"
+
+[dev-dependencies]
+minisign = "0.10"

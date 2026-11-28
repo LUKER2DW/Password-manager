@@ -16,6 +16,9 @@
 //! its key by signing the enrollment.
 //!
 //! Shared by the client (`vault-platform`) and the server, so both build the same bytes.
+//!
+//! Also the project's releases ([`releases`]): GitHub's answer, and the release manifest signed
+//! offline that every updater checks.
 
 pub mod releases;
 
@@ -351,11 +354,22 @@ pub struct Changes {
 /// `GET /v1/vaults/{vault}/app/android`: the phone app's update the server's owner put there
 /// (`vault-server publish-app`): its version, and its package's SHA-256 (hex) and size. The
 /// package itself is `GET /v1/vaults/{vault}/app/android/package`.
+///
+/// With the release's manifest and its signature (`releases::SignedManifest`), handed on
+/// exactly as the release has them: the phone checks them itself
+/// ([`releases::verify_app_release`]) and takes no update without them. Phones older than
+/// that skip both fields.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppRelease {
     pub version: String,
     pub sha256: String,
     pub size: u64,
+    /// The release's `manifest.json`, unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest: Option<String>,
+    /// Its `manifest.json.minisig`, unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 /// The largest app package the server keeps and hands out.
