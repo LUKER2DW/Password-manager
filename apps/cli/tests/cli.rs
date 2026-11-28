@@ -1294,3 +1294,55 @@ fn a_lying_server_changes_nothing_here() {
     *mode.lock().unwrap() = "honest";
     sync_says(&desktop, true);
 }
+
+#[test]
+fn failed_unlocks_wait_and_are_told_at_the_next_unlock() {
+    let env = Env::new();
+    env.ok(
+        &["init", "--kdf-target-ms", "50", "--kdf-memory-mib", "64"],
+        &[MASTER],
+    );
+    // An easy new master password is warned about, and kept only on a yes.
+    let other = Env::new();
+    let easy = other.run(
+        &["init", "--kdf-target-ms", "50", "--kdf-memory-mib", "64"],
+        &["password1234", "n"],
+    );
+    assert!(!easy.status.success() && !other.vault.exists());
+    let said = String::from_utf8_lossy(&easy.stderr);
+    assert!(said.contains("easy to guess"), "{said}");
+
+    for _ in 0..4 {
+        env.fails(&["list"], &["not the password"]);
+    }
+    let fifth = env.fails(&["list"], &["not the password"]);
+    assert!(fifth.contains("5 failed tries in a row"), "{fifth}");
+    // The next try waits: refused before anything is asked, the same in every later run.
+    let refused = env.fails(&["list"], &[]);
+    assert!(
+        refused.contains("the next one can start in 0:"),
+        "{refused}"
+    );
+
+    // As if half a minute went by: the last failure moved back in the device state.
+    let state_path = env.home.join("state.json");
+    let mut state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
+    for vault in state["vaults"].as_object_mut().unwrap().values_mut() {
+        if let Some(attempts) = vault.get_mut("unlock_attempts") {
+            attempts["last_at"] = (attempts["last_at"].as_i64().unwrap() - 31).into();
+            attempts["last_uptime"] = 0.into();
+        }
+    }
+    std::fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+    let told = env.run(&["list"], &[MASTER]);
+    assert!(told.status.success());
+    let told = String::from_utf8_lossy(&told.stderr);
+    assert!(
+        told.contains("5 failed tries to unlock this vault on this device since"),
+        "{told}"
+    );
+    // Told once: the count started again.
+    let quiet = env.run(&["list"], &[MASTER]);
+    assert!(!String::from_utf8_lossy(&quiet.stderr).contains("failed tr"));
+}

@@ -40,6 +40,12 @@ struct Cli {
     #[arg(long, global = true, env = "VAULT_KEYFILE", value_name = "PATH")]
     vault_keyfile: Option<PathBuf>,
 
+    /// Check a new master password (init, passwd, recover) against known data breaches before
+    /// it is used: only the first 5 characters of its SHA-1 fingerprint are sent to Have I
+    /// Been Pwned, never the password. Off unless given: it uses the network.
+    #[arg(long, global = true)]
+    check_leaks: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -385,6 +391,8 @@ fn run() -> Result<()> {
         path,
         allow_rollback: cli.allow_rollback,
         keyfile: cli.vault_keyfile,
+        check_leaks: cli.check_leaks,
+        leak_count: vault_platform::leak_check::count,
     };
     match cli.command {
         Command::Init(args) => commands::init(

@@ -26,6 +26,10 @@ pub struct Context {
     pub allow_rollback: bool,
     /// `--keyfile`: where the vault's keyfile is, when it uses one.
     pub keyfile: Option<PathBuf>,
+    /// `--check-leaks`: a new master password is checked against known data breaches first.
+    pub check_leaks: bool,
+    /// How that check asks (the tests put a stand-in in its place).
+    pub leak_count: fn(&str) -> Result<u64, String>,
 }
 
 impl Context {
@@ -138,7 +142,7 @@ fn init_with(
     keep: impl FnOnce(&str, &SecretKey) -> Result<()>,
 ) -> Result<()> {
     refuse_to_overwrite(&ctx.path)?;
-    let password = new_master_password(prompter)?;
+    let password = new_master_password(ctx, prompter)?;
 
     let kdf: PasswordKdf = match other_hash {
         Some((method, level)) => {
@@ -509,7 +513,7 @@ pub fn totp(ctx: &Context, prompter: &mut Prompter, query: &str, copy: bool) -> 
 
 pub fn passwd(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
     let mut session = ctx.unlock(prompter)?;
-    let password = new_master_password(prompter)?;
+    let password = new_master_password(ctx, prompter)?;
     let kdf = session.vault.kdf_params().clone();
     // So the item lock's reset copy of its key follows the new master password.
     session
@@ -702,7 +706,7 @@ fn recover_with(
     };
     eprintln!("Unlocked with the emergency kit. Choose a new master password.");
 
-    let password = new_master_password(prompter)?;
+    let password = new_master_password(ctx, prompter)?;
     // The old Secret Key may be lost or exposed, so always issue a new one.
     let secret_key = SecretKey::generate().map_err(explain)?;
     let kdf = vault.kdf_params().clone();
@@ -1391,14 +1395,55 @@ fn wipe_file(path: &std::path::Path, read: &[u8]) -> Result<()> {
 
 // ---------------------------------------------------------------------------------------------
 
-fn new_master_password(prompter: &mut Prompter) -> Result<Zeroizing<String>> {
+/// A new master password, typed twice (once in script mode). One that is easy to guess (below
+/// the one-factor floor, `health::holds_alone`) or found in known breaches (`--check-leaks`)
+/// is warned about, and kept only if the person says so at the next prompt.
+fn new_master_password(ctx: &Context, prompter: &mut Prompter) -> Result<Zeroizing<String>> {
     let password = prompter.new_secret("New master password")?;
     if password.chars().count() < MIN_MASTER_PASSWORD_CHARS {
         bail!(
             "the master password must have at least {MIN_MASTER_PASSWORD_CHARS} characters (a few random words work well)"
         );
     }
+    if !vault_core::health::holds_alone(&password, &[]) {
+        eprintln!(
+            "warning: this master password is easy to guess. Your Secret Key guards the vault \
+             too, but anyone who also takes it from this device has only this password left to \
+             find, and can try guesses for as long as they like. Six random words are far \
+             harder to guess: `vault generate --words 6` makes some."
+        );
+        keep_or_stop(prompter, "Keep this one anyway? [y/N]")?;
+    }
+    if ctx.check_leaks {
+        match (ctx.leak_count)(&password) {
+            Ok(0) => eprintln!("Not found in known data breaches."),
+            Ok(count) => {
+                eprintln!(
+                    "warning: this password turned up in data breaches ({count} times): \
+                     attackers try those first. Choose another one."
+                );
+                keep_or_stop(prompter, "Keep this one anyway? [y/N]")?;
+            }
+            Err(err) => {
+                eprintln!(
+                    "warning: the breach check couldn't reach the service ({err}). Nothing was \
+                     sent except the first five characters of the password's fingerprint."
+                );
+                keep_or_stop(prompter, "Go on without the check? [y/N]")?;
+            }
+        }
+    }
     Ok(password)
+}
+
+/// Asks `question`; anything but yes stops here, with nothing changed.
+fn keep_or_stop(prompter: &mut Prompter, question: &str) -> Result<()> {
+    let answer = prompter.line(question)?;
+    if matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+        Ok(())
+    } else {
+        bail!("nothing was changed: choose another master password")
+    }
 }
 
 /// How to generate a secret: random characters or EFF-word passphrase.
@@ -1526,6 +1571,65 @@ fn truncate(text: &str, max: usize) -> String {
 mod tests {
     use super::*;
 
+    fn leak_context(check_leaks: bool, leak_count: fn(&str) -> Result<u64, String>) -> Context {
+        Context {
+            path: PathBuf::from("unused.vault"),
+            allow_rollback: false,
+            keyfile: None,
+            check_leaks,
+            leak_count,
+        }
+    }
+
+    fn never_asked(_: &str) -> Result<u64, String> {
+        panic!("the breach check runs only with --check-leaks")
+    }
+
+    /// An easy master password is warned about and kept only on a yes; `--check-leaks` asks
+    /// the breach check (a stand-in here) and warns the same way.
+    #[test]
+    fn a_new_master_password_is_warned_about_and_checked_for_leaks() {
+        let strong = "pale lantern under quiet orchards";
+        let easy = "password1234";
+        let quiet = leak_context(false, never_asked);
+        let lines = |l: &[&str]| Prompter::scripted(l, |_| {});
+        assert_eq!(
+            new_master_password(&quiet, &mut lines(&[strong]))
+                .unwrap()
+                .as_str(),
+            strong
+        );
+        let stopped = new_master_password(&quiet, &mut lines(&[easy, "n"])).unwrap_err();
+        assert!(format!("{stopped:#}").contains("nothing was changed"));
+        assert!(
+            new_master_password(&quiet, &mut lines(&[easy])).is_err(),
+            "no answer: no"
+        );
+        assert_eq!(
+            new_master_password(&quiet, &mut lines(&[easy, "yes"]))
+                .unwrap()
+                .as_str(),
+            easy
+        );
+
+        fn found(_: &str) -> Result<u64, String> {
+            Ok(42)
+        }
+        fn clean(password: &str) -> Result<u64, String> {
+            assert_eq!(password, "pale lantern under quiet orchards");
+            Ok(0)
+        }
+        fn offline(_: &str) -> Result<u64, String> {
+            Err("no network".into())
+        }
+        let checked = |lookup| leak_context(true, lookup);
+        assert!(new_master_password(&checked(clean), &mut lines(&[strong])).is_ok());
+        assert!(new_master_password(&checked(found), &mut lines(&[strong, "n"])).is_err());
+        assert!(new_master_password(&checked(found), &mut lines(&[strong, "y"])).is_ok());
+        assert!(new_master_password(&checked(offline), &mut lines(&[strong])).is_err());
+        assert!(new_master_password(&checked(offline), &mut lines(&[strong, "y"])).is_ok());
+    }
+
     /// `--delete-source` wipes the export that was read, never a file put in its place since.
     #[test]
     fn only_the_export_that_was_read_is_wiped() {
@@ -1604,6 +1708,8 @@ mod tests {
             path: path.to_owned(),
             allow_rollback: false,
             keyfile: None,
+            check_leaks: false,
+            leak_count: never_asked,
         }
     }
 

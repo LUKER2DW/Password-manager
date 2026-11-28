@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow, bail};
 use vault_core::{Error as CoreError, Keyfile, SecretKey, Unlock, Vault, storage};
 use vault_platform::{
-    DeviceState, RollbackStatus, VersionStatus, device, keyfile, paths,
+    DeviceState, RollbackStatus, VersionStatus,
+    device::{self, Clock, unlock_attempts},
+    keyfile, paths,
     secret_store::{self, Kept, Loaded},
 };
 use zeroize::Zeroizing;
@@ -14,6 +16,33 @@ use crate::prompt::Prompter;
 
 pub fn default_vault_path() -> Result<PathBuf> {
     paths::default_vault_path()
+}
+
+/// `2:05` for 125 seconds.
+fn minutes_seconds(seconds: i64) -> String {
+    format!("{}:{:02}", seconds / 60, seconds % 60)
+}
+
+/// `2026-11-26 14:02`, `offset_minutes` away from UTC (as the apps show it).
+fn date_time(unix: i64, offset_minutes: i32) -> String {
+    let local = unix + i64::from(offset_minutes) * 60;
+    let days = local.div_euclid(86_400);
+    // Days since 1970-01-01 to a civil date (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    let minutes = local.rem_euclid(86_400) / 60;
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}",
+        minutes / 60,
+        minutes % 60
+    )
 }
 
 /// Turns core errors into messages a person can act on.
@@ -89,6 +118,16 @@ impl Session {
     ) -> Result<Self> {
         let bytes = read_vault_file(path)?;
         let info = Vault::inspect(&bytes).map_err(explain)?;
+        // Too many failed tries in a row on this device: the next one waits, as in the apps
+        // (the same count, in the device state).
+        let wait = unlock_attempts::wait(&info.id_hex, Clock::read());
+        if wait > 0 {
+            bail!(
+                "too many failed tries in a row to unlock this vault on this device: to slow \
+                 down guessing, the next one can start in {}",
+                minutes_seconds(wait)
+            );
+        }
         let keyfile = if info.needs_keyfile {
             let path = keyfile_path
                 .map(Path::to_owned)
@@ -151,7 +190,41 @@ impl Session {
                 secret_key: &secret_key,
             },
         };
-        let mut vault = Vault::open(&bytes, unlock).map_err(explain)?;
+        let mut vault = match Vault::open(&bytes, unlock) {
+            Ok(vault) => vault,
+            Err(CoreError::DecryptionFailed) => {
+                let clock = Clock::read();
+                let attempts = unlock_attempts::failed(&info.id_hex, clock);
+                let wait = attempts.wait_left(clock.now, clock.uptime);
+                if wait > 0 {
+                    eprintln!(
+                        "{} failed tries in a row on this device: the next one can start in {}.",
+                        attempts.failed,
+                        minutes_seconds(wait)
+                    );
+                }
+                return Err(explain(CoreError::DecryptionFailed));
+            }
+            Err(err) => return Err(explain(err)),
+        };
+        let before = unlock_attempts::succeeded(&info.id_hex);
+        if !before.is_clear() {
+            let since = date_time(
+                before.first_at,
+                vault_platform::locale::utc_offset_minutes(),
+            );
+            eprintln!(
+                "{} failed {} to unlock this vault on this device since {since}. If {} yours, \
+                 someone may be guessing your master password.",
+                before.failed,
+                if before.failed == 1 { "try" } else { "tries" },
+                if before.failed == 1 {
+                    "it wasn't"
+                } else {
+                    "they weren't"
+                }
+            );
+        }
         if let Some((_, path)) = &keyfile {
             // It worked: next time the path needn't be typed.
             let _ = keyfile::remember_path(&info.id_hex, Some(path));
@@ -411,6 +484,15 @@ pub fn read_vault_file(path: &Path) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn times_read_as_the_apps_show_them() {
+        assert_eq!(date_time(1_700_000_000, 0), "2023-11-14 22:13");
+        assert_eq!(date_time(1_700_000_000, -180), "2023-11-14 19:13");
+        assert_eq!(date_time(951_782_400, 0), "2000-02-29 00:00");
+        assert_eq!(minutes_seconds(125), "2:05");
+        assert_eq!(minutes_seconds(30), "0:30");
+    }
 
     #[test]
     fn a_file_changed_by_someone_else_is_not_written_over() {
