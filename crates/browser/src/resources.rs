@@ -89,6 +89,15 @@ pub fn change_password_url(site: &str) -> Option<String> {
     })
 }
 
+/// Whether the built-in list names the page where `site` changes its password. Otherwise
+/// [`change_password_url`] is the site's `/.well-known/change-password`, which only sites that
+/// support the standard send on to their page: an attempt, said as one.
+pub fn change_page_listed(site: &str) -> bool {
+    host_of(site).is_some_and(|(host, _)| {
+        listed(change_urls(), &host).is_some_and(|page| page.starts_with("https://"))
+    })
+}
+
 /// What the site `site` accepts in a password, in the `passwordrules` language
 /// (`minlength: 8; required: digit;`), when the list knows more than its fields say.
 pub fn password_rules_for(site: &str) -> Option<&'static str> {
@@ -134,6 +143,8 @@ mod tests {
             change_password_url("https://intranet.example.test:8443/").as_deref(),
             Some("https://intranet.example.test:8443/.well-known/change-password")
         );
+        assert!(change_page_listed(domain));
+        assert!(!change_page_listed("https://unlisted.example.test/"));
         assert_eq!(change_password_url("not a site at all ://"), None);
         assert_eq!(change_password_url("javascript:alert(1)"), None);
     }
