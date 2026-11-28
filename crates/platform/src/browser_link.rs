@@ -238,6 +238,10 @@ pub fn read_frame(mut from: impl std::io::Read) -> std::io::Result<Option<Vec<u8
     Ok(Some(message))
 }
 
+/// What the SSH agent's pipe shares with this one (`ssh_agent.rs`).
+#[cfg(windows)]
+pub(crate) use imp::{process_image, user_sid};
+
 #[cfg(windows)]
 mod imp {
     use std::{
@@ -360,7 +364,7 @@ mod imp {
     }
 
     /// The signed-in user's SID as text ("S-1-5-21-…").
-    fn user_sid() -> Result<String> {
+    pub(crate) fn user_sid() -> Result<String> {
         let mut token: HANDLE = std::ptr::null_mut();
         // SAFETY: the pseudo-handle of the current process is always valid; `token` receives
         // a handle that is closed below.
@@ -423,7 +427,7 @@ mod imp {
     }
 
     /// Full path of the program running as process `pid`.
-    fn process_image(pid: u32) -> Option<PathBuf> {
+    pub(crate) fn process_image(pid: u32) -> Option<PathBuf> {
         // SAFETY: plain call; a null handle (no such process, no access) is handled.
         #[allow(unsafe_code)]
         let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };

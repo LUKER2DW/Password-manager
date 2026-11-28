@@ -38,6 +38,7 @@ pub mod security_log;
 pub mod self_update;
 pub mod session_watch;
 pub mod single_instance;
+pub mod ssh_agent;
 pub mod sync;
 #[cfg(windows)]
 pub mod tpm;

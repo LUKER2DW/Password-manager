@@ -1584,6 +1584,7 @@ checksum = "914c195c4d7fbc5ed7f88d14cbf85914d5c664967658d43404b263913a477e82"
 dependencies = [
  "cpubits",
  "ctutils",
+ "getrandom 0.4.3",
  "hybrid-array",
  "num-traits",
  "rand_core 0.10.1",
@@ -5019,6 +5020,7 @@ dependencies = [
  "fiat-crypto 0.3.0",
  "primefield",
  "primeorder 0.14.0",
+ "sha2 0.11.1",
 ]
 
 [[package]]
@@ -7947,6 +7949,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.1",
+ "ssh-encoding",
  "subtle",
  "tempfile",
  "tokio",
