@@ -769,3 +769,38 @@ fn a_login_saved_while_locked_joins_its_account_behind_the_lock() {
     assert_eq!(offered.len(), 1);
     assert_eq!(offered[0].username, "you");
 }
+
+/// AutoFail (USENIX Security 2026): a sandboxed frame or another opaque origin comes as the
+/// domain "null", which is nobody's site, never one bucket that collects every such frame.
+#[test]
+fn a_sandboxed_frame_is_nobodys_site() {
+    for domain in ["null", "NULL", " null ", "null."] {
+        assert_eq!(Recipient::of(&in_chrome(domain)), None, "{domain:?}");
+    }
+    // A site whose name only starts with it is a site like any other.
+    assert_eq!(site("nullable.example").name(), "nullable.example");
+}
+
+/// A frame of another site than the page around it gets no login, a frame of the same site
+/// does (a sign-in served from the site's own accounts host).
+#[test]
+fn a_frame_counts_only_inside_its_own_site() {
+    for (top, frame) in [
+        ("www.example.com", "www.example.com"),
+        ("www.example.com", "idmsa.example.com"),
+        ("example.com", "login.example.com"),
+        ("shop.example.co.uk", "accounts.example.co.uk"),
+        ("WWW.Example.com.", "www.example.com"),
+    ] {
+        assert!(same_site(top, frame), "{top} / {frame}");
+    }
+    for (top, frame) in [
+        ("evil.example", "bank.example"),
+        ("example.co.uk", "other.co.uk"),
+        ("alice.github.io", "bob.github.io"),
+        ("192.168.1.10", "192.168.1.11"),
+        ("bank.example.evil.example", "bank.example"),
+    ] {
+        assert!(!same_site(top, frame), "{top} / {frame}");
+    }
+}

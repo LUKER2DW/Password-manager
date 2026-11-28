@@ -218,10 +218,36 @@ impl Recipient {
 
 /// `domain` as a plain host name (or an IPv4 address), lower case; `None` for anything else.
 /// It goes into a saved address, so nothing that could end a host or start another one.
+/// "null" is what a browser gives for a sandboxed frame or another page with an opaque origin
+/// (AutoFail, USENIX Security 2026): it is nobody's site, never one bucket for all of them.
 fn plain_host(domain: &str) -> Option<String> {
     let host = domain.trim().trim_end_matches('.').to_lowercase();
     let plain = |c: char| c.is_alphanumeric() || matches!(c, '.' | '-' | '_');
-    (!host.is_empty() && host.chars().all(plain)).then_some(host)
+    (!host.is_empty() && host != "null" && host.chars().all(plain)).then_some(host)
+}
+
+/// Whether a frame at `frame` inside a page at `top` (both as the browser gives them) are one
+/// site's: the same registrable domain (`idmsa.example.com` in `www.example.com`). A login is
+/// neither offered nor saved in a frame of another site than the page around it: the person
+/// sees the page, not the frame, so a page could frame a site's sign-in to have it filled under
+/// its own look (AutoFail's cross-site frames).
+pub fn same_site(top: &str, frame: &str) -> bool {
+    let (top, frame) = (
+        top.trim().trim_end_matches('.'),
+        frame.trim().trim_end_matches('.'),
+    );
+    if top.eq_ignore_ascii_case(frame) {
+        return true;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        vault_browser::lookalike::same_owner(top, frame)
+    }
+    // The browser preview has no public suffix list: only the same host counts there.
+    #[cfg(target_arch = "wasm32")]
+    {
+        false
+    }
 }
 
 /// Whether `asker` is signed with one of `certificates` (SHA-256, in hex).
