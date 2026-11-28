@@ -1,7 +1,12 @@
 # cargo-deny (https://github.com/EmbarkStudios/cargo-deny): `cargo deny check advisories`,
-# run by CI on every push and once a day. Every advisory fails the check: none is ignored.
-# If one ever has to be, list it under `ignore` with the reason it can't be reached here, and
-# look at it again at the crate's next release.
+# run by CI on every push and once a day. Every advisory fails the check unless it is listed
+# under `ignore` with the reason it can't be fixed or reached here; each is looked at again at
+# the crate's next release.
 
 [advisories]
-ignore = []
+ignore = [
+    # chrono is unmaintained (an advisory of its own, not a vulnerability), with no release to
+    # move to. Slint's core depends on it, and so do the keepass crate and the import crate's
+    # conversion of KeePass's timestamps. Look again at Slint's and keepass' next releases.
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; needed by Slint and keepass, no maintained successor to move to" },
+]
