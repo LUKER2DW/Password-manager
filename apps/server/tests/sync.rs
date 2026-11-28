@@ -15,7 +15,10 @@ use vault_core::{
     sync::{DeviceId, SeenRevisions},
 };
 use vault_platform::sync::{self, ServerTarget, Tags, Target};
-use vault_sync_wire::{self as wire, DeviceKey, InviteLink};
+use vault_sync_wire::{
+    self as wire, DeviceKey, InviteLink,
+    releases::{self, SignedManifest, testing::TestKey},
+};
 
 /// A server on a free local port, stopped when dropped.
 struct Running {
@@ -196,6 +199,46 @@ fn a_pinned_server_is_reached_over_its_own_https() {
     drop(running);
     let again = vault_server::Tls::load_or_make(data.path(), &[]).unwrap();
     assert_eq!(again.pin, pin);
+}
+
+/// The phone app's update, published with its release's manifest and signature: an enrolled
+/// device gets both exactly as they were given, checks them itself, and then the package. The
+/// server only hands them on (the phone's own tests show it refusing what a server changed).
+#[test]
+fn the_phone_apps_update_comes_with_its_manifest_unchanged() {
+    let data = tempfile::tempdir().unwrap();
+    let running = Running::start(data.path());
+    let (bytes, _) = new_vault();
+    let vault_id = Vault::inspect(&bytes).unwrap().id_hex;
+    let phone_id = DeviceId::generate().unwrap();
+    let phone = ServerTarget::join(
+        &running.url,
+        &vault_id,
+        phone_id,
+        "Phone",
+        &admin_invite(data.path()),
+    )
+    .unwrap();
+    assert_eq!(phone.app_release().unwrap(), None, "nothing published yet");
+
+    let key = TestKey::new();
+    let package = b"PK\x03\x04 a test package".to_vec();
+    let manifest = releases::testing::manifest_of(
+        "1.2.3",
+        &[(&releases::phone_package_name("1.2.3"), package.as_slice())],
+    );
+    let signed = SignedManifest {
+        signature: key.sign_release(&manifest, "1.2.3"),
+        manifest,
+    };
+    let store = vault_server::Store::open(data.path()).unwrap();
+    let published = store.publish_app(&package, "1.2.3", Some(&signed)).unwrap();
+    let got = phone.app_release().unwrap().unwrap();
+    assert_eq!(got, published);
+    assert_eq!(got.manifest.as_deref(), Some(signed.manifest.as_str()));
+    assert_eq!(got.signature.as_deref(), Some(signed.signature.as_str()));
+    assert!(releases::verify_app_release(&got, &[&key.public()]).is_ok());
+    assert_eq!(phone.app_package(&got).unwrap(), package);
 }
 
 #[test]
@@ -706,7 +749,7 @@ fn a_request_let_in_before_its_devices_removal_gets_and_changes_nothing() {
     let here = data.path().join("vaults").join(&vault);
     let store = vault_server::Store::open(data.path()).unwrap();
     store
-        .publish_app(b"PK\x03\x04 a test package", "1.2.3")
+        .publish_app(b"PK\x03\x04 a test package", "1.2.3", None)
         .unwrap();
     let neighbour = TestDevice::new();
     store.enroll(&vault, neighbour.enrolled()).unwrap();

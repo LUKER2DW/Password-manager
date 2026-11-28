@@ -38,6 +38,8 @@ ureq = { version = "3.5", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 tempfile = "3.27"
+# Release manifests signed with test keys (the phone app's update, handed on unchanged).
+vault-sync-wire = { path = "../../crates/sync-wire", features = ["test-signing"] }
 # End to end: two devices sync a real vault through a running server.
 vault-core = { path = "../../crates/core" }
 vault-platform = { path = "../../crates/platform" }

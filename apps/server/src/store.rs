@@ -8,7 +8,8 @@
 //!                                            vault with `vault-server invite --vault`
 //! <data>/vaults/<vault>/generation           a new value whenever a copy is written or removed
 //! <data>/vaults/<vault>/copies/<device>.vault  each device's sealed copy
-//! <data>/app/android.apk, android.json        the phone app's update (`publish-app`)
+//! <data>/app/android.apk, android.json        the phone app's update (`publish-app`), with
+//!                                            its release's signed manifest in the JSON
 //! ```
 //!
 //! Invites are stored as digests only, with who made them: a device's invites end with its
@@ -36,7 +37,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use vault_sync_wire::{self as wire, AppRelease, Copy};
+use vault_sync_wire::{self as wire, AppRelease, Copy, releases::SignedManifest};
 
 /// The most devices one vault may enroll.
 pub const MAX_DEVICES: usize = 32;
@@ -432,10 +433,18 @@ impl Store {
         Ok(Ok(true))
     }
 
-    /// Puts an update of the phone app here: its package (an APK, as built) and its version.
-    /// The phones fetch it with their device key; Android installs it only if it is signed
-    /// like the app already on the phone.
-    pub fn publish_app(&self, package: &[u8], version: &str) -> Result<AppRelease> {
+    /// Puts an update of the phone app here: its package (an APK, as built), its version, and
+    /// its release's manifest and signature (`signed`), kept and handed on exactly as given.
+    /// The phones fetch it with their device key and take it only when that manifest is signed
+    /// by the project's release key and lists this very package (the phone checks; the server
+    /// is trusted with nothing here); phones older than that take it without. Android installs
+    /// it only if it is signed like the app already on the phone.
+    pub fn publish_app(
+        &self,
+        package: &[u8],
+        version: &str,
+        signed: Option<&SignedManifest>,
+    ) -> Result<AppRelease> {
         if wire::parse_version(version).is_none() {
             bail!("a version is three numbers, like 0.2.0");
         }
@@ -452,7 +461,15 @@ impl Store {
                 .map(|b| format!("{b:02x}"))
                 .collect(),
             size: package.len() as u64,
+            manifest: signed.map(|signed| signed.manifest.clone()),
+            signature: signed.map(|signed| signed.signature.clone()),
         };
+        if signed.is_some_and(|signed| {
+            signed.manifest.len() > wire::releases::MAX_MANIFEST_BYTES
+                || signed.signature.len() > wire::releases::MAX_SIGNATURE_BYTES
+        }) {
+            bail!("that manifest or signature is too large to be a release's");
+        }
         let dir = self.root.join("app");
         create_private_dir(&dir)?;
         write_atomic(&dir.join("android.apk"), package)?;

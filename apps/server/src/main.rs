@@ -64,14 +64,20 @@ enum Command {
     List,
     /// Take a device out of a vault: its key and its copy.
     Remove { vault: String, device: String },
-    /// Put an update of the phone app here (the APK `apps/mobile-android/build.ps1` made).
-    /// Phones that sync through this server offer it in Settings, Updates.
+    /// Put an update of the phone app here: the APK of a release, with that release's
+    /// manifest.json and manifest.json.minisig. Phones that sync through this server offer it
+    /// in Settings, Updates, once they have checked the manifest's signature themselves.
+    /// Without the manifest, only phones from before signed releases take it.
     PublishApp {
         /// The APK.
         package: PathBuf,
         /// Its version, as in the app (`0.2.0`).
         #[arg(long)]
         version: String,
+        /// The release's manifest.json (its signature is looked for beside it, as
+        /// manifest.json.minisig).
+        #[arg(long)]
+        manifest: Option<PathBuf>,
     },
     /// Fetch the phone app from the newest release on GitHub now and publish it here, when it
     /// is newer than the one here (what `serve --app-updates` does every 6 hours).
@@ -210,11 +216,28 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::PublishApp { package, version } => {
+        Command::PublishApp {
+            package,
+            version,
+            manifest,
+        } => {
             let store = Store::open(&cli.data)?;
             let bytes = std::fs::read(&package)
                 .with_context(|| format!("reading {}", package.display()))?;
-            let release = store.publish_app(&bytes, &version)?;
+            let signed = match &manifest {
+                Some(path) => Some(vault_server::updates::signed_manifest_for(
+                    path, &bytes, &version,
+                )?),
+                None => {
+                    eprintln!(
+                        "No --manifest: phones that check signed releases won't take this \
+                         update. Give the release's manifest.json (with manifest.json.minisig \
+                         beside it)."
+                    );
+                    None
+                }
+            };
+            let release = store.publish_app(&bytes, &version, signed.as_ref())?;
             println!(
                 "Published version {} ({} bytes, SHA-256 {}) in {}. A server started with this \
                  data folder offers it to the phones.",
