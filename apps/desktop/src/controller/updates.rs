@@ -57,6 +57,8 @@ impl Controller {
             return;
         }
         let look = |controller: &Controller| {
+            // Alerts marked as read come back after a week: looked at with the hourly look.
+            controller.refresh_alerts();
             if controller.state.borrow().settings.update_checks {
                 controller.ask_github(true);
             }

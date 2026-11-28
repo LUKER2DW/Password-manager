@@ -415,6 +415,9 @@ export component OnboardingScreen inherits Rectangle {
     in property <string> kit-vault-id;
     in property <string> kit-secret-key;
     // The password of the kit's saved files (CRYPTO.md §3.10).
+    // The kit's keys and its PDF password hidden on screen (shown at first: they are written
+    // down from here).
+    in-out property <bool> kit-keys-hidden;
     in property <string> kit-pdf-password;
     in property <string> kit-part-a;
     in property <string> kit-part-b;
@@ -517,7 +520,7 @@ export component OnboardingScreen inherits Rectangle {
             Rectangle {
                 vertical-stretch: 0;
                 border-radius: 10px;
-                background: Theme.dark ? #FFFFFF06 : #1F2A3D08;
+                background: Theme.dark ? #0F141BB0 : #FFFFFFB0;
                 border-width: 1px;
                 border-color: Theme.rule;
                 VerticalLayout {
@@ -786,7 +789,29 @@ export component OnboardingScreen inherits Rectangle {
                         clicked => { root.new-parts-now(); }
                     }
                 }
+                // The keys can be hidden while someone else is near the screen; printing and
+                // saving use them all the same.
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 12px;
+                    QuietButton {
+                        outlined: true;
+                        icon: root.kit-keys-hidden ? "eye" : "eye-off";
+                        text: root.kit-keys-hidden ? @tr("Show the keys") : @tr("Hide the keys");
+                        clicked => { root.kit-keys-hidden = !root.kit-keys-hidden; }
+                    }
+                    if root.kit-keys-hidden: VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: @tr("Printing and saving use the keys as they are.");
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            overflow: elide;
+                        }
+                    }
+                }
                 KitSlip {
+                    masked: root.kit-keys-hidden;
                     vault-id: root.kit-vault-id;
                     secret-key: root.kit-secret-key;
                     part-a: root.kit-part-a;
@@ -818,7 +843,10 @@ export component OnboardingScreen inherits Rectangle {
                 }
                 PdfPassword {
                     password: root.kit-pdf-password;
+                    masked: root.kit-keys-hidden;
+                    can-show: true;
                     can-copy: true;
+                    toggle => { root.kit-keys-hidden = !root.kit-keys-hidden; }
                     copy => { root.copy-pdf-password(); }
                 }
                 Check {

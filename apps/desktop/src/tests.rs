@@ -3313,6 +3313,28 @@ fn the_toolbar_shows_the_vault_and_keeps_its_choices_here() {
     assert_eq!(app.get_settings_section(), 2);
     app.set_health_filter(-1);
 
+    // Alerts marked as read stay quiet until there are more (or a week passes); followed down
+    // as they are dealt with. Kept on this computer, by count only.
+    let counts = |list: [i32; 5]| {
+        slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(list.to_vec())))
+    };
+    let read = |app: &AppWindow| app.get_alert_read().row_data(1).unwrap();
+    app.set_health_counts(counts([0, 2, 0, 0, 0]));
+    app.invoke_alerts_changed();
+    assert_eq!(read(&app), -1, "never read");
+    app.invoke_alerts_read();
+    assert_eq!(read(&app), 2);
+    assert!(!app.get_alert_due().row_data(1).unwrap());
+    app.set_health_counts(counts([0, 3, 0, 0, 0]));
+    app.invoke_alerts_changed();
+    assert_eq!(read(&app), 2, "a third shows at once (3 > 2)");
+    app.set_health_counts(counts([0, 1, 0, 0, 0]));
+    app.invoke_alerts_changed();
+    assert_eq!(read(&app), 1, "followed down");
+    app.set_health_counts(counts([0, 0, 0, 0, 0]));
+    app.invoke_alerts_changed();
+    assert_eq!(read(&app), -1, "dealt with: forgotten");
+
     // Search from a tool page: back to the list.
     app.invoke_search_now();
     assert_eq!(app.get_panel(), Panel::Detail);

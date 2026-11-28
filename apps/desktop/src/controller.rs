@@ -1160,6 +1160,8 @@ impl Controller {
         on!(on_vault_icon_chosen, |c, icon| c.vault_icon_chosen(&icon));
         on!(on_choose_vault_icon, |c| c.choose_vault_icon());
         on!(on_open_alert, |c, kind| c.open_alert(kind));
+        on!(on_alerts_read, |c| c.mark_alerts_read());
+        on!(on_alerts_changed, |c| c.refresh_alerts());
         on!(on_health_open, |c, index| c.health_open(index));
         on!(on_add_wordlist, |c| c.add_wordlist());
         on!(on_remove_wordlist, |c| c.remove_wordlist());
@@ -1390,6 +1392,7 @@ impl Controller {
         self.forget_review();
         self.app().set_screen(screen);
         self.show_vault_mark();
+        self.refresh_alerts();
     }
 
     fn set_error(&self, code: i32, detail: &str) {

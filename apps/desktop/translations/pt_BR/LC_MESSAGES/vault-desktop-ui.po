@@ -5215,3 +5215,29 @@ msgstr[1] "{n} alterações esperam a trava de itens"
 msgctxt "AppWindow"
 msgid "Settings → Sync: open the item lock to let them in."
 msgstr "Configurações → Sincronização: abra a trava de itens para que entrem."
+
+msgctxt "AppWindow"
+msgid "Passwords found in a data breach"
+msgstr "Senhas encontradas em um vazamento de dados"
+
+msgctxt "AppWindow"
+msgid "One of your passwords turned up in a data breach. Open Vault: the bell in the title bar shows which, so you can change it."
+msgid_plural "{n} of your passwords turned up in a data breach. Open Vault: the bell in the title bar shows which, so you can change them."
+msgstr[0] "Uma das suas senhas apareceu em um vazamento de dados. Abra o Vault: o sino na barra de título mostra qual, para você trocá-la."
+msgstr[1] "{n} das suas senhas apareceram em um vazamento de dados. Abra o Vault: o sino na barra de título mostra quais, para você trocá-las."
+
+msgctxt "AppWindow"
+msgid "Mark as read"
+msgstr "Marcar como lido"
+
+msgctxt "OnboardingScreen"
+msgid "Show the keys"
+msgstr "Mostrar as chaves"
+
+msgctxt "OnboardingScreen"
+msgid "Hide the keys"
+msgstr "Esconder as chaves"
+
+msgctxt "OnboardingScreen"
+msgid "Printing and saving use the keys as they are."
+msgstr "Imprimir e salvar usam as chaves como elas são."

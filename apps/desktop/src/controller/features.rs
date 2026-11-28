@@ -717,6 +717,7 @@ impl Controller {
             counts.to_vec(),
         ))));
         app.set_health_total(counts.iter().sum());
+        self.refresh_alerts();
         app.set_health_logins(i32::try_from(logins).unwrap_or(0));
         app.set_health_score(i32::try_from(score).unwrap_or(0));
     }

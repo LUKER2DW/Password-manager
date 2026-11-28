@@ -207,7 +207,7 @@ component ToolRule inherits VerticalLayout {
 // toolbar in it: drag an empty part to move the window (the system's own move, so it snaps
 // to the screen's edges), double-click it to maximize or restore it.
 //
-// Left: the sidebar, back and forward, then the vault (its icon and name; the menu to switch).
+// Left: the vault (its icon and name; the menu to switch), then the sidebar, back and forward.
 // Right: search, new item, sync, the update, lock, then the window's buttons. On the lock and
 // welcome screens only what means something there: the vault on the lock screen, the update.
 // Nothing here shows or copies a secret.
@@ -290,35 +290,6 @@ component TitleBar inherits Rectangle {
                 vertical-alignment: center;
             }
         }
-        if root.open: VerticalLayout {
-            alignment: center;
-            ToolButton {
-                icon: "sidebar";
-                tip: root.sidebar-shown ? @tr("Hide the sidebar (Ctrl+B)") : @tr("Show the sidebar (Ctrl+B)");
-                clicked => { root.toggle-sidebar(); }
-            }
-        }
-        if root.open: VerticalLayout {
-            alignment: center;
-            ToolButton {
-                icon: "chevron-left";
-                tip: @tr("Back (Alt+Left)");
-                enabled: root.can-go-back;
-                tint: Theme.ink;
-                clicked => { root.go-back(); }
-            }
-        }
-        if root.open: VerticalLayout {
-            alignment: center;
-            ToolButton {
-                icon: "chevron-right";
-                tip: @tr("Forward (Alt+Right)");
-                enabled: root.can-go-forward;
-                tint: Theme.ink;
-                clicked => { root.go-forward(); }
-            }
-        }
-        if root.open: ToolRule { }
         if root.vault-label != "" && (root.open || root.screen == Screen.unlock): VerticalLayout {
             alignment: center;
             Rectangle {
@@ -362,6 +333,35 @@ component TitleBar inherits Rectangle {
                     mouse-cursor: MouseCursor.pointer;
                     clicked => { root.vault-menu(self.absolute-position.x); }
                 }
+            }
+        }
+        if root.open: ToolRule { }
+        if root.open: VerticalLayout {
+            alignment: center;
+            ToolButton {
+                icon: "sidebar";
+                tip: root.sidebar-shown ? @tr("Hide the sidebar (Ctrl+B)") : @tr("Show the sidebar (Ctrl+B)");
+                clicked => { root.toggle-sidebar(); }
+            }
+        }
+        if root.open: VerticalLayout {
+            alignment: center;
+            ToolButton {
+                icon: "chevron-left";
+                tip: @tr("Back (Alt+Left)");
+                enabled: root.can-go-back;
+                tint: Theme.ink;
+                clicked => { root.go-back(); }
+            }
+        }
+        if root.open: VerticalLayout {
+            alignment: center;
+            ToolButton {
+                icon: "chevron-right";
+                tip: @tr("Forward (Alt+Right)");
+                enabled: root.can-go-forward;
+                tint: Theme.ink;
+                clicked => { root.go-forward(); }
             }
         }
         // The empty middle: it drags the window (the bar's own touch area is under it).
@@ -1072,10 +1072,37 @@ export component AppWindow inherits Window {
     in-out property <bool> alerts-panel;
     // 0–4 a Password health group (as its filter), 10 Settings → Sync.
     callback open-alert(int);
-    property <int> alert-count: root.screen != Screen.vault ? 0
-        : root.health-counts[0] + root.health-counts[1] + root.health-counts[2] + root.health-counts[4]
-            + (root.sync-state == 3 ? 1 : 0) + (root.sync-waiting > 0 ? 1 : 0) + (root.sync-key-renewed ? 1 : 0);
-    property <bool> alert-urgent: root.health-counts[0] > 0 || root.sync-state == 3 || root.sync-key-renewed;
+    // Marked as read (controller/toolbar.rs, kept on this computer): by kind (0 leaked, 1 weak,
+    // 2 reused, 3 expired cards, 4 sync failed, 5 key renewed, 6 waiting for the item lock), how
+    // many there were then (-1 never read), and whether a week has passed since. An alert shows
+    // while there are more than were read, or again after a week.
+    in property <[int]> alert-read: [-1, -1, -1, -1, -1, -1, -1];
+    in property <[bool]> alert-due: [false, false, false, false, false, false, false];
+    callback alerts-read();
+    // Something an alert counts changed: the controller follows what was read down.
+    callback alerts-changed();
+    changed sync-state => { root.alerts-changed(); }
+    changed sync-waiting => { root.alerts-changed(); }
+    changed sync-key-renewed => { root.alerts-changed(); }
+    property <[int]> alert-now: [
+        root.health-counts[0], root.health-counts[1], root.health-counts[2], root.health-counts[4],
+        root.sync-state == 3 ? 1 : 0, root.sync-key-renewed ? 1 : 0, root.sync-waiting,
+    ];
+    pure function alert-shows(kind: int) -> bool {
+        root.screen == Screen.vault && root.alert-now[kind] > 0
+            && (root.alert-now[kind] > root.alert-read[kind] || root.alert-due[kind])
+    }
+    property <int> alert-count: (root.alert-shows(0) ? root.alert-now[0] : 0) + (root.alert-shows(1) ? root.alert-now[1] : 0)
+        + (root.alert-shows(2) ? root.alert-now[2] : 0) + (root.alert-shows(3) ? root.alert-now[3] : 0)
+        + (root.alert-shows(4) ? 1 : 0) + (root.alert-shows(5) ? 1 : 0) + (root.alert-shows(6) ? 1 : 0);
+    property <bool> alert-urgent: root.alert-shows(0) || root.alert-shows(4) || root.alert-shows(5);
+    // The words of Windows' own notification when the leak watch finds new leaked passwords.
+    public pure function leak-notice-title() -> string {
+        @tr("Passwords found in a data breach")
+    }
+    public pure function leak-notice-text(n: int) -> string {
+        @tr("One of your passwords turned up in a data breach. Open Vault: the bell in the title bar shows which, so you can change it." | "{n} of your passwords turned up in a data breach. Open Vault: the bell in the title bar shows which, so you can change them." % n)
+    }
     in-out property <int> auto-lock-minutes: 5;
     in-out property <int> clipboard-seconds: 20;
     in-out property <bool> website-icons;
@@ -2317,58 +2344,79 @@ export component AppWindow inherits Window {
             width: parent.width;
             HorizontalLayout {
                 padding-left: 10px;
-                height: 28px;
+                padding-right: 4px;
+                height: 30px;
                 Text {
                     text: @tr("Alerts");
                     font-size: Theme.small;
                     font-weight: 600;
                     color: Theme.faint;
                     vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Rectangle {
+                    width: read-label.preferred-width + 16px;
+                    border-radius: Theme.radius - 2px;
+                    background: read-touch.has-hover ? Theme.hover : transparent;
+                    accessible-role: button;
+                    accessible-label: read-label.text;
+                    read-label := Text {
+                        text: @tr("Mark as read");
+                        font-size: Theme.small;
+                        color: Theme.graphite;
+                    }
+                    read-touch := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => {
+                            root.alerts-panel = false;
+                            root.alerts-read();
+                        }
+                    }
                 }
             }
-            if root.health-counts[0] > 0: AlertRow {
+            if root.alert-shows(0): AlertRow {
                 icon: "leaked";
                 tint: Theme.seal;
                 text: @tr("{n} password found in leaks" | "{n} passwords found in leaks" % root.health-counts[0]);
                 hint: @tr("Change it on its site first, then here.");
                 clicked => { root.alerts-panel = false; root.open-alert(0); }
             }
-            if root.sync-state == 3: AlertRow {
+            if root.alert-shows(4): AlertRow {
                 icon: "refresh";
                 tint: Theme.seal;
                 text: @tr("Sync failed");
                 hint: root.sync-detail != "" ? root.sync-detail : @tr("Settings → Sync says why.");
                 clicked => { root.alerts-panel = false; root.open-alert(10); }
             }
-            if root.sync-key-renewed: AlertRow {
+            if root.alert-shows(5): AlertRow {
                 icon: "key";
                 tint: Theme.seal;
                 text: @tr("The vault key was renewed on another device");
                 hint: @tr("Settings → Sync takes the new one.");
                 clicked => { root.alerts-panel = false; root.open-alert(10); }
             }
-            if root.health-counts[1] > 0: AlertRow {
+            if root.alert-shows(1): AlertRow {
                 icon: "key";
                 tint: FieldColors.of("expired");
                 text: @tr("{n} weak password" | "{n} weak passwords" % root.health-counts[1]);
                 hint: @tr("Easy to guess: the generator makes strong ones.");
                 clicked => { root.alerts-panel = false; root.open-alert(1); }
             }
-            if root.health-counts[2] > 0: AlertRow {
+            if root.alert-shows(2): AlertRow {
                 icon: "reused";
                 tint: FieldColors.of("reused");
                 text: @tr("{n} password used more than once" | "{n} passwords used more than once" % root.health-counts[2]);
                 hint: @tr("One leak opens every site that shares it.");
                 clicked => { root.alerts-panel = false; root.open-alert(2); }
             }
-            if root.health-counts[4] > 0: AlertRow {
+            if root.alert-shows(3): AlertRow {
                 icon: "expired";
                 tint: FieldColors.of("expired");
                 text: @tr("{n} card expired" | "{n} cards expired" % root.health-counts[4]);
                 hint: @tr("Put in its new date, or delete it.");
                 clicked => { root.alerts-panel = false; root.open-alert(4); }
             }
-            if root.sync-waiting > 0: AlertRow {
+            if root.alert-shows(6): AlertRow {
                 icon: "lock";
                 tint: Theme.graphite;
                 text: @tr("{n} change waits for the item lock" | "{n} changes wait for the item lock" % root.sync-waiting);

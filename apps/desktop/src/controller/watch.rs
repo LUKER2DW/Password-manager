@@ -174,6 +174,7 @@ impl Controller {
         self.show_watch(&watch);
         if !newly.is_empty() {
             self.notify_long(notice::LEAKS_NEW, &newly.len().to_string());
+            self.tell_windows_of_leaks(newly.len());
         }
     }
 

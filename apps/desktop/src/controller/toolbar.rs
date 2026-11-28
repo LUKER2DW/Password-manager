@@ -5,10 +5,18 @@
 
 use std::time::Duration;
 
-use slint::{ComponentHandle, SharedString};
-use vault_platform::DeviceState;
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
+use vault_platform::{
+    DeviceState,
+    device::{ALERT_QUIET_SECONDS, AlertRead},
+};
 
 use super::{Controller, Panel, Screen, error};
+
+/// The alerts' kinds, as app.slint's `alert-read` orders them.
+const ALERT_KINDS: [&str; 7] = [
+    "leaked", "weak", "reused", "expired", "sync", "key", "waiting",
+];
 
 /// The first letter of `name`, as the vault's mark shows it ("" for none).
 pub(super) fn initial(name: &str) -> String {
@@ -73,6 +81,84 @@ impl Controller {
         }
         self.open_settings();
         self.app().set_settings_section(1);
+    }
+
+    /// How many of each alert there are now (`ALERT_KINDS`), as the title bar counts them.
+    fn alert_counts(&self) -> [u32; 7] {
+        let app = self.app();
+        let health = app.get_health_counts();
+        let group = |i: usize| u32::try_from(health.row_data(i).unwrap_or(0)).unwrap_or(0);
+        [
+            group(0),
+            group(1),
+            group(2),
+            group(4),
+            u32::from(app.get_sync_state() == 3),
+            u32::from(app.get_sync_key_renewed()),
+            u32::try_from(app.get_sync_waiting()).unwrap_or(0),
+        ]
+    }
+
+    /// The alerts marked as read for the open vault, followed down as they are dealt with, and
+    /// whether a week has passed since (they show again then).
+    pub(super) fn refresh_alerts(&self) {
+        let app = self.app();
+        let id = app.get_vault_id();
+        let open = app.get_screen() == Screen::Vault && !id.is_empty();
+        let mut read = vec![-1; ALERT_KINDS.len()];
+        let mut due = vec![false; ALERT_KINDS.len()];
+        if open {
+            let counts = self.alert_counts();
+            let pairs: Vec<(&str, u32)> = ALERT_KINDS.iter().copied().zip(counts).collect();
+            let mut device_state = DeviceState::load().unwrap_or_default();
+            if device_state.settle_alerts(&id, &pairs) {
+                let _ = device_state.save();
+            }
+            let stored = device_state.alerts_read(&id);
+            let now = crate::view::now_unix();
+            for (i, kind) in ALERT_KINDS.iter().enumerate() {
+                if let Some(AlertRead { count, at }) = stored.get(*kind).copied() {
+                    read[i] = i32::try_from(count).unwrap_or(i32::MAX);
+                    due[i] = now.saturating_sub(at) >= ALERT_QUIET_SECONDS;
+                }
+            }
+        }
+        app.set_alert_read(ModelRc::from(std::rc::Rc::new(VecModel::from(read))));
+        app.set_alert_due(ModelRc::from(std::rc::Rc::new(VecModel::from(due))));
+    }
+
+    /// The alerts' "Mark as read": each one shown is quiet for a week, or until there are more.
+    pub(super) fn mark_alerts_read(&self) {
+        let app = self.app();
+        let id = app.get_vault_id();
+        if app.get_screen() != Screen::Vault || id.is_empty() {
+            return;
+        }
+        let counts = self.alert_counts();
+        let pairs: Vec<(&str, u32)> = ALERT_KINDS.iter().copied().zip(counts).collect();
+        let mut device_state = DeviceState::load().unwrap_or_default();
+        device_state.mark_alerts_read(&id, &pairs, crate::view::now_unix());
+        if let Err(err) = device_state.save() {
+            self.set_error(error::FILE, &err.to_string());
+        }
+        app.set_alerts_panel(false);
+        self.refresh_alerts();
+    }
+
+    /// Windows' own notification of passwords the leak watch just found in a breach (counts
+    /// only: it stays in the notification centre after the vault locks).
+    pub(super) fn tell_windows_of_leaks(&self, found: usize) {
+        if self.state.borrow().runner == super::Runner::Inline {
+            return;
+        }
+        use raw_window_handle::HasWindowHandle;
+        let app = self.app();
+        let n = i32::try_from(found).unwrap_or(i32::MAX);
+        let title = app.invoke_leak_notice_title();
+        let text = app.invoke_leak_notice_text(n);
+        if let Ok(handle) = app.window().window_handle().window_handle() {
+            vault_platform::os_notice::show(handle.as_raw(), &title, &text);
+        }
     }
 
     /// An alert of the title bar's panel: `kind` 0–4 is a Password health group (shown alone,

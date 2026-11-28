@@ -816,7 +816,7 @@ fn main() {
         "settings-vault-icon",
         "Settings → This vault: its icon on this computer",
     );
-    app.set_vault_menu_x(122.0);
+    app.set_vault_menu_x(6.0);
     app.set_vault_menu(true);
     camera.shot(
         "toolbar-vault-menu",
