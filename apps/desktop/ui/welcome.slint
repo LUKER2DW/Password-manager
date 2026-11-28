@@ -559,8 +559,8 @@ export component OnboardingScreen inherits Rectangle {
             if !root.choosing: Flickable {
                 min-height: 240px;
                 preferred-height: step-one.preferred-height;
-                viewport-height: step-one.preferred-height;
-                interactive: self.viewport-height > self.height;
+                content-height: step-one.preferred-height;
+                interactive: self.content-height > self.height;
                 step-one := VerticalLayout {
                     width: parent.width;
                     spacing: 18px;
