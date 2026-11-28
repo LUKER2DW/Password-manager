@@ -31,7 +31,8 @@
 - ✅ Password and passphrase generator (EFF word list), TOTP and HOTP
 - ✅ Property tests and tamper tests; no known vulnerability in any dependency (`cargo deny`)
 - ✅ CI on every push: tests, advisories, secret scanning of the history, CodeQL, Scorecard
-- ⬜ Fuzzing of the file parser
+- ✅ Fuzzing of the file parser, sync copies, the sync protocol, the extension's messages and
+  imports, every day in CI; tests against a hostile sync place
 - 🚧 **The CLI is unfinished.** It does: `init`, `info`, `list`, `add`, `show`, `edit`, `rm`
   (logins, cards, secure notes), `generate`, `totp`, `passwd`, `renew-key`, `recover`, `kit`,
   `part-picture`, `forget`, `keyfile`, `import` and `sync` (folder, server, WebDAV, invites,

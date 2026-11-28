@@ -99,7 +99,10 @@ impl Vault {
    key is one, §4.7). The body is bound to that copy's header bytes, so a header can't be
    swapped either.
 4. The body says which device wrote it (`writer`, §6) and its `revision`. The writer must be
-   the device named in the file name. The revision must not be lower than the highest one
+   the device named in the file name (or the device a server lists the copy for): a round
+   merges with `Vault::merge_from`, which refuses a copy found under another device's name,
+   this device's own included (`WrongWriter`), before anything of it is used, so what is said
+   of each device and what is remembered of it are its own. The revision must not be lower than the highest one
    already seen from that writer (`SeenRevisions`, kept in device state). A lower one is a
    replay or a rollback: refused, and the person is told. The same revision with other bytes is
    refused too (a fork: someone holding the key wrote two different files as one device).
@@ -218,6 +221,34 @@ It can withhold files (a device sees no news) and show different devices differe
 every device still has the full vault. It sees how big each file is and when each device
 writes. None of this reveals or changes a password. The app shows each device's last
 successful sync, so an "it's been days" is visible.
+
+What the tests against a hostile place (§9) leave it, all of it a delay or noise, none of it a
+change to the vault:
+
+- **Withhold, delay, serve an old copy this device hasn't seen past.** A copy older than one
+  already merged from its device is refused as a rollback and said; one older than what it
+  holds itself, but not yet seen from that device, is merged and takes nothing back (items go
+  by lineage and tombstones, the master password and the item lock by their revisions). This
+  is denial of service, out of scope (THREAT_MODEL §4).
+- **List copies it can't or won't hand over** (missing, failing, bigger than any vault, an
+  answer that never ends). A round reads at most 64 copies and 256 MiB, each request ends
+  after 90 seconds in all, and the copies left unread are read again next round. The CLI names
+  each; the desktop names the copies it refused but not those it couldn't read, and the phone
+  names neither today (§4.1 asks it to), so there only the device's last sync shows it (open,
+  IMPLEMENTATION_PLAN S14).
+- **Alter a copy so this vault's key doesn't open it.** It is refused (`DecryptionFailed`)
+  and, read without a key, shows as a copy under a key renewed on its device (§4.7): the apps
+  say the vault key may have been renewed elsewhere. A place can make that message appear;
+  nothing is taken unless the master password and a typed Secret Key open the copy as a
+  whole file.
+- **Keep a device busy.** New tags on every listing make every round read every copy again,
+  and a long-poll answered at once wakes it again: within the round limits above, and a
+  long-poll is asked at most once a second, whatever the server answers.
+- **Lie about the device's own requests.** A server that says an enrollment worked when it
+  didn't is found out at the next round (its own refusal). One that says it took a copy it
+  dropped holds that copy back, a delay as above. A write it refuses or cuts short leaves the
+  copy it had (WebDAV's is written beside it and moved over it; a folder's renamed over it),
+  and is tried again at the next round, since the place's revision didn't move on.
 
 ### 4.7 A vault key renewed on another device
 
@@ -435,7 +466,11 @@ and device); the server only gets the public half. Limits (per device, per faili
 sizes, devices, invites) are listed in [../SERVER.md](../SERVER.md). The client refuses
 redirects, `http://` except to this computer or a Tailscale address (its requests are signed
 and carry no password; WebDAV, which sends one, gets `http://` only to this computer), and
-answers bigger than a copy can be.
+answers bigger than a copy can be (a listing 1 MiB, a refusal's reason 4 KiB). Every request
+has 90 seconds in all, its answer's body included (15 to connect), so a server that answers
+slowly or never stops can't hold a round. A long-poll is asked at most once a second, whatever
+the server answers. An invite the server hands back must be one (32 lowercase hex) before it
+is shown as a QR code or a line, so the line carries nothing the server chose.
 
 A server with HTTPS of its own (`serve --tls`, for a home network without a domain name) is
 reached at `https://host:port#pin=<hex SHA-256 of its certificate authority, DER>`. The
@@ -532,6 +567,35 @@ open one.
   another key, a swapped header, a replayed older copy, a fork (same revision, other bytes),
   a copy whose writer doesn't match its file name or isn't a known device, a truncated file, a
   file with a lower `unlock_revision` carrying an old password.
+- Hostile places (M10 S14), from the device's side, each ending in a refusal or an error that
+  says what happened, never a panic, a hang or a change to the vault, and an honest round still
+  working afterwards:
+  - the copies themselves (`crates/core/tests/hostile_copies.rs`): every byte of a copy
+    altered three ways, every length it could be cut to, longer, empty, garbage, another
+    vault's (also with this vault's id written into it), an older copy served again (a
+    rollback) and a fork, a copy under another device's name or this device's own under
+    someone else's, a removed device's, and an old copy never seen past, which takes back none
+    of what changed here since (an edit, a deletion, a new master password). After each
+    refusal the items, folders, devices, settings, revision and what was seen are as before;
+  - the round (`crates/platform/tests/hostile_sync.rs`): a lying backup place beside an
+    honest main one and the other way round, an older copy from one place, a target that lists
+    one copy twice, this device's own copy under another name, or a copy it then can't hand
+    over;
+  - the HTTP targets against a hostile server written in the test
+    (`crates/platform/src/sync/hostile.rs`): a listing with ids that aren't ids, this device's
+    own id, far more copies than a round reads; answers whose status or body doesn't fit (also
+    10 MiB behind an error); a redirect of every kind, followed by nothing, so the other
+    address (and a WebDAV password) hears nothing; plain `http://` elsewhere, refused before a
+    byte is sent, also inside an invite line; no answer at all, one byte at a time, or without
+    end; an invite that isn't one; a long-poll answered at once again and again; a WebDAV
+    listing that disagrees with its files or isn't XML, and a write that fails half-way;
+  - the whole round through the `vault` command, comparing the vault file's bytes
+    (`apps/cli/tests/cli.rs`): a hostile sync folder, the real `vault-server` with its data
+    folder altered by whoever runs it, and a server that lies in its answers; and the desktop
+    app's notice for each refused copy (`apps/desktop/src/tests.rs`).
+- Fuzzing (`fuzz/`, every day in CI): a copy merged into an open vault, the vault file's
+  header, what a server is sent and what a device reads back (JSON answers, WebDAV listings),
+  invite lines.
 - A renewed vault key (§4.7, `crates/core/tests/renew.rs`): copies under the former and the
   renewed key refused both ways; copies told apart as behind or renewed; the key taken with the
   new Secret Key from either device's copy, with no conflicts and the taking device's unsent

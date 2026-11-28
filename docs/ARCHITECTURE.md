@@ -269,6 +269,11 @@ earlier passwords).
 
 - Known-answer test vaults per format version, tamper, rollback and downgrade tests, property
   tests (`proptest`), headless end-to-end tests of each app, `clippy -D warnings`.
-- Planned: `cargo-audit` / `cargo-deny` in CI, fuzzing (`cargo-fuzz`) of the vault parser,
-  reproducible builds and signed releases, and an independent external audit before any
-  stable release.
+- Tests against a hostile sync place from the device's side (SYNC.md §9, THREAT_MODEL §2.1),
+  and `cargo deny check advisories` in CI.
+- Fuzzing (`cargo-fuzz`, `fuzz/`) of what the apps read from someone else: the vault file and
+  a copy merged into an open vault, the sync protocol both ways, the extension's messages and
+  release zip, imports, invite lines, `otpauth://` links and the part C picture; every target
+  five minutes a day in CI (`.github/workflows/fuzz.yml`).
+- Planned: reproducible builds and signed releases, and an independent external audit before
+  any stable release.

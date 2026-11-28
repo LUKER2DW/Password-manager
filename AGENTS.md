@@ -56,10 +56,11 @@ docs/
   spec/CRYPTO.md        exact cryptography (normative)
   spec/VAULT_FORMAT.md  exact file format (normative)
   spec/SYNC.md          sync: the merge, the targets, the server protocol
+fuzz/                   cargo-fuzz targets (outside the workspace, nightly) and their seeds
 research/               local notes, git-ignored, never committed
 vendor/                 third-party crates built from here with one change each (README.md):
                         Slint's Android backend, whose fields ask the keyboard not to learn
-.github/                CI and security workflows, Dependabot, secret scanning paths
+.github/                CI, security and fuzzing workflows, Dependabot, secret scanning paths
 deny.toml               cargo-deny: every advisory fails the check, none ignored
 .gitleaks.toml          gitleaks: the test keys and test values the repository keeps on purpose
 ```
@@ -79,7 +80,7 @@ filesystem policy** beyond atomic writes.
 | `padding.rs` | Length-hiding padding for items and body |
 | `format.rs` | File envelope, header, body, and the layouts of older versions |
 | `vault.rs` | `Vault`: open, create, items, folders, settings, history, save; renewing the vault key and taking a renewed one (`renew_key`, `adopt_key`, CRYPTO.md §3.8) |
-| `vault/merge.rs` | Folding another device's copy into this one (`Vault::merge`, SYNC.md §4) |
+| `vault/merge.rs` | Folding another device's copy into this one (`Vault::merge`; `merge_from` for a copy found under a device's name, which the sync rounds use; SYNC.md §4) |
 | `sync.rs` | What sync needs from the vault: writers, tombstones, devices, revisions |
 | `item.rs` | `ItemData`, `ItemSummary`, folders, recovery codes, password history, attachments |
 | `card.rs` | Payment cards: Luhn, brand detection, expiry, masking |
@@ -327,6 +328,10 @@ cargo run -p vault-server -- serve                         # a sync server (docs
 node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs apps/extension/test/kit.test.mjs
 ```
 
+Fuzzing needs a nightly toolchain and `cargo install cargo-fuzz` (on Windows, see
+[fuzz/README.md](fuzz/README.md)): `cd fuzz`, then
+`cargo +nightly fuzz run --debug-assertions <target> corpus/<target> seeds/<target>`.
+
 The APK and the browser build have their own scripts, `apps/mobile-android/build.ps1` and
 `apps/mobile-web/build.ps1` (what each needs is at its top; docs/MOBILE.md §7).
 
@@ -336,8 +341,17 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
   `crates/core/tests/fixtures/` must keep opening forever. Never regenerate an old fixture.
 - `crates/core/tests/vault.rs`, `robustness.rs` — tampering, swapping, rollback, downgrade,
   malformed input. `sync.rs` — the merge, with a property test over three devices;
-  `recovery_parts.rs` — the kit's three parts; `renew.rs` — a renewed vault key, what older
-  copies open afterwards and other devices taking the new key.
+  `hostile_copies.rs` — copies a hostile sync place could hand over (every byte altered,
+  every length cut, garbage, another vault's, rollbacks, forks, another device's name), each
+  refused with the vault left exactly as it was; `recovery_parts.rs` — the kit's three parts;
+  `renew.rs` — a renewed vault key, what older copies open afterwards and other devices
+  taking the new key.
+- `crates/platform/src/sync/hostile.rs`, `crates/platform/tests/hostile_sync.rs` — the HTTP
+  targets against a hostile server written in the test (lies, redirects, answers that never
+  end, WebDAV listings that disagree, writes that fail half-way) and rounds against lying
+  places; `apps/cli/tests/cli.rs` — the whole round through `vault sync` against a hostile
+  folder, a tampered `vault-server` store and a lying server, the vault file compared byte for
+  byte (SYNC.md §9, THREAT_MODEL §2.1).
 - `apps/desktop/src/tests.rs` — the whole app flow headless (onboarding, unlock, items, cards,
   folders, history, health, generator, import, export, kit, second vault). Slow work runs inline
   there (`Runner::Inline`); dialogs and network are skipped.
@@ -350,6 +364,11 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
 - `apps/mobile/src/tests.rs` — the phone app headless, including sync against a running server.
 - `apps/server/tests/sync.rs` — two devices through a real server; strangers, replays and
   altered requests refused.
+- `fuzz/` — cargo-fuzz targets for what the apps read from someone else (a copy merged into an
+  open vault, the vault header, the sync protocol both ways, the extension's messages and its
+  release zip, imports, invite lines, `otpauth://` links, the part C picture), each run for
+  five minutes every day by `.github/workflows/fuzz.yml`. A finding becomes a regression test
+  in its crate ([fuzz/README.md](fuzz/README.md)).
 
 ## 4. Rules
 

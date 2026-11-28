@@ -1,5 +1,5 @@
 //! Property tests: the parser must never panic on hostile input, only return errors.
-//! (A `cargo-fuzz` target will extend this on Linux CI.)
+//! (The `vault_file` and `sync_copy` fuzz targets extend this, every day in CI: `fuzz/`.)
 
 use std::sync::OnceLock;
 

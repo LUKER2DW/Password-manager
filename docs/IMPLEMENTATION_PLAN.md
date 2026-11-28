@@ -60,7 +60,8 @@ Rules:
 - ✅ Atomic file writes + one backup generation
 - ✅ Revision counter in the body (rollback *detection* needs the client-side memory from M3)
 - ✅ Property tests: random and mutated files never panic and are never accepted
-- ⬜ `cargo-fuzz` target for the file parser (Linux CI)
+- ✅ `cargo-fuzz` targets for the file parser and a copy merged into an open vault, every day
+  on Linux CI (`fuzz/`, `.github/workflows/fuzz.yml`; M10 S14)
 - **Done when:** round-trip, tamper, downgrade, wrong-credential and corruption tests pass ✅.
 
 ### M3 — CLI 🚧 (`apps/cli`, binary `vault`)
@@ -702,9 +703,31 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   Secret Key's text only while the kit shows it, the item's password only while it is shown,
   and after the lock no 16-byte piece of anything. Before S11 it found the revealed password
   in two dozen places of the heap and the keys on the stack.
-  Still to do: a hostile sync target and server, the fuzz targets on a schedule, and the
-  same reading of the release exe by hand (the renderer and UI Automation, which the test's
-  backend doesn't have).
+  Done: a hostile sync place, from the device's side (SYNC.md §9, THREAT_MODEL §2.1). The
+  copies (`crates/core/tests/hostile_copies.rs`: every byte altered, every length cut,
+  garbage, another vault's, rollbacks, forks, another device's name, a removed device's, an
+  old copy never seen past), the round (`crates/platform/tests/hostile_sync.rs`: a lying
+  backup or main place, a target listing what it likes), the HTTP targets against a hostile
+  server written in the test (`crates/platform/src/sync/hostile.rs`: lying listings, answers
+  that don't fit, redirects, plain `http://` elsewhere, answers that never end or never stop,
+  an invite that isn't one, a long-poll that doesn't wait, WebDAV listings that disagree with
+  their files, writes that fail half-way), and the whole round through `vault sync` with the
+  vault file compared byte for byte (`apps/cli/tests/cli.rs`: a hostile folder, the real
+  `vault-server` with its store altered, a lying server) and the desktop's notices. Fixed on
+  the way: a copy found under another device's name was merged as its writer's (now refused,
+  `Vault::merge_from`, `WrongWriter`, as §4.1 always said); a server answering every long-poll
+  at once had the apps ask it again without a pause (now at most once a second); an invite a
+  server handed back was shown whatever it was (now only 32 hex).
+  Done: fuzzing on a schedule (`fuzz/`, `.github/workflows/fuzz.yml`): seven new targets
+  (`sync_copy`, `sync_requests`, `sync_answers`, `browser_link`, `extension_zip`, `otpauth`,
+  `part_picture`) beside `vault_file`, `import` and `invite_link`, each run five minutes a day
+  on Linux with AddressSanitizer and debug assertions, seeded from `fuzz/seeds/` and the test
+  vaults. Found and fixed: a picture said to hold part C whose header named a huge size made
+  the app allocate it (over 100 GB) and stop; refused at the header now.
+  Still to do: the phone saying when it refuses a copy (SYNC.md §4.1, §8; it says nothing
+  today), the desktop and the phone naming a copy they couldn't read (only the device's last
+  sync shows it), and the same reading of the release exe's memory by hand (the renderer and
+  UI Automation, which the test's backend doesn't have).
 - ⬜ S15. Authenticode signing and a release manifest signed with an offline key that the
   updaters check (owner).
 - ✅ S16. A warning when a vault password is pasted or sent on a site that isn't its own: a
@@ -850,8 +873,9 @@ Before that version, a device on the older format must say plainly that it needs
 - CI (GitHub Actions, `.github/workflows`): `ci.yml` (fmt, clippy `-D warnings` and tests on
   Windows, the WebAssembly build, the extension's tests, the core and protocol tests on Linux,
   the server's Docker image), `security.yml` (cargo-deny every push and every day, gitleaks
-  over the history, zizmor, dependency review on pull requests), `codeql.yml`, `scorecard.yml`;
-  Dependabot for cargo, actions, Gradle and Docker. ⬜ licences in cargo-deny, fuzzing.
+  over the history, zizmor, dependency review on pull requests), `codeql.yml`, `scorecard.yml`,
+  `fuzz.yml` (every fuzz target five minutes a day, a finding kept as the run's artifact);
+  Dependabot for cargo, actions, Gradle and Docker. ⬜ licences in cargo-deny.
 - Every change to the file format bumps the format version; old versions are rejected unless an
   explicit migration exists.
 - Commit messages and code in English.

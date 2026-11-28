@@ -59,6 +59,35 @@ was removed. It is done on a computer (the desktop app's Emergency kit page or
 | A10 | Someone on the network who reaches the sync server, with no device key | Floods it, opens connections and never finishes a request, sends huge or slow requests, guesses invites, races requests, uses a leaked admin invite | **Yes**: unsigned requests and failures are rate-limited per address (an IPv6 /64 counts as one), a copy is read only once its whole signature is checked (64 KiB for any other body), open connections are capped in all and per address and closed when the headers or the reading of an answer stall, requests in flight and their time are capped, invites are 128 random bits used once under one lock, an admin invite only starts a new vault, an enrolled device's place can't be taken by another enrollment (docs/SERVER.md, "How it holds up") |
 | A11 | A website saved in the vault, with the website icons on | Its page links to, or redirects to, this computer or the local network (a router's page, a service on localhost) | **Yes**: a site on the internet makes the icon fetcher reach public addresses only, checked at each name lookup; a site saved with a local address is asked only where its name pointed when the fetch began |
 
+### 2.1 A hostile sync place (A2, A3), as tested
+
+A sync folder, a WebDAV host or the person's own server sees only sealed copies, one per
+device, and is never trusted with anything that opens or changes the vault. The tests of M10
+S14 play such a place from the device's side (SYNC.md §9 lists them): every byte of a copy
+altered, copies cut short, empty, garbage, another vault's, an older one served again, one
+under another device's name, a removed device's; a server that lies in its listing, answers
+what doesn't fit, sends the device elsewhere, hands out an invite that isn't one, never
+finishes answering or sends more than any copy can be; a WebDAV host whose listing and files
+disagree; a write that fails half-way. They show that:
+
+- nothing is merged from a copy this vault's key didn't seal, nor from a copy found under
+  another device's name; a copy older than one already merged from its device is refused as a
+  rollback, and an old copy never seen past takes back nothing that changed since;
+- the vault file is left byte for byte as it was after a refused copy, the vault in memory
+  too, and an honest round afterwards still works;
+- each refusal ends in an error that says what happened, never a panic or a hang: every
+  request ends after 90 seconds in all, a round reads at most 64 copies and 256 MiB, nothing
+  bigger than a copy is read, no redirect is followed and plain `http://` goes only where it
+  may, so a WebDAV password never reaches another host.
+
+What a hostile place keeps (SYNC.md §4.6): it can withhold, delay or delete copies, list ones
+it won't hand over, keep a device reading every copy each round (a long-poll is asked at most
+once a second), and, by altering a copy, make the apps say the vault key may have been renewed
+on another device, which takes nothing without the master password and a typed Secret Key.
+That is denial of service, out of scope (§4). Found by these tests: the phone app doesn't say
+when it refuses a copy, and neither app names a copy it couldn't read (only the device's last
+sync shows it).
+
 ## 3. Malware: the most realistic scenario
 
 Common infostealers mainly steal **passwords saved in the browser** and **session cookies**.
@@ -583,6 +612,9 @@ On top of that:
 ## 4. Out of scope
 
 - OS compromise at administrator/kernel or firmware level (A9).
+- Denial of service by a sync place or the network (A2, A3): withholding, delaying or deleting
+  copies, or keeping a device busy. Every device keeps the whole vault and works offline; the
+  apps show each device's last sync (§2.1, SYNC.md §4.6).
 - Physical coercion of the user.
 - Hardware side-channel attacks (Spectre, etc.) beyond what the libraries mitigate.
 - Undetected build supply-chain compromise: reduced, not eliminated. Dependencies are

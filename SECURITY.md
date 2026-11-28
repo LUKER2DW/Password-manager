@@ -109,7 +109,7 @@ libraries mitigate.
 
 ## Known limitations
 
-- Not audited. Not fuzzed yet beyond property tests.
+- Not audited. Fuzzed every day in CI, but only for minutes at a time so far.
 - Windows and Android only: Linux and macOS are not supported yet (the server aside).
 - Memory wiping is best-effort: the OS, the allocator or the UI toolkit may keep copies of data
   shown on screen.
@@ -121,9 +121,10 @@ libraries mitigate.
 
 ## Development practices
 
-Known-answer tests for every vault format version, tamper and rollback tests, headless
-end-to-end tests of the desktop and phone apps, a real server with two devices in the server's
-tests, `cargo clippy -D warnings`, and no known vulnerability in any dependency
+Known-answer tests for every vault format version, tamper and rollback tests, tests against a
+hostile sync folder, WebDAV host and server (docs/THREAT_MODEL.md §2.1), headless end-to-end
+tests of the desktop and phone apps, a real server with two devices in the server's tests,
+`cargo clippy -D warnings`, and no known vulnerability in any dependency
 (`cargo deny check advisories` against the RustSec database, with nothing ignored in
 [deny.toml](deny.toml)).
 
@@ -135,5 +136,8 @@ workflows; CodeQL over the Rust, JavaScript, Java and the workflows; and OpenSSF
 Actions are pinned to full commits, every job's token can only read, and Dependabot keeps
 dependencies and actions current.
 
-Planned: fuzzing of the parser, reproducible builds and an independent audit before any
-stable release.
+Every day: each fuzz target ([fuzz/](fuzz/README.md): the vault file and sync copies, the sync
+protocol, the extension's messages and release zip, imports, invite lines, one-time code links,
+the part C picture) for five minutes, on Linux with AddressSanitizer.
+
+Planned: reproducible builds and an independent audit before any stable release.
