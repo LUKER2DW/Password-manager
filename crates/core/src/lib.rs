@@ -42,6 +42,7 @@ pub mod locked_fill;
 pub mod memory;
 pub mod passkey;
 pub mod sealed_export;
+pub mod site_lists;
 pub mod ssh;
 pub mod storage;
 pub mod sync;

@@ -1,4 +1,4 @@
-//! Random password and passphrase generation with uniform selection.
+//! Random password, passphrase and username generation with uniform selection.
 
 use std::sync::{Arc, OnceLock};
 
@@ -399,6 +399,112 @@ pub fn generate_passphrase(options: &PassphraseOptions) -> Result<Zeroizing<Stri
     Ok(out)
 }
 
+/// What a generated username is made of. Usernames aren't secret, so they are plain strings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UsernameKind {
+    /// Two words of the bundled list joined by `_`, with four digits after them when `number`
+    /// (`brisk_otter4821`).
+    Words { number: bool },
+    /// The person's own address with a random tag after a `+` (`name+k3v9qx2m@example.com`):
+    /// most mail services deliver it to `name@example.com`, and each site gets an address of
+    /// its own. A tag already in the address is replaced.
+    PlusAddress { email: String },
+    /// A random name at a domain whose every address reaches the person (a catch-all):
+    /// `k3v9qx2m@example.com`.
+    CatchAll { domain: String },
+}
+
+/// The random tag's characters: lowercase letters and digits without look-alikes.
+const TAG_CHARS: &[u8] = b"abcdefghijkmnpqrstuvwxyz23456789";
+const TAG_LENGTH: usize = 8;
+const MAX_LOCAL_CHARS: usize = 64;
+const MAX_DOMAIN_CHARS: usize = 253;
+
+/// Generates a username of the chosen kind. An address or domain that isn't one fails with
+/// [`Error::InvalidGeneratorOptions`].
+pub fn generate_username(kind: &UsernameKind) -> Result<String> {
+    match kind {
+        UsernameKind::Words { number } => {
+            let mut out = String::new();
+            out.push_str(username_word()?);
+            out.push('_');
+            out.push_str(username_word()?);
+            if *number {
+                for _ in 0..4 {
+                    out.push(char::from(b'0' + uniform_index(10)? as u8));
+                }
+            }
+            Ok(out)
+        }
+        UsernameKind::PlusAddress { email } => {
+            let (local, domain) = email
+                .trim()
+                .split_once('@')
+                .ok_or(Error::InvalidGeneratorOptions)?;
+            let local = local.split_once('+').map_or(local, |(base, _)| base);
+            if local.is_empty()
+                || local.chars().count() > MAX_LOCAL_CHARS - TAG_LENGTH - 1
+                || local
+                    .chars()
+                    .any(|c| c.is_whitespace() || c.is_control() || "@<>()[],;:\\\"".contains(c))
+            {
+                return Err(Error::InvalidGeneratorOptions);
+            }
+            Ok(format!(
+                "{local}+{}@{}",
+                random_tag()?,
+                mail_domain(domain)?
+            ))
+        }
+        UsernameKind::CatchAll { domain } => {
+            let domain = domain.trim();
+            let domain = domain.strip_prefix('@').unwrap_or(domain);
+            Ok(format!("{}@{}", random_tag()?, mail_domain(domain)?))
+        }
+    }
+}
+
+/// A word of the bundled list made of letters only (the few with a hyphen are drawn again, so
+/// the rest stay equally likely).
+fn username_word() -> Result<&'static str> {
+    let words = eff_words();
+    loop {
+        let word = words[uniform_index(words.len())?];
+        if word.chars().all(|c| c.is_ascii_lowercase()) {
+            return Ok(word);
+        }
+    }
+}
+
+fn random_tag() -> Result<String> {
+    (0..TAG_LENGTH)
+        .map(|_| uniform_index(TAG_CHARS.len()).map(|i| char::from(TAG_CHARS[i])))
+        .collect()
+}
+
+/// A mail domain as typed, in lowercase: labels of letters, digits and hyphens (an
+/// international name in its `xn--` form), at least two of them.
+fn mail_domain(domain: &str) -> Result<String> {
+    let domain = domain.trim().to_ascii_lowercase();
+    let labels: Vec<&str> = domain.split('.').collect();
+    let fine = domain.len() <= MAX_DOMAIN_CHARS
+        && labels.len() >= 2
+        && labels.iter().all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        });
+    if fine {
+        Ok(domain)
+    } else {
+        Err(Error::InvalidGeneratorOptions)
+    }
+}
+
 /// Uniform random index in `0..n` (rejection sampling, no modulo bias).
 fn uniform_index(n: usize) -> Result<usize> {
     debug_assert!(n > 0 && n <= u32::MAX as usize);
@@ -714,5 +820,78 @@ mod tests {
             counts.iter().all(|&c| (1_700..=2_300).contains(&c)),
             "{counts:?}"
         );
+    }
+
+    #[test]
+    fn usernames_of_each_kind() {
+        let words = generate_username(&UsernameKind::Words { number: false }).unwrap();
+        let (first, second) = words.split_once('_').unwrap();
+        for word in [first, second] {
+            assert!(
+                !word.is_empty() && word.chars().all(|c| c.is_ascii_lowercase()),
+                "{words}"
+            );
+        }
+        let numbered = generate_username(&UsernameKind::Words { number: true }).unwrap();
+        let digits: String = numbered.chars().rev().take(4).collect();
+        assert!(digits.chars().all(|c| c.is_ascii_digit()), "{numbered}");
+
+        let plus = |email: &str| {
+            generate_username(&UsernameKind::PlusAddress {
+                email: email.into(),
+            })
+        };
+        let tagged = plus(" Test.Person@Example.COM ").unwrap();
+        let (local, domain) = tagged.split_once('@').unwrap();
+        assert_eq!(domain, "example.com");
+        let (base, tag) = local.split_once('+').unwrap();
+        assert_eq!(base, "Test.Person", "the name as typed");
+        assert_eq!(tag.len(), TAG_LENGTH);
+        assert!(tag.bytes().all(|b| TAG_CHARS.contains(&b)));
+        let again = plus(&tagged).unwrap();
+        assert!(
+            again.starts_with("Test.Person+"),
+            "one tag, replaced: {again}"
+        );
+        assert_eq!(again.matches('+').count(), 1);
+        assert_ne!(again, tagged, "a new tag each time");
+
+        let catch_all = |domain: &str| {
+            generate_username(&UsernameKind::CatchAll {
+                domain: domain.into(),
+            })
+        };
+        let address = catch_all("@mail.example.org").unwrap();
+        let (name, domain) = address.split_once('@').unwrap();
+        assert_eq!(domain, "mail.example.org");
+        assert_eq!(name.len(), TAG_LENGTH);
+        assert!(
+            catch_all("xn--bcher-kva.example").is_ok(),
+            "an international name"
+        );
+
+        for wrong in [
+            "",
+            "no-at-sign",
+            "@example.com",
+            "a b@example.com",
+            "x@localhost",
+            "x@exa mple.com",
+            "x@-a.com",
+            "x@a..com",
+            "x@b@c.com",
+        ] {
+            assert!(plus(wrong).is_err(), "{wrong:?}");
+        }
+        for wrong in [
+            "",
+            "localhost",
+            "example..com",
+            "exam_ple.com",
+            "bücher.example",
+            ".example.com",
+        ] {
+            assert!(catch_all(wrong).is_err(), "{wrong:?}");
+        }
     }
 }

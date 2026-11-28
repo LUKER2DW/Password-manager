@@ -1,5 +1,7 @@
 //! Password health: how hard a password is to guess, which items share a password, which are
-//! old, and the helpers for a k-anonymous breach lookup ("Have I Been Pwned" range API).
+//! old, what a login's site offers that it doesn't use yet ([`Advice`], from the lists bundled
+//! in [`crate::site_lists`]), and the helpers for a k-anonymous breach lookup ("Have I Been
+//! Pwned" range API).
 //!
 //! Nothing here touches the network: the app sends [`BreachQuery::prefix`] (5 hex characters
 //! of the password's SHA-1) and passes the answer to [`BreachQuery::count_in`].
@@ -10,7 +12,10 @@ use sha1::{Digest as _, Sha1};
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
-use crate::{ItemData, ItemId, ItemKind, Result, Vault, card};
+use crate::{
+    ItemData, ItemId, ItemKind, Result, Vault, card,
+    site_lists::{self, Offer},
+};
 
 /// Longer passwords are scored on their first characters only (the estimator slows down
 /// quickly with length); such a password is strong anyway.
@@ -139,14 +144,28 @@ pub struct ItemHealth {
     pub set_at: i64,
 }
 
-/// Health of every login with a password, plus expired cards, and the items whose expiry date
-/// (format v11) is past or within [`EXPIRES_SOON_SECONDS`].
+/// Something a login could do better, found without the network.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Advice {
+    /// This website of the login's is saved with `http://`: what is typed there travels in
+    /// clear.
+    NoHttps(String),
+    /// The site offers two-step sign-in with one-time codes and the login keeps none; the page
+    /// that says how to turn it on ("" when the list has none).
+    OneTimeCodes(&'static str),
+    /// The site takes passkeys and the login has none.
+    Passkeys(&'static str),
+}
+
+/// Health of every login with a password, plus expired cards, the items whose expiry date
+/// (format v11) is past or within [`EXPIRES_SOON_SECONDS`], and the logins' [`Advice`].
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HealthReport {
     pub logins: Vec<ItemHealth>,
     pub expired_cards: Vec<ItemId>,
     /// With the date each one expires, soonest first.
     pub expiring: Vec<(ItemId, i64)>,
+    pub advice: Vec<(ItemId, Advice)>,
 }
 
 /// An item whose expiry date is this close is listed on Password health (30 days).
@@ -163,6 +182,34 @@ impl HealthReport {
 
     pub fn old(&self) -> impl Iterator<Item = &ItemHealth> {
         self.logins.iter().filter(|h| h.old)
+    }
+}
+
+/// What `item` (a login) could do better: a website without HTTPS, and what its site offers
+/// that it doesn't use. The offers aren't judged while its secrets are locked (its codes and
+/// passkeys can't be seen then).
+fn advise(id: ItemId, item: &ItemData, advice: &mut Vec<(ItemId, Advice)>) {
+    if let Some(url) = item.urls.iter().find(|url| site_lists::without_https(url)) {
+        advice.push((id, Advice::NoHttps(url.clone())));
+    }
+    if item.is_locked() {
+        return;
+    }
+    let offered = |offer| {
+        item.urls
+            .iter()
+            .find_map(|url| site_lists::offered(offer, url))
+    };
+    if item.totp.trim().is_empty()
+        && !item.password.is_empty()
+        && let Some(page) = offered(Offer::OneTimeCodes)
+    {
+        advice.push((id, Advice::OneTimeCodes(page)));
+    }
+    if item.passkeys.is_empty()
+        && let Some(page) = offered(Offer::Passkeys)
+    {
+        advice.push((id, Advice::Passkeys(page)));
     }
 }
 
@@ -188,6 +235,7 @@ pub struct AuditInput {
     logins: Vec<AuditLogin>,
     expired_cards: Vec<ItemId>,
     expiring: Vec<(ItemId, i64)>,
+    advice: Vec<(ItemId, Advice)>,
     now: i64,
 }
 
@@ -215,6 +263,7 @@ pub fn collect(vault: &Vault, now: i64, month_year: (u32, u32)) -> Result<AuditI
         logins: Vec::new(),
         expired_cards: Vec::new(),
         expiring: Vec::new(),
+        advice: Vec::new(),
         now,
     };
     for id in vault.item_ids() {
@@ -224,6 +273,9 @@ pub fn collect(vault: &Vault, now: i64, month_year: (u32, u32)) -> Result<AuditI
         }
         if item.expires_at != 0 && item.expires_at <= now.saturating_add(EXPIRES_SOON_SECONDS) {
             input.expiring.push((id, item.expires_at));
+        }
+        if item.kind == ItemKind::Login {
+            advise(id, &item, &mut input.advice);
         }
         match item.kind {
             ItemKind::Login if !item.password.is_empty() => {
@@ -260,6 +312,7 @@ impl AuditInput {
             logins: Vec::with_capacity(self.logins.len()),
             expired_cards: self.expired_cards.clone(),
             expiring,
+            advice: self.advice.clone(),
         };
         let mut fingerprints: Vec<[u8; 32]> = Vec::with_capacity(self.logins.len());
         for login in &self.logins {
@@ -423,6 +476,50 @@ mod tests {
         assert_eq!(report.weak().count(), 1);
         assert_eq!(report.reused().count(), 2);
         assert_eq!(report.expired_cards, [ids[3]]);
+    }
+
+    #[test]
+    fn advice_found_offline() {
+        let key = SecretKey::generate().unwrap();
+        let mut vault = Vault::create("pw", &key, None, KdfParams::minimum().unwrap()).unwrap();
+        // A site of each list, whichever comes first in it.
+        let first = |text: &'static str| text.lines().next().unwrap().split_once('\t').unwrap();
+        let (codes_site, codes_page) = first(include_str!("../data/sites-totp.txt"));
+        let (keys_site, keys_page) = first(include_str!("../data/sites-passkeys.txt"));
+        let plain = ItemData::login("Router", "admin", "pw-1", "http://router.example/login");
+        let local = ItemData::login("Dev", "me", "pw-2", "http://localhost:8080");
+        let codes = ItemData::login("Codes", "me", "pw-3", &format!("https://www.{codes_site}"));
+        let mut has_codes = codes.clone();
+        has_codes.title = "Has codes".into();
+        has_codes.totp = "JBSWY3DPEHPK3PXP".into();
+        let keys = ItemData::login("Keys", "me", "pw-4", &format!("https://{keys_site}/"));
+        let ids: Vec<ItemId> = [&plain, &local, &codes, &has_codes, &keys]
+            .iter()
+            .map(|item| vault.add_item(item).unwrap())
+            .collect();
+
+        let report = audit(&vault, 1_900_000_000, (1, 2030)).unwrap();
+        let of = |id: ItemId| -> Vec<&Advice> {
+            report
+                .advice
+                .iter()
+                .filter(|(at, _)| *at == id)
+                .map(|(_, advice)| advice)
+                .collect()
+        };
+        assert!(of(ids[0]).contains(&&Advice::NoHttps("http://router.example/login".into())));
+        assert!(
+            !of(ids[1]).iter().any(|a| matches!(a, Advice::NoHttps(_))),
+            "this computer's own address is fine"
+        );
+        assert!(of(ids[2]).contains(&&Advice::OneTimeCodes(codes_page)));
+        assert!(
+            !of(ids[3])
+                .iter()
+                .any(|a| matches!(a, Advice::OneTimeCodes(_))),
+            "it keeps its codes already"
+        );
+        assert!(of(ids[4]).contains(&&Advice::Passkeys(keys_page)));
     }
 
     #[test]
