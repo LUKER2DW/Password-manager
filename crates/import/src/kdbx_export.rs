@@ -3,7 +3,7 @@
 //!
 //! Written by the `keepass` crate (the same one [`crate::kdbx`] reads with): KDBX 4.1 with
 //! ChaCha20 for the file and for its protected values, HMAC-SHA-256 over each block, GZip, and
-//! the key derived with Argon2id at [`KDF`] (CRYPTO.md §3.11). Every item goes in whole, in the
+//! the key derived with Argon2id at [`KDF`] (CRYPTO.md §3.12). Every item goes in whole, in the
 //! places KeePassXC and KeePass2Android use: extra websites as `KP2A_URL_n`, the one-time
 //! code as `otp`, passkeys as `KPEX_PASSKEY_*` (one per entry: more become entries of their
 //! own), attached files as attachments, earlier passwords as the entry's history. What only
@@ -462,6 +462,12 @@ pub(crate) mod tests {
             sensitive: false,
         });
         vault.add_item(&ssh).unwrap();
+
+        let mut person = vault_core::identity::new("Me");
+        person.username = "Test Person".into();
+        vault_core::identity::set(&mut person, vault_core::identity::EMAIL, "test@example.com");
+        vault_core::identity::set(&mut person, vault_core::identity::PASSPORT, "X0000000");
+        vault.add_item(&person).unwrap();
 
         let mut note = ItemData::new(ItemKind::SecureNote, "Alarm");
         note.notes = "code 1234".into();

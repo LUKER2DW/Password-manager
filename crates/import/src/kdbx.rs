@@ -45,6 +45,7 @@ pub(crate) fn kind_name(kind: ItemKind) -> Option<&'static str> {
         ItemKind::SecureNote => Some("note"),
         ItemKind::Passkey => Some("passkey"),
         ItemKind::SshKey => Some("ssh-key"),
+        ItemKind::Identity => Some("identity"),
     }
 }
 
@@ -119,6 +120,7 @@ fn item_of(entry: &EntryRef<'_>) -> (ItemData, Vec<String>) {
             ItemKind::SecureNote,
             ItemKind::Passkey,
             ItemKind::SshKey,
+            ItemKind::Identity,
         ]
         .into_iter()
         .find(|kind| kind_name(*kind) == Some(name))

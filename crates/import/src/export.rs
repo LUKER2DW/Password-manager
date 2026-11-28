@@ -593,7 +593,8 @@ pub fn export_report(
         };
         let kind_changes = match item.kind {
             ItemKind::Passkey => !sealed && !cxf,
-            ItemKind::Card | ItemKind::SshKey | ItemKind::Identity => csv,
+            ItemKind::Card | ItemKind::SshKey => csv,
+            ItemKind::Identity => csv || cxf,
             ItemKind::Login | ItemKind::SecureNote => false,
         };
         let out = &mut report.left_out;

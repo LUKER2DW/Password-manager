@@ -753,7 +753,9 @@ fn item_json(item: &ItemData, id: Value) -> Result<Value, vault_core::Error> {
                 credentials.push(basic_auth(item));
             }
         }
-        ItemKind::SecureNote => {
+        // An identity's details are its fields, written as a note's are, and its name as the
+        // user (CXF's own identity credentials aren't written yet: it comes back as a login).
+        ItemKind::SecureNote | ItemKind::Identity => {
             if !item.username.is_empty() || !item.password.is_empty() {
                 credentials.push(basic_auth(item));
             }
@@ -1004,9 +1006,10 @@ mod tests {
         let counted = crate::export_report(&vault, crate::ExportFormat::Cxf).unwrap();
         assert_eq!(counted.left_out.attachments, 1);
         assert_eq!(counted.left_out.earlier_passwords, 2);
-        assert_eq!(counted.left_out.kinds_changed, 0);
+        // The identity comes back as a login (CXF's identity credentials aren't written yet).
+        assert_eq!(counted.left_out.kinds_changed, 1);
         assert_eq!(counted.in_clear.passkeys, 2);
-        assert_eq!(counted.affected, ["Mail"]);
+        assert_eq!(counted.affected, ["Mail", "Me"]);
         let report = import(text.as_bytes(), Format::Json, "", None).unwrap();
         // Only the attached file and the earlier passwords stay behind (said by the export
         // report, not the import).
@@ -1020,6 +1023,18 @@ mod tests {
                 .position(|i| i.title == original.title)
                 .unwrap();
             let back = &report.items[at];
+            if original.kind == ItemKind::Identity {
+                assert_eq!(back.kind, ItemKind::Login);
+                assert_eq!(back.username, original.username);
+                for (name, _) in vault_core::identity::FIELDS {
+                    assert_eq!(
+                        vault_core::identity::get(back, name),
+                        vault_core::identity::get(&original, name),
+                        "{name}"
+                    );
+                }
+                continue;
+            }
             assert_eq!(back.kind, original.kind, "{}", original.title);
             if original.kind == ItemKind::SshKey {
                 // The same key, written again in OpenSSH form with its comment.
