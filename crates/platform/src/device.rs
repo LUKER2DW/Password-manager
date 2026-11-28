@@ -236,6 +236,10 @@ pub struct Settings {
     pub update_install: bool,
     /// The open vault's index (categories and folders, on the left) is hidden.
     pub sidebar_hidden: bool,
+    /// The unlock screen offers to type the master password on a secure desktop of its own
+    /// (`secure_desktop.rs`): other programs' keyboard hooks and screen capture don't reach
+    /// it. Off by default: screen readers and on-screen keyboards don't either.
+    pub secure_desktop: bool,
 }
 
 impl Default for Settings {
@@ -263,6 +267,7 @@ impl Default for Settings {
             update_checks: true,
             update_install: true,
             sidebar_hidden: false,
+            secure_desktop: false,
         }
     }
 }

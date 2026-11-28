@@ -651,6 +651,100 @@ impl Round {
     }
 }
 
+/// A copy a round couldn't use (SYNC.md §8): whose, when this device found it, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CopyProblem {
+    pub device: DeviceId,
+    /// Read, but refused (a replay, a fork, another vault…); otherwise it couldn't be read.
+    pub refused: bool,
+    pub why: String,
+    /// When it was first found like this (Unix seconds).
+    pub at: i64,
+}
+
+/// What the rounds couldn't use, one entry per device, kept for as long as that device's
+/// copy stays unusable: a refused copy whose tag doesn't change isn't read again, and still
+/// counts. Copies that wait for the item lock or are under another vault key are said apart
+/// (`Round::waiting_for_lock`, [`key_mismatch`]) and left out.
+#[derive(Debug, Default, Clone)]
+pub struct CopyProblems {
+    list: Vec<CopyProblem>,
+}
+
+impl CopyProblems {
+    /// Takes in one round. Returns the problems that are new (not found like this before), to
+    /// tell the person once; a device whose copy was used, or read and not refused, is
+    /// dropped from the list.
+    pub fn note(&mut self, reading: &Reading, round: &Round, now: i64) -> Vec<CopyProblem> {
+        let merged: Vec<DeviceId> = round.reports.iter().map(|r| r.writer).collect();
+        let mut found: Vec<(DeviceId, bool, String)> = Vec::new();
+        for (device, err) in &round.refused {
+            if matches!(
+                err,
+                vault_core::Error::SecretsLocked | vault_core::Error::DecryptionFailed
+            ) || merged.contains(device)
+            {
+                continue;
+            }
+            if !found.iter().any(|(d, _, _)| d == device) {
+                found.push((*device, true, err.to_string()));
+            }
+        }
+        let mut read_fine: Vec<DeviceId> = merged.clone();
+        for (_, fetched) in reading.answered() {
+            for (device, why) in &fetched.unreadable {
+                if !merged.contains(device) && !found.iter().any(|(d, _, _)| d == device) {
+                    found.push((*device, false, why.clone()));
+                }
+            }
+            read_fine.extend(fetched.copies.iter().map(|(device, _)| *device));
+        }
+        // A copy read again and neither refused nor unreadable is fine now.
+        self.list.retain(|p| {
+            !read_fine.contains(&p.device) || found.iter().any(|(d, _, _)| *d == p.device)
+        });
+        let mut new = Vec::new();
+        for (device, refused, why) in found {
+            match self.list.iter_mut().find(|p| p.device == device) {
+                Some(p) if p.refused == refused && p.why == why => {}
+                Some(p) => {
+                    *p = CopyProblem {
+                        device,
+                        refused,
+                        why,
+                        at: now,
+                    };
+                    new.push(p.clone());
+                }
+                None => {
+                    let p = CopyProblem {
+                        device,
+                        refused,
+                        why,
+                        at: now,
+                    };
+                    new.push(p.clone());
+                    self.list.push(p);
+                }
+            }
+        }
+        new
+    }
+
+    /// The problem with `device`'s copy, if there is one.
+    pub fn of(&self, device: DeviceId) -> Option<&CopyProblem> {
+        self.list.iter().find(|p| p.device == device)
+    }
+
+    pub fn all(&self) -> &[CopyProblem] {
+        &self.list
+    }
+
+    pub fn clear(&mut self) {
+        self.list.clear();
+    }
+}
+
 /// The copies a round couldn't open with the vault key held here (`DecryptionFailed`), told
 /// apart by their public header (`VaultInfo::unlock_id`, see `DeviceState::retire_unlock`).
 #[derive(Debug, Default)]
@@ -1511,5 +1605,60 @@ mod tests {
         let mismatch = key_mismatch(&vault_id, &reading, &round, &state_a);
         assert_eq!(mismatch.behind, [b_id]);
         assert!(mismatch.renewed.is_empty());
+    }
+
+    #[test]
+    fn a_copy_that_cant_be_used_is_named_once_and_kept_until_it_can() {
+        let (a, b) = (device(1), device(2));
+        let fetched = |copies: Vec<DeviceId>, unreadable: Vec<DeviceId>| Reading {
+            main: Ok(Fetched {
+                copies: copies.into_iter().map(|d| (d, Vec::new())).collect(),
+                unreadable: unreadable
+                    .into_iter()
+                    .map(|d| (d, "the server said 500".to_owned()))
+                    .collect(),
+                ..Fetched::default()
+            }),
+            backup: None,
+        };
+        let refused = |device| Round {
+            refused: vec![(device, vault_core::Error::SyncRollback)],
+            ..Round::default()
+        };
+        let mut problems = CopyProblems::default();
+        // A refused, B unreadable: both new.
+        let new = problems.note(&fetched(vec![a], vec![b]), &refused(a), 100);
+        assert_eq!(new.len(), 2);
+        assert!(problems.of(a).unwrap().refused);
+        assert!(!problems.of(b).unwrap().refused);
+        assert_eq!(problems.of(b).unwrap().at, 100);
+        // The same again: nothing new to tell, the first time kept. A's copy is unchanged
+        // (not read again) and still counts.
+        let new = problems.note(&fetched(vec![], vec![b]), &Round::default(), 200);
+        assert!(new.is_empty());
+        assert_eq!(problems.of(b).unwrap().at, 100);
+        assert!(problems.of(a).is_some());
+        // Waiting for the item lock, or under another key, is said apart.
+        let locked = Round {
+            refused: vec![
+                (a, vault_core::Error::SecretsLocked),
+                (b, vault_core::Error::DecryptionFailed),
+            ],
+            ..Round::default()
+        };
+        let new = problems.note(&fetched(vec![a, b], vec![]), &locked, 300);
+        assert!(new.is_empty());
+        assert!(problems.all().is_empty());
+        // Merged: gone.
+        problems.note(&fetched(vec![], vec![b]), &Round::default(), 400);
+        let merged = Round {
+            reports: vec![MergeReport {
+                writer: b,
+                ..MergeReport::default()
+            }],
+            ..Round::default()
+        };
+        problems.note(&fetched(vec![b], vec![]), &merged, 500);
+        assert!(problems.of(b).is_none());
     }
 }
