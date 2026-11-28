@@ -307,6 +307,83 @@ fn ecdsa_private<const SIZE: usize>(
     EcdsaPrivateKey::<SIZE>::decode(&mut wire.as_slice()).map_err(|_| KeyProblem::NotAKey)
 }
 
+/// A private key in OpenSSH's form (no passphrase) as PKCS#8 DER, with the name of its
+/// algorithm as SSH writes it (`ssh-ed25519`, `ssh-rsa`, `ecdsa-sha2-nistp256`): the form
+/// the Credential Exchange Format carries SSH keys in. `None` for a key with a passphrase,
+/// anything that isn't a key, or a type with no PKCS#8 form here (P-521).
+pub fn pkcs8_der(private_key: &str) -> Option<(Zeroizing<Vec<u8>>, String)> {
+    use ed25519_dalek::pkcs8::EncodePrivateKey as _;
+    use p256::pkcs8::EncodePrivateKey;
+    let key = PrivateKey::from_openssh(private_key.trim()).ok()?;
+    if key.is_encrypted() {
+        return None;
+    }
+    let algorithm = key.algorithm().as_str().to_owned();
+    // Each arm copies its document out (the crates' documents are of two `der` releases);
+    // the documents wipe themselves when dropped.
+    let der = match key.key_data() {
+        KeypairData::Ed25519(pair) => {
+            let secret = Zeroizing::new(pair.private.to_bytes());
+            let document = ed25519_dalek::SigningKey::from_bytes(&secret)
+                .to_pkcs8_der()
+                .ok()?;
+            document.as_bytes().to_vec()
+        }
+        KeypairData::Ecdsa(EcdsaKeypair::NistP256 { private, .. }) => {
+            let document = p256::SecretKey::from_slice(private.as_slice())
+                .ok()?
+                .to_pkcs8_der()
+                .ok()?;
+            document.as_bytes().to_vec()
+        }
+        KeypairData::Ecdsa(EcdsaKeypair::NistP384 { private, .. }) => {
+            let document = p384::SecretKey::from_slice(private.as_slice())
+                .ok()?
+                .to_pkcs8_der()
+                .ok()?;
+            document.as_bytes().to_vec()
+        }
+        KeypairData::Rsa(pair) => {
+            let number = |value: &Mpint| {
+                let bytes = value.as_positive_bytes()?;
+                let bits = u32::try_from((bytes.len() * 8).next_multiple_of(64)).ok()?;
+                rsa::BoxedUint::from_be_slice(bytes, bits).ok()
+            };
+            let rsa = rsa::PrivateKey::from_components(
+                number(&pair.public.n)?,
+                number(&pair.public.e)?,
+                number(&pair.private.d)?,
+                vec![number(&pair.private.p)?, number(&pair.private.q)?],
+            )
+            .ok()?;
+            let document = rsa.to_pkcs8_der().ok()?;
+            document.as_bytes().to_vec()
+        }
+        _ => return None,
+    };
+    Some((Zeroizing::new(der), algorithm))
+}
+
+/// A private key in PKCS#8 DER (as [`pkcs8_der`] writes it) in OpenSSH's form, with its
+/// public half. `comment` goes in the public key.
+pub fn from_pkcs8_der(der: &[u8], comment: &str) -> std::result::Result<SshKeyPair, KeyProblem> {
+    use ed25519_dalek::pkcs8::DecodePrivateKey as _;
+    use p256::pkcs8::DecodePrivateKey;
+    let data = if let Ok(key) = ed25519_dalek::SigningKey::from_pkcs8_der(der) {
+        KeypairData::Ed25519(Ed25519Keypair::from(key))
+    } else if let Ok(key) = rsa::PrivateKey::from_pkcs8_der(der) {
+        KeypairData::Rsa(rsa_keypair(&key)?)
+    } else if let Ok(key) = p256::SecretKey::from_pkcs8_der(der) {
+        KeypairData::Ecdsa(p256_keypair(&key)?)
+    } else if let Ok(key) = p384::SecretKey::from_pkcs8_der(der) {
+        KeypairData::Ecdsa(p384_keypair(&key)?)
+    } else {
+        return Err(KeyProblem::Unsupported);
+    };
+    let private = PrivateKey::new(data, comment.trim()).map_err(|_| KeyProblem::NotAKey)?;
+    pair_of(&private).ok_or(KeyProblem::NotAKey)
+}
+
 /// The public key of a private key in OpenSSH's form (any key type, with a passphrase or
 /// not), without its comment, which a key with a passphrase keeps secret. `None` for anything
 /// else.
@@ -470,6 +547,45 @@ mod tests {
         assert_eq!(key_type_of(&pair.private_key).unwrap(), "ECDSA P-384");
         let p384_openssh = include_str!("../testdata/ssh/p384-openssh.txt");
         assert_eq!(key_data_of(&pair.private_key), key_data_of(p384_openssh));
+    }
+
+    #[test]
+    fn every_kept_key_type_goes_to_pkcs8_and_back_the_same() {
+        let ed25519 = generate_ed25519("me@test").unwrap().private_key;
+        let p256 = import(
+            &p256::SecretKey::from_slice(&[7u8; 32])
+                .unwrap()
+                .to_sec1_pem(p256::pkcs8::LineEnding::LF)
+                .unwrap(),
+            None,
+            "",
+        )
+        .unwrap()
+        .private_key;
+        let rsa = include_str!("../testdata/ssh/rsa-2048-openssh.txt");
+        let p384 = include_str!("../testdata/ssh/p384-openssh.txt");
+        for (key, algorithm) in [
+            (ed25519.as_str(), "ssh-ed25519"),
+            (p256.as_str(), "ecdsa-sha2-nistp256"),
+            (rsa, "ssh-rsa"),
+            (p384, "ecdsa-sha2-nistp384"),
+        ] {
+            let (der, name) = pkcs8_der(key).unwrap();
+            assert_eq!(name, algorithm);
+            assert_eq!(der[0], 0x30, "a DER sequence");
+            let back = from_pkcs8_der(&der, "laptop").unwrap();
+            assert_eq!(
+                key_data_of(&back.private_key),
+                key_data_of(key),
+                "{algorithm}"
+            );
+            assert!(back.public_key.ends_with(" laptop"));
+        }
+        assert!(pkcs8_der("not a key").is_none());
+        assert_eq!(
+            from_pkcs8_der(b"\x30\x00", "").err(),
+            Some(KeyProblem::Unsupported)
+        );
     }
 
     fn key_data_of(text: &str) -> KeypairData {

@@ -23,7 +23,7 @@ use p256::ecdsa::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::{Error, Result};
 
@@ -149,6 +149,29 @@ impl Passkey {
     /// (CRYPTO.md §3.3); [`Passkey::from_parts`] takes it back.
     pub fn private_key(&self) -> &[u8] {
         &self.key
+    }
+
+    /// Its private key as PKCS#8 DER, the form other managers exchange passkeys in (the
+    /// Credential Exchange Format, KeePassXC's PEM). Only for an export the person asked for.
+    pub fn private_key_pkcs8(&self) -> Result<Zeroizing<Vec<u8>>> {
+        use p256::pkcs8::EncodePrivateKey;
+        let key = p256::SecretKey::from_slice(&self.key).map_err(|_| {
+            if self.key.is_empty() {
+                Error::SecretsLocked
+            } else {
+                Error::Malformed
+            }
+        })?;
+        let document = key.to_pkcs8_der().map_err(|_| Error::Malformed)?;
+        Ok(Zeroizing::new(document.as_bytes().to_vec()))
+    }
+
+    /// The 32-byte P-256 scalar of a private key in PKCS#8 DER, for [`Passkey::from_parts`].
+    /// `None` for anything else (another curve, a damaged key).
+    pub fn scalar_from_pkcs8(der: &[u8]) -> Option<Zeroizing<Vec<u8>>> {
+        use p256::pkcs8::DecodePrivateKey;
+        let key = p256::SecretKey::from_pkcs8_der(der).ok()?;
+        Some(Zeroizing::new(key.to_bytes().to_vec()))
     }
 
     /// Whether it keeps to the limits above, and its key (when there) is a P-256 key.
@@ -338,6 +361,27 @@ mod cbor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_private_key_goes_out_and_back_as_pkcs8() {
+        let passkey = Passkey::new("example.com", b"user", "me", "Me").unwrap();
+        let der = passkey.private_key_pkcs8().unwrap();
+        // SEQUENCE, version 0, id-ecPublicKey with prime256v1.
+        assert_eq!(der[0], 0x30);
+        assert!(
+            der.windows(8)
+                .any(|w| w == [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06])
+        );
+        let scalar = Passkey::scalar_from_pkcs8(&der).unwrap();
+        assert_eq!(scalar.as_slice(), passkey.private_key());
+        assert!(Passkey::scalar_from_pkcs8(&der[..der.len() - 1]).is_none());
+        let mut locked = passkey.clone();
+        locked.key.clear();
+        assert!(matches!(
+            locked.private_key_pkcs8(),
+            Err(Error::SecretsLocked)
+        ));
+    }
 
     #[test]
     fn cbor_is_written_in_its_shortest_form() {

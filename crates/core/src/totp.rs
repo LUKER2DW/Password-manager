@@ -2,6 +2,11 @@
 //! counter-based (HOTP, RFC 4226). A counter-based key keeps its counter in its own
 //! `otpauth://hotp/…&counter=N` link, in the item's `totp` field: the next code is asked for by
 //! moving the counter on ([`next_counter`]), which changes the link, so it syncs with the item.
+//!
+//! Some game platforms show a time-based code of five characters instead of digits: the same
+//! HMAC-SHA-1 code over 30 seconds, written in a 26-character alphabet of digits and capital
+//! letters ([`CHARACTERS`]). Such a key is an `otpauth://totp/…&encoder=steam` link (the
+//! parameter authenticator apps and KeePassXC write) or an `otpauth://steam/…` link.
 
 use std::fmt;
 
@@ -9,7 +14,7 @@ use std::fmt;
 use web_time::{SystemTime, UNIX_EPOCH};
 
 use hmac::{Hmac, KeyInit, Mac};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{Error, Result};
 
@@ -30,7 +35,20 @@ pub struct Totp {
     period: u64,
     /// Counter-based (HOTP): the counter of the current code. `None` for time-based codes.
     counter: Option<u64>,
+    /// Five characters of [`CHARACTERS`] instead of digits.
+    characters: bool,
 }
+
+/// The alphabet of five-character codes: digits and capital letters, without those easily
+/// taken for one another (0, 1, A, E, I, L, O, S, U, Z).
+pub const CHARACTERS: &[u8; 26] = b"23456789BCDFGHJKMNPQRTVWXY";
+
+/// How many characters such a code has.
+const CHARACTER_CODE_LENGTH: u32 = 5;
+
+/// The `encoder=` value that marks a five-character key in an `otpauth://` link, as other
+/// apps write it.
+pub const CHARACTER_ENCODER: &str = "steam";
 
 impl fmt::Debug for Totp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -40,6 +58,7 @@ impl fmt::Debug for Totp {
             .field("digits", &self.digits)
             .field("period", &self.period)
             .field("counter", &self.counter)
+            .field("characters", &self.characters)
             .finish()
     }
 }
@@ -50,7 +69,8 @@ impl Totp {
     pub fn parse(input: &str) -> Result<Self> {
         let input = input.trim();
         let counter_based = has_prefix(input, HOTP);
-        if !has_prefix(input, TOTP) && !counter_based {
+        let mut characters = has_prefix(input, CHARACTER_LINK);
+        if !has_prefix(input, TOTP) && !counter_based && !characters {
             return Self::new(base32_decode(input)?, TotpAlgorithm::Sha1, 6, 30, None);
         }
 
@@ -77,16 +97,22 @@ impl Totp {
                 "counter" if counter_based => {
                     counter = Some(value.parse().map_err(|_| Error::InvalidTotp)?);
                 }
+                "encoder" if !counter_based => {
+                    characters |= value.eq_ignore_ascii_case(CHARACTER_ENCODER);
+                }
                 _ => {}
             }
         }
-        Self::new(
-            secret.ok_or(Error::InvalidTotp)?,
-            algorithm,
-            digits,
-            period,
-            counter,
-        )
+        let secret = secret.ok_or(Error::InvalidTotp)?;
+        if characters {
+            // The code is always five characters of SHA-1 over 30 seconds, whatever else the
+            // link says (some apps write `digits=5`, others nothing).
+            let mut totp = Self::new(secret, TotpAlgorithm::Sha1, 6, 30, None)?;
+            totp.characters = true;
+            totp.digits = CHARACTER_CODE_LENGTH;
+            return Ok(totp);
+        }
+        Self::new(secret, algorithm, digits, period, counter)
     }
 
     fn new(
@@ -105,7 +131,13 @@ impl Totp {
             digits,
             period,
             counter,
+            characters: false,
         })
+    }
+
+    /// Five characters of [`CHARACTERS`] instead of digits.
+    pub fn is_characters(&self) -> bool {
+        self.characters
     }
 
     /// Counter-based (HOTP): a new code only when asked for, not with the time.
@@ -160,6 +192,15 @@ impl Totp {
             digest[offset + 2],
             digest[offset + 3],
         ]);
+        if self.characters {
+            let mut rest = binary;
+            let mut code = Zeroizing::new(String::with_capacity(CHARACTER_CODE_LENGTH as usize));
+            for _ in 0..CHARACTER_CODE_LENGTH {
+                code.push(char::from(CHARACTERS[(rest % 26) as usize]));
+                rest /= 26;
+            }
+            return code;
+        }
         let code = binary % 10u32.pow(self.digits);
         Zeroizing::new(format!("{code:0width$}", width = self.digits as usize))
     }
@@ -189,6 +230,8 @@ pub struct TotpNames {
 
 const TOTP: &str = "otpauth://totp/";
 const HOTP: &str = "otpauth://hotp/";
+/// A five-character key written with a type of its own instead of `encoder=`.
+const CHARACTER_LINK: &str = "otpauth://steam/";
 
 fn has_prefix(input: &str, prefix: &str) -> bool {
     input
@@ -225,7 +268,11 @@ pub fn next_counter(input: &str) -> Option<String> {
 /// `otpauth://hotp/…?secret=…&counter=0` link. A link is kept as it is.
 pub fn with_kind(input: &str, counter_based: bool) -> String {
     let input = input.trim();
-    if has_prefix(input, TOTP) || has_prefix(input, HOTP) || !counter_based {
+    if has_prefix(input, TOTP)
+        || has_prefix(input, HOTP)
+        || has_prefix(input, CHARACTER_LINK)
+        || !counter_based
+    {
         return input.to_owned();
     }
     let secret: String = input
@@ -235,6 +282,102 @@ pub fn with_kind(input: &str, counter_based: bool) -> String {
     format!("{HOTP}code?secret={secret}&counter=0")
 }
 
+/// A key read from another app's export or a QR code, made into the `otpauth://` link the
+/// item keeps. Only what differs from the defaults is written (SHA-1, 6 digits, 30 seconds).
+#[derive(Clone, Default)]
+pub struct LinkParts<'a> {
+    pub issuer: &'a str,
+    pub account: &'a str,
+    /// Base32, as the link writes it (spaces and `=` padding are taken off).
+    pub secret: &'a str,
+    pub algorithm: TotpAlgorithm,
+    /// 0 for the default.
+    pub digits: u32,
+    /// 0 for the default.
+    pub period: u64,
+    /// Counter-based, at this counter.
+    pub counter: Option<u64>,
+    /// A five-character code.
+    pub characters: bool,
+}
+
+impl fmt::Debug for LinkParts<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LinkParts")
+            .field("issuer", &self.issuer)
+            .field("account", &self.account)
+            .field("secret", &"<redacted>")
+            .finish_non_exhaustive()
+    }
+}
+
+impl LinkParts<'_> {
+    /// The link, or `None` when it wouldn't give codes ([`Totp::parse`] refuses it).
+    pub fn link(&self) -> Option<Zeroizing<String>> {
+        let secret: Zeroizing<String> = Zeroizing::new(
+            self.secret
+                .chars()
+                .filter(|c| !c.is_whitespace() && *c != '=' && *c != '-')
+                .map(|c| c.to_ascii_uppercase())
+                .collect(),
+        );
+        let kind = if self.counter.is_some() { HOTP } else { TOTP };
+        let issuer = self.issuer.trim();
+        let account = self.account.trim();
+        let label = match (issuer.is_empty(), account.is_empty()) {
+            (false, false) => format!("{}:{}", percent_encode(issuer), percent_encode(account)),
+            (false, true) => percent_encode(issuer),
+            (true, false) => percent_encode(account),
+            (true, true) => "code".to_owned(),
+        };
+        let mut link = Zeroizing::new(String::with_capacity(
+            kind.len() + label.len() + secret.len() + issuer.len() * 3 + 96,
+        ));
+        link.push_str(kind);
+        link.push_str(&label);
+        link.push_str("?secret=");
+        link.push_str(&secret);
+        if !issuer.is_empty() {
+            link.push_str("&issuer=");
+            link.push_str(&percent_encode(issuer));
+        }
+        if self.characters {
+            link.push_str("&digits=5&encoder=");
+            link.push_str(CHARACTER_ENCODER);
+        } else {
+            match self.algorithm {
+                TotpAlgorithm::Sha1 => {}
+                TotpAlgorithm::Sha256 => link.push_str("&algorithm=SHA256"),
+                TotpAlgorithm::Sha512 => link.push_str("&algorithm=SHA512"),
+            }
+            if self.digits != 0 && self.digits != 6 {
+                link.push_str(&format!("&digits={}", self.digits));
+            }
+            if self.period != 0 && self.period != 30 && self.counter.is_none() {
+                link.push_str(&format!("&period={}", self.period));
+            }
+            if let Some(counter) = self.counter {
+                link.push_str(&format!("&counter={counter}"));
+            }
+        }
+        Totp::parse(&link).ok()?;
+        Some(link)
+    }
+}
+
+/// A label part or parameter of a link: what isn't a letter, a digit or `-._~` as `%XX`.
+fn percent_encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
 /// Reads [`TotpNames`] from what was pasted or scanned.
 pub fn names(input: &str) -> TotpNames {
     let input = input.trim();
@@ -242,6 +385,8 @@ pub fn names(input: &str) -> TotpNames {
         TOTP
     } else if has_prefix(input, HOTP) {
         HOTP
+    } else if has_prefix(input, CHARACTER_LINK) {
+        CHARACTER_LINK
     } else {
         return TotpNames::default();
     };
@@ -315,9 +460,43 @@ fn base32_decode(text: &str) -> Result<Zeroizing<Vec<u8>>> {
     Ok(out)
 }
 
+/// Bytes as Base32 (RFC 4648, capitals, no padding): a key read as raw bytes made into the
+/// text a link holds.
+pub fn base32_encode(bytes: &[u8]) -> Zeroizing<String> {
+    const ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let mut out = Zeroizing::new(String::with_capacity(bytes.len().div_ceil(5) * 8));
+    let mut acc: u64 = 0;
+    let mut bits = 0u32;
+    for &byte in bytes {
+        acc = (acc << 8) | u64::from(byte);
+        bits += 8;
+        while bits >= 5 {
+            bits -= 5;
+            out.push(char::from(ALPHABET[((acc >> bits) & 31) as usize]));
+        }
+        acc &= (1 << bits) - 1;
+    }
+    if bits > 0 {
+        out.push(char::from(ALPHABET[((acc << (5 - bits)) & 31) as usize]));
+    }
+    acc.zeroize();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base32_both_ways() {
+        assert_eq!(
+            base32_encode(b"12345678901234567890").as_str(),
+            "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+        );
+        assert_eq!(base32_encode(b"f").as_str(), "MY");
+        assert_eq!(base32_encode(b"foobar").as_str(), "MZXW6YTBOI");
+        assert_eq!(base32_decode("MZXW6YTBOI").unwrap().as_slice(), b"foobar");
+    }
 
     fn rfc_totp(secret: &[u8], algorithm: TotpAlgorithm) -> Totp {
         Totp::new(Zeroizing::new(secret.to_vec()), algorithm, 8, 30, None).unwrap()
@@ -403,6 +582,78 @@ mod tests {
                 "SHA512 at {time}"
             );
         }
+    }
+
+    /// Five-character codes: the RFC 6238 SHA-1 key, its codes worked out apart (Python's
+    /// `hmac`, the same truncation, the 31-bit number written in the alphabet from its least
+    /// significant end).
+    #[test]
+    fn five_character_codes() {
+        let link = "otpauth://totp/Game:me?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&encoder=steam";
+        let other_type = "otpauth://steam/Game:me?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+        for input in [link, other_type] {
+            let totp = Totp::parse(input).unwrap();
+            assert!(totp.is_characters());
+            assert_eq!(totp.digits(), 5);
+            assert_eq!(totp.code_at(59).as_str(), "PV9M4");
+            assert_eq!(totp.code_at(1_111_111_109).as_str(), "PY4YB");
+            assert_eq!(totp.code_at(20_000_000_000).as_str(), "R5DMB");
+        }
+        assert_eq!(names(other_type).issuer, "Game");
+        // What else the link says changes nothing: always SHA-1, 5 characters, 30 seconds.
+        let odd = Totp::parse(&format!("{link}&digits=8&algorithm=SHA512&period=60")).unwrap();
+        assert_eq!(odd.code_at(59).as_str(), "PV9M4");
+        assert!(
+            !Totp::parse("otpauth://totp/x?secret=GEZDGNBV")
+                .unwrap()
+                .is_characters()
+        );
+        assert_eq!(with_kind(other_type, true), other_type);
+    }
+
+    #[test]
+    fn links_made_from_parts() {
+        let parts = LinkParts {
+            issuer: "Example Co",
+            account: "me@example.com",
+            secret: "gezd gnbv gy3t qojq====",
+            ..LinkParts::default()
+        };
+        let link = parts.link().unwrap();
+        assert_eq!(
+            link.as_str(),
+            "otpauth://totp/Example%20Co:me%40example.com?secret=GEZDGNBVGY3TQOJQ&issuer=Example%20Co"
+        );
+        assert_eq!(names(&link).account, "me@example.com");
+        let counter = LinkParts {
+            secret: "GEZDGNBV",
+            algorithm: TotpAlgorithm::Sha256,
+            digits: 8,
+            counter: Some(7),
+            ..LinkParts::default()
+        };
+        let totp = Totp::parse(&counter.link().unwrap()).unwrap();
+        assert_eq!(
+            (totp.counter(), totp.digits(), totp.algorithm()),
+            (Some(7), 8, TotpAlgorithm::Sha256)
+        );
+        let characters = LinkParts {
+            secret: "GEZDGNBV",
+            characters: true,
+            ..LinkParts::default()
+        };
+        assert!(
+            Totp::parse(&characters.link().unwrap())
+                .unwrap()
+                .is_characters()
+        );
+        // Not a key at all, or digits no code has: nothing.
+        let bad = LinkParts {
+            secret: "not base32!",
+            ..LinkParts::default()
+        };
+        assert!(bad.link().is_none());
+        assert!(!format!("{parts:?}").contains("GEZD"));
     }
 
     #[test]
