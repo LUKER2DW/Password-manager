@@ -370,6 +370,15 @@ impl Controller {
                 .to_owned(),
         );
         let secret = (!secret.is_empty() && check != GuardCheck::Master).then_some(secret);
+        // A new item password that is easy to guess is warned about first (one that isn't a
+        // password at all is refused by the job, after the master password).
+        if check == GuardCheck::Password
+            && let Some(secret) = &secret
+            && ItemGuard::check_secret(check, secret).is_ok()
+            && !self.review_new_password(super::passwords::place::LOCK_SETTINGS)
+        {
+            return;
+        }
         let all = app.get_guard_all();
         let want_hello = app.get_guard_hello();
         let verifier = self.state.borrow().verifier.clone();

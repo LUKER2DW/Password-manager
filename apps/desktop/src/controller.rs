@@ -46,6 +46,7 @@ use crate::{
 use vault_platform::website_icons::{self as favicon, IconCache};
 
 mod attachments;
+mod attempts;
 mod browser;
 mod drop_box;
 mod extension;
@@ -54,6 +55,7 @@ mod folders;
 mod generated;
 mod locked_fill;
 mod navigation;
+mod passwords;
 mod protection;
 mod renew;
 mod syncing;
@@ -191,6 +193,11 @@ mod error {
     pub const EXTENSION_FOLDER_OPEN: i32 = 71;
     /// The folder chosen to take the extension from doesn't read as one (the detail says why).
     pub const EXTENSION_LOCAL: i32 = 72;
+    /// A protected export's password is below the one-factor floor (CRYPTO.md §3.3.1): it
+    /// alone guards the file.
+    pub const WEAK_EXPORT: i32 = 73;
+    /// Too many failed unlocks in a row: the next try waits (controller/attempts.rs).
+    pub const UNLOCK_WAIT: i32 = 74;
     /// The Secret Key kept on this computer can't be used (CRYPTO.md §2.2.1): the security
     /// chip no longer opens it (cleared, replaced, turned off); two different ones are kept;
     /// it couldn't be read just now (the detail says why). The kit's is asked for.
@@ -316,6 +323,9 @@ mod notice {
     /// version it answers).
     pub const EXTENSION_OUTDATED: i32 = 122;
     pub const KIT_PDF_PASSWORD_COPIED: i32 = 123;
+    /// Failed unlocks happened before this one (the argument: since when; `notice-count`: how
+    /// many). Its words are `Messages.failed-unlocks`.
+    pub const FAILED_UNLOCKS: i32 = 124;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -479,6 +489,18 @@ enum JobResult {
         former: FormerKey,
         not_kept: Option<String>,
     },
+    /// A try at the unlock failed (a wrong master password or keyfile, Windows Hello): counted
+    /// for vault `vault_id`, even when the window moved on (controller/attempts.rs).
+    UnlockFailed {
+        code: i32,
+        detail: String,
+        vault_id: String,
+    },
+    /// The breach check's answer about a new password (controller/passwords.rs).
+    NewPasswordLeaks {
+        place: i32,
+        found: Result<u64, String>,
+    },
     /// `session` is handed back when the job borrowed an open vault.
     Failed {
         code: i32,
@@ -618,6 +640,15 @@ struct State {
     generated_shown: Option<usize>,
     /// Wrong tries at a guarded item since the last right one.
     guard_attempts: u32,
+    /// The clocks unlock attempts are timed by (the tests put their own in its place).
+    clock: fn() -> device::Clock,
+    /// The breach check of a new master password (the tests put a stand-in in its place).
+    leak_count: fn(&str) -> Result<u64, String>,
+    /// The new password field whose easy password the person chose to keep, and the one whose
+    /// password the breach check passed (or the person went on without it): each until that
+    /// field changes (controller/passwords.rs).
+    weak_kept: Option<usize>,
+    leaks_cleared: Option<usize>,
     /// Headless tests: the start at sign-in, kept here instead of in the registry.
     sign_in_start: bool,
 }
@@ -647,6 +678,8 @@ struct Timers {
     update_every: Timer,
     /// The browser extension's folder, looked at every few minutes while the link runs.
     extension_check: Timer,
+    /// Ticks the unlock screen's countdown after too many failed tries.
+    unlock_wait: Timer,
 }
 
 pub struct Controller {
@@ -785,6 +818,10 @@ impl Controller {
                 editor_generated: None,
                 generated_shown: None,
                 guard_attempts: 0,
+                clock: device::Clock::read,
+                leak_count: vault_platform::leak_check::count,
+                weak_kept: None,
+                leaks_cleared: None,
                 sign_in_start: false,
             }),
             timers: Timers::default(),
@@ -943,6 +980,24 @@ impl Controller {
         }
 
         on!(on_create_vault, |c| c.create_vault());
+        {
+            let review = app.global::<crate::ui::NewPassword>();
+            let weak = Rc::downgrade(self);
+            review.on_use_passphrase(move |field| {
+                if let Some(c) = weak.upgrade() {
+                    c.touch_activity();
+                    c.use_passphrase(field);
+                }
+            });
+            let weak = Rc::downgrade(self);
+            review.on_keep(move || {
+                if let Some(c) = weak.upgrade() {
+                    c.touch_activity();
+                    c.keep_reviewed_password();
+                    c.note_place();
+                }
+            });
+        }
         on!(on_suggest_passphrase, |c| c.suggest_passphrase());
         on!(on_use_suggestion, |c| c.use_suggestion());
         on!(on_finish_onboarding, |c| c.finish_onboarding());
@@ -1192,6 +1247,7 @@ impl Controller {
         if index == field::ITEM_PASSWORD {
             self.update_editor_strength();
         }
+        self.new_password_edited(index);
         // A shown password in the editor must follow the buffer.
         if index == field::ITEM_PASSWORD && !self.app().get_editor_password_shown().is_empty() {
             let text = SharedString::from(self.state.borrow().secrets[index].as_str());
@@ -1204,6 +1260,7 @@ impl Controller {
 
     /// Empties a field and hides it again: a field opened later starts hidden.
     fn clear_secret(&self, index: usize) {
+        self.new_password_edited(index);
         self.state.borrow_mut().secrets[index].clear();
         self.lengths.set_row_data(index, 0);
         self.carets.set_row_data(index, 0);
@@ -1279,11 +1336,12 @@ impl Controller {
                         .map(|p| p.display().to_string())
                         .unwrap_or_default(),
                 ));
-                app.set_vault_id(SharedString::from(info.id_hex));
                 app.set_needs_secret_key(!known);
                 app.set_can_use_parts(info.has_recovery_parts);
                 app.set_use_parts(false);
                 self.show_screen(Screen::Unlock);
+                self.unlock_wait(&info.id_hex);
+                app.set_vault_id(SharedString::from(info.id_hex));
             }
             None if path.exists() => {
                 self.show_screen(Screen::Unlock);
@@ -1301,6 +1359,7 @@ impl Controller {
 
     fn show_screen(&self, screen: Screen) {
         self.set_error(error::NONE, "");
+        self.forget_review();
         self.app().set_screen(screen);
     }
 
@@ -1349,6 +1408,7 @@ impl Controller {
             CoreError::InvalidTotp => (error::BAD_TOTP, String::new()),
             CoreError::SecretsLocked => (error::SECRETS_LOCKED, String::new()),
             CoreError::FileChanged => (error::CHANGED_OUTSIDE, String::new()),
+            CoreError::WeakPassword => (error::WEAK_EXPORT, String::new()),
             CoreError::Io(io) => (error::FILE, io.to_string()),
             other => (error::OTHER, other.to_string()),
         }
@@ -1408,6 +1468,7 @@ impl Controller {
         }
         match result {
             JobResult::Created { session, parts } => {
+                self.forget_review();
                 self.clear_secret(field::MASTER);
                 self.clear_secret(field::CONFIRM);
                 self.state.borrow_mut().suggestion = None;
@@ -1422,6 +1483,7 @@ impl Controller {
                 self.state.borrow_mut().pending = Some(session);
             }
             JobResult::Recovered { session } => {
+                self.forget_review();
                 app.set_quick_unlock_on(false);
                 self.clear_secret(field::MASTER);
                 self.clear_secret(field::CONFIRM);
@@ -1589,6 +1651,7 @@ impl Controller {
                 session,
                 kdf_seconds,
             } => {
+                self.forget_review();
                 for index in [
                     field::CURRENT,
                     field::NEW,
@@ -1675,6 +1738,15 @@ impl Controller {
                 self.remember_file();
                 self.notify(notice::PARTS_ISSUED, "");
             }
+            JobResult::UnlockFailed {
+                code,
+                detail,
+                vault_id,
+            } => {
+                self.unlock_failed(&vault_id);
+                self.set_error(code, &detail);
+            }
+            JobResult::NewPasswordLeaks { place, found } => self.new_password_leaks(place, found),
             JobResult::Failed {
                 code,
                 detail,
@@ -1694,6 +1766,11 @@ impl Controller {
     /// A job's result that no longer belongs here (see `finish_job`): dropped, keys and all.
     /// What the job already did outside the vault is undone where it would mislead.
     fn drop_job_result(&self, result: JobResult) {
+        if let JobResult::UnlockFailed { vault_id, .. } = &result {
+            // A failure counts wherever the window went meanwhile.
+            device::unlock_attempts::failed(vault_id, self.clock());
+            return;
+        }
         if let JobResult::KeyRenewed {
             session, former, ..
         } = result
@@ -1743,6 +1820,9 @@ impl Controller {
         };
         let app = self.app();
         if app.get_onboarding_step() == 1 {
+            if !self.review_new_password(passwords::place::ONBOARDING) {
+                return;
+            }
             // The suggested start: a PIN on every item, and Windows Hello where it exists.
             self.set_error(error::NONE, "");
             self.clear_secret(field::GUARD_NEW);
@@ -1766,6 +1846,11 @@ impl Controller {
             && ItemGuard::check_secret(check, &guard_secret).is_err()
         {
             self.set_error(error::GUARD_SECRET, "");
+            return;
+        }
+        if lock == Some(GuardCheck::Password)
+            && !self.review_new_password(passwords::place::LOCK_ONBOARDING)
+        {
             return;
         }
         let guard_all = app.get_guard_all();
@@ -1892,6 +1977,10 @@ impl Controller {
             }
         };
         self.app().set_can_use_parts(info.has_recovery_parts);
+        if self.unlock_wait(&info.id_hex) > 0 {
+            self.set_error(error::UNLOCK_WAIT, "");
+            return;
+        }
         let used_parts = self.app().get_use_parts();
         let (secret_key, typed) = match secret_store::load_checked(&info.id_hex) {
             Ok(Loaded::Key(key)) => (key, false),
@@ -1952,6 +2041,7 @@ impl Controller {
         } else {
             None
         };
+        let vault_id = info.id_hex.clone();
         self.run_job(move || {
             let started = std::time::Instant::now();
             let unlock = match &keyfile {
@@ -1984,15 +2074,14 @@ impl Controller {
                         seconds: Some(seconds),
                     }
                 }
-                Err(CoreError::DecryptionFailed) if keyfile.is_some() => JobResult::Failed {
-                    code: error::WRONG_WITH_KEYFILE,
+                Err(CoreError::DecryptionFailed) => JobResult::UnlockFailed {
+                    code: if keyfile.is_some() {
+                        error::WRONG_WITH_KEYFILE
+                    } else {
+                        error::WRONG_PASSWORD
+                    },
                     detail: String::new(),
-                    session: None,
-                },
-                Err(CoreError::DecryptionFailed) => JobResult::Failed {
-                    code: error::WRONG_PASSWORD,
-                    detail: String::new(),
-                    session: None,
+                    vault_id,
                 },
                 Err(other) => JobResult::Failed {
                     code: error::OTHER,
@@ -2182,6 +2271,9 @@ impl Controller {
         let Some(password) = self.new_password_from(field::MASTER, field::CONFIRM) else {
             return;
         };
+        if !self.review_new_password(passwords::place::RECOVERY) {
+            return;
+        }
         let path = self.state.borrow().path.clone();
         self.run_job(move || {
             let result = (|| -> Result<JobResult, (i32, String)> {
@@ -2272,6 +2364,10 @@ impl Controller {
                 return;
             }
         };
+        if self.unlock_wait(&id) > 0 {
+            self.set_error(error::UNLOCK_WAIT, "");
+            return;
+        }
         let secret_key = match secret_store::load_checked(&id) {
             Ok(Loaded::Key(key)) => key,
             kept => {
@@ -2307,7 +2403,13 @@ impl Controller {
                     return failed(error::HELLO_KEY_GONE, String::new());
                 }
                 Err(QuickUnlockError::Failed(detail)) => {
-                    return failed(error::HELLO_FAILED, detail);
+                    // Windows Hello said no (or its chip is locked after wrong PINs): a failed
+                    // try, counted like a wrong master password.
+                    return JobResult::UnlockFailed {
+                        code: error::HELLO_FAILED,
+                        detail,
+                        vault_id: id,
+                    };
                 }
             };
             match Vault::open_with_device(&bytes, &secret, &sealed) {
@@ -2449,6 +2551,8 @@ impl Controller {
         self.start_sync();
         self.start_leak_watch();
         self.keep_secret_key();
+        let id = self.app().get_vault_id().to_string();
+        self.tell_failed_unlocks(&id);
     }
 
     /// Keeps the Secret Key the vault just opened with on this computer, in the strongest form
@@ -5005,24 +5109,10 @@ impl Controller {
         self.clear_secret(field::CURRENT);
         let file_password =
             Zeroizing::new(self.state.borrow().secrets[field::NEW].as_str().to_owned());
-        if protected {
-            let again = Zeroizing::new(
-                self.state.borrow().secrets[field::NEW_AGAIN]
-                    .as_str()
-                    .to_owned(),
-            );
-            let problem = if file_password.chars().count() < 12 {
-                Some(error::TOO_SHORT)
-            } else if *file_password != *again {
-                Some(error::MISMATCH)
-            } else {
-                None
-            };
-            if let Some(code) = problem {
-                self.put_back(session);
-                self.set_error(code, "");
-                return;
-            }
+        if protected && let Some(code) = self.export_password_problem() {
+            self.put_back(session);
+            self.set_error(code, "");
+            return;
         }
         // What the export dialog asked is checked: it closes, and the file is made.
         self.app().set_export_asking(false);
@@ -5717,6 +5807,9 @@ impl Controller {
         let Some(new_password) = self.new_password_from(field::NEW, field::NEW_AGAIN) else {
             return;
         };
+        if !self.review_new_password(passwords::place::CHANGE) {
+            return;
+        }
         let current = Zeroizing::new(
             self.state.borrow().secrets[field::CURRENT]
                 .as_str()
@@ -5781,6 +5874,13 @@ impl Controller {
     }
 
     fn verify_then(&self, action: KitAction) {
+        if matches!(action, KitAction::Export)
+            && self.export_format() == ExportFormat::Sealed
+            && let Some(code) = self.export_password_problem()
+        {
+            self.set_error(code, "");
+            return;
+        }
         let current = Zeroizing::new(
             self.state.borrow().secrets[field::CURRENT]
                 .as_str()

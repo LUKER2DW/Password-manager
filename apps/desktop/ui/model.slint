@@ -212,6 +212,8 @@ export global Messages {
         if (code == 3) { return @tr("A Secret Key starts with S0- followed by four groups of seven characters."); }
         if (code == 4) { return @tr("The two passwords are different. Type them again."); }
         if (code == 5) { return @tr("Use at least 12 characters. A passphrase of random words is easiest."); }
+        if (code == 73) { return @tr("That password is too easy to guess to guard this file on its own: whoever gets the file can try guesses for as long as they like, with nothing else to stop them. Use a generated passphrase, or a longer password that isn't made of common words."); }
+        if (code == 74) { return @tr("Too many failed tries in a row: wait until the countdown ends, then try again."); }
         if (code == 6) { return @tr("This vault file is older than one this computer has already opened ({}). Someone may have swapped it for an old copy. Restore the newest file before continuing.", detail); }
         if (code == 7) { return @tr("The vault file couldn't be read or written: {}", detail); }
         if (code == 8) { return @tr("That Recovery Key doesn't open this vault. It starts with R0- and has nine groups."); }
@@ -323,6 +325,13 @@ export global Messages {
         if (code == 22) { return @tr("There are more possible passwords like it than atoms in the whole Earth."); }
         if (code == 23) { return @tr("There are more possible passwords like it than atoms in the observable universe."); }
         return "";
+    }
+
+    // How many failed unlocks there were on this computer before the right one, and since
+    // when (notice 124).
+    public pure function failed-unlocks(count: int, since: string) -> string {
+        if (count == 1) { return @tr("One failed try to unlock this vault on this computer since {}. If it wasn't you, someone may be guessing your master password.", since); }
+        return @tr("{} failed tries to unlock this vault on this computer since {}. If they weren't yours, someone may be guessing your master password.", count, since);
     }
 
     public pure function notice(code: int, arg: string) -> string {

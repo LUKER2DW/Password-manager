@@ -32,7 +32,7 @@ use slint::{
 use vault_desktop::{
     apply_sketches,
     controller::{Controller, Runner},
-    ui::{AppWindow, ExtensionBrowser, ItemLock, PasskeyRow, Secrets, Theme},
+    ui::{AppWindow, ExtensionBrowser, ItemLock, NewPassword, PasskeyRow, Secrets, Theme},
 };
 
 const WIDTH: u32 = 1180;
@@ -252,6 +252,21 @@ fn main() {
 
     // ---- onboarding ----
     camera.shot("onboarding", "First run: choose a master password");
+    type_into(&app, 0, "password1234");
+    type_into(&app, 1, "password1234");
+    app.invoke_create_vault();
+    camera.shot(
+        "onboarding-easy",
+        "An easy master password: why it matters, six random words offered, keeping it allowed",
+    );
+    app.global::<NewPassword>().set_check_leaks(true);
+    app.global::<NewPassword>().set_warning(2);
+    app.global::<NewPassword>().set_arg("3".into());
+    camera.shot(
+        "onboarding-leaked",
+        "The breach check ticked: a master password found in data breaches",
+    );
+    app.global::<NewPassword>().set_check_leaks(false);
     type_into(&app, 0, PASSWORD);
     type_into(&app, 1, "different");
     app.invoke_suggest_passphrase();
@@ -277,6 +292,14 @@ fn main() {
     camera.shot("import-step", "Step 4: bring your passwords, or skip");
     app.invoke_finish_onboarding();
     camera.shot("vault-empty", "Empty vault");
+    app.set_notice_code(124);
+    app.set_notice_count(3);
+    app.set_notice_arg("2026-11-26 14:02".into());
+    camera.shot(
+        "vault-failed-unlocks",
+        "Opened after failed tries: how many, and since when, said once",
+    );
+    app.set_notice_code(0);
     for name in ["Email", "Games"] {
         app.invoke_new_folder();
         app.set_fd_name(name.into());
@@ -606,6 +629,21 @@ fn main() {
     camera.shot(
         "settings-dialog-password",
         "Settings → Security: changing the master password, in a dialog",
+    );
+    app.global::<NewPassword>().set_place(3);
+    app.global::<NewPassword>().set_warning(1);
+    camera.shot(
+        "settings-dialog-password-easy",
+        "Changing the master password: an easy new one is warned about",
+    );
+    app.invoke_close_settings_dialog();
+    app.set_guard_check(2);
+    app.invoke_open_settings_dialog(3);
+    app.global::<NewPassword>().set_place(5);
+    app.global::<NewPassword>().set_warning(4);
+    camera.shot(
+        "settings-dialog-item-password-easy",
+        "Saving the item lock: an easy item password is warned about",
     );
     app.invoke_close_settings_dialog();
     app.set_guard_check(1);
@@ -964,6 +1002,14 @@ fn main() {
         "transfer-export-protected",
         "Export protected by a password: asked in a dialog",
     );
+    type_into(&app, 6, "a file password");
+    type_into(&app, 7, "a file password");
+    app.invoke_export_plain();
+    camera.shot(
+        "transfer-export-weak",
+        "A protected export's password too easy to guess: refused, a passphrase offered",
+    );
+    app.set_error_code(0);
     app.set_export_format(1);
     camera.shot(
         "transfer-export-plain",
@@ -1148,6 +1194,16 @@ fn main() {
     app.set_error_code(0);
     type_into(&app, 0, "");
     camera.shot("unlock-password-only", "Locked, without Windows Hello");
+    app.set_error_code(1);
+    app.set_unlock_failed(6);
+    app.set_unlock_wait(83);
+    camera.shot(
+        "unlock-wait",
+        "Six failed tries in a row: the next one waits, counted down",
+    );
+    app.set_unlock_wait(0);
+    app.set_unlock_failed(0);
+    app.set_error_code(0);
     app.set_needs_keyfile(true);
     app.set_keyfile_path(r"E:\vault.keyfile".into());
     camera.shot(

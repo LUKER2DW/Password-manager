@@ -30,6 +30,10 @@ use crate::{
 const PASSWORD: &str = "desktop test passphrase one";
 const NEW_PASSWORD: &str = "desktop test passphrase two";
 
+/// Failed unlocks: counted, the wait after five, told once at the next unlock.
+mod attempts;
+/// A new password's review: the warnings, the breach check, the protected export's floor.
+mod passwords;
 /// Renewing the vault key, and taking one renewed on another device.
 mod renew;
 /// What the review of the audit fixes found, each on a vault of its own.
@@ -70,6 +74,8 @@ fn length(app: &AppWindow, field: usize) -> i32 {
 struct FakeHello {
     cancel: AtomicBool,
     other_device: AtomicBool,
+    /// Windows Hello says no (as when its chip is locked after wrong PINs).
+    fail: AtomicBool,
 }
 
 impl DeviceVerifier for FakeHello {
@@ -85,6 +91,11 @@ impl DeviceVerifier for FakeHello {
     fn secret(&self, vault_id: &str) -> Result<Zeroizing<Vec<u8>>, QuickUnlockError> {
         if self.cancel.load(Ordering::SeqCst) {
             return Err(QuickUnlockError::Cancelled);
+        }
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(QuickUnlockError::Failed(
+                "the security chip is locked for now".into(),
+            ));
         }
         let byte = if self.other_device.load(Ordering::SeqCst) {
             2

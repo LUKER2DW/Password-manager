@@ -4,6 +4,7 @@ import { Theme } from "theme.slint";
 import { ExportCounts, Messages } from "model.slint";
 import { Button, QuietButton, LineField, Hint, SecretField } from "widgets.slint";
 import { Glyph, FolderLook, FieldColors } from "icons.slint";
+import { NewPassword, PasswordReview, LeakCheckBox } from "review.slint";
 
 // The dimmed backdrop and a centered card. Clicks outside the card do nothing (the dialog closes
 // with its own buttons or Escape), so a stray click can't throw away what was typed.
@@ -605,6 +606,8 @@ export component MasterPasswordDialog inherits Modal {
         error: root.error-code == 4;
         accepted => { root.confirmed(); }
     }
+    LeakCheckBox { }
+    PasswordReview { place: 3; field: 6; }
     DialogError { code: root.error-code; detail: root.error-detail; }
     DialogButtons {
         action: @tr("Change master password");
@@ -655,6 +658,7 @@ export component ItemLockDialog inherits Modal {
         error: root.error-code == 36;
         init => { self.focus(); }
     }
+    PasswordReview { place: 5; field: 12; }
     master := SecretField {
         field: 13;
         eye: true;
@@ -852,9 +856,10 @@ export component ExportDialog inherits Modal {
     if root.format == 3: SecretField {
         field: 6;
         eye: true;
-        label: @tr("Password for this file: at least 12 characters");
+        label: @tr("Password for this file");
+        hint: @tr("It alone guards the file: whoever gets the file can try guesses for as long as they like. A password that is easy to guess is refused; six random words are not.");
         icon: "key";
-        error: root.error-code == 4 || root.error-code == 5;
+        error: root.error-code == 4 || root.error-code == 5 || root.error-code == 73;
     }
     if root.format == 3: SecretField {
         field: 7;
@@ -863,6 +868,16 @@ export component ExportDialog inherits Modal {
         icon: "key";
         error: root.error-code == 4;
         accepted => { root.confirmed(); }
+    }
+    if root.format == 3: HorizontalLayout {
+        alignment: start;
+        QuietButton {
+            icon: "sparkle";
+            outlined: true;
+            text: @tr("Use a generated passphrase");
+            enabled: !root.busy;
+            clicked => { NewPassword.use-passphrase(6); }
+        }
     }
     DialogError { code: root.error-code; detail: root.error-detail; }
     DialogButtons {

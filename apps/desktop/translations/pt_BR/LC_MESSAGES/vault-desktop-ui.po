@@ -4847,3 +4847,75 @@ msgstr "Uma vez por hora o app pergunta ao GitHub se saiu uma versão mais nova:
 msgctxt "OnboardingScreen"
 msgid "Look for updates by itself"
 msgstr "Procurar atualizações sozinho"
+
+msgctxt "ExportDialog"
+msgid "Password for this file"
+msgstr "Senha deste arquivo"
+
+msgctxt "ExportDialog"
+msgid "It alone guards the file: whoever gets the file can try guesses for as long as they like. A password that is easy to guess is refused; six random words are not."
+msgstr "Só ela protege o arquivo: quem pegar o arquivo pode tentar palpites por quanto tempo quiser. Uma senha fácil de adivinhar é recusada; seis palavras aleatórias, não."
+
+msgctxt "ExportDialog"
+msgid "Use a generated passphrase"
+msgstr "Usar uma frase-senha gerada"
+
+msgctxt "Messages"
+msgid "That password is too easy to guess to guard this file on its own: whoever gets the file can try guesses for as long as they like, with nothing else to stop them. Use a generated passphrase, or a longer password that isn't made of common words."
+msgstr "Essa senha é fácil demais de adivinhar para proteger este arquivo sozinha: quem pegar o arquivo pode tentar palpites por quanto tempo quiser, sem nada mais que o impeça. Use uma frase-senha gerada, ou uma senha mais longa que não seja feita de palavras comuns."
+
+msgctxt "Messages"
+msgid "Too many failed tries in a row: wait until the countdown ends, then try again."
+msgstr "Tentativas erradas demais seguidas: espere a contagem terminar e tente de novo."
+
+msgctxt "Messages"
+msgid "One failed try to unlock this vault on this computer since {}. If it wasn't you, someone may be guessing your master password."
+msgstr "Uma tentativa errada de abrir este cofre neste computador desde {}. Se não foi você, alguém pode estar tentando adivinhar sua senha mestra."
+
+msgctxt "Messages"
+msgid "{} failed tries to unlock this vault on this computer since {}. If they weren't yours, someone may be guessing your master password."
+msgstr "{} tentativas erradas de abrir este cofre neste computador desde {}. Se não foram suas, alguém pode estar tentando adivinhar sua senha mestra."
+
+msgctxt "PasswordReview"
+msgid "This master password is easy to guess. Your Secret Key guards the vault too, but anyone who also takes it from this computer (malware can) has only this password left to find, and can try guesses for as long as they like. Six random words are far harder to guess and still easy to type."
+msgstr "Esta senha mestra é fácil de adivinhar. Sua chave secreta também protege o cofre, mas quem também a tirar deste computador (um malware consegue) só precisa descobrir esta senha, e pode tentar palpites por quanto tempo quiser. Seis palavras aleatórias são muito mais difíceis de adivinhar e ainda fáceis de digitar."
+
+msgctxt "PasswordReview"
+msgid "This password turned up in data breaches ({} times): attackers try those first, on every site and file. Choose another one."
+msgstr "Esta senha apareceu em vazamentos de dados ({} vezes): atacantes tentam essas primeiro, em todo site e arquivo. Escolha outra."
+
+msgctxt "PasswordReview"
+msgid "The breach check couldn't reach the service ({}). Nothing was sent except the first five characters of the password's fingerprint."
+msgstr "A verificação de vazamentos não alcançou o serviço ({}). Nada foi enviado além dos cinco primeiros caracteres da impressão digital da senha."
+
+msgctxt "PasswordReview"
+msgid "This item password is easy to guess. Malware that copies the open vault from memory could try guesses against it for as long as it likes, without this app. Six random words are far harder to guess."
+msgstr "Esta senha de item é fácil de adivinhar. Um malware que copie o cofre aberto da memória poderia tentar palpites contra ela por quanto tempo quisesse, sem este app. Seis palavras aleatórias são muito mais difíceis de adivinhar."
+
+msgctxt "PasswordReview"
+msgid "Use a generated passphrase"
+msgstr "Usar uma frase-senha gerada"
+
+msgctxt "PasswordReview"
+msgid "Go on without the check"
+msgstr "Seguir sem a verificação"
+
+msgctxt "PasswordReview"
+msgid "Keep this one"
+msgstr "Manter esta"
+
+msgctxt "LeakCheckBox"
+msgid "Check it against known data breaches"
+msgstr "Verificar em vazamentos de dados conhecidos"
+
+msgctxt "LeakCheckBox"
+msgid "Before the password is used, the Have I Been Pwned service is asked whether it appeared in a known breach. Only the first 5 characters of its SHA-1 fingerprint leave this computer, never the password; the service answers with hundreds of fingerprints that start the same way, and the match is made here. Off until you tick it, since it uses the network."
+msgstr "Antes de a senha ser usada, o serviço Have I Been Pwned é consultado sobre se ela apareceu em algum vazamento conhecido. Só os 5 primeiros caracteres da impressão digital SHA-1 dela saem deste computador, nunca a senha; o serviço responde com centenas de impressões digitais que começam igual, e a comparação é feita aqui. Desligado até você marcar, porque usa a rede."
+
+msgctxt "UnlockScreen"
+msgid "{} failed tries in a row on this computer. To slow down guessing, the next one can start in {}."
+msgstr "{} tentativas erradas seguidas neste computador. Para atrasar quem tenta adivinhar, a próxima pode começar em {}."
+
+msgctxt "UnlockScreen"
+msgid "Try again in {}"
+msgstr "Tente de novo em {}"

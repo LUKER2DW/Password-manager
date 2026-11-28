@@ -8,6 +8,7 @@ import { Messages, RecentVault } from "model.slint";
 import { Button, QuietButton, SecretField, Check, Choice, MarkStroke, Hint, Rule, Logo } from "widgets.slint";
 import { KitSlip, PdfPassword } from "kit.slint";
 import { Glyph } from "icons.slint";
+import { PasswordReview, LeakCheckBox } from "review.slint";
 
 component StepMark inherits HorizontalLayout {
     in property <int> number;
@@ -562,6 +563,8 @@ export component OnboardingScreen inherits Rectangle {
                     error: root.error-code == 4;
                     accepted => { root.create(); }
                 }
+                LeakCheckBox { }
+                PasswordReview { place: 1; field: 0; }
                 HorizontalLayout {
                     spacing: 10px;
                     alignment: start;
@@ -652,6 +655,7 @@ export component OnboardingScreen inherits Rectangle {
                     error: root.error-code == 36;
                     accepted => { root.create(); }
                 }
+                PasswordReview { place: 4; field: 12; }
                 Check {
                     text: @tr("Lock every item (otherwise only items you mark)");
                     checked <=> root.guard-all;
@@ -842,6 +846,11 @@ export component UnlockScreen inherits Rectangle {
     in property <bool> quick-available;
     in property <bool> quick-unlock;
     in property <bool> quick-waiting;
+    // Failed tries in a row on this computer, and the seconds before the next may start
+    // (controller/attempts.rs; the controller refuses a try before then).
+    in property <int> unlock-failed;
+    in property <int> unlock-wait;
+    property <string> wait-text: Math.floor(root.unlock-wait / 60) + ":" + (Math.mod(root.unlock-wait, 60) < 10 ? "0" : "") + Math.mod(root.unlock-wait, 60);
     callback unlock();
     callback quick();
     callback forgot();
@@ -975,7 +984,7 @@ export component UnlockScreen inherits Rectangle {
                         text: @tr("Unlock with Windows Hello");
                         busy-text: @tr("Waiting for Windows Hello…");
                         busy: root.quick-waiting;
-                        enabled: !root.busy;
+                        enabled: !root.busy && root.unlock-wait == 0;
                         clicked => { root.quick(); }
                     }
                     HorizontalLayout {
@@ -1112,17 +1121,29 @@ export component UnlockScreen inherits Rectangle {
                     code: root.error-code;
                     detail: root.error-detail;
                 }
+                // Always there (no height while there is no wait): wrapped text shown by an
+                // `if` is measured as one line.
+                Text {
+                    text: root.unlock-wait > 0 ? @tr("{} failed tries in a row on this computer. To slow down guessing, the next one can start in {}.", root.unlock-failed, root.wait-text) : "";
+                    height: self.text == "" ? 0px : self.preferred-height;
+                    font-size: Theme.small;
+                    color: Theme.graphite;
+                    wrap: word-wrap;
+                }
                 // One yellow button per screen: with Windows Hello on, it is the Hello one.
                 if !root.hello-first: Button {
-                    text: @tr("Unlock");
+                    text: root.unlock-wait > 0 ? @tr("Try again in {}", root.wait-text) : @tr("Unlock");
                     busy-text: @tr("Unlocking…");
                     busy: root.busy;
+                    enabled: root.unlock-wait == 0;
                     clicked => { root.unlock(); }
                 }
                 if root.hello-first: QuietButton {
-                    text: root.busy && !root.quick-waiting ? @tr("Unlocking…") : @tr("Unlock with password");
+                    text: root.busy && !root.quick-waiting ? @tr("Unlocking…")
+                        : root.unlock-wait > 0 ? @tr("Try again in {}", root.wait-text)
+                        : @tr("Unlock with password");
                     outlined: true;
-                    enabled: !root.busy;
+                    enabled: !root.busy && root.unlock-wait == 0;
                     clicked => { root.unlock(); }
                 }
                 Rule { }
@@ -1273,6 +1294,8 @@ export component RecoverScreen inherits Rectangle {
                         error: root.error-code == 4;
                         accepted => { root.recover(); }
                     }
+                    LeakCheckBox { }
+                    PasswordReview { place: 2; field: 0; }
                     ErrorLine {
                         code: root.error-code;
                         detail: root.error-detail;

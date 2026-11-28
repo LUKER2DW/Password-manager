@@ -1,0 +1,98 @@
+// A new password's review (controller/passwords.rs): what is said under a new master password
+// or item lock password that is easy to guess, or found in data breaches, and the check against
+// those breaches (off until ticked: it uses the network). The person may keep the password;
+// "Use a generated passphrase" puts six random words in its fields and shows them.
+
+import { Theme } from "theme.slint";
+import { QuietButton, Check, Hint } from "widgets.slint";
+import { Glyph } from "icons.slint";
+
+export global NewPassword {
+    // Which form the review is about (0: none; `place` in passwords.rs), what it says (1 an
+    // easy master password, 2 found in breaches, 3 the breach check failed, 4 an easy item
+    // lock password) and its argument (how many times found, or why the check failed).
+    in-out property <int> place;
+    in-out property <int> warning;
+    in-out property <string> arg;
+    // Check a new master password against known data breaches before it is used.
+    in-out property <bool> check-leaks;
+    // Six random words into `field` (and the field that confirms it), shown.
+    callback use-passphrase(int);
+    // Keep the password as it is, or go on without the breach check.
+    callback keep();
+}
+
+// Under the fields of the form at `place`, whose password is typed in `field`: nothing while
+// the review is about another form.
+export component PasswordReview inherits Rectangle {
+    in property <int> place;
+    in property <int> field;
+    property <bool> shown: NewPassword.place == root.place && NewPassword.warning != 0;
+    property <int> warning: NewPassword.warning;
+    visible: root.shown;
+    // Always there (no height while hidden): wrapped text shown by an `if` is measured as one
+    // line.
+    height: root.shown ? card.preferred-height : 0px;
+    border-radius: Theme.radius;
+    background: Theme.panel;
+    border-width: root.shown ? 1px : 0px;
+    border-color: Theme.seal;
+    card := VerticalLayout {
+        padding: 14px;
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                alignment: start;
+                padding-top: 2px;
+                Glyph {
+                    name: root.warning == 2 ? "leaked" : "shield";
+                    tint: Theme.seal;
+                    width: 18px;
+                    height: 18px;
+                }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: root.warning == 1 ? @tr("This master password is easy to guess. Your Secret Key guards the vault too, but anyone who also takes it from this computer (malware can) has only this password left to find, and can try guesses for as long as they like. Six random words are far harder to guess and still easy to type.")
+                    : root.warning == 2 ? @tr("This password turned up in data breaches ({} times): attackers try those first, on every site and file. Choose another one.", NewPassword.arg)
+                    : root.warning == 3 ? @tr("The breach check couldn't reach the service ({}). Nothing was sent except the first five characters of the password's fingerprint.", NewPassword.arg)
+                    : @tr("This item password is easy to guess. Malware that copies the open vault from memory could try guesses against it for as long as it likes, without this app. Six random words are far harder to guess.");
+                font-size: Theme.body;
+                color: Theme.ink;
+                wrap: word-wrap;
+            }
+        }
+        HorizontalLayout {
+            alignment: start;
+            spacing: 8px;
+            QuietButton {
+                icon: "sparkle";
+                outlined: true;
+                text: @tr("Use a generated passphrase");
+                clicked => { NewPassword.use-passphrase(root.field); }
+            }
+            QuietButton {
+                text: root.warning == 3 ? @tr("Go on without the check") : @tr("Keep this one");
+                tint: Theme.graphite;
+                clicked => { NewPassword.keep(); }
+            }
+        }
+    }
+}
+
+// The tick box next to a new master password.
+export component LeakCheckBox inherits HorizontalLayout {
+    spacing: 8px;
+    alignment: start;
+    Check {
+        text: @tr("Check it against known data breaches");
+        checked <=> NewPassword.check-leaks;
+    }
+    VerticalLayout {
+        alignment: center;
+        Hint {
+            text: @tr("Before the password is used, the Have I Been Pwned service is asked whether it appeared in a known breach. Only the first 5 characters of its SHA-1 fingerprint leave this computer, never the password; the service answers with hundreds of fingerprints that start the same way, and the match is made here. Off until you tick it, since it uses the network.");
+        }
+    }
+}

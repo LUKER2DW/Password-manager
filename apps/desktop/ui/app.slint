@@ -9,10 +9,11 @@ import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferP
 import { FolderDialog, PairingDialog, PartsUsedDialog, ConfirmDialog, MasterPasswordDialog, TakeKeyDialog, ItemLockDialog, ServerJoinDialog, ServerAddressDialog, ExportDialog, WebDavDialog, BackupServerDialog, InviteDialog, ExtensionStepsDialog } from "dialogs.slint";
 import { MenuCard, MenuEntry, MenuRule, Backdrop } from "widgets.slint";
 import { Glyph } from "icons.slint";
+import { NewPassword } from "review.slint";
 // A second window: the notification area icon's menu (src/tray.rs).
 export { TrayMenu } from "tray.slint";
 
-export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock }
+export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock, NewPassword }
 
 // Confirmation messages ("Copied", "Saved"): bottom-right, out of the way of page content.
 component Notice inherits Rectangle {
@@ -227,6 +228,11 @@ export component AppWindow inherits Window {
     in property <string> error-detail;
     in property <int> notice-code;
     in property <string> notice-arg;
+    // A number some notices need besides their argument (failed unlocks: how many).
+    in property <int> notice-count;
+    // Failed unlocks in a row on this computer, and the seconds before the next may start.
+    in property <int> unlock-failed;
+    in property <int> unlock-wait;
     // Seconds left before the auto-lock, while the countdown shows (0 = hidden).
     in property <int> lock-warning-seconds;
     callback stay-unlocked();
@@ -825,6 +831,8 @@ export component AppWindow inherits Window {
         quick-available: root.quick-unlock-available;
         quick-unlock: root.quick-unlock-on;
         quick-waiting: root.quick-waiting;
+        unlock-failed: root.unlock-failed;
+        unlock-wait: root.unlock-wait;
         unlock => { root.unlock(); }
         quick => { root.quick-unlock(); }
         forgot => { root.show-recovery(); }
@@ -1321,7 +1329,8 @@ export component AppWindow inherits Window {
             if root.notice-code != 0: Notice {
                 x: parent.width - self.width - 28px;
                 y: parent.height - self.height - 24px - (root.lock-warning-seconds > 0 ? 64px : 0px);
-                text: Messages.notice(root.notice-code, root.notice-arg);
+                text: root.notice-code == 124 ? Messages.failed-unlocks(root.notice-count, root.notice-arg)
+                    : Messages.notice(root.notice-code, root.notice-arg);
             }
             if root.lock-warning-seconds > 0: LockWarning {
                 x: parent.width - self.width - 28px;
