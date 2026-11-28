@@ -221,6 +221,9 @@ pub struct Settings {
     /// Hello or the item lock's PIN or password first, in that very request, not only the
     /// logins behind the item lock. On by default.
     pub browser_always_asks: bool,
+    /// The extension's window lists every login of the vault, not only the open site's (S18:
+    /// a stolen pairing then learns every login's name and site). Off by default.
+    pub browser_whole_vault: bool,
     /// The drawn texture behind the open vault. On by default.
     pub backdrop: bool,
     /// Look for a newer version on GitHub by itself, every hour while the app runs (one
@@ -255,6 +258,7 @@ impl Default for Settings {
             browser_warnings: true,
             browser_fill_notices: true,
             browser_always_asks: true,
+            browser_whole_vault: false,
             backdrop: true,
             update_checks: true,
             update_install: true,
