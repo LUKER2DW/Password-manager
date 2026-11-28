@@ -925,6 +925,8 @@ export component UnlockScreen inherits Rectangle {
     // Windows Hello: usable on this computer / set up for this vault / prompt open now.
     in property <bool> quick-available;
     in property <bool> quick-unlock;
+    // Set up, but this start of the app takes the master password first (Settings → Security).
+    in property <bool> hello-later;
     in property <bool> quick-waiting;
     // Failed tries in a row on this computer, and the seconds before the next may start
     // (controller/attempts.rs; the controller refuses a try before then).
@@ -946,7 +948,7 @@ export component UnlockScreen inherits Rectangle {
     callback new-vault-file();
 
 
-    property <bool> hello-first: root.quick-unlock && !root.needs-secret-key;
+    property <bool> hello-first: root.quick-unlock && !root.hello-later && !root.needs-secret-key;
 
     background: Theme.canvas;
 
@@ -1058,6 +1060,8 @@ export component UnlockScreen inherits Rectangle {
                     if !root.needs-secret-key: Prose {
                         text: root.hello-first
                             ? @tr("Use Windows Hello, or your master password.")
+                            : root.quick-unlock && root.hello-later
+                            ? @tr("Type your master password: it's asked once each time the app starts. Windows Hello works after that.")
                             : @tr("Type your master password to open it.");
                     }
                 }

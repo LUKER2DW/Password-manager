@@ -50,6 +50,14 @@ fn main() -> anyhow::Result<()> {
             Err(anyhow::anyhow!("the browser link ended with an error"))
         };
     }
+    // `--lock` (a shortcut, a script): the running copy locks its vault, and nothing else
+    // starts, also when no copy runs.
+    if std::env::args_os().skip(1).any(|arg| arg == "--lock") {
+        if let Ok(app_dir) = vault_platform::paths::app_dir() {
+            single_instance::ask_to_lock(&app_dir);
+        }
+        return Ok(());
+    }
     let opened = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
@@ -101,9 +109,14 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     if let Some(instance) = instance {
-        instance.when_called(|| {
-            let _ = slint::invoke_from_event_loop(|| Controller::tray_action(TrayAction::Open));
-        });
+        instance.when_called(
+            || {
+                let _ = slint::invoke_from_event_loop(|| Controller::tray_action(TrayAction::Open));
+            },
+            || {
+                let _ = slint::invoke_from_event_loop(|| Controller::tray_action(TrayAction::Lock));
+            },
+        );
     }
 
     // Windows locking the session, switching user, signing out or going to sleep locks the

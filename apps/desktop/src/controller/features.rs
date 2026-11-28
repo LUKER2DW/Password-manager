@@ -8,7 +8,7 @@ use vault_core::{
     GuardCheck, ItemData, ItemId, ItemKind, KdfMethod, KdfStrength, PasswordKdf, Unlock, Vault,
     VaultSettings,
     card::{self, CardDetails},
-    generator::{self, PassphraseOptions, PasswordOptions, WordCase, Wordlist},
+    generator::{self, PassphraseOptions, PasswordOptions, UsernameKind, WordCase, Wordlist},
     health::{self, BreachQuery},
 };
 use vault_import::{FolderTarget, Source};
@@ -16,7 +16,7 @@ use vault_platform::{browsers::Browser, device::GeneratorPrefs, paths};
 use zeroize::Zeroizing;
 
 use super::{Controller, JobResult, Panel, Runner, error, field, notice, view};
-use crate::ui::{HealthRow, HistoryRow, ImportRow, SourceRow};
+use crate::ui::{HealthRow, HistoryRow, ImportRow, ReviewRow, SourceRow};
 
 /// A word list the user added, kept in the app's word list folder.
 pub(super) struct UserWordlist {
@@ -69,6 +69,10 @@ impl Controller {
         app.set_gen_min_uppercase(minimum(prefs.min_uppercase));
         app.set_gen_min_digits(minimum(prefs.min_digits));
         app.set_gen_min_symbols(minimum(prefs.min_symbols));
+        app.set_user_gen_kind(i32::from(prefs.username_kind.min(2)));
+        app.set_user_gen_email(SharedString::from(prefs.username_email.as_str()));
+        app.set_user_gen_domain(SharedString::from(prefs.username_domain.as_str()));
+        app.set_user_gen_number(prefs.username_number);
         self.load_wordlists();
         let index = self
             .state
@@ -107,7 +111,37 @@ impl Controller {
             min_uppercase: u32::try_from(app.get_gen_min_uppercase().clamp(0, 128)).unwrap_or(0),
             min_digits: u32::try_from(app.get_gen_min_digits().clamp(0, 128)).unwrap_or(0),
             min_symbols: u32::try_from(app.get_gen_min_symbols().clamp(0, 128)).unwrap_or(0),
+            username_kind: u8::try_from(app.get_user_gen_kind().clamp(0, 2)).unwrap_or(0),
+            username_email: app.get_user_gen_email().trim().chars().take(254).collect(),
+            username_domain: app.get_user_gen_domain().trim().chars().take(253).collect(),
+            username_number: app.get_user_gen_number(),
         }
+    }
+
+    /// The editor's Generate next to the username: a username of the kind chosen goes into the
+    /// field; an address or a domain that isn't one is told instead.
+    pub(super) fn generate_username(&self) {
+        let app = self.app();
+        let prefs = self.current_generator_prefs();
+        let kind = match prefs.username_kind {
+            1 => UsernameKind::PlusAddress {
+                email: prefs.username_email.clone(),
+            },
+            2 => UsernameKind::CatchAll {
+                domain: prefs.username_domain.clone(),
+            },
+            _ => UsernameKind::Words {
+                number: prefs.username_number,
+            },
+        };
+        match generator::generate_username(&kind) {
+            Ok(username) => {
+                app.set_ed_username(SharedString::from(username));
+                self.set_error(error::NONE, "");
+            }
+            Err(_) => self.set_error(error::USERNAME_FROM, &prefs.username_kind.to_string()),
+        }
+        self.remember_generator_prefs(prefs);
     }
 
     /// Saves the generator options when they changed (the file is small; the slider calls this
@@ -610,8 +644,11 @@ impl Controller {
 
     pub(super) fn show_health(&self) {
         let app = self.app();
+        // -2 lists the ignored warnings; -1 every warning but the offers (6 and 7), which have
+        // tiles of their own.
         let filter = app.get_health_filter();
         let now = view::now_unix();
+        let ignored = self.ignored_warnings();
         // (group, item, problem, detail, weakness, age); groups: 0 leaked, 1 weak, 2 reused,
         // 3 old, 4 expired cards. Problems are the group + 1.
         let mut entries: Vec<HealthEntry> = Vec::new();
@@ -657,9 +694,19 @@ impl Controller {
                     entries.push((4, *id, view::date(*at), 1, (-1, 0)));
                 }
             }
+            // Found offline: a website saved without HTTPS, what the site offers (5 to 7).
+            for (id, advice) in &report.advice {
+                let (group, detail) = match advice {
+                    health::Advice::NoHttps(url) => (5, url.clone()),
+                    health::Advice::OneTimeCodes(page) => (6, (*page).to_owned()),
+                    health::Advice::Passkeys(page) => (7, (*page).to_owned()),
+                };
+                entries.push((group, *id, detail, 0, (-1, 0)));
+            }
+            // An ignored warning doesn't lower the score.
             let troubled: std::collections::HashSet<ItemId> = entries
                 .iter()
-                .filter(|(group, ..)| *group < 4)
+                .filter(|(group, id, ..)| *group < 4 && !ignored.contains(&(*id, *group)))
                 .map(|(_, id, ..)| *id)
                 .collect();
             let logins = report.logins.len();
@@ -673,14 +720,27 @@ impl Controller {
                         .count(),
             )
         };
-        let mut counts = [0i32; 5];
-        for (group, ..) in &entries {
-            counts[*group as usize] += 1;
+        let mut counts = [0i32; 8];
+        let mut ignored_count = 0;
+        for (group, id, ..) in &entries {
+            if ignored.contains(&(*id, *group)) {
+                ignored_count += 1;
+            } else {
+                counts[*group as usize] += 1;
+            }
         }
         let mut ids = Vec::new();
+        let mut groups = Vec::new();
+        let mut links = Vec::new();
         let mut rows = Vec::new();
         for (group, id, detail, weakness, (age_unit, age_amount)) in entries {
-            if filter >= 0 && group != filter {
+            let is_ignored = ignored.contains(&(id, group));
+            let shown = match filter {
+                -2 => is_ignored,
+                -1 => !is_ignored && group < 6,
+                _ => !is_ignored && group == filter,
+            };
+            if !shown {
                 continue;
             }
             let summary = {
@@ -700,7 +760,14 @@ impl Controller {
                 continue;
             };
             let visual = self.icon_for(kind, &url, &icon_url, &title);
+            let link = if group >= 6 {
+                detail.clone()
+            } else {
+                String::new()
+            };
             ids.push(id);
+            groups.push(group);
+            links.push(link.clone());
             rows.push(HealthRow {
                 title: SharedString::from(title),
                 subtitle: SharedString::from(subtitle),
@@ -716,15 +783,28 @@ impl Controller {
                 } else {
                     0
                 },
-                detail: SharedString::from(if group == 2 { String::new() } else { detail }),
+                detail: SharedString::from(if group == 2 || group >= 6 {
+                    String::new()
+                } else {
+                    detail
+                }),
                 weakness,
                 age_unit,
                 age_amount,
                 has_site: kind == ItemKind::Login
                     && vault_browser::resources::change_password_url(&url).is_some(),
+                link: SharedString::from(link),
+                ignored: is_ignored,
             });
         }
-        self.state.borrow_mut().health_ids = ids;
+        {
+            let mut state = self.state.borrow_mut();
+            state.health_ids = ids;
+            state.health_groups = groups;
+            state.health_links = links;
+        }
+        app.set_health_ignored(ignored_count);
+        app.set_health_review(ModelRc::new(VecModel::from(self.settings_review())));
         let score = (healthy * 100).checked_div(logins).unwrap_or(100);
         app.set_health_rows(ModelRc::from(std::rc::Rc::new(VecModel::from(rows))));
         app.set_health_counts(ModelRc::from(std::rc::Rc::new(VecModel::from(
@@ -734,6 +814,167 @@ impl Controller {
         self.refresh_alerts();
         app.set_health_logins(i32::try_from(logins).unwrap_or(0));
         app.set_health_score(i32::try_from(score).unwrap_or(0));
+    }
+
+    /// The warnings ignored for the open vault, read from their sealed file once per unlock.
+    fn ignored_warnings(&self) -> super::health_ignored::Ignored {
+        if let Some(ignored) = self.state.borrow().health_ignored.clone() {
+            return ignored;
+        }
+        let Some(loaded) = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .map(|session| super::health_ignored::load(&session.vault))
+        else {
+            return super::health_ignored::Ignored::new();
+        };
+        self.state.borrow_mut().health_ignored = Some(loaded.clone());
+        loaded
+    }
+
+    /// Ignore (`true`) the warning of Password health's row `index`, or stop ignoring it.
+    pub(super) fn health_ignore(&self, index: i32, ignore: bool) {
+        let Some(warning) = usize::try_from(index).ok().and_then(|i| {
+            let state = self.state.borrow();
+            Some((*state.health_ids.get(i)?, *state.health_groups.get(i)?))
+        }) else {
+            return;
+        };
+        let mut ignored = self.ignored_warnings();
+        if ignore {
+            ignored.insert(warning);
+        } else {
+            ignored.remove(&warning);
+        }
+        let saved = self
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .map(|session| super::health_ignored::save(&session.vault, &ignored));
+        if let Some(Err(err)) = saved {
+            self.set_error(error::FILE, &format!("{err:#}"));
+        }
+        self.state.borrow_mut().health_ignored = Some(ignored);
+        self.show_health();
+    }
+
+    /// How to turn on what row `index`'s site offers: its page, in the browser.
+    pub(super) fn health_open_link(&self, index: i32) {
+        let link = usize::try_from(index)
+            .ok()
+            .and_then(|i| self.state.borrow().health_links.get(i).cloned())
+            .unwrap_or_default();
+        if link.is_empty() {
+            return;
+        }
+        if let Err(err) = vault_platform::files::open_web_link(&link) {
+            self.notify_long(notice::LINK_FAILED, &format!("{link} ({err:#})"));
+        }
+    }
+
+    /// The settings weaker than suggested, for Password health, less the ones the person told it
+    /// to stop suggesting. Codes: 1 a long auto-lock, 2 not locking with Windows, 3 a long
+    /// clipboard, 4 no item lock, 5 no update checks, 6 the extension filling without asking,
+    /// 7 the extension's window listing the whole vault, 8 a long Windows Hello interval.
+    fn settings_review(&self) -> Vec<ReviewRow> {
+        let state = self.state.borrow();
+        let settings = &state.settings;
+        let no_item_lock = state.session.as_ref().is_some_and(|session| {
+            let guard = session.vault.item_guard();
+            !guard.encrypts() && !guard.all_items && guard.check == GuardCheck::Master
+        });
+        let hello = state.session.as_ref().is_some_and(|session| {
+            vault_platform::quick_unlock::is_enrolled(&session.vault.id_hex())
+        });
+        let browser = settings.browser_extension;
+        let found: [(bool, i32, String, i32); 8] = [
+            (
+                settings.auto_lock_minutes > 15,
+                1,
+                settings.auto_lock_minutes.to_string(),
+                0,
+            ),
+            (!settings.lock_with_windows, 2, String::new(), 0),
+            (
+                settings.clipboard_clear_seconds > 60,
+                3,
+                settings.clipboard_clear_seconds.to_string(),
+                0,
+            ),
+            (no_item_lock, 4, String::new(), 0),
+            (!settings.update_checks, 5, String::new(), 5),
+            (
+                browser && !settings.browser_always_asks,
+                6,
+                String::new(),
+                3,
+            ),
+            (browser && settings.browser_whole_vault, 7, String::new(), 3),
+            (
+                hello && settings.hello_master_days > 14,
+                8,
+                settings.hello_master_days.to_string(),
+                0,
+            ),
+        ];
+        found
+            .into_iter()
+            .filter(|(weaker, code, ..)| {
+                *weaker
+                    && !settings
+                        .review_ignored
+                        .contains(&u8::try_from(*code).unwrap_or(0))
+            })
+            .map(|(_, code, arg, section)| ReviewRow {
+                code,
+                arg: SharedString::from(arg),
+                section,
+            })
+            .collect()
+    }
+
+    /// Change, next to a setting of the review: that setting's section of Settings.
+    pub(super) fn review_change(&self, index: i32) {
+        let app = self.app();
+        let Some(row) = usize::try_from(index)
+            .ok()
+            .and_then(|i| app.get_health_review().row_data(i))
+        else {
+            return;
+        };
+        self.open_settings();
+        app.set_settings_section(row.section);
+    }
+
+    /// Ignore, next to a setting of the review: it isn't suggested again on this computer.
+    pub(super) fn review_ignore(&self, index: i32) {
+        let app = self.app();
+        let Some(code) = usize::try_from(index)
+            .ok()
+            .and_then(|i| app.get_health_review().row_data(i))
+            .and_then(|row| u8::try_from(row.code).ok())
+        else {
+            return;
+        };
+        let list = {
+            let mut state = self.state.borrow_mut();
+            if !state.settings.review_ignored.contains(&code) {
+                state.settings.review_ignored.push(code);
+            }
+            state.settings.review_ignored.clone()
+        };
+        if self.state.borrow().runner != Runner::Inline
+            && let Ok(mut device_state) = vault_platform::DeviceState::load()
+        {
+            device_state.settings.review_ignored = list;
+            if let Err(err) = device_state.save() {
+                self.set_error(error::FILE, &err.to_string());
+            }
+        }
+        self.show_health();
     }
 
     pub(super) fn health_open(&self, index: i32) {

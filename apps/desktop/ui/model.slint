@@ -115,6 +115,16 @@ export struct HealthRow {
     age-unit: int,    // how long ago the password was set (Messages.ago)
     age-amount: int,
     has-site: bool,   // a login with a website: its page for changing the password is offered
+    link: string,     // problems 7 and 8: the site's page that says how to turn it on
+    ignored: bool,    // the person chose to ignore this warning
+}
+
+// A setting Password health suggests looking at: which one (`code`), its value now (`arg`) and
+// the Settings section it is in.
+export struct ReviewRow {
+    code: int,
+    arg: string,
+    section: int,
 }
 
 // One entry of the file being imported, for review. Nothing secret.
@@ -212,6 +222,13 @@ export struct AuthRow {
 export struct CodeRow {
     code: string,
     used: bool,
+}
+
+// One character of a password shown in large type, and what it is: 0 a letter, 1 a digit,
+// 2 a symbol, 3 a space.
+export struct LargeChar {
+    text: string,
+    kind: int,
 }
 
 export struct DetailField {
@@ -396,6 +413,9 @@ export global Messages {
         if (code == 91) { return @tr("Two different Secret Keys are kept for this vault on this computer: an older version of the app saved one. Type the Secret Key from your newest emergency kit."); }
         if (code == 92) { return @tr("The Secret Key kept on this computer couldn't be read just now ({}). Try again, or type it from your emergency kit.", detail); }
         if (code == 93) { return @tr("Tags are separated by commas: at most 32, each up to 40 characters."); }
+        if (code == 144) { return @tr("The vault command can't reach this app: {}", detail); }
+        if (code == 143) { return detail == "2" ? @tr("Type a domain of yours, such as example.com, whose every address reaches you.") : @tr("Type your email address, such as you@example.com."); }
+        if (code == 142) { return @tr("Type your master password: it's asked once each time the app starts. Windows Hello works after that."); }
         if (code == 94) { return @tr("Type the expiry date as year-month-day, for example 2027-03-31."); }
         if (code == 95) { return @tr("The secure desktop couldn't be shown ({}). Type the master password in the field instead.", detail); }
         return @tr("Something went wrong: {}", detail);

@@ -427,6 +427,24 @@ fn main() {
     app.invoke_reveal();
     camera.shot("vault-revealed", "Password shown for 15 seconds");
     app.invoke_conceal();
+    app.invoke_show_large();
+    camera.shot(
+        "vault-large-type",
+        "The password in large type, a box for each character",
+    );
+    app.invoke_conceal();
+    app.set_cli_program(r"C:\Tools\vault.exe".into());
+    app.set_cli_purpose("run deploy.ps1 --prod".into());
+    app.set_cli_lines(slint::ModelRc::new(slint::VecModel::from(vec![
+        slint::SharedString::from("GitHub → password"),
+        slint::SharedString::from("Cloud console → API key"),
+    ])));
+    app.set_cli_asking(true);
+    camera.shot(
+        "vault-cli-asks",
+        "The vault command asks for secrets: which program, what for, which fields",
+    );
+    app.set_cli_asking(false);
     app.set_notes_shown(true);
     app.invoke_copy_username();
     camera.shot("vault-notes-notice", "Notes shown, copy notice");
@@ -610,6 +628,22 @@ fn main() {
         "Generate: a passphrase, separator buttons and box on one line",
     );
     app.set_gen_mode(0);
+    app.set_ed_gen_open(false);
+    app.set_ed_user_gen_open(true);
+    app.invoke_generate_username();
+    camera.shot(
+        "editor-username-words",
+        "Generate a username: two words and four digits",
+    );
+    app.set_user_gen_kind(1);
+    app.set_user_gen_email("you@example.com".into());
+    app.invoke_generate_username();
+    camera.shot(
+        "editor-username-tagged",
+        "Generate a username: your email with a tag after a +",
+    );
+    app.set_user_gen_kind(0);
+    app.set_ed_user_gen_open(false);
     app.set_ed_kind(3);
     app.set_ed_title("".into());
     camera.shot(
@@ -1127,6 +1161,18 @@ fn main() {
         false,
         0,
     );
+    add_item(
+        &app,
+        0,
+        "Router",
+        "admin",
+        "http://router.example",
+        "Router-pass-Long-7",
+        "",
+        "",
+        false,
+        0,
+    );
     app.invoke_open_health();
     camera.shot("health", "Password health: weak, reused, old, expired");
     // The bell in the title bar, shown while something asks for attention, and its panel.
@@ -1139,7 +1185,27 @@ fn main() {
     app.set_health_filter(2);
     app.invoke_health_filter_changed(2);
     camera.shot("health-reused", "Password health: reused only");
+    app.set_health_filter(5);
+    app.invoke_health_filter_changed(5);
+    camera.shot(
+        "health-no-https",
+        "Password health: a website saved without HTTPS",
+    );
+    app.set_health_filter(7);
+    app.invoke_health_filter_changed(7);
+    camera.shot(
+        "health-passkeys",
+        "Password health: sites that take passkeys, from the bundled list",
+    );
+    app.set_health_filter(2);
+    app.invoke_health_filter_changed(2);
+    app.invoke_health_ignore(0);
+    app.set_health_filter(-2);
+    app.invoke_health_filter_changed(-2);
+    camera.shot("health-ignored", "Password health: a warning ignored");
+    app.invoke_health_unignore(0);
     app.set_health_filter(-1);
+    app.invoke_health_filter_changed(-1);
 
     app.invoke_open_transfer();
     camera.shot("transfer", "Import & export: where from");

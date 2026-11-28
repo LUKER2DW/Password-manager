@@ -26,6 +26,10 @@ pub(super) struct History {
     here: Option<Place>,
 }
 
+/// The ids of the shortcuts from any program (`hotkeys::register`).
+const HOTKEY_QUICK: i32 = 1;
+const HOTKEY_LOCK: i32 = 2;
+
 /// What a key or mouse button asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Command {
@@ -161,6 +165,58 @@ impl Controller {
         }
     }
 
+    /// Registers the shortcuts from any program that Settings → Appearance chose, in place of
+    /// the ones before, and shows which another program holds. Not in tests: they would take
+    /// the keys from the person's own desktop.
+    pub(super) fn apply_hotkeys(&self) {
+        use vault_platform::hotkeys::{self, Combo};
+        let app = self.app();
+        let (quick, lock, inline) = {
+            let mut state = self.state.borrow_mut();
+            // The ones before are freed first, so the same keys can be taken again.
+            state.hotkeys = None;
+            (
+                hotkeys::chosen(&Combo::QUICK, state.settings.quick_hotkey),
+                hotkeys::chosen(&Combo::LOCK, state.settings.lock_hotkey),
+                state.runner == super::Runner::Inline,
+            )
+        };
+        app.set_quick_hotkey_taken(false);
+        app.set_lock_hotkey_taken(false);
+        if inline {
+            return;
+        }
+        let wanted: Vec<(i32, Combo)> = [(HOTKEY_QUICK, quick), (HOTKEY_LOCK, lock)]
+            .into_iter()
+            .filter_map(|(id, combo)| Some((id, combo?)))
+            .collect();
+        if wanted.is_empty() {
+            return;
+        }
+        let (held, taken) = hotkeys::register(&wanted, |id| {
+            let _ = slint::invoke_from_event_loop(move || Controller::hotkey_pressed(id));
+        });
+        app.set_quick_hotkey_taken(taken.contains(&HOTKEY_QUICK));
+        app.set_lock_hotkey_taken(taken.contains(&HOTKEY_LOCK));
+        self.state.borrow_mut().hotkeys = Some(held);
+    }
+
+    /// A shortcut from any program was pressed: the quick search shows the window with the
+    /// search ready (the lock screen while locked), the other locks the vault.
+    pub fn hotkey_pressed(id: i32) {
+        let Some(controller) = super::CURRENT.with(|c| c.borrow().upgrade()) else {
+            return;
+        };
+        match id {
+            HOTKEY_QUICK => {
+                controller.show_from_tray();
+                controller.run_command(Command::Search);
+            }
+            HOTKEY_LOCK if controller.state.borrow().vault_open => controller.lock(),
+            _ => {}
+        }
+    }
+
     fn run_command(&self, command: Command) {
         let app = self.app();
         if app.get_screen() != Screen::Vault {
@@ -262,6 +318,15 @@ impl Controller {
                     if let Some(controller) = weak.upgrade() {
                         let app = controller.app();
                         app.set_window_maximized(app.window().is_maximized());
+                    }
+                });
+            }
+            // Another window took the focus: what is shown hides (Settings → Security).
+            if matches!(event, WindowEvent::Focused(false)) {
+                let weak = weak.clone();
+                slint::Timer::single_shot(Duration::ZERO, move || {
+                    if let Some(controller) = weak.upgrade() {
+                        controller.window_left();
                     }
                 });
             }

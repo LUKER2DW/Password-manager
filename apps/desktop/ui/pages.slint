@@ -2,7 +2,7 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, ExtensionBrowser, SiteRuleRow, Messages, ItemLock, SecurityLine } from "model.slint";
+import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, ExtensionBrowser, SiteRuleRow, Messages, ItemLock, SecurityLine, ReviewRow } from "model.slint";
 import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker, IconLook, FolderLook } from "icons.slint";
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip, PdfPassword } from "kit.slint";
@@ -298,6 +298,8 @@ export component DetailPage inherits Rectangle {
     callback restore-version(int);
     callback reveal();
     callback conceal();
+    // The password in large type (LargeTypeDialog).
+    callback show-large();
     callback copy-username();
     callback copy-password();
     callback auto-type();
@@ -471,6 +473,10 @@ export component DetailPage inherits Rectangle {
                 if root.kind == 0 && !root.locked: QuietButton {
                     text: @tr("Auto-type");
                     clicked => { root.auto-type(); }
+                }
+                if root.kind != 4: QuietButton {
+                    text: @tr("Large type");
+                    clicked => { root.show-large(); }
                 }
                 QuietButton {
                     text: @tr("Copy");
@@ -1163,6 +1169,74 @@ export component QuickGenerator inherits Rectangle {
     }
 }
 
+// A username for a new login, under the editor's username: two words, the person's own email
+// with a tag after a `+`, or a random name at a domain of theirs that takes every address.
+export component UsernameGenerator inherits Rectangle {
+    in-out property <int> kind;
+    in-out property <string> email;
+    in-out property <string> domain;
+    in-out property <bool> number;
+    in property <bool> error;
+    callback changed();
+    callback close();
+
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.rule;
+    background: Theme.panel;
+    VerticalLayout {
+        padding: 14px;
+        spacing: 12px;
+        HorizontalLayout {
+            spacing: 8px;
+            Choice {
+                options: [@tr("Two words"), @tr("Your email, tagged"), @tr("At your domain")];
+                selected <=> root.kind;
+                changed => { root.changed(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout {
+                alignment: center;
+                QuietButton {
+                    text: @tr("Hide options");
+                    tint: Theme.graphite;
+                    clicked => { root.close(); }
+                }
+            }
+        }
+        if root.kind == 0: HorizontalLayout {
+            alignment: start;
+            Check { text: @tr("Four digits after the words"); checked <=> root.number; toggled => { root.changed(); } }
+        }
+        if root.kind == 1: LineField {
+            label: @tr("Your email address");
+            icon: "mail";
+            placeholder: @tr("you@example.com");
+            error: root.error;
+            text <=> root.email;
+            accepted => { root.changed(); }
+        }
+        if root.kind == 2: LineField {
+            label: @tr("Your domain");
+            icon: "globe";
+            placeholder: "example.com";
+            error: root.error;
+            text <=> root.domain;
+            accepted => { root.changed(); }
+        }
+        Text {
+            text: root.kind == 1
+                ? @tr("Mail to you+tag@ reaches you@ with most mail services, and each site gets an address of its own: mail from a leaked or sold address shows which site it came from.")
+                : root.kind == 2
+                ? @tr("For a domain of yours set to take mail to any name (a catch-all): each site gets an address of its own.")
+                : @tr("A name that says nothing about you, for sites where the username is public.");
+            font-size: Theme.small;
+            color: Theme.faint;
+            wrap: word-wrap;
+        }
+    }
+}
+
 export component EditorPage inherits Rectangle {
     in property <bool> is-new;
     // Saving seals this item's secrets and the item lock is closed: its PIN or password is
@@ -1255,6 +1329,13 @@ export component EditorPage inherits Rectangle {
     in-out property <bool> gen-number;
     in-out property <string> gen-separator;
     in-out property <bool> gen-open;
+    // The username generator, opened under the username by its Generate.
+    callback generate-username();
+    in-out property <bool> user-gen-open;
+    in-out property <int> user-gen-kind;
+    in-out property <string> user-gen-email;
+    in-out property <string> user-gen-domain;
+    in-out property <bool> user-gen-number;
 
     ScrollView {
         // No sideways scrolling: the page is as wide as the window, and what it holds wraps.
@@ -1406,7 +1487,20 @@ export component EditorPage inherits Rectangle {
                     label: root.kind == 1 ? @tr("Name on card") : root.kind == 3 ? @tr("Account") : root.kind == 4 ? @tr("User or comment") : root.kind == 5 ? @tr("Full name") : @tr("Username or email");
                     icon: "user";
                     placeholder: root.kind == 1 || root.kind == 5 ? "" : @tr("you@example.com");
+                    error: root.error-code == 143;
                     text <=> root.username;
+                }
+                if root.kind == 0: VerticalLayout {
+                    alignment: end;
+                    horizontal-stretch: 0;
+                    QuietButton {
+                        icon: root.user-gen-open ? "refresh" : "sparkle";
+                        text: root.user-gen-open ? @tr("Another") : @tr("Generate");
+                        clicked => {
+                            root.user-gen-open = true;
+                            root.generate-username();
+                        }
+                    }
                 }
                 // The item's icon comes from its website: a card's is its bank's site. Next to
                 // the address, the site's icon, to see at once which site it is.
@@ -1436,6 +1530,15 @@ export component EditorPage inherits Rectangle {
                         }
                     }
                 }
+            }
+            if root.kind == 0 && root.user-gen-open: UsernameGenerator {
+                kind <=> root.user-gen-kind;
+                email <=> root.user-gen-email;
+                domain <=> root.user-gen-domain;
+                number <=> root.user-gen-number;
+                error: root.error-code == 143;
+                changed => { root.generate-username(); }
+                close => { root.user-gen-open = false; }
             }
             if root.kind == 3: LineField {
                 label: @tr("Setup key");
@@ -2670,6 +2773,15 @@ export component SettingsPage inherits Rectangle {
     callback security-log-show-more();
     callback security-log-clear();
     property <bool> security-log-confirm;
+    in-out property <bool> lock-on-tray;
+    in-out property <bool> conceal-on-blur;
+    in-out property <bool> master-at-start;
+    in-out property <int> hello-master-days;
+    in-out property <int> quick-hotkey;
+    in-out property <int> lock-hotkey;
+    in property <bool> quick-hotkey-taken;
+    in property <bool> lock-hotkey-taken;
+    in-out property <bool> cli-link;
     // 1 the Secret Key is kept under the security chip, 2 by Windows alone, 0 not known.
     in property <int> secret-key-kept;
     in-out property <int> clipboard-seconds;
@@ -2877,6 +2989,16 @@ export component SettingsPage inherits Rectangle {
                             checked <=> root.lock-with-windows;
                             toggled => { root.settings-changed(); }
                         }
+                        Check {
+                            text: @tr("Also lock when the window goes to the notification area");
+                            checked <=> root.lock-on-tray;
+                            toggled => { root.settings-changed(); }
+                        }
+                        Check {
+                            text: @tr("Hide a shown password when you switch to another window");
+                            checked <=> root.conceal-on-blur;
+                            toggled => { root.settings-changed(); }
+                        }
                         Stepper {
                             label: @tr("Clear copied secrets after");
                             unit: @tr("s");
@@ -2896,9 +3018,34 @@ export component SettingsPage inherits Rectangle {
                             VerticalLayout {
                                 alignment: center;
                                 Hint {
-                                    text: @tr("Open this vault with your face, fingerprint or Windows PIN instead of typing the master password. The key is made inside this computer's security chip and only works here, after Windows Hello checks it's you. Every 14 days the master password is asked once, so you don't forget it, and changing the master password turns this off. Anyone who knows your Windows PIN could open the vault on this computer.");
+                                    text: @tr("Open this vault with your face, fingerprint or Windows PIN instead of typing the master password. The key is made inside this computer's security chip and only works here, after Windows Hello checks it's you. Every few days (you choose how many) the master password is asked once, so you don't forget it, and changing the master password turns this off. Anyone who knows your Windows PIN could open the vault on this computer.");
                                 }
                             }
+                        }
+                        if root.quick-unlock-available && root.quick-unlock-on: Stepper {
+                            label: @tr("Ask for the master password every");
+                            unit: @tr("days");
+                            value <=> root.hello-master-days;
+                            minimum: 1;
+                            maximum: 30;
+                            changed => { root.settings-changed(); }
+                        }
+                        if root.quick-unlock-available && root.quick-unlock-on: Check {
+                            text: @tr("Also ask for it the first time after the app starts");
+                            checked <=> root.master-at-start;
+                            toggled => { root.settings-changed(); }
+                        }
+                    }
+
+                    SettingsCard {
+                        icon: "terminal";
+                        title: @tr("The vault command");
+                        summary: @tr("Scripts get secrets through the open app: vault run, vault inject, and git's credential helper. Each use is asked here first.");
+                        hint: @tr("vault run puts secrets in a program's environment (variables set to vault://item/field), vault inject fills the vault://item/field references written in a file, and vault git-credential gives git the login saved for a site. The command never opens the vault itself: it asks this app, which shows the program and what it wants. Nothing is given while the vault is locked, nor from an item waiting for the item lock.");
+                        Check {
+                            text: @tr("Let the vault command ask this app");
+                            checked <=> root.cli-link;
+                            toggled => { root.settings-changed(); }
                         }
                     }
 
@@ -3977,6 +4124,41 @@ export component SettingsPage inherits Rectangle {
                         }
                     }
                     SettingsCard {
+                        icon: "sparkle";
+                        title: @tr("Keyboard shortcuts");
+                        summary: @tr("From any program: the vault's search, or its lock.");
+                        HorizontalLayout {
+                            spacing: 16px;
+                            Dropdown {
+                                horizontal-stretch: 1;
+                                label: @tr("Search the vault");
+                                options: [@tr("Off"), "Ctrl+Shift+Space", "Ctrl+Alt+Space"];
+                                selected <=> root.quick-hotkey;
+                                changed => { root.settings-changed(); }
+                            }
+                            Dropdown {
+                                horizontal-stretch: 1;
+                                label: @tr("Lock the vault");
+                                options: [@tr("Off"), "Ctrl+Alt+L", "Ctrl+Shift+L"];
+                                selected <=> root.lock-hotkey;
+                                changed => { root.settings-changed(); }
+                            }
+                        }
+                        Text {
+                            text: @tr("Another program already uses that shortcut: choose the other one.");
+                            visible: root.quick-hotkey-taken || root.lock-hotkey-taken;
+                            height: self.visible ? self.preferred-height : 0px;
+                            font-size: Theme.small;
+                            color: Theme.seal;
+                        }
+                        Text {
+                            text: @tr("In the app: Ctrl+F search, Ctrl+N new item, Ctrl+L lock, Ctrl+B the sidebar, Alt+Left and Alt+Right back and forward.");
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            wrap: word-wrap;
+                        }
+                    }
+                    SettingsCard {
                         icon: "gear";
                         title: @tr("Starting and closing");
                         summary: @tr("When the app starts, and what closing the window does.");
@@ -4903,8 +5085,29 @@ component HealthTile inherits Rectangle {
 
 export component HealthPage inherits Rectangle {
     in property <[HealthRow]> rows;
-    // 0 leaked, 1 weak, 2 reused, 3 old, 4 expired cards
-    in property <[int]> counts: [0, 0, 0, 0, 0];
+    // 0 leaked, 1 weak, 2 reused, 3 old, 4 expired cards, 5 saved without HTTPS, 6 one-time
+    // codes offered, 7 passkeys offered (the last two found in the lists bundled with the app)
+    in property <[int]> counts: [0, 0, 0, 0, 0, 0, 0, 0];
+    // Settings weaker than suggested, and how many warnings were ignored (filter -2 lists them).
+    in property <[ReviewRow]> review;
+    in property <int> ignored-count;
+    callback ignore-row(int);
+    callback unignore-row(int);
+    callback open-link(int);
+    callback review-change(int);
+    callback review-ignore(int);
+
+    pure function review-text(code: int, arg: string) -> string {
+        if (code == 1) { return @tr("The vault locks only after {} minutes without use.", arg); }
+        if (code == 2) { return @tr("The vault stays open when Windows locks, sleeps or switches user."); }
+        if (code == 3) { return @tr("Copied secrets stay on the clipboard for {} seconds.", arg); }
+        if (code == 4) { return @tr("No item lock: an open vault shows every password without a second check."); }
+        if (code == 5) { return @tr("Updates aren't looked for: fixes don't reach this computer by themselves."); }
+        if (code == 6) { return @tr("The browser extension fills without asking first."); }
+        if (code == 7) { return @tr("The extension's window lists every login of the vault."); }
+        if (code == 8) { return @tr("Windows Hello opens the vault for {} days before the master password is asked.", arg); }
+        return "";
+    }
     in property <int> logins;
     in property <int> score;
     in property <bool> leaks-checked;
@@ -5007,6 +5210,36 @@ export component HealthPage inherits Rectangle {
                     clicked => { root.filter = root.filter == 4 ? -1 : 4; root.filter-changed(root.filter); }
                 }
             }
+            // Found without the network: a website saved with http://, and what a login's site
+            // offers that it doesn't use yet (lists bundled with the app).
+            HorizontalLayout {
+                spacing: 10px;
+                HealthTile {
+                    label: @tr("Without HTTPS");
+                    icon: "unlocked";
+                    count: root.counts[5];
+                    active: root.filter == 5;
+                    clicked => { root.filter = root.filter == 5 ? -1 : 5; root.filter-changed(root.filter); }
+                }
+                HealthTile {
+                    label: @tr("One-time codes available");
+                    icon: "clock";
+                    count: root.counts[6];
+                    active: root.filter == 6;
+                    clicked => { root.filter = root.filter == 6 ? -1 : 6; root.filter-changed(root.filter); }
+                }
+                HealthTile {
+                    label: @tr("Passkeys available");
+                    icon: "fingerprint";
+                    count: root.counts[7];
+                    active: root.filter == 7;
+                    clicked => { root.filter = root.filter == 7 ? -1 : 7; root.filter-changed(root.filter); }
+                }
+            }
+            if root.filter == 6 || root.filter == 7: Prose {
+                text: @tr("Which sites offer them: data sourced from 2FA Directory and Passkeys Directory by 2factorauth, bundled with the app and compared here, offline. Turning one on makes a stolen password alone useless there.");
+                font-size: Theme.small;
+            }
 
             Rectangle {
                 border-radius: Theme.radius;
@@ -5061,6 +5294,49 @@ export component HealthPage inherits Rectangle {
                 }
             }
 
+            if root.review.length > 0 && root.filter == -1: Rectangle {
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.rule;
+                background: Theme.panel;
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: start;
+                        FieldIcon { name: "sliders"; size: 22px; }
+                        Text {
+                            text: @tr("Settings to look at");
+                            font-size: Theme.body;
+                            font-weight: 600;
+                            color: Theme.ink;
+                            vertical-alignment: center;
+                        }
+                    }
+                    for r[i] in root.review: HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.review-text(r.code, r.arg);
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                        QuietButton {
+                            text: @tr("Change");
+                            clicked => { root.review-change(i); }
+                        }
+                        QuietButton {
+                            text: @tr("Ignore");
+                            tint: Theme.graphite;
+                            clicked => { root.review-ignore(i); }
+                        }
+                    }
+                }
+            }
+
             if root.rows.length == 0 && root.logins > 0: Prose {
                 text: root.filter == -1 ? @tr("Nothing to fix. Well kept!") : @tr("Nothing here.");
             }
@@ -5107,10 +5383,13 @@ export component HealthPage inherits Rectangle {
                                     : row.problem == 2 ? (row.weakness != 0 ? Messages.weakness(row.weakness) : @tr("Easy to guess"))
                                     : row.problem == 3 ? @tr("Same password as {n} other login" | "Same password as {n} other logins" % row.count)
                                     : row.problem == 4 ? @tr("Last changed {}", Messages.ago(row.age-unit, row.age-amount))
+                                    : row.problem == 6 ? @tr("Saved as {}: what you type there travels unencrypted", row.detail)
+                                    : row.problem == 7 ? @tr("The site offers two-step sign-in with one-time codes")
+                                    : row.problem == 8 ? @tr("The site takes passkeys: nothing to steal or reuse")
                                     : row.weakness == 1 ? @tr("Expiry date {}", row.detail)
                                     : @tr("Expired in {}", row.detail);
                                 font-size: Theme.small;
-                                color: row.problem <= 3 ? Theme.seal : Theme.graphite;
+                                color: row.problem <= 3 || row.problem == 6 ? Theme.seal : Theme.graphite;
                                 overflow: elide;
                             }
                         }
@@ -5119,6 +5398,25 @@ export component HealthPage inherits Rectangle {
                             QuietButton {
                                 text: @tr("Change on the site");
                                 clicked => { root.change-row(index); }
+                            }
+                        }
+                        if row.link != "" && !row.ignored: VerticalLayout {
+                            alignment: center;
+                            QuietButton {
+                                icon: "external";
+                                text: @tr("How to turn it on");
+                                clicked => { root.open-link(index); }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            QuietButton {
+                                text: row.ignored ? @tr("Don't ignore") : @tr("Ignore");
+                                tint: Theme.graphite;
+                                clicked => {
+                                    if (row.ignored) { root.unignore-row(index); } else { root.ignore-row(index); }
+                                }
+                                }
                             }
                         }
                     }

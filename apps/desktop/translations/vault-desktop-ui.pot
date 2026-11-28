@@ -1019,6 +1019,83 @@ msgctxt "DialogButtons"
 msgid "Cancel"
 msgstr ""
 
+#: ui/dialogs.slint:511
+msgctxt "LargeTypeDialog"
+msgid "Password in large type"
+msgstr ""
+
+#: ui/dialogs.slint:517
+msgctxt "LargeTypeDialog"
+msgid "hides in {} s"
+msgstr ""
+
+#: ui/dialogs.slint:537
+msgctxt "LargeTypeDialog"
+msgid "Character {}"
+msgstr ""
+
+#: ui/dialogs.slint:561
+msgctxt "LargeTypeDialog"
+msgid "letters"
+msgstr ""
+
+#: ui/dialogs.slint:566
+msgctxt "LargeTypeDialog"
+msgid "digits"
+msgstr ""
+
+#: ui/dialogs.slint:571
+msgctxt "LargeTypeDialog"
+msgid "symbols"
+msgstr ""
+
+#: ui/dialogs.slint:576
+msgctxt "LargeTypeDialog"
+msgid "space"
+msgstr ""
+
+#: ui/dialogs.slint:582
+msgctxt "LargeTypeDialog"
+msgid "Close"
+msgstr ""
+
+#: ui/dialogs.slint:599
+msgctxt "CliAskDialog"
+msgid "A program asks for secrets"
+msgstr ""
+
+#: ui/dialogs.slint:605
+msgctxt "CliAskDialog"
+msgid "The vault command, to {}:"
+msgstr ""
+
+#: ui/dialogs.slint:621
+msgctxt "CliAskDialog"
+msgid "Program: {}"
+msgstr ""
+
+#: ui/dialogs.slint:627
+msgctxt "CliAskDialog"
+msgid ""
+"Allow it only if you just ran it. What you allow is handed to that program, "
+"which may keep it."
+msgstr ""
+
+#: ui/dialogs.slint:636
+msgctxt "CliAskDialog"
+msgid "Deny"
+msgstr ""
+
+#: ui/dialogs.slint:641
+msgctxt "CliAskDialog"
+msgid "Allow for 10 minutes"
+msgstr ""
+
+#: ui/dialogs.slint:646
+msgctxt "CliAskDialog"
+msgid "Allow once"
+msgstr ""
+
 #. The button that leaves it as it is.
 #: ui/dialogs.slint:602
 msgctxt "ConfirmDialog"
@@ -4031,12 +4108,12 @@ msgctxt "DetailPage"
 msgid "The site says it no longer knows this passkey."
 msgstr ""
 
-#: ui/pages.slint:800
+#: ui/pages.slint:806
 msgctxt "DetailPage"
 msgid "The site says this account is now {}."
 msgstr ""
 
-#: ui/pages.slint:807
+#: ui/pages.slint:813
 msgctxt "DetailPage"
 msgid "Remove it"
 msgstr ""
@@ -5263,10 +5340,10 @@ msgctxt "SettingsPage"
 msgid ""
 "Open this vault with your face, fingerprint or Windows PIN instead of typing "
 "the master password. The key is made inside this computer's security chip "
-"and only works here, after Windows Hello checks it's you. Every 14 days the "
-"master password is asked once, so you don't forget it, and changing the "
-"master password turns this off. Anyone who knows your Windows PIN could open "
-"the vault on this computer."
+"and only works here, after Windows Hello checks it's you. Every few days "
+"(you choose how many) the master password is asked once, so you don't forget "
+"it, and changing the master password turns this off. Anyone who knows your "
+"Windows PIN could open the vault on this computer."
 msgstr ""
 
 #: ui/pages.slint:2907 ui/pages.slint:2941

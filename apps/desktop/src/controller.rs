@@ -39,7 +39,7 @@ use zeroize::Zeroizing;
 use crate::{
     ui::{
         AppWindow, AuthRow, CodeRow, DetailField, EditField, ExportCounts, FolderRow, ItemLock,
-        ItemRow, Panel, RecentVault, Screen, Secrets, Theme, VersionRow,
+        ItemRow, LargeChar, Panel, RecentVault, Screen, Secrets, Theme, VersionRow,
     },
     view,
 };
@@ -51,11 +51,13 @@ mod autotype;
 mod browser;
 mod change;
 mod confirm;
+mod cli_link;
 mod drop_box;
 mod extension;
 mod features;
 mod folders;
 mod generated;
+mod health_ignored;
 mod locked_fill;
 mod navigation;
 mod passwords;
@@ -143,6 +145,13 @@ mod error {
     pub const HELLO_FAILED: i32 = 14;
     pub const HELLO_REVOKED: i32 = 15;
     pub const PASSWORD_DUE: i32 = 16;
+    /// Windows Hello waits for the master password typed once since the app started
+    /// (Settings → Security).
+    pub const PASSWORD_AT_START: i32 = 142;
+    /// The username generator's email address (detail "1") or domain ("2") isn't one.
+    pub const USERNAME_FROM: i32 = 143;
+    /// The vault command's pipe couldn't be made (detail: why).
+    pub const CLI_LINK: i32 = 144;
     pub const HELLO_UNAVAILABLE: i32 = 17;
     pub const HELLO_KEY_GONE: i32 = 18;
     pub const IMPORT: i32 = 19;
@@ -666,6 +675,11 @@ struct State {
     /// Counts audits started, so a result that arrives late is recognized and dropped.
     health_generation: u64,
     health_ids: Vec<ItemId>,
+    /// The group of each health row's warning and the page it links to (`health_ids`' order),
+    /// and the warnings ignored for the open vault (read once per unlock).
+    health_groups: Vec<i32>,
+    health_links: Vec<String>,
+    health_ignored: Option<health_ignored::Ignored>,
     leaks: HashMap<ItemId, u64>,
     /// The breach service's answers for the prefixes of new passwords weighed lately (the
     /// editor, the extension's save card), by prefix: `None` while asked (`weigh.rs`).
@@ -684,6 +698,11 @@ struct State {
     update_told: Option<String>,
     /// Restart (after an update) was chosen: in tests, in place of starting the new program.
     restarted: bool,
+    /// The vaults opened with the master password since the app started (their ids): with
+    /// Settings → Security's "ask once each time the app starts", Windows Hello waits for it.
+    password_since_start: std::collections::HashSet<String>,
+    /// The shortcuts from any program, registered while the app runs (Settings → Appearance).
+    hotkeys: Option<vault_platform::hotkeys::Hotkeys>,
     /// The install under way was asked for (Install now, Try again), not started on its own.
     install_asked: bool,
     /// The leak watch's check of every login (the tests put a stand-in in its place).
@@ -709,6 +728,11 @@ struct State {
     /// Auto-type waiting for its countdown, and the desktop it types into.
     autotype: Option<autotype::Pending>,
     desktop: Rc<dyn vault_platform::autotype::Desktop>,
+    /// The vault command's pipe while Settings → Security allows it, the question shown, and
+    /// what was allowed for a while (program, what, until when).
+    cli_listener: Option<cli_link::Listener>,
+    cli_pending: Option<cli_link::Pending>,
+    cli_allowed: Vec<(PathBuf, cli_link::Asked, std::time::Instant)>,
     /// The browsers Settings → Browser extension → Add to a browser lists, in its order.
     extension_browsers: Vec<vault_platform::browsers::Browser>,
     /// The last check of the extension's folder failed (the next failure is said).
@@ -899,6 +923,9 @@ impl Controller {
                 health_stale: false,
                 health_generation: 0,
                 health_ids: Vec::new(),
+                health_groups: Vec::new(),
+                health_links: Vec::new(),
+                health_ignored: None,
                 leaks: HashMap::new(),
                 leak_ranges: HashMap::new(),
                 passkey_notes: Vec::new(),
@@ -908,6 +935,8 @@ impl Controller {
                 release_page: None,
                 update_told: None,
                 restarted: false,
+                password_since_start: std::collections::HashSet::new(),
+                hotkeys: None,
                 install_asked: false,
                 leak_batch: watch::batch_default,
                 sync: syncing::SyncStatus::default(),
@@ -922,6 +951,9 @@ impl Controller {
                 agent: ssh_agent::AgentState::default(),
                 autotype: None,
                 desktop: autotype::system(),
+                cli_listener: None,
+                cli_pending: None,
+                cli_allowed: Vec::new(),
                 extension_browsers: Vec::new(),
                 extension_check_failed: false,
                 extension_version: extension::VERSION.to_owned(),
@@ -962,6 +994,8 @@ impl Controller {
         if controller.state.borrow().settings.ssh_agent {
             controller.apply_ssh_agent(true);
         }
+        controller.apply_hotkeys();
+        controller.apply_cli_link();
 
         let secrets = app.global::<Secrets>();
         secrets.set_lengths(ModelRc::from(controller.lengths.clone()));
@@ -1252,6 +1286,7 @@ impl Controller {
         on!(on_new_from_template, |c| c.new_from_template());
         on!(on_restore_version, |c, index| c.restore_version(index));
         on!(on_reveal, |c| c.reveal());
+        on!(on_show_large, |c| c.show_large());
         on!(on_conceal, |c| c.conceal());
         on!(on_copy_username, |c| c
             .copy_from_selected(CopyWhat::Username));
@@ -1295,6 +1330,11 @@ impl Controller {
         on!(on_start_password_change, |c| c.start_password_change());
         on!(on_passkey_signal, |c, index, yes| c
             .passkey_signal(index, yes));
+        on!(on_health_ignore, |c, index| c.health_ignore(index, true));
+        on!(on_health_unignore, |c, index| c.health_ignore(index, false));
+        on!(on_health_open_link, |c, index| c.health_open_link(index));
+        on!(on_review_change, |c, index| c.review_change(index));
+        on!(on_review_ignore, |c, index| c.review_ignore(index));
         on!(on_add_wordlist, |c| c.add_wordlist());
         on!(on_remove_wordlist, |c| c.remove_wordlist());
         on!(on_vault_settings_changed, |c| c.vault_settings_changed());
@@ -1342,6 +1382,8 @@ impl Controller {
         on!(on_cancel_edit, |c| c.close_editor());
         on!(on_toggle_show_password, |c| c.toggle_show_password());
         on!(on_generate_for_item, |c| c.generate_for_item());
+        on!(on_generate_username, |c| c.generate_username());
+        on!(on_cli_decide, |c, choice| c.cli_decide(choice));
 
         on!(on_regenerate, |c| c.regenerate());
         on!(on_copy_generated, |c| c.copy_generated());
@@ -1515,7 +1557,9 @@ impl Controller {
     fn show_screen(&self, screen: Screen) {
         self.set_error(error::NONE, "");
         self.forget_review();
-        self.app().set_screen(screen);
+        let app = self.app();
+        app.set_password_at_start(self.password_at_start(&app.get_vault_id()));
+        app.set_screen(screen);
         self.show_vault_mark();
         self.refresh_alerts();
     }
@@ -1673,6 +1717,13 @@ impl Controller {
                     self.state.borrow_mut().unlock_seconds = seconds;
                 }
                 let id = session.vault.id_hex();
+                // Opened with the master password (Windows Hello gives no time).
+                if seconds.is_some() {
+                    self.state
+                        .borrow_mut()
+                        .password_since_start
+                        .insert(id.clone());
+                }
                 let revision = session.vault.revision();
                 // A damaged record of the newest revisions is set aside, never written over,
                 // and the person is told that older copies aren't caught until then.
@@ -2571,10 +2622,18 @@ impl Controller {
                 return;
             }
         };
+        // Settings → Security: the first unlock after the app starts takes the master password.
+        if self.password_at_start(&id) {
+            app.set_password_at_start(true);
+            self.set_error(error::PASSWORD_AT_START, "");
+            return;
+        }
         if self.unlock_wait(&id) > 0 {
             self.set_error(error::UNLOCK_WAIT, "");
             return;
         }
+        let days =
+            quick_unlock::interval_days(u64::from(self.state.borrow().settings.hello_master_days));
         let secret_key = match secret_store::load_checked(&id) {
             Ok(Loaded::Key(key)) => key,
             kept => {
@@ -2621,7 +2680,7 @@ impl Controller {
                 }
             };
             match Vault::open_with_device(&bytes, &secret, &sealed) {
-                Ok(vault) if quick_unlock::password_is_recent(&vault) => {
+                Ok(vault) if quick_unlock::password_is_recent(&vault, days) => {
                     security::unlocked(&vault, security_log::how::DEVICE);
                     // Windows Hello holds the vault key itself; the keyfile is only needed
                     // later, to check or change the master password.
@@ -2641,10 +2700,7 @@ impl Controller {
                         seconds: None,
                     }
                 }
-                Ok(_) => failed(
-                    error::PASSWORD_DUE,
-                    quick_unlock::PASSWORD_INTERVAL_DAYS.to_string(),
-                ),
+                Ok(_) => failed(error::PASSWORD_DUE, days.to_string()),
                 Err(CoreError::DecryptionFailed) => {
                     // The master password changed (maybe on another device): this device
                     // unlock is dead for good.
@@ -2655,6 +2711,19 @@ impl Controller {
                 Err(other) => failed(error::HELLO_FAILED, other.to_string()),
             }
         });
+    }
+
+    /// Whether this start of the app still waits for the master password before Windows
+    /// Hello opens the vault `id` (Settings → Security, off by default).
+    fn password_at_start(&self, id: &str) -> bool {
+        let state = self.state.borrow();
+        state.settings.master_at_start && !state.password_since_start.contains(id)
+    }
+
+    /// The app started again, in tests: every vault waits for its master password once more.
+    #[cfg(test)]
+    pub(crate) fn start_again(&self) {
+        self.state.borrow_mut().password_since_start.clear();
     }
 
     fn set_quick_unlock(&self, on: bool) {
@@ -2733,6 +2802,7 @@ impl Controller {
             state.selected = None;
             state.editing = None;
             state.health = None;
+            state.health_ignored = None;
             state.leaks.clear();
             state.secrets_open = false;
         }
@@ -2988,7 +3058,23 @@ impl Controller {
         self.timers.totp.stop();
         self.timers.auth.stop();
         self.conceal();
+        // Settings → Security: hidden in the notification area, the vault locks too.
+        let lock = {
+            let state = self.state.borrow();
+            state.settings.lock_on_tray && state.vault_open
+        };
+        if lock {
+            self.lock();
+        }
         true
+    }
+
+    /// Another window took the focus: a password or hidden field shown hides again, unless
+    /// Settings → Security keeps it.
+    pub(crate) fn window_left(&self) {
+        if self.state.borrow().settings.conceal_on_blur {
+            self.conceal();
+        }
     }
 
     /// Whether a start at sign-in waits in the notification area (Settings → Appearance).
@@ -3044,6 +3130,7 @@ impl Controller {
         // Programs waiting for an SSH signature are refused, and approvals end.
         self.agent_refuse_all();
         self.autotype_cancel();
+        self.cli_forget();
         self.app().set_settings_dialog(dialog::NONE);
         self.app().set_export_asking(false);
         self.stop_lock_warning();
@@ -3106,6 +3193,7 @@ impl Controller {
             state.icon_images.clear();
             state.health = None;
             state.health_ids.clear();
+            state.health_ignored = None;
             state.leaks.clear();
             state.history_shown = None;
             state.history_revealed.clear();
@@ -3133,7 +3221,7 @@ impl Controller {
             app.set_vault_name(SharedString::new());
             app.set_vault_menu(false);
             app.set_alerts_panel(false);
-            app.set_health_counts(ModelRc::from(Rc::new(VecModel::from(vec![0; 5]))));
+            app.set_health_counts(ModelRc::from(Rc::new(VecModel::from(vec![0; 8]))));
             app.set_health_total(-1);
             app.set_folder_dialog(-1);
             app.set_pairing_code(SharedString::new());
@@ -3632,6 +3720,30 @@ impl Controller {
         self.start_reveal_countdown();
     }
 
+    /// Shows the selected item's password in large type, one character in a box of its own
+    /// (F24), for reading it out or typing it on another device. It goes with the reveal's
+    /// countdown, like the password shown in its row.
+    fn show_large(&self) {
+        let Some((_, item)) = self.selected_item() else {
+            return;
+        };
+        self.conceal();
+        let chars: Vec<LargeChar> = item
+            .password
+            .chars()
+            .map(|ch| LargeChar {
+                text: SharedString::from(ch.encode_utf8(&mut [0; 4]) as &str),
+                kind: large_kind(ch),
+            })
+            .collect();
+        if chars.is_empty() {
+            return;
+        }
+        self.app()
+            .set_large_chars(ModelRc::new(VecModel::from(chars)));
+        self.start_reveal_countdown();
+    }
+
     /// Shows one hidden extra field (a hidden custom field, a card's number or security code),
     /// or hides it again when it is the one on screen. Only one secret is visible at a time.
     fn reveal_field(&self, index: i32) {
@@ -3686,6 +3798,7 @@ impl Controller {
         app.set_revealed_password(SharedString::new());
         app.set_revealed_field(-1);
         app.set_revealed_field_value(SharedString::new());
+        app.set_large_chars(ModelRc::default());
         app.set_reveal_left(0);
     }
 
@@ -4741,6 +4854,7 @@ impl Controller {
         });
         self.state.borrow_mut().editing = Some(id);
         app.set_ed_gen_open(false);
+        app.set_ed_user_gen_open(false);
         app.set_editor_is_new(id.is_none());
         app.set_editing_item(true);
         self.editor_site_icon();
@@ -5184,6 +5298,18 @@ impl Controller {
         app.set_auto_lock_minutes(settings.auto_lock_minutes as i32);
         app.set_lock_with_windows(settings.lock_with_windows);
         app.set_secure_desktop(settings.secure_desktop);
+        app.set_lock_on_tray(settings.lock_on_tray);
+        app.set_conceal_on_blur(settings.conceal_on_blur);
+        app.set_master_at_start(settings.master_at_start);
+        app.set_quick_hotkey(i32::from(settings.quick_hotkey.min(2)));
+        app.set_cli_link(settings.cli_link);
+        app.set_lock_hotkey(i32::from(settings.lock_hotkey.min(2)));
+        app.set_hello_master_days(
+            i32::try_from(quick_unlock::interval_days(u64::from(
+                settings.hello_master_days,
+            )))
+            .unwrap_or(14),
+        );
         app.set_clipboard_seconds(settings.clipboard_clear_seconds as i32);
         app.set_website_icons(settings.website_icons);
         app.set_leak_watch(settings.leak_watch);
@@ -6147,6 +6273,15 @@ impl Controller {
             sidebar_hidden: app.get_sidebar_hidden(),
             secure_desktop: app.get_secure_desktop(),
             site_rules: self.state.borrow().settings.site_rules.clone(),
+            master_at_start: app.get_master_at_start(),
+            lock_on_tray: app.get_lock_on_tray(),
+            conceal_on_blur: app.get_conceal_on_blur(),
+            hello_master_days: u32::try_from(app.get_hello_master_days().clamp(1, 30))
+                .unwrap_or(14),
+            review_ignored: self.state.borrow().settings.review_ignored.clone(),
+            quick_hotkey: u8::try_from(app.get_quick_hotkey().clamp(0, 2)).unwrap_or(1),
+            lock_hotkey: u8::try_from(app.get_lock_hotkey().clamp(0, 2)).unwrap_or(0),
+            cli_link: app.get_cli_link(),
         };
         app.global::<Theme>()
             .set_backdrop(i32::from(settings.backdrop));
@@ -6160,8 +6295,19 @@ impl Controller {
         let update_checks_were_on = self.state.borrow().settings.update_checks;
         let browser_was_on = self.state.borrow().settings.browser_extension;
         let agent_was_on = self.state.borrow().settings.ssh_agent;
+        let cli_was_on = self.state.borrow().settings.cli_link;
+        let hotkeys_were = {
+            let state = self.state.borrow();
+            (state.settings.quick_hotkey, state.settings.lock_hotkey)
+        };
         let locked_fill_was_on = self.state.borrow().settings.browser_locked_fill;
         self.state.borrow_mut().settings = settings.clone();
+        if hotkeys_were != (settings.quick_hotkey, settings.lock_hotkey) {
+            self.apply_hotkeys();
+        }
+        if cli_was_on != settings.cli_link {
+            self.apply_cli_link();
+        }
         if agent_was_on != settings.ssh_agent {
             self.apply_ssh_agent(settings.ssh_agent);
         }
@@ -6771,4 +6917,18 @@ fn verify_current(
         CoreError::KeyfileRequired => (error::KEYFILE_NEEDED, String::new()),
         other => (error::OTHER, other.to_string()),
     })
+}
+
+/// What a password's character is, for its colour in large type: 0 a letter, 1 a digit,
+/// 2 a symbol, 3 a space.
+fn large_kind(ch: char) -> i32 {
+    if ch.is_alphabetic() {
+        0
+    } else if ch.is_numeric() {
+        1
+    } else if ch.is_whitespace() {
+        3
+    } else {
+        2
+    }
 }

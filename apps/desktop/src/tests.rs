@@ -239,6 +239,38 @@ fn whole_app_flow_headless() {
     app.invoke_save_item();
     yes_if_asked(&app);
     assert_eq!(app.get_error_code(), 9, "title required");
+
+    // F4: a username made in the editor: two words, the person's email tagged, or a name at
+    // their domain; an address that isn't one is told, and the field keeps what it had.
+    assert!(!app.get_ed_user_gen_open());
+    app.set_ed_user_gen_open(true);
+    app.set_user_gen_kind(0);
+    app.invoke_generate_username();
+    let words = app.get_ed_username().to_string();
+    assert!(
+        words.contains('_') && words.chars().rev().take(4).all(|c| c.is_ascii_digit()),
+        "{words}"
+    );
+    app.set_user_gen_kind(1);
+    app.set_user_gen_email("not an address".into());
+    app.invoke_generate_username();
+    assert_eq!(app.get_error_code(), 143);
+    assert_eq!(app.get_error_detail(), "1");
+    assert_eq!(app.get_ed_username(), words.as_str(), "kept");
+    app.set_user_gen_email("test.person@example.com".into());
+    app.invoke_generate_username();
+    assert_eq!(app.get_error_code(), 0);
+    let tagged = app.get_ed_username().to_string();
+    assert!(
+        tagged.starts_with("test.person+") && tagged.ends_with("@example.com"),
+        "{tagged}"
+    );
+    app.set_user_gen_kind(2);
+    app.set_user_gen_domain("example.org".into());
+    app.invoke_generate_username();
+    assert!(app.get_ed_username().ends_with("@example.org"));
+    app.set_user_gen_kind(0);
+    app.set_ed_user_gen_open(false);
     app.set_ed_title("GitHub".into());
     app.set_ed_username("octocat".into());
     app.set_ed_url("https://github.com".into());
@@ -444,6 +476,105 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_detail_versions().row_count(), 1);
     app.invoke_reveal();
     assert_eq!(app.get_revealed_password(), "gh-item-pass");
+
+    // F24: the password in large type, one character a box; one secret on screen at a time,
+    // the characters kept out of the accessibility tree, and gone with the reveal.
+    app.invoke_show_large();
+    let large: Vec<_> = app.get_large_chars().iter().collect();
+    assert_eq!(
+        large.iter().map(|c| c.text.as_str()).collect::<String>(),
+        "gh-item-pass"
+    );
+    assert_eq!(
+        large.iter().map(|c| c.kind).collect::<Vec<_>>(),
+        [0, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0]
+    );
+    assert_eq!(app.get_revealed_password(), "");
+    assert!(app.get_reveal_left() > 0);
+    let exposed = accessible_texts(&app);
+    assert!(
+        exposed
+            .iter()
+            .all(|text| !text.contains("gh-item-pass") && text != "-"),
+        "{exposed:?}"
+    );
+    app.invoke_conceal();
+    assert_eq!(app.get_large_chars().row_count(), 0);
+
+    // F17: another window taking the focus hides what is shown (Settings → Security, on by
+    // default).
+    app.invoke_reveal();
+    assert_eq!(app.get_revealed_password(), "gh-item-pass");
+    controller.window_left();
+    assert_eq!(app.get_revealed_password(), "");
+
+    // F29: the vault command's requests, each shown here and answered as the person chooses.
+    {
+        use vault_platform::cli_link::{Answer, Reference, Request};
+        let program = std::path::PathBuf::from(r"C:\tools\vault.exe");
+        let get = |item: &str| Request::Get {
+            purpose: "run deploy".into(),
+            refs: vec![Reference::parse(&format!("vault://{item}/password")).unwrap()],
+        };
+        let (reply, answer) = std::sync::mpsc::channel();
+        controller.cli_request(program.clone(), get("GitHub"), reply.clone());
+        assert!(app.get_cli_asking(), "asked first");
+        assert_eq!(
+            app.get_cli_lines().row_data(0).unwrap(),
+            "GitHub → password"
+        );
+        assert_eq!(app.get_cli_purpose(), "run deploy");
+        app.invoke_cli_decide(1);
+        assert!(!app.get_cli_asking());
+        match answer.try_recv().unwrap() {
+            Answer::Values { values } => assert_eq!(values[0].as_str(), "gh-item-pass"),
+            other => panic!("{other:?}"),
+        }
+        controller.cli_request(program.clone(), get("GitHub"), reply.clone());
+        app.invoke_cli_decide(0);
+        assert!(matches!(answer.try_recv().unwrap(), Answer::Denied));
+        // Allowed for 10 minutes: the same program, the same things, no question.
+        controller.cli_request(program.clone(), get("GitHub"), reply.clone());
+        app.invoke_cli_decide(2);
+        assert!(matches!(answer.try_recv().unwrap(), Answer::Values { .. }));
+        controller.cli_request(program.clone(), get("GitHub"), reply.clone());
+        assert!(!app.get_cli_asking());
+        assert!(matches!(answer.try_recv().unwrap(), Answer::Values { .. }));
+        // Another program is asked about again.
+        controller.cli_request(
+            std::path::PathBuf::from(r"C:\other.exe"),
+            get("GitHub"),
+            reply.clone(),
+        );
+        assert!(app.get_cli_asking());
+        app.invoke_cli_decide(0);
+        let _ = answer.try_recv();
+        controller.cli_request(program.clone(), get("No such item"), reply.clone());
+        assert!(matches!(
+            answer.try_recv().unwrap(),
+            Answer::NotFound { .. }
+        ));
+        // git's helper: the login saved for the site (a username git gives must match).
+        let login = |username: Option<&str>| Request::Login {
+            purpose: "git, for github.com".into(),
+            url: "https://github.com".into(),
+            username: username.map(str::to_owned),
+        };
+        controller.cli_request(program.clone(), login(Some("someone-else")), reply.clone());
+        assert!(matches!(
+            answer.try_recv().unwrap(),
+            Answer::NotFound { .. }
+        ));
+        controller.cli_request(program.clone(), login(None), reply.clone());
+        app.invoke_cli_decide(1);
+        match answer.try_recv().unwrap() {
+            Answer::Login { username, password } => {
+                assert_eq!(username.as_str(), "hubot");
+                assert_eq!(password.as_str(), "gh-item-pass");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
 
     app.invoke_select_category(4);
     app.invoke_select(0);
@@ -1316,6 +1447,24 @@ fn whole_app_flow_headless() {
         .find(|&i| weak.row_data(i).unwrap().title == "GitHub")
         .expect("GitHub listed as weak");
     assert_eq!(weak.row_data(github_row).unwrap().problem, 2);
+    // F25: a warning ignored leaves the counts and the list, and comes back with Don't ignore.
+    let weak_count = app.get_health_counts().row_data(1).unwrap();
+    app.invoke_health_ignore(i32::try_from(github_row).unwrap());
+    assert_eq!(app.get_health_counts().row_data(1).unwrap(), weak_count - 1);
+    assert_eq!(app.get_health_ignored(), 1);
+    let rows = app.get_health_rows();
+    assert!((0..rows.row_count()).all(|i| rows.row_data(i).unwrap().title != "GitHub"));
+    app.set_health_filter(-2);
+    app.invoke_health_filter_changed(-2);
+    let ignored = app.get_health_rows();
+    assert_eq!(ignored.row_count(), 1);
+    assert!(ignored.row_data(0).unwrap().ignored);
+    assert_eq!(ignored.row_data(0).unwrap().title, "GitHub");
+    app.invoke_health_unignore(0);
+    assert_eq!(app.get_health_ignored(), 0);
+    assert_eq!(app.get_health_counts().row_data(1).unwrap(), weak_count);
+    app.set_health_filter(1);
+    app.invoke_health_filter_changed(1);
     app.invoke_health_open(i32::try_from(github_row).unwrap());
     assert_eq!(app.get_panel(), Panel::Detail);
     assert_eq!(app.get_detail_title(), "GitHub");
@@ -1354,8 +1503,49 @@ fn whole_app_flow_headless() {
         Screen::Vault,
         "turned off: Windows locking leaves the vault open"
     );
+    // F25: Password health's review names it, until told to stop.
+    app.invoke_open_health();
+    let review = app.get_health_review();
+    let at = (0..review.row_count())
+        .find(|&i| review.row_data(i).unwrap().code == 2)
+        .expect("named in the review");
+    app.invoke_review_ignore(i32::try_from(at).unwrap());
+    let review = app.get_health_review();
+    assert!((0..review.row_count()).all(|i| review.row_data(i).unwrap().code != 2));
+    app.invoke_open_settings();
     app.set_lock_with_windows(true);
     app.invoke_settings_changed();
+
+    // F17: hidden in the notification area, the vault stays open, unless Settings → Security
+    // locks it then too.
+    assert!(!app.get_lock_on_tray());
+    assert!(app.get_conceal_on_blur());
+    assert!(controller.close_to_tray(true));
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "off by default: still open"
+    );
+    app.set_lock_on_tray(true);
+    app.invoke_settings_changed();
+    assert!(controller.close_to_tray(true));
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    app.set_lock_on_tray(false);
+    app.invoke_settings_changed();
+    type_into(&app, 0, PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_screen(), Screen::Vault);
+    // F26: the shortcut from any program locks (pressed here by hand: tests register none),
+    // and the search one shows the vault with its search ready.
+    assert_eq!(app.get_quick_hotkey(), 1);
+    assert_eq!(app.get_lock_hotkey(), 0);
+    Controller::hotkey_pressed(2);
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    type_into(&app, 0, PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_screen(), Screen::Vault);
+    Controller::hotkey_pressed(1);
+    assert_eq!(app.get_screen(), Screen::Vault);
 
     // ---- starting at sign-in (Windows keeps it; these tests keep it in memory) ----
     app.invoke_open_settings();
@@ -2236,6 +2426,37 @@ fn whole_app_flow_headless() {
         Screen::Vault,
         "works again after the password"
     );
+
+    // F1: Settings → Security can ask for the master password the first time after each start
+    // of the app; Windows Hello opens the vault only after that.
+    app.invoke_open_settings();
+    assert!(!app.get_master_at_start(), "off by default");
+    assert_eq!(app.get_hello_master_days(), 14);
+    app.set_master_at_start(true);
+    app.invoke_settings_changed();
+    controller.start_again();
+    app.invoke_lock();
+    assert!(
+        app.get_password_at_start(),
+        "the lock screen asks for the password first"
+    );
+    app.invoke_quick_unlock();
+    assert_eq!(app.get_error_code(), 142);
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    type_into(&app, 0, NEW_PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_screen(), Screen::Vault);
+    app.invoke_lock();
+    assert!(!app.get_password_at_start());
+    app.invoke_quick_unlock();
+    assert_eq!(
+        app.get_screen(),
+        Screen::Vault,
+        "Windows Hello after the password"
+    );
+    app.invoke_open_settings();
+    app.set_master_at_start(false);
+    app.invoke_settings_changed();
 
     // A different device secret (another PC, a reset TPM) cannot open it, and it is dropped.
     app.invoke_lock();

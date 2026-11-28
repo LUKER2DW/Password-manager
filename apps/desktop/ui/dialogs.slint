@@ -1,7 +1,7 @@
 // Dialogs that open over the whole window.
 
 import { Theme } from "theme.slint";
-import { ExportCounts, Messages } from "model.slint";
+import { ExportCounts, Messages, LargeChar } from "model.slint";
 import { Button, QuietButton, LineField, Hint, SecretField, Choice, Check } from "widgets.slint";
 import { Glyph, FolderLook, FieldColors } from "icons.slint";
 import { NewPassword, PasswordReview, LeakCheckBox } from "review.slint";
@@ -594,6 +594,164 @@ component DialogButtons inherits HorizontalLayout {
 // Asks before a sensitive change in Settings, with the master password where it matters
 // (`field`: the secure field it is typed in). The dialog stays open while the check runs and
 // shows what went wrong; the app closes it once the change is made.
+// A password in large type: each character in a box of its own, numbered, digits and symbols
+// coloured apart from letters, for reading it out or typing it on another device. It closes
+// with the password's own countdown, Escape or Close. The characters are drawn but kept out of
+// the accessibility tree, as the password row keeps the password.
+export component LargeTypeDialog inherits Modal {
+    in property <[LargeChar]> chars;
+    in property <int> seconds-left;
+    callback closed();
+    property <int> per-row: 12;
+    property <length> cell-w: 54px;
+    property <length> cell-h: 78px;
+    card-width: Math.min(root.width - 48px, root.per-row * root.cell-w + 48px);
+    dismissed => { root.closed(); }
+    HorizontalLayout {
+        spacing: 12px;
+        Text {
+            horizontal-stretch: 1;
+            text: @tr("Password in large type");
+            font-size: Theme.title;
+            color: Theme.ink;
+            overflow: elide;
+        }
+        Text {
+            text: @tr("hides in {} s", root.seconds-left);
+            font-size: Theme.small;
+            color: Theme.faint;
+            vertical-alignment: center;
+        }
+    }
+    Rectangle {
+        height: Math.ceil(root.chars.length / root.per-row) * root.cell-h;
+        for c[i] in root.chars: Rectangle {
+            x: Math.mod(i, root.per-row) * root.cell-w;
+            y: Math.floor(i / root.per-row) * root.cell-h;
+            width: root.cell-w - 4px;
+            height: root.cell-h - 6px;
+            border-radius: Theme.radius;
+            background: Math.mod(i, 2) == 0 ? Theme.field : Theme.panel;
+            Text {
+                y: 4px;
+                width: parent.width;
+                height: parent.height - 24px;
+                text: c.kind == 3 ? "␣" : c.text;
+                accessible-label: @tr("Character {}", i + 1);
+                font-family: Theme.mono-font;
+                font-size: 34px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                color: c.kind == 1 ? FieldColors.of("user") : c.kind == 2 ? FieldColors.of("card") : c.kind == 3 ? Theme.faint : Theme.ink;
+            }
+            Text {
+                y: parent.height - 20px;
+                width: parent.width;
+                height: 16px;
+                text: i + 1;
+                font-size: Theme.small;
+                color: Theme.faint;
+                horizontal-alignment: center;
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 16px;
+        alignment: start;
+        HorizontalLayout {
+            spacing: 6px;
+            Text { text: "Aa"; font-family: Theme.mono-font; font-size: Theme.body; color: Theme.ink; }
+            Text { text: @tr("letters"); font-size: Theme.small; color: Theme.graphite; vertical-alignment: center; }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            Text { text: "12"; font-family: Theme.mono-font; font-size: Theme.body; color: FieldColors.of("user"); }
+            Text { text: @tr("digits"); font-size: Theme.small; color: Theme.graphite; vertical-alignment: center; }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            Text { text: "#%"; font-family: Theme.mono-font; font-size: Theme.body; color: FieldColors.of("card"); }
+            Text { text: @tr("symbols"); font-size: Theme.small; color: Theme.graphite; vertical-alignment: center; }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            Text { text: "␣"; font-family: Theme.mono-font; font-size: Theme.body; color: Theme.faint; }
+            Text { text: @tr("space"); font-size: Theme.small; color: Theme.graphite; vertical-alignment: center; }
+        }
+    }
+    HorizontalLayout {
+        alignment: end;
+        QuietButton {
+            text: @tr("Close");
+            outlined: true;
+            clicked => { root.closed(); }
+        }
+    }
+}
+
+// The vault command asks for secrets (`vault run`, `vault inject`, git's credential helper):
+// which program, what for and which items' fields, answered by the person.
+export component CliAskDialog inherits Modal {
+    in property <string> program;
+    in property <string> purpose;
+    in property <[string]> lines;
+    callback decide(int);
+    card-width: Math.min(root.width - 48px, 560px);
+    dismissed => { root.decide(0); }
+    Text {
+        text: @tr("A program asks for secrets");
+        font-size: Theme.title;
+        color: Theme.ink;
+        wrap: word-wrap;
+    }
+    Text {
+        text: @tr("The vault command, to {}:", root.purpose);
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    VerticalLayout {
+        spacing: 4px;
+        for line in root.lines: Text {
+            text: line;
+            font-size: Theme.body;
+            font-weight: 600;
+            color: Theme.ink;
+            overflow: elide;
+        }
+    }
+    Text {
+        text: @tr("Program: {}", root.program);
+        font-size: Theme.small;
+        color: Theme.faint;
+        overflow: elide;
+    }
+    Text {
+        text: @tr("Allow it only if you just ran it. What you allow is handed to that program, which may keep it.");
+        font-size: Theme.small;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: end;
+        QuietButton {
+            text: @tr("Deny");
+            outlined: true;
+            clicked => { root.decide(0); }
+        }
+        QuietButton {
+            text: @tr("Allow for 10 minutes");
+            outlined: true;
+            clicked => { root.decide(2); }
+        }
+        Button {
+            text: @tr("Allow once");
+            clicked => { root.decide(1); }
+        }
+    }
+}
+
 export component ConfirmDialog inherits Modal {
     in property <string> title;
     in property <string> text;

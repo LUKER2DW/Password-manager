@@ -2911,8 +2911,8 @@ msgid "Unlock with Windows Hello"
 msgstr "Desbloquear com o Windows Hello"
 
 msgctxt "SettingsPage"
-msgid "Open this vault with your face, fingerprint or Windows PIN instead of typing the master password. The key is made inside this computer's security chip and only works here, after Windows Hello checks it's you. Every 14 days the master password is asked once, so you don't forget it, and changing the master password turns this off. Anyone who knows your Windows PIN could open the vault on this computer."
-msgstr "Abra este cofre com seu rosto, sua digital ou o PIN do Windows em vez de digitar a senha mestra. A chave é criada dentro do chip de segurança deste computador e só funciona aqui, depois que o Windows Hello confirma que é você. A cada 14 dias a senha mestra é pedida uma vez, para que você não a esqueça, e trocar a senha mestra desativa isso. Quem souber o seu PIN do Windows poderia abrir o cofre neste computador."
+msgid "Open this vault with your face, fingerprint or Windows PIN instead of typing the master password. The key is made inside this computer's security chip and only works here, after Windows Hello checks it's you. Every few days (you choose how many) the master password is asked once, so you don't forget it, and changing the master password turns this off. Anyone who knows your Windows PIN could open the vault on this computer."
+msgstr "Abra este cofre com seu rosto, sua digital ou o PIN do Windows em vez de digitar a senha mestra. A chave é criada dentro do chip de segurança deste computador e só funciona aqui, depois que o Windows Hello confirma que é você. A cada poucos dias (você escolhe quantos) a senha mestra é pedida uma vez, para que você não a esqueça, e trocar a senha mestra desativa isso. Quem souber o seu PIN do Windows poderia abrir o cofre neste computador."
 
 msgctxt "SettingsPage"
 msgid "Your items, Secret Key and recovery parts stay the same."
@@ -6100,4 +6100,270 @@ msgstr "Uma chave SSH assinou para um programa"
 msgctxt "Messages"
 msgid "Auto-type typed a login into “{}”"
 msgstr "A digitação automática digitou um login em “{}”"
+msgctxt "LargeTypeDialog"
+msgid "Password in large type"
+msgstr "Senha em letras grandes"
 
+msgctxt "LargeTypeDialog"
+msgid "hides in {} s"
+msgstr "oculta em {} s"
+
+msgctxt "LargeTypeDialog"
+msgid "Character {}"
+msgstr "Caractere {}"
+
+msgctxt "LargeTypeDialog"
+msgid "letters"
+msgstr "letras"
+
+msgctxt "LargeTypeDialog"
+msgid "digits"
+msgstr "algarismos"
+
+msgctxt "LargeTypeDialog"
+msgid "symbols"
+msgstr "símbolos"
+
+msgctxt "LargeTypeDialog"
+msgid "space"
+msgstr "espaço"
+
+msgctxt "LargeTypeDialog"
+msgid "Close"
+msgstr "Fechar"
+
+msgctxt "DetailPage"
+msgid "Large type"
+msgstr "Letras grandes"
+
+msgctxt "Messages"
+msgid "Type your master password: it's asked once each time the app starts. Windows Hello works after that."
+msgstr "Digite sua senha mestra: ela é pedida uma vez sempre que o app inicia. Depois disso, o Windows Hello funciona."
+
+msgctxt "Messages"
+msgid "Type a domain of yours, such as example.com, whose every address reaches you."
+msgstr "Digite um domínio seu, como example.com, em que todo endereço chega até você."
+
+msgctxt "Messages"
+msgid "Type your email address, such as you@example.com."
+msgstr "Digite seu endereço de e-mail, como you@example.com."
+
+msgctxt "UnlockScreen"
+msgid "Type your master password: it's asked once each time the app starts. Windows Hello works after that."
+msgstr "Digite sua senha mestra: ela é pedida uma vez sempre que o app inicia. Depois disso, o Windows Hello funciona."
+
+msgctxt "UsernameGenerator"
+msgid "Two words"
+msgstr "Duas palavras"
+
+msgctxt "UsernameGenerator"
+msgid "Your email, tagged"
+msgstr "Seu e-mail, com etiqueta"
+
+msgctxt "UsernameGenerator"
+msgid "At your domain"
+msgstr "No seu domínio"
+
+msgctxt "UsernameGenerator"
+msgid "Hide options"
+msgstr "Ocultar opções"
+
+msgctxt "UsernameGenerator"
+msgid "Four digits after the words"
+msgstr "Quatro algarismos depois das palavras"
+
+msgctxt "UsernameGenerator"
+msgid "Your email address"
+msgstr "Seu endereço de e-mail"
+
+msgctxt "UsernameGenerator"
+msgid "you@example.com"
+msgstr "you@example.com"
+
+msgctxt "UsernameGenerator"
+msgid "Your domain"
+msgstr "Seu domínio"
+
+msgctxt "UsernameGenerator"
+msgid "Mail to you+tag@ reaches you@ with most mail services, and each site gets an address of its own: mail from a leaked or sold address shows which site it came from."
+msgstr "Na maioria dos serviços de e-mail, o que vai para you+etiqueta@ chega em you@, e cada site recebe um endereço próprio: um e-mail para um endereço vazado ou vendido mostra de qual site ele veio."
+
+msgctxt "UsernameGenerator"
+msgid "For a domain of yours set to take mail to any name (a catch-all): each site gets an address of its own."
+msgstr "Para um domínio seu que recebe e-mail em qualquer nome (catch-all): cada site recebe um endereço próprio."
+
+msgctxt "UsernameGenerator"
+msgid "A name that says nothing about you, for sites where the username is public."
+msgstr "Um nome que não diz nada sobre você, para sites em que o nome de usuário é público."
+
+msgctxt "SettingsPage"
+msgid "Also lock when the window goes to the notification area"
+msgstr "Trancar também quando a janela vai para a área de notificação"
+
+msgctxt "SettingsPage"
+msgid "Hide a shown password when you switch to another window"
+msgstr "Ocultar a senha mostrada quando você muda para outra janela"
+
+msgctxt "SettingsPage"
+msgid "Ask for the master password every"
+msgstr "Pedir a senha mestra a cada"
+
+msgctxt "SettingsPage"
+msgid "days"
+msgstr "dias"
+
+msgctxt "SettingsPage"
+msgid "Also ask for it the first time after the app starts"
+msgstr "Pedir também na primeira vez depois que o app inicia"
+
+msgctxt "HealthPage"
+msgid "The vault locks only after {} minutes without use."
+msgstr "O cofre só tranca depois de {} minutos sem uso."
+
+msgctxt "HealthPage"
+msgid "The vault stays open when Windows locks, sleeps or switches user."
+msgstr "O cofre fica aberto quando o Windows bloqueia, suspende ou troca de usuário."
+
+msgctxt "HealthPage"
+msgid "Copied secrets stay on the clipboard for {} seconds."
+msgstr "Segredos copiados ficam na área de transferência por {} segundos."
+
+msgctxt "HealthPage"
+msgid "No item lock: an open vault shows every password without a second check."
+msgstr "Sem trava de itens: um cofre aberto mostra todas as senhas sem uma segunda verificação."
+
+msgctxt "HealthPage"
+msgid "Updates aren't looked for: fixes don't reach this computer by themselves."
+msgstr "As atualizações não são procuradas: correções não chegam a este computador sozinhas."
+
+msgctxt "HealthPage"
+msgid "The browser extension fills without asking first."
+msgstr "A extensão do navegador preenche sem perguntar antes."
+
+msgctxt "HealthPage"
+msgid "The extension's window lists every login of the vault."
+msgstr "A janela da extensão lista todos os logins do cofre."
+
+msgctxt "HealthPage"
+msgid "Windows Hello opens the vault for {} days before the master password is asked."
+msgstr "O Windows Hello abre o cofre por {} dias antes de a senha mestra ser pedida."
+
+msgctxt "HealthPage"
+msgid "Without HTTPS"
+msgstr "Sem HTTPS"
+
+msgctxt "HealthPage"
+msgid "One-time codes available"
+msgstr "Códigos de uso único disponíveis"
+
+msgctxt "HealthPage"
+msgid "Passkeys available"
+msgstr "Chaves de acesso disponíveis"
+
+msgctxt "HealthPage"
+msgid "Which sites offer them: data sourced from 2FA Directory and Passkeys Directory by 2factorauth, bundled with the app and compared here, offline. Turning one on makes a stolen password alone useless there."
+msgstr "Quais sites os oferecem: dados do 2FA Directory e do Passkeys Directory, do 2factorauth, incluídos no app e comparados aqui, sem usar a rede. Ativar um deles torna inútil ali uma senha roubada sozinha."
+
+msgctxt "HealthPage"
+msgid "Settings to look at"
+msgstr "Configurações para rever"
+
+msgctxt "HealthPage"
+msgid "Change"
+msgstr "Alterar"
+
+msgctxt "HealthPage"
+msgid "Ignore"
+msgstr "Ignorar"
+
+msgctxt "HealthPage"
+msgid "Saved as {}: what you type there travels unencrypted"
+msgstr "Salvo como {}: o que você digita ali trafega sem criptografia"
+
+msgctxt "HealthPage"
+msgid "The site offers two-step sign-in with one-time codes"
+msgstr "O site oferece verificação em duas etapas com códigos de uso único"
+
+msgctxt "HealthPage"
+msgid "The site takes passkeys: nothing to steal or reuse"
+msgstr "O site aceita chaves de acesso: nada para roubar ou reutilizar"
+
+msgctxt "HealthPage"
+msgid "How to turn it on"
+msgstr "Como ativar"
+
+msgctxt "HealthPage"
+msgid "Don't ignore"
+msgstr "Não ignorar"
+
+msgctxt "SettingsPage"
+msgid "Keyboard shortcuts"
+msgstr "Atalhos de teclado"
+
+msgctxt "SettingsPage"
+msgid "From any program: the vault's search, or its lock."
+msgstr "De qualquer programa: a busca do cofre, ou trancá-lo."
+
+msgctxt "SettingsPage"
+msgid "Search the vault"
+msgstr "Buscar no cofre"
+
+msgctxt "SettingsPage"
+msgid "Lock the vault"
+msgstr "Trancar o cofre"
+
+msgctxt "SettingsPage"
+msgid "Another program already uses that shortcut: choose the other one."
+msgstr "Outro programa já usa esse atalho: escolha o outro."
+
+msgctxt "SettingsPage"
+msgid "In the app: Ctrl+F search, Ctrl+N new item, Ctrl+L lock, Ctrl+B the sidebar, Alt+Left and Alt+Right back and forward."
+msgstr "No app: Ctrl+F busca, Ctrl+N novo item, Ctrl+L tranca, Ctrl+B a barra lateral, Alt+Esquerda e Alt+Direita voltam e avançam."
+
+msgctxt "Messages"
+msgid "The vault command can't reach this app: {}"
+msgstr "O comando vault não consegue chegar a este app: {}"
+
+msgctxt "CliAskDialog"
+msgid "A program asks for secrets"
+msgstr "Um programa pede segredos"
+
+msgctxt "CliAskDialog"
+msgid "The vault command, to {}:"
+msgstr "O comando vault, para {}:"
+
+msgctxt "CliAskDialog"
+msgid "Program: {}"
+msgstr "Programa: {}"
+
+msgctxt "CliAskDialog"
+msgid "Allow it only if you just ran it. What you allow is handed to that program, which may keep it."
+msgstr "Permita só se você acabou de executá-lo. O que você permitir é entregue a esse programa, que pode guardá-lo."
+
+msgctxt "CliAskDialog"
+msgid "Deny"
+msgstr "Negar"
+
+msgctxt "CliAskDialog"
+msgid "Allow for 10 minutes"
+msgstr "Permitir por 10 minutos"
+
+msgctxt "CliAskDialog"
+msgid "Allow once"
+msgstr "Permitir uma vez"
+
+msgctxt "SettingsPage"
+msgid "The vault command"
+msgstr "O comando vault"
+
+msgctxt "SettingsPage"
+msgid "Scripts get secrets through the open app: vault run, vault inject, and git's credential helper. Each use is asked here first."
+msgstr "Scripts recebem segredos pelo app aberto: vault run, vault inject e o auxiliar de credenciais do git. Cada uso é perguntado aqui antes."
+
+msgctxt "SettingsPage"
+msgid "vault run puts secrets in a program's environment (variables set to vault://item/field), vault inject fills the vault://item/field references written in a file, and vault git-credential gives git the login saved for a site. The command never opens the vault itself: it asks this app, which shows the program and what it wants. Nothing is given while the vault is locked, nor from an item waiting for the item lock."
+msgstr "vault run coloca segredos no ambiente de um programa (variáveis com o valor vault://item/campo), vault inject preenche as referências vault://item/campo escritas em um arquivo, e vault git-credential dá ao git o login salvo para um site. O comando nunca abre o cofre: ele pede a este app, que mostra o programa e o que ele quer. Nada é entregue enquanto o cofre está trancado, nem de um item que espera a trava de itens."
+
+msgctxt "SettingsPage"
+msgid "Let the vault command ask this app"
+msgstr "Deixar o comando vault pedir a este app"

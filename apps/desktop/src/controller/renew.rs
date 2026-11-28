@@ -201,6 +201,7 @@ pub(super) fn take(
 pub(super) fn reseal_side_files(vault: &Vault, former: &FormerKey) -> bool {
     let id = vault.id_hex();
     generated::reseal(vault, former);
+    super::health_ignored::reseal(vault, former);
     browser::reseal_pairing(vault, former);
     watch::reseal(vault, former);
     drop_box::reseal(vault, former);

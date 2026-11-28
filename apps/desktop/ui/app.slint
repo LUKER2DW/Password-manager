@@ -2,11 +2,11 @@ import { Theme, Sketch, Secrets } from "theme.slint";
 // The monospace font, built in (see Theme.mono-font).
 import "fonts/JetBrainsMono-Regular.ttf";
 import "fonts/JetBrainsMono-SemiBold.ttf";
-import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, SiteRuleRow, Messages, ItemLock, SecurityLine } from "model.slint";
+import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, SiteRuleRow, Messages, ItemLock, SecurityLine, LargeChar, ReviewRow } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList, VaultMark } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage, UpdateCard } from "pages.slint";
-import { FolderDialog, PairingDialog, SshAskDialog, AutoTypeDialog, PartsUsedDialog, ConfirmDialog, MasterPasswordDialog, TakeKeyDialog, ItemLockDialog, ServerJoinDialog, ServerAddressDialog, ExportDialog, WebDavDialog, BackupServerDialog, InviteDialog, ExtensionStepsDialog } from "dialogs.slint";
+import { FolderDialog, PairingDialog, SshAskDialog, AutoTypeDialog, PartsUsedDialog, ConfirmDialog, MasterPasswordDialog, TakeKeyDialog, ItemLockDialog, ServerJoinDialog, ServerAddressDialog, ExportDialog, WebDavDialog, BackupServerDialog, InviteDialog, ExtensionStepsDialog, LargeTypeDialog, CliAskDialog } from "dialogs.slint";
 import { MenuCard, MenuEntry, MenuRule, Backdrop } from "widgets.slint";
 import { Glyph, FieldColors } from "icons.slint";
 import { NewPassword } from "review.slint";
@@ -799,7 +799,14 @@ export component AppWindow inherits Window {
     in property <string> vault-name;
     // ---- password health ----
     in property <[HealthRow]> health-rows;
-    in property <[int]> health-counts: [0, 0, 0, 0, 0];
+    in property <[int]> health-counts: [0, 0, 0, 0, 0, 0, 0, 0];
+    in property <[ReviewRow]> health-review;
+    in property <int> health-ignored;
+    callback health-ignore(int);
+    callback health-unignore(int);
+    callback health-open-link(int);
+    callback review-change(int);
+    callback review-ignore(int);
     in property <int> health-total: -1;
     in property <int> health-logins;
     in property <int> health-score;
@@ -877,6 +884,8 @@ export component AppWindow inherits Window {
     in property <bool> detail-has-password;
     in property <string> revealed-password;
     in property <int> reveal-left;
+    // The password in large type, one character each (empty: the dialog is closed).
+    in property <[LargeChar]> large-chars;
     in property <string> totp-code;
     in property <int> totp-left;
     in property <[string]> detail-urls;
@@ -931,6 +940,7 @@ export component AppWindow inherits Window {
     callback restore-version(int);
     callback reveal();
     callback conceal();
+    callback show-large();
     callback copy-username();
     callback copy-password();
     callback copy-totp();
@@ -1020,6 +1030,14 @@ export component AppWindow inherits Window {
     callback generate-for-item();
     // The generator's options are open under the password (closed each time the editor opens).
     in-out property <bool> ed-gen-open;
+    // The username generator (under the username): its kind (0 two words, 1 your email
+    // tagged, 2 at your domain), the address and domain it uses, the digits after two words.
+    callback generate-username();
+    in-out property <bool> ed-user-gen-open;
+    in-out property <int> user-gen-kind;
+    in-out property <string> user-gen-email;
+    in-out property <string> user-gen-domain;
+    in-out property <bool> user-gen-number: true;
 
     // ---- generator ----
     in property <string> gen-result;
@@ -1186,6 +1204,29 @@ export component AppWindow inherits Window {
     in-out property <bool> leak-watch;
     in-out property <bool> close-to-tray: true;
     in-out property <bool> lock-with-windows: true;
+    // Settings → Security: lock when hidden in the notification area, hide what is shown
+    // when another window takes the focus, the master password at each start before Windows
+    // Hello, and how many days Windows Hello opens the vault before the password is asked.
+    in-out property <bool> lock-on-tray;
+    in-out property <bool> conceal-on-blur: true;
+    in-out property <bool> master-at-start;
+    in-out property <int> hello-master-days: 14;
+    // Settings → Appearance: the shortcuts from any program (0 off, then the offered keys), and
+    // whether another program holds the one chosen.
+    in-out property <int> quick-hotkey: 1;
+    in-out property <int> lock-hotkey;
+    in property <bool> quick-hotkey-taken;
+    in property <bool> lock-hotkey-taken;
+    // Settings → Security → "The vault command", and its question when it asks (which program,
+    // what for, which items' fields).
+    in-out property <bool> cli-link;
+    in property <bool> cli-asking;
+    in property <string> cli-program;
+    in property <string> cli-purpose;
+    in property <[string]> cli-lines;
+    callback cli-decide(int);
+    // This start of the app waits for the master password before Windows Hello.
+    in property <bool> password-at-start;
     // How this computer keeps the open vault's Secret Key (CRYPTO.md §2.2.1): 1 under the
     // security chip, 2 by Windows alone, 0 not known yet (or not kept).
     in property <int> secret-key-kept;
@@ -1353,6 +1394,7 @@ export component AppWindow inherits Window {
         vault-path: root.vault-path;
         quick-available: root.quick-unlock-available;
         quick-unlock: root.quick-unlock-on;
+        hello-later: root.password-at-start;
         quick-waiting: root.quick-waiting;
         unlock-failed: root.unlock-failed;
         unlock-wait: root.unlock-wait;
@@ -1514,6 +1556,7 @@ export component AppWindow inherits Window {
                 restore-version(i) => { root.restore-version(i); }
                 reveal => { root.reveal(); }
                 conceal => { root.conceal(); }
+                show-large => { root.show-large(); }
                 copy-username => { root.copy-username(); }
                 copy-password => { root.copy-password(); }
                 auto-type => { root.auto-type(); }
@@ -1620,6 +1663,12 @@ export component AppWindow inherits Window {
                 gen-number <=> root.gen-number;
                 gen-separator <=> root.gen-separator;
                 gen-open <=> root.ed-gen-open;
+                generate-username => { root.generate-username(); }
+                user-gen-open <=> root.ed-user-gen-open;
+                user-gen-kind <=> root.user-gen-kind;
+                user-gen-email <=> root.user-gen-email;
+                user-gen-domain <=> root.user-gen-domain;
+                user-gen-number <=> root.user-gen-number;
             }
             if root.panel == Panel.generator: GeneratorPage {
                 result: root.gen-result;
@@ -1713,6 +1762,15 @@ export component AppWindow inherits Window {
                 use-extension-release => { root.use-extension-release(); }
                 auto-lock-minutes <=> root.auto-lock-minutes;
                 lock-with-windows <=> root.lock-with-windows;
+                lock-on-tray <=> root.lock-on-tray;
+                conceal-on-blur <=> root.conceal-on-blur;
+                master-at-start <=> root.master-at-start;
+                hello-master-days <=> root.hello-master-days;
+                quick-hotkey <=> root.quick-hotkey;
+                lock-hotkey <=> root.lock-hotkey;
+                quick-hotkey-taken: root.quick-hotkey-taken;
+                lock-hotkey-taken: root.lock-hotkey-taken;
+                cli-link <=> root.cli-link;
                 secret-key-kept: root.secret-key-kept;
                 clipboard-seconds <=> root.clipboard-seconds;
                 website-icons <=> root.website-icons;
@@ -1863,6 +1921,13 @@ export component AppWindow inherits Window {
                 check-leaks => { root.check-leaks(); }
                 open-row(i) => { root.health-open(i); }
                 change-row(i) => { root.health-change(i); }
+                review: root.health-review;
+                ignored-count: root.health-ignored;
+                ignore-row(i) => { root.health-ignore(i); }
+                unignore-row(i) => { root.health-unignore(i); }
+                open-link(i) => { root.health-open-link(i); }
+                review-change(i) => { root.review-change(i); }
+                review-ignore(i) => { root.review-ignore(i); }
             }
             if root.panel == Panel.kit: KitPage {
                 error-code: root.error-code;
@@ -1987,6 +2052,21 @@ export component AppWindow inherits Window {
     property <string> removing-name: root.sync-removing >= 0 && root.sync-removing < root.sync-others.length
         ? root.sync-others[root.sync-removing].name : "";
 
+    if root.screen == Screen.vault && root.cli-asking: CliAskDialog {
+        width: root.width;
+        height: root.height;
+        program: root.cli-program;
+        purpose: root.cli-purpose;
+        lines: root.cli-lines;
+        decide(choice) => { root.cli-decide(choice); }
+    }
+    if root.screen == Screen.vault && root.large-chars.length > 0: LargeTypeDialog {
+        width: root.width;
+        height: root.height;
+        chars: root.large-chars;
+        seconds-left: root.reveal-left;
+        closed => { root.conceal(); }
+    }
     if root.screen == Screen.vault && root.panel == Panel.kit && root.kit-asking: ConfirmDialog {
         width: root.width;
         height: root.height;
