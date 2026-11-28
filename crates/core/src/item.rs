@@ -881,10 +881,14 @@ impl ItemData {
     }
 
     /// Whether `other` has other contents than this item: anything but the mark, the folder,
-    /// the trash, the archive, when it changed, and what a version doesn't keep.
+    /// the trash, the archive, when it changed, a recovery code marked as used, and what a
+    /// version doesn't keep.
     pub(crate) fn contents_differ(&self, other: &Self) -> bool {
         let view = |item: &Self| {
             let mut view = item.as_version();
+            for code in &mut view.recovery_codes {
+                code.used = false;
+            }
             view.favorite = false;
             view.folder = None;
             view.trashed_at = 0;

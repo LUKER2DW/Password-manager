@@ -114,9 +114,20 @@ fn a_change_keeps_the_earlier_version_and_one_can_be_restored() {
             "https://s.example",
         ))
         .unwrap();
-    // A mark, a folder or the trash are not new contents.
-    edit(&mut vault, &id, |item| item.favorite = true);
-    assert!(vault.get_item(&id).unwrap().versions.is_empty());
+    // A mark, a folder, the trash or a recovery code marked as used are not new contents.
+    edit(&mut vault, &id, |item| {
+        item.recovery_codes = vault_core::RecoveryCode::parse_list("aaaa-1111");
+    });
+    assert_eq!(vault.get_item(&id).unwrap().versions.len(), 1);
+    edit(&mut vault, &id, |item| {
+        item.favorite = true;
+        item.recovery_codes[0].used = true;
+    });
+    assert_eq!(
+        vault.get_item(&id).unwrap().versions.len(),
+        1,
+        "only the codes added"
+    );
     edit(&mut vault, &id, |item| item.username = "second".into());
     edit(&mut vault, &id, |item| item.notes = "a note".into());
     edit(&mut vault, &id, |item| item.password = "pw-2".into());

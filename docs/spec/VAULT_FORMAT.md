@@ -298,8 +298,8 @@ of search, the browser extension, filling on the phone, the authenticator and he
 list them on their own pages.
 
 **Item history (v11).** When a change alters an item's contents (anything but `favorite`,
-`folder`, `trashed_at`, `archived`, `updated_at` and the item's own `versions`, password
-history, attachments and passkeys), `Vault::update_item` keeps the version it replaces in
+`folder`, `trashed_at`, `archived`, `updated_at`, a recovery code marked as used, and the
+item's own `versions`, password history, attachments and passkeys), `Vault::update_item` keeps the version it replaces in
 `versions`, dropping the oldest past `history_limit` (0 keeps none). A version holds the whole
 item but its files and passkeys, so a version's size is bounded by the item's, and the item
 with its versions is padded as one (§7 of CRYPTO.md). The versions are secrets: under the item
