@@ -1,0 +1,1 @@
+otpauth://totp/Game:me?secret=GEZDGNBVGY3TQOJQ&encoder=steam

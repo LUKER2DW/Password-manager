@@ -14,7 +14,11 @@ fuzz_target!(|data: &[u8]| {
         for at in [0, 1_700_000_000, u64::MAX] {
             let shown = code.code_at(at);
             assert_eq!(shown.len(), code.digits() as usize);
-            assert!(shown.bytes().all(|b| b.is_ascii_digit()));
+            if code.is_characters() {
+                assert!(shown.bytes().all(|b| totp::CHARACTERS.contains(&b)));
+            } else {
+                assert!(shown.bytes().all(|b| b.is_ascii_digit()));
+            }
         }
         let _ = code.code_for(u64::MAX);
         let _ = code.counter();

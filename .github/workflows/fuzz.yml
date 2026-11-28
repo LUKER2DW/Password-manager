@@ -41,6 +41,7 @@ jobs:
           - sync_answers
           - invite_link
           - import
+          - otp_migration
           - browser_link
           - extension_zip
           - otpauth

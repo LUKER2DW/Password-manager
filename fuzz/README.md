@@ -14,7 +14,8 @@ They are kept out of the workspace (libFuzzer needs a nightly toolchain); the pr
 | `sync_requests` | what a server reads: an enrollment's body, a signed request's headers (`vault_sync_wire`, as `vault-server` reads them) | `seeds/sync_requests/` |
 | `sync_answers` | what a device reads back: a server's JSON answers, a WebDAV listing, GitHub's release list, versions | `seeds/sync_answers/` |
 | `invite_link` | a `vaultsync:` invite line | `seeds/invite_link/` |
-| `import` | a JSON, CSV, KeePass (KDBX) or sealed export file (the first byte picks) | `seeds/import/` |
+| `import` | a JSON (common layout, Credential Exchange, authenticator apps, other managers), CSV, KeePass (KDBX), sealed export or `otpauth://` link list (the first byte picks) | `seeds/import/` |
+| `otp_migration` | an authenticator app's transfer payload (`otpauth-migration://`, `vault_import::authenticator::migration`) | `seeds/otp_migration/` |
 | `browser_link` | the extension's envelope, sealed request and proof, the request JSON, page addresses (`vault_browser`) | `seeds/browser_link/` |
 | `extension_zip` | the extension's zip from a release (`Extension::from_zip`) | `seeds/extension_zip/` |
 | `otpauth` | an `otpauth://` link or a Base32 secret (`Totp::parse`) | `seeds/otpauth/` |
