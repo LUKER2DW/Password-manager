@@ -5781,6 +5781,7 @@ msgstr "Arquivo-chave: {}"
 msgctxt "ExportDialog"
 msgid "No keyfile"
 msgstr "Sem arquivo-chave"
+
 msgctxt "Messages"
 msgid "The browser extension changed the rules for {}. Settings → Browser extension → Site rules shows them."
 msgstr "A extensão do navegador mudou as regras de {}. Configurações → Extensão do navegador → Regras por site as mostra."
