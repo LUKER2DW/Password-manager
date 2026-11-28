@@ -241,6 +241,8 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/toolbar.rs` | The title bar's toolbar: the sidebar hidden or shown (device setting), search from anywhere (Ctrl+F), the vault's name and its icon on this computer (device state), the alerts (marked as read for a week, by count, in device state) and Windows' own notification of new leaks |
 | `src/controller/security.rs` | The security log (what is recorded, Settings → Security → Security log) and the unlock screen's secure desktop |
 | `src/controller/site_rules.rs` | Settings → Browser extension → Site rules |
+| `src/controller/change.rs` | "Change password": a strong password made for a login, offered by the extension on its site's change page |
+| `src/controller/confirm.rs` | The yes/no question before replacing a saved password, removing a passkey, a file or a hidden field, clearing a history |
 | `src/controller/weigh.rs` | A new password weighed: reused in the vault, or known leaked (leak watch on) |
 | `src/controller/signals.rs` | What sites said of passkeys (the Signal API), for the person to decide on the item page |
 | `src/tray.rs` | The notification area icon (tray mode) and its menu window (`ui/tray.slint`) |

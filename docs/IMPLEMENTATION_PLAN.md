@@ -1016,10 +1016,19 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   vault's open logins (counts only), leaks through the leak check's k-anonymous range query
   only while the leak watch is on, off the UI thread, each prefix's answer kept a few minutes
   (`controller/weigh.rs`, `weigh`). The editor weighs leaks once typing pauses.
-- ✅ F19. Help changing a password: *Change password* on a login's item page and *Change on
-  the site* on health warnings open the site's page from the `password-manager-resources`
-  list, else its `/.well-known/change-password` (always https); the list's password rules
-  feed the generator for a field that says none (`password_rules`). The lists are pinned in
+- ✅ F19. Help changing a password: *Change password* among a login's buttons (Edit, Change
+  password, Delete) makes a strong password for it and opens the site's page from the
+  `password-manager-resources` list (sites that don't answer the standard address), else its
+  `/.well-known/change-password` (always https). The browser extension, asked for a suggestion on a
+  new-password field of that login's site, gets that very password when it fits the field
+  (`controller/change.rs`, in memory only, 30 minutes at most, gone at the lock), and its
+  update card saves it after the form is sent. *Change on the site* on health warnings opens
+  the same page. The list's password rules feed the generator for a field that says none
+  (`password_rules`).
+- ✅ A yes/no question (no master password) before what takes a secret away: a login's saved
+  password replaced in the editor, a passkey removed (in the editor, or because its site said
+  it is gone), an attached file or a hidden field with a value removed, a password history
+  or the generator's history cleared (`controller/confirm.rs`). The lists are pinned in
   `crates/browser/data/password-manager-resources/` (MIT, notice kept, commit named in its
   README), compiled in, never fetched (`vault_browser::resources`).
 - ✅ F20. Authenticator: five-character codes (`encoder=steam` or `otpauth://steam/`, the
