@@ -237,6 +237,55 @@
     return browser.create(options);
   }
 
+  // ---- the Signal API (F23) ----
+  //
+  // A site says a passkey is gone (`signalUnknownCredential`), which passkeys it still accepts
+  // for an account (`signalAllAcceptedCredentials`), or the account's names now
+  // (`signalCurrentUserDetails`). Vault is told, as plain data, and the browser's own handler
+  // too where it has one. Vault changes nothing by itself: the app notes it on the passkeys
+  // concerned, and the person decides on the item's page. The page hears nothing back.
+
+  const PKC = globalThis.PublicKeyCredential;
+  const signals = {
+    signalUnknownCredential: (o) => ({ kind: "unknown", rpId: text(o?.rpId, 253), credentialId: text(o?.credentialId, 1400) }),
+    signalAllAcceptedCredentials: (o) => {
+      let accepted = [];
+      try {
+        accepted = Array.from(o?.allAcceptedCredentialIds ?? [])
+          .slice(0, 65)
+          .map((id) => text(id, 1400))
+          .filter(Boolean);
+      } catch {
+        accepted = [];
+      }
+      return { kind: "accepted", rpId: text(o?.rpId, 253), userId: text(o?.userId, 100), accepted };
+    },
+    signalCurrentUserDetails: (o) => ({
+      kind: "details",
+      rpId: text(o?.rpId, 253),
+      userId: text(o?.userId, 100),
+      name: text(o?.name, 256),
+      displayName: text(o?.displayName, 256),
+    }),
+  };
+  if (typeof PKC === "function") {
+    for (const [name, read] of Object.entries(signals)) {
+      const own = typeof PKC[name] === "function" ? PKC[name].bind(PKC) : undefined;
+      Object.defineProperty(PKC, name, {
+        value: function (options) {
+          try {
+            globalThis.postMessage({ channel: CHANNEL, direction: "signal", id: "signal", signal: read(options) }, origin);
+          } catch {
+            // Nothing to tell.
+          }
+          return own ? own(options) : Promise.resolve(undefined);
+        },
+        writable: true,
+        configurable: true,
+      });
+    }
+  }
+
   for (const [name, handler] of Object.entries({ get, create })) {
     Object.defineProperty(credentials, name, {
       value: function (options) {

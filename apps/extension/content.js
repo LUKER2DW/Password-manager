@@ -42,6 +42,7 @@
   if (globalThis.origin !== location.origin) return;
   const {
     isSignInField,
+    isCardField,
     isNewPasswordField,
     isCodeField,
     isPasskeyField,
@@ -225,7 +226,9 @@
     // stopped since the page asked).
     const waiting = !fresh && !code ? globalThis.VaultPasskeys?.waiting() : undefined;
     const passkey = waiting && (signIn || isPasskeyField(field)) ? waiting : undefined;
-    if (!fresh && !code && !signIn && !passkey) return;
+    // A payment field gets the vault's cards (F5).
+    const card = !fresh && !code && !signIn && !passkey && isCardField(field);
+    if (!fresh && !code && !signIn && !passkey && !card) return;
     const id = newId();
     const answer = await say({
       kind: "field-focused",
@@ -234,13 +237,14 @@
       offer: id,
       rules: fresh ? fieldRules(field) : undefined,
       passkey,
+      card,
     });
     if (!answer?.show || document.activeElement !== field) return;
     if (answer.show === "lookalike") return showLookalike(field);
     close("logins");
     anchor = field;
     setOffer({ id, field, form: field.form, action: destinationOf(field.form) });
-    frames.logins = makeFrame(fresh ? "new" : code ? "code" : "logins", id);
+    frames.logins = makeFrame(fresh ? "new" : code ? "code" : card ? "cards" : "logins", id);
     show(frames.logins);
     place();
   }

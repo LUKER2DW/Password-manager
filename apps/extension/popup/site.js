@@ -3,6 +3,8 @@
 import { dropPendingSave, originOf, pendingSave, updateRequest } from "../app.js";
 import { fillCode, fillLogin } from "../fill.js";
 import { listAsks } from "./asks.js";
+import { showCardsHere } from "./cards-view.js";
+import { showRules } from "./rules.js";
 import { guarded } from "./guard.js";
 import { here, routes } from "./state.js";
 import {
@@ -46,6 +48,8 @@ export function showSite() {
   $("origin").title = reply.origin;
   showWarnings();
   showOffer();
+  showRules();
+  showCardsHere(showSite);
   const empty = reply.items.length === 0;
   $("site-empty").hidden = !empty;
   $("list").hidden = empty;

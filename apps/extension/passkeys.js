@@ -92,6 +92,12 @@
       end(data.id);
       return;
     }
+    // A site's word about its passkeys (the Signal API): passed on as plain data, nothing back.
+    if (data.direction === "signal") {
+      const signal = copied(data.signal);
+      if (signal) relay({ kind: "passkey-signal", signal });
+      return;
+    }
     if (data.direction !== "ask" || !data.request || typeof data.request !== "object") return;
     const id = data.id;
     const request = copied(data.request);

@@ -29,6 +29,7 @@
 // too), the page is told to use the browser's own handler, as if Vault weren't there.
 
 import { ask, originOf } from "./app.js";
+import { signalRequest } from "./signals.js";
 
 const PAGE = chrome.runtime.getURL("passkey.html");
 const WINDOW = { width: 400, height: 500 };
@@ -113,6 +114,22 @@ async function look(asked, url) {
  * A page's request: answered when the person has chosen in the extension's window.
  * `documentId` is the browser's id for the document that asked (`sender.documentId`).
  */
+/** Signals taken per tab in the last minute: a page can't keep the app busy with them. */
+const signalled = new Map();
+const SIGNALS_PER_MINUTE = 10;
+
+export async function passkeySignal(tab, signal) {
+  if (!(await vaultPasskeys())) return;
+  const url = tab.url;
+  if (typeof url !== "string" || !url.startsWith("https://")) return;
+  const now = Date.now();
+  const recent = (signalled.get(tab.id) ?? []).filter((at) => now - at < 60_000);
+  if (recent.length >= SIGNALS_PER_MINUTE) return;
+  signalled.set(tab.id, [...recent, now]);
+  const request = signalRequest(url, signal);
+  if (request) await ask(request);
+}
+
 export async function passkeyFromPage(tab, id, request, documentId) {
   if (!(await vaultPasskeys())) return { fallback: true };
   const asked = cleaned(request);

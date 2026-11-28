@@ -55,6 +55,24 @@
           <h2 id="site-empty-title"></h2>
           <p id="site-empty-text"></p>
         </div>
+
+        <!-- The vault's cards, for this page's payment fields. -->
+        <div id="site-cards" class="cards" hidden>
+          <h2 id="site-cards-title" class="cards-title"></h2>
+          <div id="site-cards-list" class="logins"></div>
+          <div id="site-cards-approve" class="offer" hidden>
+            <p id="site-cards-approve-text"></p>
+            <div class="row">
+              <button id="site-cards-approve-yes" class="primary" type="button"></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- The person's rules for this site (kept by the app). -->
+        <details id="site-rules" class="rules" hidden>
+          <summary id="site-rules-title"></summary>
+          <div id="site-rules-list"></div>
+        </details>
       </section>
 
       <!-- Every login in the vault. -->

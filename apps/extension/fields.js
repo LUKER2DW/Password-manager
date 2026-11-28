@@ -230,8 +230,27 @@
     return (native && scope) || near(field, control) ? scope : undefined;
   }
 
+  const CARD_NUMBER = /card.?num|cc.?num|cardnumber|credit.?card.?(no|num)|card.?no|n[uú]mero.?(do.?)?cart/;
+  const CARD_OTHER =
+    /(cvc|cvv|cvv2|csc)|security.?code|card.?code|expir|exp.?date|valid.?thru|card.?holder|name.?on.?card|cc.?name|nameoncard/;
+
+  /**
+   * Whether `el` is a payment field of the page (a card's number, name, expiry or security
+   * code): marked `cc-*` for the browser's autofill, or named like one. Where the card from
+   * the vault is offered (F5; card-fill.js fills them).
+   */
+  function isCardField(el) {
+    if (!el || el.tagName !== "INPUT" || !usable(el)) return false;
+    if (!["text", "tel", "number", "", "password"].includes(type(el))) return false;
+    const auto = (el.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/);
+    if (auto.some((part) => part.startsWith("cc-"))) return true;
+    const text = words(el);
+    return CARD_NUMBER.test(text) || CARD_OTHER.test(text);
+  }
+
   globalThis.VaultFields = {
     isSignInField,
+    isCardField,
     isNewPasswordField,
     isCodeField,
     isPasskeyField,

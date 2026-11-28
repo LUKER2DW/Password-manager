@@ -5,8 +5,8 @@
 // listens to the browser: a click counts only after the frame has been reported fully
 // visible, with nothing drawn over it, for a moment.
 //
-// The frame's address says what to show and where the field is: `#logins`, `#code`, `#new`
-// or `#save`, with `:up` when the card sits above the field, then `|` and the page's colour
+// The frame's address says what to show and where the field is: `#logins`, `#code`, `#new`,
+// `#cards` (the vault's cards, under a payment field: cards.js) or `#save`, with `:up` when the card sits above the field, then `|` and the page's colour
 // scheme, then `|` and the offer: which field of the page the card was shown under. A login
 // picked here is typed into that field's form only (fill.js). The content script changes only
 // the first part when the card has to move above. The page sets this address at the browser's
@@ -273,6 +273,96 @@ async function showLogins() {
   fit();
 }
 
+// ---- the vault's cards, under a payment field ----
+
+/** A card (Lucide's credit-card), for the rows of the vault's cards. */
+function cardIcon() {
+  const ns = "http://www.w3.org/2000/svg";
+  const box = document.createElement("span");
+  box.className = "key";
+  box.setAttribute("aria-hidden", "true");
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  const body = document.createElementNS(ns, "rect");
+  for (const [name, value] of Object.entries({ x: 2, y: 5, width: 20, height: 14, rx: 2 })) {
+    body.setAttribute(name, String(value));
+  }
+  const stripe = document.createElementNS(ns, "path");
+  stripe.setAttribute("d", "M2 10h20");
+  svg.append(body, stripe);
+  box.append(svg);
+  return box;
+}
+
+async function showCards() {
+  const listed = await say({ kind: "frame-cards" });
+  const items = listed?.items ?? [];
+  if (!items.length) return say({ kind: "frame-dismiss", which });
+  if (around && around[0] !== listed.origin) return say({ kind: "frame-dismiss", which });
+  $("cards").hidden = false;
+  const asks = opensWith(listed);
+  const rows = items.map((entry) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "row";
+    row.setAttribute("role", "option");
+    row.title = entry.title;
+    const lines = document.createElement("span");
+    lines.className = "lines";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = entry.hint || entry.title || t("cardRow");
+    const sub = document.createElement("span");
+    sub.className = "secret";
+    const expiry = entry.expiry ? t(entry.expired ? "cardExpired" : "cardExpires", entry.expiry) : "";
+    sub.textContent = [entry.holder, expiry].filter(Boolean).join(" · ") || entry.title;
+    lines.append(name, sub);
+    row.append(cardIcon(), lines);
+    if (entry.locked) row.append(lockIcon(asks));
+    row.addEventListener("click", async (event) => {
+      if (!genuine(event)) return;
+      for (const other of rows) other.disabled = true;
+      const outcome = await say({ kind: "frame-card", id: entry.id });
+      for (const other of rows) other.disabled = false;
+      if (outcome?.waiting?.length) askApproval(outcome);
+    });
+    return row;
+  });
+  $("card-list").replaceChildren(...rows);
+  fit();
+}
+
+/**
+ * Payment fields in a frame of another site: fill there too? The answer is kept by the app for
+ * this site and that one (Settings → Browser extension → Site rules), and the card is filled
+ * again. The same click check as every click here.
+ */
+function askApproval(outcome) {
+  const site = outcome.waiting[0];
+  $("card-approve").hidden = false;
+  $("card-approve-text").textContent = t(outcome.done ? "cardFramePartly" : "cardFrameAsk", site);
+  const yes = $("card-approve-yes");
+  const no = $("card-approve-no");
+  yes.textContent = t("cardFrameYes");
+  no.textContent = t("cardFrameNo");
+  yes.disabled = false;
+  no.onclick = (event) => event.isTrusted && say({ kind: "frame-dismiss", which });
+  yes.onclick = async (event) => {
+    if (!genuine(event)) return;
+    yes.disabled = true;
+    const again = await say({ kind: "frame-card-approve", site });
+    if (again?.waiting?.length && !again.done) return askApproval(again);
+    if (!again?.done) {
+      $("card-approve-text").textContent = t("cardFrameFailed");
+      yes.hidden = true;
+      fit();
+    }
+  };
+  // What the card shows changed under the pointer: the click check starts over.
+  if (visibleSince) visibleSince = performance.now();
+  fit();
+}
+
 // ---- a strong password for a new account ----
 
 async function showNew() {
@@ -327,9 +417,24 @@ function drawSave(info) {
   no.hidden = false;
   yes.disabled = false;
   note.classList.remove("good");
-  // A page that only looks like a saved site: said before Save.
-  note.classList.toggle("warns", Boolean(info.lookalike));
-  note.textContent = info.lookalike ? t("saveLookalike", info.lookalike) : "";
+  // A page that only looks like a saved site: said before Save. Then a new password that is
+  // known leaked, or another login's (F18).
+  const weight = weightWords(info.weighed);
+  note.classList.toggle("warns", Boolean(info.lookalike || weight));
+  note.textContent = info.lookalike ? t("saveLookalike", info.lookalike) : weight;
+  // The breach service is still being asked: the card looks again in a moment.
+  if (!info.lookalike && info.weighed?.weighing) {
+    setTimeout(async () => {
+      const again = await say({ kind: "frame-save-info" });
+      if (again?.id === info.id && !note.classList.contains("good")) {
+        const words = weightWords(again.weighed);
+        note.classList.toggle("warns", Boolean(words));
+        note.textContent = words;
+        fit();
+        if (again.weighed?.weighing) drawSave(again);
+      }
+    }, 1600);
+  }
   no.onclick = (event) => event.isTrusted && dismissSave(info);
   yes.onclick = async (event) => {
     if (!genuine(event)) return;
@@ -364,6 +469,15 @@ function drawSave(info) {
     fit();
   };
   fit();
+}
+
+/** What the card says of a new password the app weighed: leaked first, then reused. */
+function weightWords(weighed) {
+  if (!weighed) return "";
+  if (weighed.leaked > 0) return t("saveLeaked", String(weighed.leaked));
+  if (weighed.reused === 1) return t("saveReusedOne");
+  if (weighed.reused > 1) return t("saveReused", String(weighed.reused));
+  return "";
 }
 
 /** Loads the offer waiting now into the card, or says there is none (nothing was saved). */
@@ -437,4 +551,5 @@ if (!direct) {
 } else if (mode === "save") showSave();
 else if (mode === "new") showNew();
 else if (mode === "warn") showWarning();
+else if (mode === "cards") showCards();
 else showLogins();

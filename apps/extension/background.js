@@ -33,6 +33,7 @@ import {
   vaultSaves,
   vaultWarns,
 } from "./app.js";
+import { approveCardFrame, fillCardInTab } from "./cards.js";
 import { fillCode, fillLogin } from "./fill.js";
 import { fallbacks, patternTest, rulesFor } from "./generator.js";
 import {
@@ -41,6 +42,7 @@ import {
   passkeyFromFrame,
   passkeyFromPage,
   passkeyFromWindow,
+  passkeySignal,
   passkeySuggestions,
   passkeysForField,
 } from "./passkey-worker.js";
@@ -108,6 +110,20 @@ const fresh = new Map();
 // The warnings the frame in a tab shows, per tab: a password pasted there (`pasted`) or sent
 // from there (`sent`) that belongs to another site, by that site's name only.
 const warnings = new Map();
+
+/**
+ * The person's rule for the page's site (F16), from the app's answer about its logins: what
+ * the card under fields and the save card leave out. The app refuses the same requests anyway.
+ */
+export function siteRule(listed) {
+  const rule = listed?.rule;
+  return {
+    neverSave: rule?.never_save === true,
+    noCard: rule?.no_card === true,
+    neverFill: rule?.never_fill === true,
+    noPasskeys: rule?.no_passkeys === true,
+  };
+}
 
 /** The saved site a page only looks like, from the app's answer about its logins. */
 function lookalikeOf(listed) {
@@ -186,6 +202,14 @@ async function continueInPopup() {
  * asked for (a few times at most).
  */
 async function suggestFor(tab, rules) {
+  // A field that doesn't say what the site accepts: the app's built-in list may (F19,
+  // password-manager-resources).
+  if (!rules.passwordRules) {
+    const quirk = await ask({ type: "password_rules", url: tab.url });
+    if (quirk?.type === "password_rules" && typeof quirk.rules === "string" && quirk.rules.length <= 512) {
+      rules = { ...rules, passwordRules: quirk.rules };
+    }
+  }
   const fits = patternTest(rules.pattern);
   for (const options of fallbacks(rulesFor(rules))) {
     for (let i = 0; i < (fits ? 3 : 1); i++) {
@@ -249,6 +273,62 @@ async function codeFromFrame(tab, id, offer) {
   }
 }
 
+// The vault's cards for a tab, kept as briefly as its logins.
+const cardsKnown = new Map();
+async function cardsFor(tab) {
+  const cached = cardsKnown.get(tab.id);
+  if (cached && cached.url === tab.url && Date.now() - cached.at < KNOWN_FOR_MS) return cached.reply;
+  const reply = await ask({ type: "cards", url: tab.url });
+  cardsKnown.set(tab.id, { url: tab.url, at: Date.now(), reply });
+  return reply;
+}
+
+// A card picked under a field whose payment fields sit, in part, in frames of other sites not
+// approved yet: which card, on which page, and those sites (the card asks about them).
+const cardWaits = new Map();
+
+/** Fills card `id` (picked in the card under a payment field) into the tab's payment fields. */
+async function cardFromFrame(tab, id) {
+  const cards = await cardsFor(tab);
+  const entry = cards.type === "cards" ? cards.items.find((item) => item.id === id) : undefined;
+  if (!entry) return { done: false };
+  const listed = await loginsFor(tab);
+  const rule = listed?.rule ?? {};
+  const outcome = await fillCardInTab(tab, id, rule, (request) =>
+    ask({ ...request, hello: Boolean(entry.locked && cards.hello) }),
+  );
+  if (outcome.waiting?.length) cardWaits.set(tab.id, { id, origin: originOf(tab.url), waiting: outcome.waiting });
+  else cardWaits.delete(tab.id);
+  if (outcome.reply?.code === "item_locked") return { done: false, popup: await continueInPopup() };
+  return { done: outcome.done, waiting: outcome.waiting };
+}
+
+// What the app said of each offer's password (F18): how many other logins have it, and how
+// often it turned up in breaches (asked only while the leak watch is on in the app). Counts
+// only, by offer id; nothing of the password.
+const weighed = new Map();
+const WEIGH_TRIES = 4;
+const WEIGH_AGAIN_MS = 1500;
+
+/** Asks the app about the new password of offer `offer`, again while the breach service is asked. */
+async function weighOffer(offer, url, password) {
+  for (let i = 0; i < WEIGH_TRIES; i++) {
+    const reply = await ask({ type: "weigh", url, password });
+    if (reply?.type !== "weighed") {
+      weighed.delete(offer);
+      return;
+    }
+    const reused = Math.max(0, Math.min(Number(reply.reused) || 0, 9999));
+    const waiting = reply.leaked === null;
+    const leaked = waiting || reply.leaked === undefined ? undefined : Math.max(0, Number(reply.leaked) || 0);
+    weighed.set(offer, { reused, leaked, weighing: waiting && i < WEIGH_TRIES - 1 });
+    if (!waiting) return;
+    await new Promise((done) => setTimeout(done, WEIGH_AGAIN_MS));
+  }
+  const last = weighed.get(offer);
+  if (last) last.weighing = false;
+}
+
 async function submitted(tab, message) {
   const password = typeof message.password === "string" ? message.password : "";
   let username = typeof message.username === "string" ? message.username : "";
@@ -267,8 +347,9 @@ async function submitted(tab, message) {
   if (!username && step && step.origin === originOf(tab.url)) username = step.username;
   known.delete(tab.id);
   const listed = await loginsFor(tab);
-  // Saving logins from the browser is turned off in the app: nothing is offered.
-  if (listed.saves === false) return;
+  // Saving logins from the browser is turned off in the app, or by the person's rule for
+  // this site: nothing is offered.
+  if (listed.saves === false || siteRule(listed).neverSave) return;
   // Not connected or not https: nothing is offered (and nothing is kept). Locked is fine: the
   // app keeps the login sealed and adds it at the next unlock.
   const page = originOf(tab.url);
@@ -301,8 +382,11 @@ async function submitted(tab, message) {
   // never on a later offer of the same tab (another sign-in, another page) it didn't show.
   // A page that only looks like a saved site: the card says so before Save.
   const lookalike = lookalikeOf(listed)?.site;
+  const offer = crypto.randomUUID();
+  // Not for an update of the same login: its own old password is not "another login's".
+  if (!update) weighOffer(offer, tab.url, password);
   await setPendingSave(tab.id, {
-    id: crypto.randomUUID(),
+    id: offer,
     url: tab.url,
     origin,
     username,
@@ -440,6 +524,17 @@ async function handle(message, sender) {
           if (looks) markWarning(tab.id);
           return { show: looks ? "lookalike" : false };
         }
+        // The person's rule for this site: no card under its fields at all (a warning about a
+        // lookalike still comes, it fills nothing), and none to fill from when it never fills.
+        const ruled = siteRule(await loginsFor(tab));
+        if (ruled.noCard || (ruled.neverFill && !message.fresh)) {
+          return { show: lookalikeOf(await loginsFor(tab)) ? "lookalike" : false };
+        }
+        if (message.card) {
+          // A payment field: the vault's cards, when it has any (no card is read for this).
+          const cards = await cardsFor(tab);
+          return { show: cards.type === "cards" && cards.items.length > 0 };
+        }
         if (message.code) {
           const listed = await loginsFor(tab);
           return { show: listed.type === "logins" && listed.items.some((item) => item.has_code) };
@@ -499,6 +594,9 @@ async function handle(message, sender) {
       case "passkey-cancel":
         passkeyCancelled(tab.id, String(message.id));
         return undefined;
+      case "passkey-signal":
+        await passkeySignal(tab, message.signal);
+        return undefined;
       default:
         return undefined;
     }
@@ -524,6 +622,45 @@ async function handle(message, sender) {
         })),
         passkeys,
       };
+    }
+    case "frame-cards": {
+      // Who and which card, never a number: for the card under a payment field.
+      const cards = await cardsFor(tab);
+      if (cards.type !== "cards") return { items: [] };
+      return {
+        origin: cards.origin,
+        hello: cards.hello,
+        check: cards.check,
+        items: cards.items.map(({ id, title, holder, hint, brand, expiry, expired, locked }) => ({
+          id,
+          title,
+          holder,
+          hint,
+          brand,
+          expiry,
+          expired,
+          locked,
+        })),
+      };
+    }
+    case "frame-card": {
+      const outcome = await cardFromFrame(tab, String(message.id));
+      // Payment fields left in a frame of another site wait for the person's approval: the
+      // card stays to ask for it.
+      if (!outcome.waiting?.length || outcome.done) tell(tab.id, { kind: "close", which: "logins" });
+      return outcome;
+    }
+    case "frame-card-approve": {
+      // "Fill there too" in the card, with its click check: kept by the app with the site's
+      // rules (Settings shows it), then the card is filled again.
+      const site = String(message.site ?? "");
+      const pending = cardWaits.get(tab.id);
+      if (!pending || pending.origin !== originOf(tab.url) || !pending.waiting.includes(site)) return { done: false };
+      if (!(await approveCardFrame(tab, site))) return { done: false };
+      known.delete(tab.id);
+      const outcome = await cardFromFrame(tab, pending.id);
+      if (outcome.done) tell(tab.id, { kind: "close", which: "logins" });
+      return outcome;
     }
     case "frame-passkey": {
       const outcome = await passkeyFromFrame(tab, { id: String(message.id), credential: String(message.credential) });
@@ -568,6 +705,8 @@ async function handle(message, sender) {
             username: pending.username,
             update: Boolean(pending.update),
             lookalike: typeof pending.lookalike === "string" ? pending.lookalike : undefined,
+            // The new password is another login's, or known leaked (F18).
+            weighed: weighed.get(pending.id),
           }
         : {};
     }
@@ -638,6 +777,8 @@ checkForUpdate().catch(() => {});
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   known.delete(tabId);
+  cardsKnown.delete(tabId);
+  cardWaits.delete(tabId);
   usernames.delete(tabId);
   fresh.delete(tabId);
   warnings.delete(tabId);

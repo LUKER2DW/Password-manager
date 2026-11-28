@@ -859,5 +859,120 @@
         "content": "$1"
       }
     }
+  },
+  "rulesTitle": {
+    "message": "Rules for this site"
+  },
+  "ruleNeverSave": {
+    "message": "Never offer to save a login here"
+  },
+  "ruleNoCard": {
+    "message": "No card under its fields"
+  },
+  "ruleNeverFill": {
+    "message": "Never fill here"
+  },
+  "ruleNoPasskeys": {
+    "message": "No passkeys from Vault here"
+  },
+  "ruleChanged": {
+    "message": "Rule changed for $ONE$. Vault shows it in Settings.",
+    "placeholders": {
+      "one": {
+        "content": "$1"
+      }
+    }
+  },
+  "ruleNotChanged": {
+    "message": "The rule couldn't be changed. Try again in the app: Settings, Browser extension."
+  },
+  "siteRuleTitle": {
+    "message": "Not on this site"
+  },
+  "siteRuleText": {
+    "message": "Your rule for this site in Vault says no to this. Change it under Rules for this site, or in the app: Settings, Browser extension, Site rules."
+  },
+  "cardRow": {
+    "message": "Card"
+  },
+  "cardExpires": {
+    "message": "until $ONE$",
+    "placeholders": {
+      "one": {
+        "content": "$1"
+      }
+    }
+  },
+  "cardExpired": {
+    "message": "expired $ONE$",
+    "placeholders": {
+      "one": {
+        "content": "$1"
+      }
+    }
+  },
+  "cardFrameAsk": {
+    "message": "This page's card fields are in a frame of $ONE$. Fill cards there on this site?",
+    "placeholders": {
+      "one": {
+        "content": "$1"
+      }
+    }
+  },
+  "cardFramePartly": {
+    "message": "Some card fields are in a frame of $ONE$. Fill cards there too on this site?",
+    "placeholders": {
+      "one": {
+        "content": "$1"
+      }
+    }
+  },
+  "cardFrameYes": {
+    "message": "Fill there"
+  },
+  "cardFrameNo": {
+    "message": "Not now"
+  },
+  "cardFrameFailed": {
+    "message": "The card wasn't filled. Use the extension's window, or type it."
+  },
+  "cardsTitle": {
+    "message": "Cards"
+  },
+  "fillCardButton": {
+    "message": "Fill card"
+  },
+  "cardNoFields": {
+    "message": "No card fields found on this page."
+  },
+  "cardFrameWindowAsk": {
+    "message": "This page's card fields are in a frame of $ONE$. Allow cards there on this site, then fill again?",
+    "placeholders": {
+      "one": {
+        "content": "$1"
+      }
+    }
+  },
+  "cardFrameWindowYes": {
+    "message": "Allow and fill"
+  },
+  "saveLeaked": {
+    "message": "This password turned up in data breaches $ONE$ times. Save it, then change it on the site.",
+    "placeholders": {
+      "one": {
+        "content": "$1"
+      }
+    }
+  },
+  "saveReusedOne": {
+    "message": "Another login in Vault has this password: a leak of one exposes both."
+  },
+  "saveReused": {
+    "message": "$ONE$ other logins in Vault have this password: a leak of one exposes them all.",
+    "placeholders": {
+      "one": {
+        "content": "$1"
+      }
+    }
   }
 }

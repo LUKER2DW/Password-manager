@@ -362,3 +362,15 @@ hr {
   border-radius: 15px;
   padding: 0 14px;
 }
+
+/* The cards under a payment field, and the question about another site's payment frame. */
+#card-approve {
+  padding: 4px 10px 8px;
+}
+
+#card-approve .note {
+  margin: 6px 0 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink);
+}

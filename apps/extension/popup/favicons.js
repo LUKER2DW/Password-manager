@@ -7,7 +7,39 @@
 // the next likely page is tried, then the login's coloured initial stays. Where the browser
 // has no such cache (Firefox), every lookup fails at once and the initials stay.
 
+import { ask } from "../app.js";
 import { iconPages } from "./icon-pages.js";
+
+// First, the desktop app's own icons, when its Website icons setting is on: from its sealed
+// cache (the icons it fetched itself, from each site directly), handed over as `data:` PNGs.
+// The extension fetches nothing for them. The sites asked for in one moment go in one request.
+const fromApp = new Map();
+let batch = null;
+
+/** The app's icon for `site` (a saved website), as a `data:` address, or `undefined`. */
+export function appIcon(site) {
+  if (typeof site !== "string" || !site) return Promise.resolve(undefined);
+  if (fromApp.has(site)) return fromApp.get(site);
+  if (!batch) {
+    const sites = [];
+    const answer = Promise.resolve().then(async () => {
+      batch = null;
+      const reply = await ask({ type: "icons", sites: sites.slice(0, 40) });
+      return reply?.type === "icons" && reply.icons && typeof reply.icons === "object" ? reply.icons : {};
+    });
+    batch = { sites, answer };
+  }
+  const { sites, answer } = batch;
+  if (sites.length >= 40) return Promise.resolve(undefined);
+  sites.push(site);
+  const found = answer.then((icons) => {
+    const url = icons[site];
+    return typeof url === "string" && url.startsWith("data:image/png;base64,") && url.length < 64 * 1024 ? url : undefined;
+  });
+  fromApp.set(site, found);
+  return found;
+}
+
 
 const NO_PAGE = "https://no-icon.invalid/";
 
@@ -62,6 +94,8 @@ export function lookIcon(site, page, px) {
     found.set(
       key,
       (async () => {
+        const own = await appIcon(site);
+        if (own) return own;
         if (pages.length === 0) return undefined;
         const blank = await globe(px);
         // No globe either: this browser keeps no icons for extensions.

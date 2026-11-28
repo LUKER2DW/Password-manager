@@ -21,6 +21,19 @@
         </button>
       </section>
 
+      <!-- Under a payment field: the vault's cards; then, for payment fields in a frame of
+           another site, whether that site's frames may get cards on this one. -->
+      <section id="cards" hidden>
+        <div id="card-list" role="listbox"></div>
+        <div id="card-approve" hidden>
+          <p id="card-approve-text" class="note"></p>
+          <div class="actions">
+            <button id="card-approve-no" class="plain" type="button"></button>
+            <button id="card-approve-yes" class="primary" type="button"></button>
+          </div>
+        </div>
+      </section>
+
       <!-- Under a new-password field: a strong password that fits the site. -->
       <section id="new" hidden>
         <button id="new-use" class="row" type="button">

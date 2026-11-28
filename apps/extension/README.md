@@ -65,9 +65,39 @@ not in a store yet). Test with a test vault.
   can put it in place itself).
 - Copying is done **by the app**: the value never reaches the browser, it stays out of
   Windows clipboard history, and it is cleared after the time set in the app.
-- **Site icons** come from the browser's own cache of the pages it has shown (a few likely
-  pages of the site are tried, the page in front first); nothing is fetched from the sites.
-  A site the browser has no icon of keeps its initial on the colour the app gives it.
+- **Site icons** come first from the app, when its Settings → Website icons is on: the icons
+  it fetched itself and keeps sealed with the vault, handed over as pictures (`icons`); the
+  extension fetches nothing for them. Otherwise, from the browser's own cache of the pages it
+  has shown (a few likely pages of the site are tried, the page in front first); nothing is
+  fetched from the sites. A site with no icon keeps its initial on the colour the app gives it.
+- **Cards** (F5): a payment field (marked `cc-*` for the browser's autofill, or named like a
+  card's number, expiry, security code or holder) gets the vault's cards under it: the brand
+  and last four digits, the name and expiry, never the number. Picking one asks the app for
+  that card (with Windows Hello or the item lock's PIN when it is locked, or when every use
+  asks), and types it into every payment field of the page's own documents. Fields in a
+  frame of another site (a payment provider's, inside a shop's checkout) get it only once you
+  allowed that site's frames for this site: the card asks *Fill there?* with the same click
+  check as everywhere in the frame, and the app keeps the answer with the site's rules
+  (Settings → Browser extension → Site rules, where *Stop* takes it back). A frame of a site
+  not allowed is named, never filled; a sandboxed one is nobody's. The extension's window
+  lists the cards under the site's logins too. Addresses wait for identity items (F7).
+- **Rules for a site** (F16): *Never offer to save a login here*, *No card under its fields*,
+  *Never fill here*, *No passkeys from Vault here*, for the site in front and the sites under
+  it, under *Rules for this site* in the extension's window or in the app (Settings → Browser
+  extension → Site rules). The app keeps them on this computer and refuses what they forbid,
+  locked or not; it says in its window when the extension changed one.
+- **A reused or leaked password** (F18): the save card says when the password typed is that
+  of other logins in Vault, or turned up in data breaches. The breach check is the app's leak
+  check (5 characters of the password's SHA-1 leave the computer), asked only while the leak
+  watch is on in the app.
+- **Password rules from a list** (F19): a new-password field that doesn't say what the site
+  accepts gets the rules of the `password-manager-resources` list built into the app.
+- **A site's word about its passkeys** (F23, the WebAuthn Signal API): when a site says a
+  passkey is gone (`signalUnknownCredential`), which passkeys it still accepts
+  (`signalAllAcceptedCredentials`) or the account's new names (`signalCurrentUserDetails`),
+  the app notes it on the passkey's item page, and you remove it, take the names, or keep it.
+  Nothing is deleted or renamed by itself. The browser's own handler is told too, where it has
+  one.
 - **Works with the vault locked** (the app must be running, the window may be closed to the
   notification area): logins are listed and each fill asks for Windows Hello. Turn it on or
   off in the app: Settings → Browser extension → Fill with Windows Hello while the vault is
@@ -356,7 +386,7 @@ What differs in Firefox:
 |---|---|
 | `manifest.json` | Manifest V3 for Chrome, Edge and Firefox: `activeTab`, `scripting`, `nativeMessaging`, `storage`, `favicon` (Chrome, Edge), `privacy`; https pages for the content scripts; `inline.html` the one page a page may load, at this session's address only (`use_dynamic_url`) |
 | `popup.html`, `popup.css`, `popup.js` | The extension's window: this site, all logins, codes, generator, new login, settings |
-| `popup/*.js` | Its views (`site.js`, `vault.js`, `entry.js`, `codes.js`, `generator.js`, `new-login.js`, `prefs.js`, `pairing.js`) and the rules they share, each testable on its own (`throttle.js`, `countdown.js`, `asks.js`, `cells.js`, `strength.js`, `options.js`, `version.js`, `tint.js`, `icon-pages.js`) |
+| `popup/*.js` | Its views (`site.js`, `vault.js`, `entry.js`, `codes.js`, `generator.js`, `new-login.js`, `prefs.js`, `pairing.js`) and the rules they share, each testable on its own (`throttle.js`, `countdown.js`, `asks.js`, `cells.js`, `strength.js`, `options.js`, `version.js`, `tint.js`, `icon-pages.js`, `site-rule.js`); `rules.js` the site's rules, `cards-view.js` the cards for the page in front, `favicons.js` the icons (the app's first) |
 | `content.js`, `fields.js` | Content script: sign-in and new-password fields, submitted forms, a password pasted into a password field, placing the frame and the warnings |
 | `kit.js` | Content script in every https document, frames too, at `document_start`: the emergency kit's keys refused in pages |
 | `agent.js` | Whether an AI agent or a program drives the browser (`navigator.webdriver`, or the person's setting): loaded before `passkeys.js`, `content.js` and `inline.js`, which then show nothing in pages |
@@ -370,10 +400,13 @@ What differs in Firefox:
 | `update.js` | Keeps the extension as new as the app: reloads itself from the app's folder when the app carries a newer version, or says to update it by hand |
 | `link.js` | The connection key (agreed with the app by ECDH, kept as a non-extractable browser key), each request sealed with it, and each answer opened, sealed by the app to its request |
 | `fill.js` | The function that types a login into the page (top frame, same origin) |
+| `card-fill.js` | The payment fields of a document, and the function that types a card into them (each document it may: its origin checked there) |
+| `cards.js` | Which documents of a tab get a card (the page's own; another site's frames once approved for this site), and the fill itself, for the worker and the window |
+| `signals.js` | A site's Signal API call, checked and bounded for the app |
 | `generator.js` | Reads a field's password rules for the app's generator |
 | `tokens.css` | Colours and shared pieces (the desktop app's tokens) |
 | `_locales/en/messages.json` | Every text shown |
-| `test/*.test.mjs` | Tests: `node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs apps/extension/test/kit.test.mjs` |
+| `test/*.test.mjs` | Tests: `node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs apps/extension/test/kit.test.mjs apps/extension/test/cards.test.mjs` |
 | `test/preview.html`, `test/preview-app.js` | Visual review of the window and the frames with fixed test data (a stand-in for the app through an import map) |
 | `test/pages/clickjacking.html` | Manual test page that tries to steal a fill |
 

@@ -90,6 +90,9 @@ export function explain(code) {
       return say(t("goneTitle"), t("goneText"), connected);
     case "turned_off":
       return say(t("turnedOffTitle"), t("turnedOffText"), connected);
+    case "site_rule":
+      // The person's rule for this site forbids it (popup/rules.js).
+      return say(t("siteRuleTitle"), t("siteRuleText"), connected);
     case "not_saved":
       // The app could not write it (the vault file changed elsewhere, or the disk refused):
       // nothing was kept, and it may be tried again.
