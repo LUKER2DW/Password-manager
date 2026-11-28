@@ -4109,3 +4109,21 @@ msgid "{n} passkey with its private key, which signs in without a password"
 msgid_plural "{n} passkeys with their private keys, which sign in without a password"
 msgstr[0] "{n} chave de acesso com sua chave privada, que entra sem senha"
 msgstr[1] "{n} chaves de acesso com suas chaves privadas, que entram sem senha"
+msgid "The browser extension changed the rules for {}. Settings → Browser extension → Site rules shows them."
+msgstr "A extensão do navegador mudou as regras de {}. Configurações → Extensão do navegador → Regras por site as mostra."
+
+msgctxt "Messages"
+msgid "Rules for {} added: choose what the extension doesn't do there."
+msgstr "Regras para {} adicionadas: escolha o que a extensão não faz lá."
+
+msgctxt "Messages"
+msgid "A site said something about a passkey of “{}”: its page shows what, and lets you decide."
+msgstr "Um site disse algo sobre uma chave de acesso de “{}”: a página dele mostra o quê, e deixa você decidir."
+
+msgctxt "Messages"
+msgid "Open the item's secrets first (the item lock), then decide."
+msgstr "Abra primeiro os segredos do item (o bloqueio de itens) e depois decida."
+
+msgctxt "Messages"
+msgid "That isn't a site: type its address, such as example.com."
+msgstr "Isso não é um site: digite o endereço dele, como example.com."
