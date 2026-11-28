@@ -4173,3 +4173,16 @@ msgstr "O Windows recusou as teclas digitadas para “{}”."
 msgctxt "Messages"
 msgid "SSH_AUTH_SOCK copied: set it as an environment variable for your user, then open a new terminal."
 msgstr "SSH_AUTH_SOCK copiado: defina-o como variável de ambiente do seu usuário e abra um novo terminal."
+
+msgctxt "Messages"
+msgid "An SSH key signed for {}"
+msgstr "Uma chave SSH assinou para {}"
+
+msgctxt "Messages"
+msgid "An SSH key signed for a program"
+msgstr "Uma chave SSH assinou para um programa"
+
+msgctxt "Messages"
+msgid "Auto-type typed a login into “{}”"
+msgstr "A digitação automática digitou um login em “{}”"
+

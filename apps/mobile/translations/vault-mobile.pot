@@ -4069,6 +4069,21 @@ msgstr ""
 
 #: ../desktop/ui/model.slint:284
 msgctxt "Messages"
+msgid "An SSH key signed for {}"
+msgstr ""
+
+#: ../desktop/ui/model.slint:266
+msgctxt "Messages"
+msgid "An SSH key signed for a program"
+msgstr ""
+
+#: ../desktop/ui/model.slint:267
+msgctxt "Messages"
+msgid "Auto-type typed a login into “{}”"
+msgstr ""
+
+#: ../desktop/ui/model.slint:268
+msgctxt "Messages"
 msgid "Something this version of the app doesn't know"
 msgstr ""
 
@@ -4543,7 +4558,7 @@ msgid ""
 "first, then come back here and choose Auto-type."
 msgstr ""
 
-#: ../desktop/ui/model.slint:361
+#: ../desktop/ui/model.slint:364
 msgctxt "Messages"
 msgid ""
 "Locked secrets are in the way. Open the item lock first: type its PIN or "
