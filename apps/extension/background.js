@@ -33,6 +33,7 @@ import {
   vaultSaves,
   vaultWarns,
 } from "./app.js";
+import { fillAddress } from "./address-fill.js";
 import { approveCardFrame, fillCardInTab } from "./cards.js";
 import { fillCode, fillLogin } from "./fill.js";
 import { fallbacks, patternTest, rulesFor } from "./generator.js";
@@ -283,6 +284,40 @@ async function cardsFor(tab) {
   return reply;
 }
 
+// The vault's identities for a tab, kept as briefly as its logins.
+const identitiesKnown = new Map();
+async function identitiesFor(tab) {
+  const cached = identitiesKnown.get(tab.id);
+  if (cached && cached.url === tab.url && Date.now() - cached.at < KNOWN_FOR_MS) return cached.reply;
+  const reply = await ask({ type: "identities", url: tab.url });
+  identitiesKnown.set(tab.id, { url: tab.url, at: Date.now(), reply });
+  return reply;
+}
+
+/** Types identity `id` (picked under an address field) into the page's own address fields. */
+async function identityFromFrame(tab, id) {
+  const identities = await identitiesFor(tab);
+  const entry = identities.type === "identities" ? identities.items.find((item) => item.id === id) : undefined;
+  if (!entry) return { done: false };
+  const reply = await ask({ type: "identity_fill", url: tab.url, id, hello: Boolean(entry.locked && identities.hello) });
+  if (reply.type !== "identity_fill") {
+    const popup = reply.code === "item_locked" && (await continueInPopup());
+    return { done: false, popup };
+  }
+  const now = await chrome.tabs.get(tab.id);
+  if (originOf(now.url) !== reply.origin) return { done: false };
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, frameIds: [0] },
+      func: fillAddress,
+      args: [reply.origin, reply],
+    });
+    return { done: result?.result === "filled" };
+  } catch {
+    return { done: false };
+  }
+}
+
 // A card picked under a field whose payment fields sit, in part, in frames of other sites not
 // approved yet: which card, on which page, and those sites (the card asks about them).
 const cardWaits = new Map();
@@ -530,6 +565,11 @@ async function handle(message, sender) {
         if (ruled.noCard || (ruled.neverFill && !message.fresh)) {
           return { show: lookalikeOf(await loginsFor(tab)) ? "lookalike" : false };
         }
+        if (message.address) {
+          // An address field: the vault's identities, when it has any.
+          const identities = await identitiesFor(tab);
+          return { show: identities.type === "identities" && identities.items.length > 0 };
+        }
         if (message.card) {
           // A payment field: the vault's cards, when it has any (no card is read for this).
           const cards = await cardsFor(tab);
@@ -642,6 +682,22 @@ async function handle(message, sender) {
           locked,
         })),
       };
+    }
+    case "frame-identities": {
+      // Whose and a line to tell them apart: never a document number.
+      const identities = await identitiesFor(tab);
+      if (identities.type !== "identities") return { items: [] };
+      return {
+        origin: identities.origin,
+        hello: identities.hello,
+        check: identities.check,
+        items: identities.items.map(({ id, title, name, summary, locked }) => ({ id, title, name, summary, locked })),
+      };
+    }
+    case "frame-identity": {
+      const outcome = await identityFromFrame(tab, String(message.id));
+      tell(tab.id, { kind: "close", which: "logins" });
+      return outcome;
     }
     case "frame-card": {
       const outcome = await cardFromFrame(tab, String(message.id));
@@ -778,6 +834,7 @@ checkForUpdate().catch(() => {});
 chrome.tabs.onRemoved.addListener((tabId) => {
   known.delete(tabId);
   cardsKnown.delete(tabId);
+  identitiesKnown.delete(tabId);
   cardWaits.delete(tabId);
   usernames.delete(tabId);
   fresh.delete(tabId);

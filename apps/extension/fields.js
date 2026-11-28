@@ -248,9 +248,28 @@
     return CARD_NUMBER.test(text) || CARD_OTHER.test(text);
   }
 
+  const ADDRESS_MARKS = ["street-address", "address-line1", "address-line2", "address-level1", "address-level2", "postal-code", "country", "country-name"];
+  const ADDRESS_NAMES = /street|address.?line|addr1|\bzip\b|postal|postcode|\bcity\b|endere[cç]o|\bcep\b/;
+
+  /**
+   * Whether `el` is an address field of the page (a street, a city, a postal code, a country):
+   * marked for the browser's autofill, or named like one. Where the vault's identities are
+   * offered (F5 with F7; address-fill.js fills them). A name, an email or a phone alone is
+   * not: those are on every sign-up form.
+   */
+  function isAddressField(el) {
+    if (!el || el.tagName !== "INPUT" || !usable(el)) return false;
+    if (!["text", ""].includes(type(el))) return false;
+    const auto = (el.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/);
+    if (auto.some((part) => ADDRESS_MARKS.includes(part))) return true;
+    if (auto.some((part) => /password|cc-|one-time-code|username|email/.test(part))) return false;
+    return ADDRESS_NAMES.test(`${el.name || ""} ${el.id || ""}`.toLowerCase().replace(/[_-]/g, " "));
+  }
+
   globalThis.VaultFields = {
     isSignInField,
     isCardField,
+    isAddressField,
     isNewPasswordField,
     isCodeField,
     isPasskeyField,

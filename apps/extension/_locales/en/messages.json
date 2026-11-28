@@ -974,5 +974,20 @@
         "content": "$1"
       }
     }
+  },
+  "identityRow": {
+    "message": "Identity"
+  },
+  "identitiesTitle": {
+    "message": "Addresses"
+  },
+  "cardsAndAddressesTitle": {
+    "message": "Cards and addresses"
+  },
+  "fillAddressButton": {
+    "message": "Fill the address"
+  },
+  "addressNoFields": {
+    "message": "No address fields found on this page."
   }
 }

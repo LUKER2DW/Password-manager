@@ -80,7 +80,12 @@ not in a store yet). Test with a test vault.
   check as everywhere in the frame, and the app keeps the answer with the site's rules
   (Settings → Browser extension → Site rules, where *Stop* takes it back). A frame of a site
   not allowed is named, never filled; a sandboxed one is nobody's. The extension's window
-  lists the cards under the site's logins too. Addresses wait for identity items (F7).
+  lists the cards under the site's logins too.
+- **Addresses** (F5 with identity items): an address field (a street, a city, a postal code,
+  a country; marked for the browser's autofill or named like one) gets the vault's identities
+  under it, by name and email. Picking one types the name, email, phone, address, city,
+  region, postal code, country and company into the page's own address fields (never a frame
+  of another site, never a field already typed in); document numbers never leave the app.
 - **Rules for a site** (F16): *Never offer to save a login here*, *No card under its fields*,
   *Never fill here*, *No passkeys from Vault here*, for the site in front and the sites under
   it, under *Rules for this site* in the extension's window or in the app (Settings → Browser
@@ -401,6 +406,7 @@ What differs in Firefox:
 | `link.js` | The connection key (agreed with the app by ECDH, kept as a non-extractable browser key), each request sealed with it, and each answer opened, sealed by the app to its request |
 | `fill.js` | The function that types a login into the page (top frame, same origin) |
 | `card-fill.js` | The payment fields of a document, and the function that types a card into them (each document it may: its origin checked there) |
+| `address-fill.js` | The function that types an identity into the page's own address fields (top document, same origin) |
 | `cards.js` | Which documents of a tab get a card (the page's own; another site's frames once approved for this site), and the fill itself, for the worker and the window |
 | `signals.js` | A site's Signal API call, checked and bounded for the app |
 | `generator.js` | Reads a field's password rules for the app's generator |

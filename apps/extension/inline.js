@@ -294,6 +294,62 @@ function cardIcon() {
   return box;
 }
 
+/** A person (Lucide's id-card), for the rows of the vault's identities. */
+function identityIcon() {
+  const ns = "http://www.w3.org/2000/svg";
+  const box = document.createElement("span");
+  box.className = "key";
+  box.setAttribute("aria-hidden", "true");
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  const card = document.createElementNS(ns, "rect");
+  for (const [name, value] of Object.entries({ x: 3, y: 4, width: 18, height: 16, rx: 2 })) {
+    card.setAttribute(name, String(value));
+  }
+  const person = document.createElementNS(ns, "path");
+  person.setAttribute("d", "M16 10h2 M16 14h2 M6.17 15a3 3 0 0 1 5.66 0 M9 11 A2 2 0 1 0 9 7 A2 2 0 1 0 9 11 Z");
+  svg.append(card, person);
+  box.append(svg);
+  return box;
+}
+
+// ---- the vault's identities, under an address field ----
+
+async function showIdentities() {
+  const listed = await say({ kind: "frame-identities" });
+  const items = listed?.items ?? [];
+  if (!items.length) return say({ kind: "frame-dismiss", which });
+  if (around && around[0] !== listed.origin) return say({ kind: "frame-dismiss", which });
+  $("cards").hidden = false;
+  const asks = opensWith(listed);
+  const rows = items.map((entry) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "row";
+    row.setAttribute("role", "option");
+    row.title = entry.title;
+    const lines = document.createElement("span");
+    lines.className = "lines";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = entry.name || entry.title || t("identityRow");
+    const sub = document.createElement("span");
+    sub.className = "secret";
+    sub.textContent = entry.summary || entry.title;
+    lines.append(name, sub);
+    row.append(identityIcon(), lines);
+    if (entry.locked) row.append(lockIcon(asks));
+    row.addEventListener("click", async (event) => {
+      if (!genuine(event)) return;
+      for (const other of rows) other.disabled = true;
+      await say({ kind: "frame-identity", id: entry.id });
+    });
+    return row;
+  });
+  $("card-list").replaceChildren(...rows);
+  fit();
+}
+
 async function showCards() {
   const listed = await say({ kind: "frame-cards" });
   const items = listed?.items ?? [];
@@ -552,4 +608,5 @@ if (!direct) {
 else if (mode === "new") showNew();
 else if (mode === "warn") showWarning();
 else if (mode === "cards") showCards();
+else if (mode === "identities") showIdentities();
 else showLogins();

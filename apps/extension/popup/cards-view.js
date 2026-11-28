@@ -1,23 +1,37 @@
-// The vault's cards, offered for the payment fields of the page in front (F5). Filled by
+// The vault's cards and identities, offered for the payment and address fields of the page in
+// front (F5). Identities go into the page's own document only (address-fill.js). Cards are filled by
 // cards.js: the page's own fields, and those in frames of another site only once the person
 // allowed that site's frames for this one (kept by the app with the site's rules).
 
-import { ask } from "../app.js";
+import { ask, originOf } from "../app.js";
+import { fillAddress } from "../address-fill.js";
 import { approveCardFrame, fillCardInTab } from "../cards.js";
 import { guarded } from "./guard.js";
 import { ruleOf } from "./site-rule.js";
 import { here } from "./state.js";
 import { $, explainRefusal, loginRow, outcome, t } from "./ui.js";
 
-/** Asks the app for the cards and lists them under the site's logins (none: nothing shown). */
+/** Asks the app for the cards and identities, and lists them under the site's logins. */
 export async function showCardsHere(back) {
   const box = $("site-cards");
   if (!box || !here.site || !here.tab?.url) return;
-  const listed = await ask({ type: "cards", url: here.tab.url });
+  const [listed, people] = await Promise.all([
+    ask({ type: "cards", url: here.tab.url }),
+    ask({ type: "identities", url: here.tab.url }),
+  ]);
   const items = listed?.type === "cards" && Array.isArray(listed.items) ? listed.items : [];
-  box.hidden = items.length === 0;
-  if (!items.length) return;
-  $("site-cards-title").textContent = t("cardsTitle");
+  const identities = people?.type === "identities" && Array.isArray(people.items) ? people.items : [];
+  box.hidden = items.length === 0 && identities.length === 0;
+  if (box.hidden) return;
+  $("site-cards-title").textContent = t(items.length && identities.length ? "cardsAndAddressesTitle" : items.length ? "cardsTitle" : "identitiesTitle");
+  const who = identities.map((entry) => {
+    const shown = { ...entry, title: entry.name || entry.title, username: entry.summary, site: "" };
+    return loginRow(shown, people, {
+      detail: entry.summary || entry.title,
+      site: "",
+      onPick: () => fillTheIdentity(shown, people, back),
+    });
+  });
   const rows = items.map((entry) => {
     const shown = { ...entry, title: entry.hint || entry.title, username: entry.holder, site: "" };
     const expiry = entry.expiry ? t(entry.expired ? "cardExpired" : "cardExpires", entry.expiry) : "";
@@ -27,7 +41,32 @@ export async function showCardsHere(back) {
       onPick: () => fillTheCard(shown, listed, back),
     });
   });
-  $("site-cards-list").replaceChildren(...rows);
+  $("site-cards-list").replaceChildren(...rows, ...who);
+}
+
+/** Types identity `entry` into the address fields of the page in front (its own origin only). */
+async function fillTheIdentity(entry, listed, back) {
+  const tab = here.tab;
+  const reply = await guarded(entry, listed, { type: "identity_fill", url: tab.url, id: entry.id }, t("fillAddressButton"), back);
+  if (!reply) return;
+  if (reply.type !== "identity_fill") return explainRefusal(reply, listed);
+  const now = await chrome.tabs.get(tab.id);
+  if (originOf(now.url) !== reply.origin) return outcome("pageChanged");
+  let result = "none";
+  try {
+    const [ran] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: fillAddress,
+      args: [reply.origin, reply],
+    });
+    result = ran?.result ?? "none";
+  } catch {
+    result = "failed";
+  }
+  if (result === "filled") return window.close();
+  if (result === "wrong_page") return outcome("pageChanged");
+  if (result === "insecure_form") return outcome("insecureForm");
+  return outcome(result === "none" ? "addressNoFields" : "failed");
 }
 
 async function fillTheCard(entry, listed, back) {

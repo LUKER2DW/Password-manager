@@ -43,6 +43,7 @@
   const {
     isSignInField,
     isCardField,
+    isAddressField,
     isNewPasswordField,
     isCodeField,
     isPasskeyField,
@@ -228,7 +229,9 @@
     const passkey = waiting && (signIn || isPasskeyField(field)) ? waiting : undefined;
     // A payment field gets the vault's cards (F5).
     const card = !fresh && !code && !signIn && !passkey && isCardField(field);
-    if (!fresh && !code && !signIn && !passkey && !card) return;
+    // An address field gets the vault's identities.
+    const address = !fresh && !code && !signIn && !passkey && !card && isAddressField(field);
+    if (!fresh && !code && !signIn && !passkey && !card && !address) return;
     const id = newId();
     const answer = await say({
       kind: "field-focused",
@@ -238,13 +241,14 @@
       rules: fresh ? fieldRules(field) : undefined,
       passkey,
       card,
+      address,
     });
     if (!answer?.show || document.activeElement !== field) return;
     if (answer.show === "lookalike") return showLookalike(field);
     close("logins");
     anchor = field;
     setOffer({ id, field, form: field.form, action: destinationOf(field.form) });
-    frames.logins = makeFrame(fresh ? "new" : code ? "code" : card ? "cards" : "logins", id);
+    frames.logins = makeFrame(fresh ? "new" : code ? "code" : card ? "cards" : address ? "identities" : "logins", id);
     show(frames.logins);
     place();
   }

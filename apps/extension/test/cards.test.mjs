@@ -203,3 +203,79 @@ test("a site's word about its passkeys is passed on checked and bounded", () => 
   assert.equal(signalRequest(url, { kind: "accepted", userId: "dXNlcg" }), undefined);
   assert.equal(signalRequest(url, { kind: "delete", credentialId: "AAEC" }), undefined);
 });
+
+const { fillAddress } = await import("../address-fill.js");
+const { isAddressField } = await (async () => {
+  // fields.js is a classic script: its functions are read from the global it sets.
+  const { readFileSync } = await import("node:fs");
+  const vm = await import("node:vm");
+  const context = { globalThis: {} };
+  context.globalThis = context;
+  vm.runInNewContext(readFileSync(new URL("../fields.js", import.meta.url), "utf8"), context);
+  return context.VaultFields;
+})();
+
+const WHO = {
+  name: "Test Person",
+  email: "test@example.com",
+  phone: "+1 555 0100",
+  address: "1 Test Street\nFlat 2",
+  city: "Testville",
+  region: "TS",
+  postal_code: "12345",
+  country: "Testland",
+  company: "",
+};
+
+test("an identity is typed into the page's own address fields only", () => {
+  const fields = page(
+    [
+      { attributes: { autocomplete: "given-name" } },
+      { attributes: { autocomplete: "family-name" } },
+      { attributes: { autocomplete: "address-line1" } },
+      { attributes: { autocomplete: "address-line2" } },
+      { name: "city" },
+      { name: "zip" },
+      { type: "password", attributes: { autocomplete: "new-password" } },
+      { name: "coupon" },
+      { attributes: { autocomplete: "cc-number" } },
+    ],
+    { origin: "https://shop.example" },
+  );
+  globalThis.window.top = globalThis.window;
+  assert.equal(fillAddress("https://shop.example", WHO), "filled");
+  const [given, family, line1, line2, city, zip, password, coupon, card] = fields;
+  assert.deepEqual(
+    [given.value, family.value, line1.value, line2.value, city.value, zip.value],
+    ["Test", "Person", "1 Test Street", "Flat 2", "Testville", "12345"],
+  );
+  assert.equal(password.value, "", "never a password field");
+  assert.equal(coupon.value, "");
+  assert.equal(card.value, "", "never a payment field");
+  // Another page, or a frame: nothing.
+  assert.equal(fillAddress("https://other.example", WHO), "wrong_page");
+  globalThis.window.top = {};
+  assert.equal(fillAddress("https://shop.example", WHO), "wrong_page");
+});
+
+test("address fields are told apart from the name, email and phone of every sign-up", () => {
+  const field = (attributes, name = "") => ({
+    tagName: "INPUT",
+    type: "text",
+    name,
+    id: "",
+    disabled: false,
+    readOnly: false,
+    getAttribute: (key) => attributes[key] ?? null,
+    getBoundingClientRect: () => ({ width: 100, height: 20 }),
+  });
+  assert.equal(isAddressField(field({ autocomplete: "street-address" })), true);
+  assert.equal(isAddressField(field({ autocomplete: "postal-code" })), true);
+  assert.equal(isAddressField(field({}, "billing_zip")), true);
+  assert.equal(isAddressField(field({}, "zipper")), false, "zip only as a word");
+  assert.equal(isAddressField(field({}, "zip")), true);
+  assert.equal(isAddressField(field({}, "city")), true);
+  assert.equal(isAddressField(field({ autocomplete: "email" }, "address")), false);
+  assert.equal(isAddressField(field({ autocomplete: "name" })), false);
+  assert.equal(isAddressField(field({}, "username")), false);
+});
