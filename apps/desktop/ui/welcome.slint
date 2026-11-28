@@ -934,6 +934,9 @@ export component UnlockScreen inherits Rectangle {
     callback unlock();
     callback quick();
     callback forgot();
+    // The master password may be typed on a secure desktop (Settings → Security).
+    in property <bool> secure-desktop;
+    callback secure-unlock();
     // Vault chooser
     in property <[RecentVault]> vaults;
     in-out property <bool> choosing;
@@ -1061,6 +1064,7 @@ export component UnlockScreen inherits Rectangle {
                 if root.hello-first: VerticalLayout {
                     spacing: 18px;
                     Button {
+                        icon: "windows";
                         text: @tr("Unlock with Windows Hello");
                         busy-text: @tr("Waiting for Windows Hello…");
                         busy: root.quick-waiting;
@@ -1197,6 +1201,9 @@ export component UnlockScreen inherits Rectangle {
                         }
                     }
                 }
+                // The error line takes no room (nor a gap) until there is one.
+                VerticalLayout {
+                spacing: root.error-code != 0 || root.unlock-wait > 0 ? 16px : 0px;
                 ErrorLine {
                     code: root.error-code;
                     detail: root.error-detail;
@@ -1210,21 +1217,37 @@ export component UnlockScreen inherits Rectangle {
                     color: Theme.graphite;
                     wrap: word-wrap;
                 }
-                // One yellow button per screen: with Windows Hello on, it is the Hello one.
-                if !root.hello-first: Button {
-                    text: root.unlock-wait > 0 ? @tr("Try again in {}", root.wait-text) : @tr("Unlock");
-                    busy-text: @tr("Unlocking…");
-                    busy: root.busy;
-                    enabled: root.unlock-wait == 0;
-                    clicked => { root.unlock(); }
+                // One yellow button per screen: with Windows Hello on, it is the Hello one. The
+                // secure desktop, when offered, sits beside it.
+                HorizontalLayout {
+                    spacing: 8px;
+                    if !root.hello-first: Button {
+                        horizontal-stretch: 1;
+                        icon: "key";
+                        text: root.unlock-wait > 0 ? @tr("Try again in {}", root.wait-text) : @tr("Unlock");
+                        busy-text: @tr("Unlocking…");
+                        busy: root.busy;
+                        enabled: root.unlock-wait == 0;
+                        clicked => { root.unlock(); }
+                    }
+                    if root.hello-first: QuietButton {
+                        horizontal-stretch: 1;
+                        icon: "key";
+                        text: root.busy && !root.quick-waiting ? @tr("Unlocking…")
+                            : root.unlock-wait > 0 ? @tr("Try again in {}", root.wait-text)
+                            : @tr("Unlock with password");
+                        outlined: true;
+                        enabled: !root.busy && root.unlock-wait == 0;
+                        clicked => { root.unlock(); }
+                    }
+                    if root.secure-desktop: QuietButton {
+                        icon: "shield";
+                        text: @tr("On a secure desktop");
+                        outlined: true;
+                        enabled: !root.busy && root.unlock-wait == 0;
+                        clicked => { root.secure-unlock(); }
+                    }
                 }
-                if root.hello-first: QuietButton {
-                    text: root.busy && !root.quick-waiting ? @tr("Unlocking…")
-                        : root.unlock-wait > 0 ? @tr("Try again in {}", root.wait-text)
-                        : @tr("Unlock with password");
-                    outlined: true;
-                    enabled: !root.busy && root.unlock-wait == 0;
-                    clicked => { root.unlock(); }
                 }
                 Rule { }
                 HorizontalLayout {

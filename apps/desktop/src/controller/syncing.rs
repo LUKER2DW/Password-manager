@@ -96,6 +96,8 @@ pub(super) struct SyncStatus {
     renewed_told: bool,
     /// Devices whose copies are still sealed under a key this computer renewed or took.
     behind: Vec<DeviceId>,
+    /// Copies the rounds couldn't use (refused or unreadable), named in Settings → Sync.
+    problems: sync::CopyProblems,
 }
 
 impl SyncStatus {
@@ -127,6 +129,34 @@ impl SyncStatus {
             self.renewed.push((device, bytes));
         }
     }
+}
+
+#[cfg(test)]
+impl Controller {
+    /// Why the copy at `place` (a sync folder's `devices/<id>.vault`) couldn't be used, as
+    /// Settings → Sync would say it.
+    pub(crate) fn sync_problem(&self, place: &std::path::Path) -> Option<String> {
+        let id = place.file_stem()?.to_str()?;
+        let state = self.state.borrow();
+        state
+            .sync
+            .problems
+            .all()
+            .iter()
+            .find(|p| p.device.to_hex() == id)
+            .map(|p| p.why.clone())
+    }
+}
+
+/// What a device's line in Settings → Sync says of its copy when it couldn't be used.
+fn problem_line(problem: Option<&sync::CopyProblem>, offset: i32) -> crate::ui::DeviceLine {
+    let mut line = crate::ui::DeviceLine::default();
+    if let Some(p) = problem {
+        line.problem = SharedString::from(p.why.as_str());
+        line.problem_at = SharedString::from(crate::view::date_time(p.at, offset));
+        line.refused = p.refused;
+    }
+    line
 }
 
 /// Items, or whole copies, that wait for the item lock: the items a merge left as they were
@@ -236,7 +266,9 @@ impl Controller {
         let app = self.app();
         app.set_sync_invite(SharedString::new());
         app.set_sync_invite_qr(slint::Image::default());
-        self.state.borrow_mut().sync.tags = KnownTags::default();
+        let mut state = self.state.borrow_mut();
+        state.sync.tags = KnownTags::default();
+        state.sync.problems.clear();
     }
 
     fn stop_watch(&self) {
@@ -667,6 +699,7 @@ impl Controller {
         if !self.save_vault() {
             return;
         }
+        self.log_now(vault_platform::security_log::kind::DEVICE_REMOVED, &name);
         self.notify_long(notice::SYNC_DEVICE_REMOVED, &name);
         if let Some(place) = self.sync_place() {
             let runner = self.state.borrow().runner;
@@ -723,12 +756,19 @@ impl Controller {
         let (round, joined) = {
             let mut state = self.state.borrow_mut();
             let vault = &mut state.session.as_mut().expect("checked above").vault;
+            let before = vault.sync_devices().to_vec();
             let joined = sync::join(vault, place.device, &sync::device_name()).unwrap_or(false)
                 | sync::retire(vault, &place.retired);
-            (
-                sync::merge_reading(vault, &reading, &mut place.place.seen),
-                joined,
-            )
+            let round = sync::merge_reading(vault, &reading, &mut place.place.seen);
+            let id = vault.id_hex();
+            for event in vault_platform::security_log::device_changes(
+                &before,
+                vault.sync_devices(),
+                crate::view::now_unix(),
+            ) {
+                super::security::note(&id, &event);
+            }
+            (round, joined)
         };
         if round.removed_here {
             // Removed, not barred: this computer takes a new id for the vault and can join
@@ -826,14 +866,29 @@ impl Controller {
             let told = std::mem::replace(&mut state.sync.lock_told, lock_waits);
             lock_waits && !told
         };
-        // Copies that wait for the item lock, or that are under another vault key, are said
-        // apart.
-        let refused = round.refused.iter().find(|(_, err)| {
-            !matches!(
-                err,
-                vault_core::Error::SecretsLocked | vault_core::Error::DecryptionFailed
-            )
-        });
+        // Copies that couldn't be used, each said once (those that wait for the item lock, or
+        // that are under another vault key, are said apart), named in Settings → Sync.
+        let problem = {
+            let mut state = self.state.borrow_mut();
+            let new = state
+                .sync
+                .problems
+                .note(&reading, &round, crate::view::now_unix());
+            new.into_iter().next().map(|p| {
+                let name = state
+                    .session
+                    .as_ref()
+                    .and_then(|s| {
+                        s.vault
+                            .sync_devices()
+                            .iter()
+                            .find(|d| d.id == p.device)
+                            .map(|d| d.name.clone())
+                    })
+                    .unwrap_or_default();
+                (p.refused, name)
+            })
+        };
         // A copy of another format version: said plainly, with what to update.
         let other_format = round.refused.iter().find_map(|(device, err)| match err {
             vault_core::Error::UnsupportedVersion(version) => Some((*device, *version)),
@@ -876,8 +931,14 @@ impl Controller {
             // Said already; what waits behind it is the same thing.
         } else if round.waiting_for_lock() > 0 {
             self.notify_long(notice::SYNC_WAITING, &round.waiting_for_lock().to_string());
-        } else if let Some((_, err)) = refused {
-            self.notify_long(notice::SYNC_REFUSED, &err.to_string());
+        } else if let Some((refused, name)) = problem {
+            let code = if refused {
+                notice::SYNC_REFUSED
+            } else {
+                notice::SYNC_UNREADABLE
+            };
+            self.notify_long(code, &name);
+            self.show_sync_settings();
         } else if came > 0 {
             self.notify(notice::SYNC_CHANGED, &came.to_string());
         }
@@ -1261,6 +1322,8 @@ impl Controller {
                 .join(", "),
         ));
         let here = self.state.borrow().sync.here.clone();
+        let problems = self.state.borrow().sync.problems.clone();
+        let offset = vault_platform::locale::utc_offset_minutes();
         app.set_sync_others(ModelRc::new(VecModel::from(
             others
                 .iter()
@@ -1269,6 +1332,7 @@ impl Controller {
                     // Listed in the vault, but without a copy where it syncs now: it synced
                     // through another place, or hasn't joined this one yet.
                     away: here.as_ref().is_some_and(|here| !here.contains(id)),
+                    ..problem_line(problems.of(*id), offset)
                 })
                 .collect::<Vec<_>>(),
         )));

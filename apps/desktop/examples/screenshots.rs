@@ -632,8 +632,29 @@ fn main() {
     let normal = camera.window.size();
     camera
         .window
-        .set_size(PhysicalSize::new(normal.width, normal.height * 2 + 200));
+        .set_size(PhysicalSize::new(normal.width, normal.height * 3 + 300));
     app.set_kdf_level(2);
+    // Demo lines of the security log, and the secure desktop offered.
+    let line =
+        |kind, at: &str, site: &str, title: &str, detail: &str| vault_desktop::ui::SecurityLine {
+            kind,
+            at: at.into(),
+            site: site.into(),
+            title: title.into(),
+            detail: detail.into(),
+        };
+    app.set_security_log(slint::ModelRc::from(std::rc::Rc::new(
+        slint::VecModel::from(vec![
+            line(3, "2026-11-27 21:14", "github.com", "GitHub", "login"),
+            line(2, "2026-11-27 21:12", "", "", "password"),
+            line(1, "2026-11-27 08:03", "", "", "device"),
+            line(6, "2026-11-26 19:40", "", "", "vaultx"),
+            line(10, "2026-11-25 10:02", "", "", "Laptop"),
+            line(0, "", "", "", ""),
+        ]),
+    )));
+    app.set_security_log_more(12);
+    app.set_secure_desktop(true);
     camera.shot(
         "settings-full",
         "Settings → Security, whole: unlock protection level, Apply asks first",
@@ -882,10 +903,14 @@ fn main() {
             vault_desktop::ui::DeviceLine {
                 name: "Laptop".into(),
                 away: false,
+                problem: "this copy is older than one already seen from that device".into(),
+                problem_at: "2026-11-27 09:42".into(),
+                refused: true,
             },
             vault_desktop::ui::DeviceLine {
                 name: "Phone".into(),
                 away: true,
+                ..Default::default()
             },
         ]),
     )));

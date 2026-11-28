@@ -15,6 +15,8 @@ export global Glyphs {
     out property <string> globe: "M2 12 A10 10 0 1 0 22 12 A10 10 0 1 0 2 12 Z M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20 M2 12h20";
     out property <string> card: "M4 5 H20 A2 2 0 0 1 22 7 V17 A2 2 0 0 1 20 19 H4 A2 2 0 0 1 2 17 V7 A2 2 0 0 1 4 5 Z M2 10 L22 10";
     out property <string> calendar: "M8 2v4 M16 2v4 M5 4 H19 A2 2 0 0 1 21 6 V20 A2 2 0 0 1 19 22 H5 A2 2 0 0 1 3 20 V6 A2 2 0 0 1 5 4 Z M3 10h18";
+    // Four panes, after the Windows mark (drawn, not the brand's own file).
+    out property <string> windows: "M3 5.2 L10.5 4.2 V11 H3 Z M13 3.9 L21 2.8 V11 H13 Z M3 13 H10.5 V19.8 L3 18.8 Z M13 13 H21 V21.2 L13 20.1 Z";
     out property <string> shield: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z M9 12 l2 2 4-4";
     out property <string> pin: "M4 6 H20 A2 2 0 0 1 22 8 V16 A2 2 0 0 1 20 18 H4 A2 2 0 0 1 2 16 V8 A2 2 0 0 1 4 6 Z M12 12h.01 M17 12h.01 M7 12h.01";
     out property <string> clock: "M2 12 A10 10 0 1 0 22 12 A10 10 0 1 0 2 12 Z M12 6 L12 12 L16 14";
@@ -191,6 +193,7 @@ export component Glyph inherits Path {
         : root.name == "card" ? Glyphs.card
         : root.name == "calendar" ? Glyphs.calendar
         : root.name == "shield" ? Glyphs.shield
+        : root.name == "windows" ? Glyphs.windows
         : root.name == "pin" ? Glyphs.pin
         : root.name == "clock" ? Glyphs.clock
         : root.name == "note" ? Glyphs.note

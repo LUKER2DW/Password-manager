@@ -533,6 +533,11 @@ impl Controller {
             let answer = service::answer(request, vault, &mut gate);
             (answer, gate.locked_out, gate.save, before)
         };
+        if let Some(event) =
+            super::security::extension_event(request, &answer, |id| self.title_of(id), false)
+        {
+            self.log_event(event);
+        }
         // The extension's Lock button.
         if answer.lock {
             self.lock();
@@ -673,6 +678,15 @@ impl Controller {
             device,
         };
         let answer = vault_browser::locked::answer_locked(request, &logins, &mut gate);
+        let title_of = |id: &str| {
+            logins
+                .iter()
+                .find(|login| login.id == id)
+                .map(|login| login.title.clone())
+        };
+        if let Some(event) = super::security::extension_event(request, &answer, title_of, true) {
+            self.log_event(event);
+        }
         if let Some(copy) = answer.copy {
             let (secret, code) = match copy.what {
                 CopyWhat::Username => (false, notice::USERNAME_COPIED),

@@ -205,6 +205,7 @@ pub(super) fn reseal_side_files(vault: &Vault, former: &FormerKey) -> bool {
     watch::reseal(vault, former);
     drop_box::reseal(vault, former);
     locked_fill::reseal(vault, former);
+    super::security::reseal(vault, former);
     if let Ok(dir) = paths::app_dir() {
         files::reseal(
             &dir.join(format!("icons-{id}.cache")),
@@ -275,6 +276,10 @@ impl Controller {
         self.remember_file();
         self.refresh_locked_fill();
         let renewed_here = parts.is_some();
+        self.log_now(
+            vault_platform::security_log::kind::KEY_RENEWED,
+            if renewed_here { "" } else { "taken" },
+        );
         if let Some(parts) = parts {
             self.clear_secret(field::CURRENT);
             app.set_kit_confirming_renew(false);

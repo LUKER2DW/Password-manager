@@ -365,7 +365,11 @@ fn whole_app_flow_headless() {
                 "the vault file changed"
             );
             assert_eq!(app.get_total_items(), 3);
-            (app.get_notice_code(), app.get_notice_arg().to_string())
+            // The notice names the device (the laptop and this stranger aren't in the
+            // vault's list here); Settings → Sync keeps why.
+            assert_eq!(app.get_notice_arg(), "");
+            let why = controller.sync_problem(place).unwrap_or_default();
+            (app.get_notice_code(), why)
         };
         let (code, why) = round(&laptop_copy, b"not a vault, garbage put there");
         assert_eq!((code, why.as_str()), (56, "not a vault file"));
@@ -1536,6 +1540,50 @@ fn whole_app_flow_headless() {
     app.invoke_unlock();
     assert_eq!(app.get_screen(), Screen::Vault);
     assert_eq!(app.get_total_items(), 1);
+
+    // ---- the security log: what was done here, newest first, no secret in it ----
+    app.invoke_open_settings();
+    let log: Vec<crate::ui::SecurityLine> = app.get_security_log().iter().collect();
+    let kinds: Vec<i32> = log.iter().map(|line| line.kind).collect();
+    assert_eq!(
+        kinds[..2],
+        [1, 2],
+        "the unlock, after the wrong password: {kinds:?}"
+    );
+    assert_eq!(log[0].detail, "password");
+    assert!(
+        kinds.contains(&15),
+        "the master password changed: {kinds:?}"
+    );
+    assert!(kinds.contains(&9), "the kit printed: {kinds:?}");
+    let fill = log
+        .iter()
+        .find(|line| line.kind == 3 && line.detail == "login")
+        .expect("the extension's fill");
+    assert_eq!(fill.site, "github.com");
+    assert!(
+        log.iter()
+            .any(|line| line.kind == 3 && line.detail == "passkey"),
+        "the passkey it signed in with"
+    );
+    let file = std::fs::read(
+        vault_platform::security_log::SecurityLog::for_vault(
+            &Vault::inspect(&std::fs::read(&path).unwrap())
+                .unwrap()
+                .id_hex,
+        )
+        .unwrap()
+        .path(),
+    )
+    .unwrap();
+    assert!(!file.windows(6).any(|w| w == b"github"), "sealed on disk");
+    app.invoke_security_log_clear();
+    let kinds: Vec<i32> = app
+        .get_security_log()
+        .iter()
+        .map(|line| line.kind)
+        .collect();
+    assert_eq!(kinds, [13], "one line says it was cleared");
 
     // ---- connecting the extension again replaces the earlier key, locked or not ----
     let earlier = key;

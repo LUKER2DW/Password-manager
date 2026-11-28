@@ -2,7 +2,7 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock } from "model.slint";
+import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock, SecurityLine } from "model.slint";
 import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker, IconLook, FolderLook } from "icons.slint";
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip, PdfPassword } from "kit.slint";
@@ -2600,6 +2600,13 @@ export component SettingsPage inherits Rectangle {
     in property <int> vault-recovery;
     in-out property <int> auto-lock-minutes;
     in-out property <bool> lock-with-windows;
+    in-out property <bool> secure-desktop;
+    // The security log, newest first, and how many older lines aren't shown yet.
+    in property <[SecurityLine]> security-log;
+    in property <int> security-log-more;
+    callback security-log-show-more();
+    callback security-log-clear();
+    property <bool> security-log-confirm;
     // 1 the Secret Key is kept under the security chip, 2 by Windows alone, 0 not known.
     in property <int> secret-key-kept;
     in-out property <int> clipboard-seconds;
@@ -2833,21 +2840,20 @@ export component SettingsPage inherits Rectangle {
                                 clicked => { root.open-dialog(1); }
                             }
                         }
-                    }
-
-                    // How this computer keeps the Secret Key (CRYPTO.md §2.2.1).
-                    if root.secret-key-kept != 0: SettingsCard {
-                        icon: "shield";
-                        title: @tr("Secret Key on this computer");
-                        summary: root.secret-key-kept == 1
-                            ? @tr("Kept under a key in this computer's security chip (TPM), which never leaves it. A copy of this computer's disk or of your Windows profile doesn't carry it.")
-                            : @tr("Kept by Windows alone: this computer has no security chip (TPM) the app can use.");
-                        hint: @tr("Your Secret Key and your master password together open the vault, so this computer keeps the Secret Key for you. A program running as you can still ask for it while you're signed in, as it could ask Windows; the chip stops it from being copied away and opened on another computer. If the chip is ever cleared or replaced, the vault asks once for the Secret Key from your emergency kit.");
-                        if root.secret-key-kept == 2: Text {
-                            text: @tr("Weaker than with a chip: a copy of your Windows profile, with your Windows password, opens it on another computer.");
-                            font-size: Theme.small;
-                            color: Theme.seal;
-                            wrap: word-wrap;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Check {
+                                text: @tr("Offer to type it on a secure desktop");
+                                checked <=> root.secure-desktop;
+                                toggled => { root.settings-changed(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("The unlock screen gets a link that switches to a desktop of its own, as Windows does for its own password prompts, with only a small window to type the master password in. Programs on your normal desktop can't record those keys or that screen there. It doesn't stop a program that already runs as you from joining that desktop, nor anything deeper in Windows. Screen readers, the on-screen keyboard and other input tools don't work there: the normal field stays. Esc, or two minutes, brings your desktop back.");
+                                }
+                            }
                         }
                     }
 
@@ -3066,6 +3072,90 @@ export component SettingsPage inherits Rectangle {
                                     text: @tr("Downloads each site's own icon directly from that site, once, over a secure connection, and keeps it encrypted with your vault. Nothing else is sent. Trade-off: someone watching your network (your provider, a public Wi-Fi) could see which sites were contacted, which hints at where you have accounts. Leave it off for maximum privacy.");
                                 }
                             }
+                        }
+                    }
+
+                    SettingsCard {
+                        icon: "history";
+                        title: @tr("Security log");
+                        summary: @tr("What was done with this vault on this computer, newest first: unlocks and wrong passwords, what the browser extension was given, exports, the emergency kit, devices. Look here for anything you didn't do.");
+                        hint: @tr("Kept on this computer only, encrypted so that only the open vault reads it, and never synced. It holds no password, only what happened, the site and the item's name. A program running as you could still delete it, so an empty log proves nothing.");
+                        if root.security-log.length == 0: Text {
+                            text: @tr("Nothing yet.");
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                        }
+                        for line in root.security-log: HorizontalLayout {
+                            spacing: 12px;
+                            Text {
+                                width: 130px;
+                                text: line.at;
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                min-width: 0px;
+                                Text {
+                                    text: Messages.security-event(line.kind, line.detail);
+                                    font-size: Theme.small;
+                                    color: line.kind == 0 || line.kind == 2 || line.kind == 14 ? Theme.seal : Theme.ink;
+                                    overflow: elide;
+                                }
+                                if line.site != "" || line.title != "": Text {
+                                    text: Messages.security-where(line.site, line.title);
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            if root.security-log-more > 0: QuietButton {
+                                outlined: true;
+                                text: @tr("Show older ({})", root.security-log-more);
+                                clicked => { root.security-log-show-more(); }
+                            }
+                            if !root.security-log-confirm: QuietButton {
+                                text: @tr("Clear the log…");
+                                clicked => { root.security-log-confirm = true; }
+                            }
+                            if root.security-log-confirm: Text {
+                                text: @tr("Clear every line? One line will say when it was cleared.");
+                                font-size: Theme.small;
+                                color: Theme.ink;
+                                vertical-alignment: center;
+                            }
+                            if root.security-log-confirm: QuietButton {
+                                outlined: true;
+                                text: @tr("Clear");
+                                clicked => {
+                                    root.security-log-confirm = false;
+                                    root.security-log-clear();
+                                }
+                            }
+                            if root.security-log-confirm: QuietButton {
+                                text: @tr("Keep it");
+                                clicked => { root.security-log-confirm = false; }
+                            }
+                        }
+                    }
+
+                    // How this computer keeps the Secret Key (CRYPTO.md §2.2.1).
+                    if root.secret-key-kept != 0: SettingsCard {
+                        icon: "shield";
+                        title: @tr("Secret Key on this computer");
+                        summary: root.secret-key-kept == 1
+                            ? @tr("Kept under a key in this computer's security chip (TPM), which never leaves it. A copy of this computer's disk or of your Windows profile doesn't carry it.")
+                            : @tr("Kept by Windows alone: this computer has no security chip (TPM) the app can use.");
+                        hint: @tr("Your Secret Key and your master password together open the vault, so this computer keeps the Secret Key for you. A program running as you can still ask for it while you're signed in, as it could ask Windows; the chip stops it from being copied away and opened on another computer. If the chip is ever cleared or replaced, the vault asks once for the Secret Key from your emergency kit.");
+                        if root.secret-key-kept == 2: Text {
+                            text: @tr("Weaker than with a chip: a copy of your Windows profile, with your Windows password, opens it on another computer.");
+                            font-size: Theme.small;
+                            color: Theme.seal;
+                            wrap: word-wrap;
                         }
                     }
                 }
@@ -3371,6 +3461,14 @@ export component SettingsPage inherits Rectangle {
                                     text: @tr("No copy here yet: it synced somewhere else");
                                     font-size: Theme.small;
                                     color: Theme.graphite;
+                                    overflow: elide;
+                                }
+                                if device.problem != "": Text {
+                                    text: device.refused
+                                        ? @tr("Its copy wasn't used (found {}): {}", device.problem-at, device.problem)
+                                        : @tr("Its copy couldn't be read (found {}): {}", device.problem-at, device.problem);
+                                    font-size: Theme.small;
+                                    color: Theme.seal;
                                     overflow: elide;
                                 }
                             }

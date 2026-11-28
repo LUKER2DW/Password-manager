@@ -10,6 +10,11 @@ export enum Panel { detail, editor, generator, settings, kit, transfer, authenti
 export struct DeviceLine {
     name: string,
     away: bool,
+    // Its copy couldn't be used (SYNC.md §8): why, and when that was found ("" when it could).
+    problem: string,
+    problem-at: string,
+    // Read but refused (otherwise it couldn't be read).
+    refused: bool,
 }
 
 // A browser the extension can be added to (Settings → Browser extension), and whether it is
@@ -65,6 +70,16 @@ export struct GeneratedRow {
     password: string, // filled only while shown
     site: string,     // the site it was made for, "" when made in the app
     date: string,
+}
+
+// One line of the security log (Settings → Security, newest first; the phone's too). `kind` is
+// one of vault_platform::security_log::kind; `kind == 0` is an entry that couldn't be read.
+export struct SecurityLine {
+    kind: int,
+    at: string,
+    site: string,
+    title: string,
+    detail: string,
 }
 
 // One problem found by the password health check.
@@ -199,6 +214,62 @@ export global ItemLock {
 }
 
 export global Messages {
+    // The secure desktop's prompt (vault_platform::secure_desktop), drawn by Windows, not
+    // Slint: 0 its title, 1 what it is, 2 its keys.
+    public pure function secure-prompt(part: int) -> string {
+        if (part == 0) { return @tr("Master password"); }
+        if (part == 1) { return @tr("Vault switched to a desktop of its own, where other programs can't see the keys you type or the screen. Type your master password. Your desktop comes back right after."); }
+        if (part == 2) { return @tr("Enter unlocks · Esc goes back without unlocking · after 2 minutes it goes back by itself"); }
+        return "";
+    }
+
+    // What a security log entry says (SecurityLine): what happened, then where.
+    public pure function security-event(kind: int, detail: string) -> string {
+        if (kind == 0) { return @tr("An entry that couldn't be read: it was altered, or written with another key"); }
+        if (kind == 1 && detail == "device") { return @tr("Unlocked without the master password (Windows Hello or fingerprint)"); }
+        if (kind == 1 && detail == "recovery") { return @tr("Unlocked with the emergency kit's recovery parts, and a new master password set"); }
+        if (kind == 1) { return @tr("Unlocked with the master password"); }
+        if (kind == 2 && detail == "device") { return @tr("An unlock without the master password failed"); }
+        if (kind == 2 && detail == "recovery") { return @tr("Recovery with the emergency kit failed: wrong parts"); }
+        if (kind == 2) { return @tr("A wrong master password was typed"); }
+        if (kind == 3 && detail == "login") { return @tr("The browser extension filled a login"); }
+        if (kind == 3 && detail == "password") { return @tr("The browser extension had a password copied"); }
+        if (kind == 3 && detail == "username") { return @tr("The browser extension had a username copied"); }
+        if (kind == 3 && detail == "code") { return @tr("The browser extension was given a one-time code"); }
+        if (kind == 3 && detail == "passkey") { return @tr("The browser extension signed in with a passkey"); }
+        if (kind == 3 && detail == "shown") { return @tr("The browser extension showed a password in its window"); }
+        if (kind == 3) { return @tr("The browser extension was given an item's details"); }
+        if (kind == 4 && detail == "update") { return @tr("The browser extension changed a login's password"); }
+        if (kind == 4 && detail == "passkey") { return @tr("The browser extension saved a passkey"); }
+        if (kind == 4) { return @tr("The browser extension saved a login"); }
+        if (kind == 5 && detail == "code") { return @tr("The browser extension was given a one-time code while the vault was locked"); }
+        if (kind == 5 && detail == "password") { return @tr("The browser extension had a password copied while the vault was locked"); }
+        if (kind == 5) { return @tr("The browser extension filled a login while the vault was locked"); }
+        if (kind == 6) { return @tr("The vault was exported ({})", detail); }
+        if (kind == 7) { return @tr("The emergency kit was shown"); }
+        if (kind == 8) { return @tr("The emergency kit was saved as a file"); }
+        if (kind == 9) { return @tr("The emergency kit was printed"); }
+        if (kind == 10) { return @tr("A device joined the sync: {}", detail); }
+        if (kind == 11) { return @tr("A device was removed from the sync: {}", detail); }
+        if (kind == 12 && detail == "taken") { return @tr("The vault key renewed on another device was taken here"); }
+        if (kind == 12) { return @tr("The vault key was renewed"); }
+        if (kind == 13) { return @tr("The log was cleared: what came before is gone"); }
+        if (kind == 14 && detail == "key") { return @tr("The log started again: its key had been replaced, so what was written to it since couldn't be read"); }
+        if (kind == 14) { return @tr("The log started again: the one before couldn't be read"); }
+        if (kind == 15) { return @tr("The master password was changed"); }
+        if (kind == 16 && detail == "password") { return @tr("Autofill filled a password"); }
+        if (kind == 16) { return @tr("Autofill filled a login"); }
+        if (kind == 17) { return @tr("A passkey signed in"); }
+        return @tr("Something this version of the app doesn't know");
+    }
+
+    // Where a security log entry happened: the site and the item, when it has them.
+    public pure function security-where(site: string, title: string) -> string {
+        if (site != "" && title != "") { return @tr("{} on {}", title, site); }
+        if (site != "") { return site; }
+        return title;
+    }
+
     // The notification area icon and its menu.
     out property <string> tray-tooltip: @tr("Vault");
     // What Explorer calls a .vault file (its "Type" column).
@@ -298,6 +369,7 @@ export global Messages {
         if (code == 92) { return @tr("The Secret Key kept on this computer couldn't be read just now ({}). Try again, or type it from your emergency kit.", detail); }
         if (code == 93) { return @tr("Tags are separated by commas: at most 32, each up to 40 characters."); }
         if (code == 94) { return @tr("Type the expiry date as year-month-day, for example 2027-03-31."); }
+        if (code == 95) { return @tr("The secure desktop couldn't be shown ({}). Type the master password in the field instead.", detail); }
         return @tr("Something went wrong: {}", detail);
     }
 
@@ -422,7 +494,10 @@ export global Messages {
         if (code == 53) { return @tr("{} items were changed here and on another device. The newer version was kept, and the other password is in each item's history.", arg); }
         if (code == 54) { return @tr("{} items were changed here and on another device, behind the item lock. Open the item lock to keep both passwords; until then this computer keeps its own version.", arg); }
         if (code == 55) { return @tr("The master password, keyfile or Recovery Key was changed on another device. Use that one the next time you unlock."); }
-        if (code == 56) { return @tr("A copy in the sync folder was not used: {}. It may be an older copy put back, or come from a device that was removed.", arg); }
+        if (code == 56 && arg == "") { return @tr("A copy from a device not in this vault's list was not used. It may be an older copy put back, or come from a device that was removed."); }
+        if (code == 56) { return @tr("The copy from {} was not used. It may be an older copy put back, or come from a device that was removed. Settings → Sync says why.", arg); }
+        if (code == 134 && arg == "") { return @tr("A copy from a device not in this vault's list couldn't be read."); }
+        if (code == 134) { return @tr("The copy from {} couldn't be read. Settings → Sync says why.", arg); }
         if (code == 58) { return @tr("This computer joined the server. The vault syncs through it from now on."); }
         if (code == 59) { return @tr("{} was removed. Every device refuses its copies from its next sync; it keeps only what it already had, which opens only with your master password and Secret Key.", arg); }
         if (code == 57) { return @tr("This computer was removed from the vault on another device, so it no longer syncs."); }

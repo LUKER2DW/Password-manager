@@ -32,6 +32,7 @@ use vault_platform::{
     part_picture,
     quick_unlock::{self, DeviceVerifier, QuickUnlockError},
     secret_store::{self, Kept, Loaded},
+    security_log,
 };
 use zeroize::Zeroizing;
 
@@ -57,6 +58,7 @@ mod navigation;
 mod passwords;
 mod protection;
 mod renew;
+mod security;
 mod syncing;
 mod toolbar;
 mod updates;
@@ -210,6 +212,8 @@ mod error {
     /// The editor's tags or expiry date (format v11) can't be kept as typed.
     pub const BAD_TAGS: i32 = 93;
     pub const BAD_EXPIRY: i32 = 94;
+    /// The secure desktop couldn't be shown (detail: what Windows said).
+    pub const SECURE_DESKTOP: i32 = 95;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -348,6 +352,8 @@ mod notice {
     /// (that device's app does); the argument names the device.
     pub const SYNC_NEWER_FORMAT: i32 = 132;
     pub const SYNC_OLDER_FORMAT: i32 = 133;
+    /// Another device's copy couldn't be read (arg: its name, empty when not in the list).
+    pub const SYNC_UNREADABLE: i32 = 134;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -557,6 +563,8 @@ struct State {
     /// Onboarding step 2 shows the kit; the vault opens when the user confirms.
     pending: Option<Session>,
     summaries: Vec<vault_core::ItemSummary>,
+    /// How many lines of the security log Settings shows (more with "Show more").
+    security_log_shown: usize,
     /// Set whenever the vault changes; the next list refresh decrypts the summaries again.
     summaries_stale: bool,
     visible: Vec<ItemId>,
@@ -794,6 +802,7 @@ impl Controller {
                 vault_open: false,
                 unsaved: false,
                 summaries: Vec::new(),
+                security_log_shown: 0,
                 summaries_stale: true,
                 visible: Vec::new(),
                 selected: None,
@@ -899,6 +908,7 @@ impl Controller {
         app.set_update_checks(controller.state.borrow().settings.update_checks);
         app.set_update_install(controller.state.borrow().settings.update_install);
         app.set_sidebar_hidden(controller.state.borrow().settings.sidebar_hidden);
+        app.set_secure_desktop(controller.state.borrow().settings.secure_desktop);
         let language = controller.state.borrow().settings.language.clone();
         crate::i18n::apply(&language);
         app.set_language(crate::i18n::choice_of(&language));
@@ -1123,6 +1133,9 @@ impl Controller {
         on!(on_forget_pairing, |c| c.forget_pairing());
         on!(on_sync_choose, |c| c.sync_choose());
         on!(on_sync_now, |c| c.sync_round());
+        on!(on_security_log_show_more, |c| c.security_log_more());
+        on!(on_secure_unlock, |c| c.secure_unlock());
+        on!(on_security_log_clear, |c| c.clear_security_log());
         on!(on_sync_stop, |c| c.sync_stop());
         on!(on_sync_join_server, |c| c.sync_join_server());
         on!(on_sync_use_webdav, |c| c.sync_use_webdav());
@@ -1537,6 +1550,7 @@ impl Controller {
                     app.set_gen_words(words);
                     self.remember_generator_prefs(self.current_generator_prefs());
                 }
+                security::started(&session.vault);
                 self.clear_secret(field::MASTER);
                 self.clear_secret(field::CONFIRM);
                 self.state.borrow_mut().suggestion = None;
@@ -1748,8 +1762,10 @@ impl Controller {
                         self.notify(notice::KDF_CHANGED, &shown);
                     }
                 } else if had_quick_unlock {
+                    self.log_now(security_log::kind::PASSWORD_CHANGED, "");
                     self.notify(notice::PASSWORD_CHANGED_HELLO_OFF, "");
                 } else {
+                    self.log_now(security_log::kind::PASSWORD_CHANGED, "");
                     self.notify(notice::PASSWORD_CHANGED, "");
                 }
             }
@@ -1785,6 +1801,10 @@ impl Controller {
             }
             JobResult::KitVerified { session } => {
                 self.clear_secret(field::CURRENT);
+                security::note(
+                    &session.vault.id_hex(),
+                    &security_log::Event::new(security_log::kind::KIT_SHOWN, view::now_unix()),
+                );
                 show_kit_keys(&app, &session.vault, &session.secret_key);
                 clear_kit_parts(&app);
                 self.state.borrow_mut().session = Some(session);
@@ -1798,6 +1818,10 @@ impl Controller {
             } => self.key_renewed(session, parts, former, not_kept),
             JobResult::PartsIssued { session, parts } => {
                 self.clear_secret(field::CURRENT);
+                security::note(
+                    &session.vault.id_hex(),
+                    &security_log::Event::new(security_log::kind::KIT_SHOWN, view::now_unix()),
+                );
                 show_kit_keys(&app, &session.vault, &session.secret_key);
                 show_kit_parts(&app, &parts);
                 app.set_vault_recovery(2);
@@ -2150,6 +2174,7 @@ impl Controller {
                 Ok(vault) => {
                     let seconds = started.elapsed().as_secs_f64();
                     let _ = quick_unlock::record_password_unlock(&vault);
+                    security::unlocked(&vault, security_log::how::PASSWORD);
                     if let Some((_, path)) = &keyfile {
                         // It worked: this device remembers where the file is.
                         let _ = vault_platform::keyfile::remember_path(&vault.id_hex(), Some(path));
@@ -2165,7 +2190,9 @@ impl Controller {
                         seconds: Some(seconds),
                     }
                 }
-                Err(CoreError::DecryptionFailed) => JobResult::UnlockFailed {
+                Err(CoreError::DecryptionFailed) => {
+                    security::failed(&vault_id, security_log::how::PASSWORD);
+                    JobResult::UnlockFailed {
                     code: if keyfile.is_some() {
                         error::WRONG_WITH_KEYFILE
                     } else {
@@ -2173,7 +2200,8 @@ impl Controller {
                     },
                     detail: String::new(),
                     vault_id,
-                },
+                    }
+                }
                 Err(other) => JobResult::Failed {
                     code: error::OTHER,
                     detail: other.to_string(),
@@ -2374,7 +2402,12 @@ impl Controller {
                     With::Key(key) => (Unlock::Recovery(key), error::RECOVERY_KEY),
                 };
                 let mut vault = Vault::open(&bytes, unlock).map_err(|e| match e {
-                    CoreError::DecryptionFailed => (wrong, String::new()),
+                    CoreError::DecryptionFailed => {
+                        if let Ok(info) = Vault::inspect(&bytes) {
+                            security::failed(&info.id_hex, security_log::how::RECOVERY);
+                        }
+                        (wrong, String::new())
+                    }
                     CoreError::NoMatchingSlot if wrong == error::PARTS_WRONG => {
                         (error::NO_PARTS, String::new())
                     }
@@ -2407,6 +2440,7 @@ impl Controller {
                 // The new password revoked any device unlock; drop its file too.
                 quick_unlock::forget(&vault.id_hex());
                 let _ = quick_unlock::record_password_unlock(&vault);
+                security::unlocked(&vault, security_log::how::RECOVERY);
                 Ok(JobResult::Recovered {
                     session: Session {
                         vault,
@@ -2496,6 +2530,7 @@ impl Controller {
                 Err(QuickUnlockError::Failed(detail)) => {
                     // Windows Hello said no (or its chip is locked after wrong PINs): a failed
                     // try, counted like a wrong master password.
+                    security::failed(&id, security_log::how::DEVICE);
                     return JobResult::UnlockFailed {
                         code: error::HELLO_FAILED,
                         detail,
@@ -2505,6 +2540,7 @@ impl Controller {
             };
             match Vault::open_with_device(&bytes, &secret, &sealed) {
                 Ok(vault) if quick_unlock::password_is_recent(&vault) => {
+                    security::unlocked(&vault, security_log::how::DEVICE);
                     // Windows Hello holds the vault key itself; the keyfile is only needed
                     // later, to check or change the master password.
                     let keyfile = vault
@@ -5011,6 +5047,7 @@ impl Controller {
         let settings = self.state.borrow().settings.clone();
         app.set_auto_lock_minutes(settings.auto_lock_minutes as i32);
         app.set_lock_with_windows(settings.lock_with_windows);
+        app.set_secure_desktop(settings.secure_desktop);
         app.set_clipboard_seconds(settings.clipboard_clear_seconds as i32);
         app.set_website_icons(settings.website_icons);
         app.set_leak_watch(settings.leak_watch);
@@ -5035,6 +5072,8 @@ impl Controller {
         self.show_extension_browsers();
         self.show_extension_source();
         self.show_vault_settings();
+        self.state.borrow_mut().security_log_shown = 0;
+        self.show_security_log();
         hide_kit_keys(&app);
         clear_kit_parts(&app);
         app.set_panel(Panel::Settings);
@@ -5472,7 +5511,10 @@ impl Controller {
         };
         let Some(target) = target else { return };
         match std::fs::write(&target, text.as_slice()) {
-            Ok(()) => self.notify(notice::EXPORTED, &target.display().to_string()),
+            Ok(()) => {
+                self.log_now(security_log::kind::EXPORTED, extension);
+                self.notify(notice::EXPORTED, &target.display().to_string());
+            }
             Err(err) => self.set_error(error::FILE, &err.to_string()),
         }
     }
@@ -5558,6 +5600,7 @@ impl Controller {
                     self.set_error(error::OTHER, &err.to_string());
                     return;
                 }
+                self.log_now(security_log::kind::KIT_PRINTED, "");
                 self.notify(notice::KIT_OPENED, protected);
             }
             Err(err) => self.set_error(error::FILE, &err.to_string()),
@@ -5591,7 +5634,10 @@ impl Controller {
             return;
         }
         match write_kit_file(&path, &bytes, &self.app().get_kit_pdf_password()) {
-            Ok(()) => self.notify(notice::KIT_SAVED, &path.display().to_string()),
+            Ok(()) => {
+                self.log_now(security_log::kind::KIT_SAVED, "");
+                self.notify(notice::KIT_SAVED, &path.display().to_string());
+            }
             Err(err) => self.set_error(error::FILE, &format!("{err:#}")),
         }
     }
@@ -5825,6 +5871,7 @@ impl Controller {
             backdrop: app.get_backdrop_on(),
             update_install: app.get_update_install(),
             sidebar_hidden: app.get_sidebar_hidden(),
+            secure_desktop: app.get_secure_desktop(),
         };
         app.global::<Theme>()
             .set_backdrop(i32::from(settings.backdrop));

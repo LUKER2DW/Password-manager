@@ -2,7 +2,7 @@ import { Theme, Sketch, Secrets } from "theme.slint";
 // The monospace font, built in (see Theme.mono-font).
 import "fonts/JetBrainsMono-Regular.ttf";
 import "fonts/JetBrainsMono-SemiBold.ttf";
-import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock } from "model.slint";
+import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock, SecurityLine } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList, VaultMark } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage, UpdateCard } from "pages.slint";
@@ -13,7 +13,7 @@ import { NewPassword } from "review.slint";
 // A second window: the notification area icon's menu (src/tray.rs).
 export { TrayMenu } from "tray.slint";
 
-export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock, NewPassword }
+export { Theme, Sketch, Secrets, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock, NewPassword, SecurityLine }
 
 // Confirmation messages ("Copied", "Saved"): bottom-right, out of the way of page content.
 component Notice inherits Rectangle {
@@ -710,6 +710,15 @@ export component AppWindow inherits Window {
     in property <string> sync-setup-error;
     in property <bool> sync-busy;
     in property <[DeviceLine]> sync-others;
+    // Settings → Security: the master password on a secure desktop (and the unlock screen's
+    // link to it).
+    in-out property <bool> secure-desktop;
+    callback secure-unlock();
+    // Settings → Security → Security log.
+    in property <[SecurityLine]> security-log;
+    in property <int> security-log-more;
+    callback security-log-show-more();
+    callback security-log-clear();
     in-out property <int> sync-removing: -1;
     in property <string> sync-invite;
     in property <image> sync-invite-qr;
@@ -1288,6 +1297,8 @@ export component AppWindow inherits Window {
         needs-keyfile: root.needs-keyfile;
         keyfile-path: root.keyfile-path;
         choose-keyfile => { root.choose-keyfile(); }
+        secure-desktop: root.secure-desktop;
+        secure-unlock => { root.secure-unlock(); }
         vault-path: root.vault-path;
         quick-available: root.quick-unlock-available;
         quick-unlock: root.quick-unlock-on;
@@ -1670,6 +1681,11 @@ export component AppWindow inherits Window {
                 sync-setup-error: root.sync-setup-error;
                 sync-busy: root.sync-busy;
                 sync-others: root.sync-others;
+                secure-desktop <=> root.secure-desktop;
+                security-log: root.security-log;
+                security-log-more: root.security-log-more;
+                security-log-show-more => { root.security-log-show-more(); }
+                security-log-clear => { root.security-log-clear(); }
                 sync-removing <=> root.sync-removing;
                 sync-invite: root.sync-invite;
                 sync-backup: root.sync-backup;
