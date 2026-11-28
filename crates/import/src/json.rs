@@ -191,7 +191,8 @@ pub(crate) fn import_json(bytes: &[u8]) -> Result<ImportReport, ImportError> {
             1 => ItemKind::Login,
             3 => ItemKind::Card,
             5 => ItemKind::SshKey,
-            2 | 4 => ItemKind::SecureNote,
+            4 => ItemKind::Identity,
+            2 => ItemKind::SecureNote,
             other => {
                 report.warnings.push(format!(
                     "\"{title}\": unknown item type {other}, imported as a note"
@@ -314,16 +315,23 @@ pub(crate) fn import_json(bytes: &[u8]) -> Result<ImportReport, ImportError> {
             );
         }
 
-        for (map, sensitive_keys) in [(
-            source.identity,
-            &["ssn", "passportNumber", "licenseNumber"][..],
-        )] {
-            for (key, value) in map.into_iter().flatten() {
-                if let Value::String(text) = value {
-                    let sensitive = sensitive_keys.contains(&key.as_str());
-                    push_field(&mut item, &humanize(&key), Some(text), sensitive);
+        let mut name: Vec<String> = Vec::new();
+        for (key, value) in source.identity.into_iter().flatten() {
+            if let Value::String(text) = value {
+                if matches!(key.as_str(), "firstName" | "middleName" | "lastName")
+                    && !text.trim().is_empty()
+                {
+                    name.push(text.trim().to_owned());
                 }
+                let (field, sensitive) = identity_field(&key);
+                push_field(&mut item, &field, Some(text), sensitive);
             }
+        }
+        if item.kind == ItemKind::Identity {
+            if item.username.is_empty() {
+                item.username = name.join(" ");
+            }
+            vault_core::identity::tidy(&mut item);
         }
 
         for field in source.fields.unwrap_or_default() {
@@ -497,6 +505,57 @@ fn push_field(item: &mut ItemData, name: &str, value: Option<String>, sensitive:
 }
 
 /// `passportNumber` → `Passport number`
+/// The field an identity's detail in the common layout becomes: one of this app's own details
+/// (`vault_core::identity`) when there is one, else its key in words. Document numbers hidden.
+fn identity_field(key: &str) -> (String, bool) {
+    use vault_core::identity as id;
+    let own = match key {
+        "email" => Some(id::EMAIL),
+        "phone" => Some(id::PHONE),
+        "address1" => Some(id::ADDRESS),
+        "city" => Some(id::CITY),
+        "state" => Some(id::REGION),
+        "postalCode" => Some(id::POSTAL_CODE),
+        "country" => Some(id::COUNTRY),
+        "company" => Some(id::COMPANY),
+        "ssn" => Some(id::ID_NUMBER),
+        "passportNumber" => Some(id::PASSPORT),
+        "licenseNumber" => Some(id::DRIVING_LICENCE),
+        _ => None,
+    };
+    match own {
+        Some(name) => (
+            name.to_owned(),
+            id::FIELDS
+                .iter()
+                .any(|(field, hidden)| *field == name && *hidden),
+        ),
+        None => (humanize(key), false),
+    }
+}
+
+/// The common layout's key for one of this app's identity details (`identity_field` the
+/// other way).
+pub(crate) fn identity_key(name: &str) -> Option<&'static str> {
+    use vault_core::identity as id;
+    [
+        ("email", id::EMAIL),
+        ("phone", id::PHONE),
+        ("address1", id::ADDRESS),
+        ("city", id::CITY),
+        ("state", id::REGION),
+        ("postalCode", id::POSTAL_CODE),
+        ("country", id::COUNTRY),
+        ("company", id::COMPANY),
+        ("ssn", id::ID_NUMBER),
+        ("passportNumber", id::PASSPORT),
+        ("licenseNumber", id::DRIVING_LICENCE),
+    ]
+    .into_iter()
+    .find(|(_, field)| field.eq_ignore_ascii_case(name))
+    .map(|(key, _)| key)
+}
+
 fn humanize(key: &str) -> String {
     let mut out = String::with_capacity(key.len() + 4);
     for (i, c) in key.chars().enumerate() {

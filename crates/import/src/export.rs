@@ -239,11 +239,17 @@ fn document(vault: &Vault, sealed: bool) -> Result<Zeroizing<String>, vault_core
         };
         let public = ssh_field(vault_core::ssh::PUBLIC_KEY_FIELD);
         let fingerprint = ssh_field(vault_core::ssh::FINGERPRINT_FIELD);
+        // An identity's own details go in its identity block.
+        let own_detail = |name: &str| {
+            item.kind == ItemKind::Identity && crate::json::identity_key(name).is_some()
+        };
         let mut fields: Vec<Value> = item
             .custom_fields
             .iter()
             .enumerate()
-            .filter(|(at, _)| Some(*at) != public && Some(*at) != fingerprint)
+            .filter(|(at, f)| {
+                Some(*at) != public && Some(*at) != fingerprint && !own_detail(&f.name)
+            })
             .map(
                 |(_, f)| json!({ "name": f.name, "value": f.value, "type": u8::from(f.sensitive) }),
             )
@@ -260,6 +266,7 @@ fn document(vault: &Vault, sealed: bool) -> Result<Zeroizing<String>, vault_core
                 ItemKind::SecureNote => 2,
                 ItemKind::Card => 3,
                 ItemKind::SshKey => 5,
+                ItemKind::Identity => 4,
             },
             "reprompt": u8::from(item.reprompt),
             "name": item.title,
@@ -290,6 +297,26 @@ fn document(vault: &Vault, sealed: bool) -> Result<Zeroizing<String>, vault_core
                     "cardholderName": item.username,
                     "code": (!item.password.is_empty()).then_some(&item.password),
                 });
+            }
+            ItemKind::Identity => {
+                let mut block = serde_json::Map::new();
+                let (first, last) = item
+                    .username
+                    .trim()
+                    .split_once(' ')
+                    .map_or((item.username.trim(), ""), |(f, l)| (f, l.trim()));
+                if !first.is_empty() {
+                    block.insert("firstName".into(), json!(first));
+                }
+                if !last.is_empty() {
+                    block.insert("lastName".into(), json!(last));
+                }
+                for field in &item.custom_fields {
+                    if let Some(key) = crate::json::identity_key(&field.name) {
+                        block.insert(key.into(), json!(field.value));
+                    }
+                }
+                entry["identity"] = Value::Object(block);
             }
             ItemKind::SshKey => {
                 let value = |at: Option<usize>| at.map(|at| &item.custom_fields[at].value);
@@ -549,7 +576,7 @@ pub fn export_report(
         };
         let kind_changes = match item.kind {
             ItemKind::Passkey => !sealed,
-            ItemKind::Card | ItemKind::SshKey => csv,
+            ItemKind::Card | ItemKind::SshKey | ItemKind::Identity => csv,
             ItemKind::Login | ItemKind::SecureNote => false,
         };
         let out = &mut report.left_out;
