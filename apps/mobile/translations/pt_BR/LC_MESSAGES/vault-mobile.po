@@ -4127,3 +4127,11 @@ msgstr "Abra primeiro os segredos do item (o bloqueio de itens) e depois decida.
 msgctxt "Messages"
 msgid "That isn't a site: type its address, such as example.com."
 msgstr "Isso não é um site: digite o endereço dele, como example.com."
+
+msgctxt "Messages"
+msgid "A strong password for “{}” is ready, and the site's page for changing it is open. On its new-password field the browser extension offers that password; after you send the form, it offers to update the login here."
+msgstr "Uma senha forte para “{}” está pronta, e a página do site para trocá-la está aberta. No campo de nova senha, a extensão do navegador oferece essa senha; depois que você enviar o formulário, ela oferece atualizar o login aqui."
+
+msgctxt "Messages"
+msgid "The site's page for changing the password of “{}” is open. Turn on the browser extension (Settings → Browser extension) and it offers a strong password there and updates the login; or edit the login here after you change it."
+msgstr "A página do site para trocar a senha de “{}” está aberta. Ative a extensão do navegador (Configurações → Extensão do navegador) e ela oferece uma senha forte lá e atualiza o login; ou edite o login aqui depois de trocar."
