@@ -183,7 +183,10 @@ The extension holds no secrets. `origin.rs` decides which saved website belongs 
 (exact scheme, host and port; https only) and which site a page may use passkeys for,
 `lookalike.rs` which saved site a page only looks like (from the vault's own sites, offline)
 and how a host is shown (punycode when it mixes scripts), `kit.rs` the emergency kit's keys
-recognised in what a page sends, `protocol.rs` is the JSON it exchanges with the
+recognised in what a page sends, `rules.rs` the person's rules per site (never save, no card,
+never fill, no passkeys, the payment frames allowed; kept in the device state),
+`resources.rs` where a site changes its password and its password rules (the pinned
+`password-manager-resources` lists in `data/`, MIT), `protocol.rs` is the JSON it exchanges with the
 app (and the oldest extension the app answers, `MIN_EXTENSION_VERSION`: every sealed request
 names the extension's version), `pairing.rs` is the connection key and the sealing of every
 request and answer, `service.rs` answers
@@ -192,7 +195,9 @@ between the browser and the app's pipe, run by the desktop app's own executable 
 starts it with the extension's origin (`apps/desktop/src/main.rs`). In `apps/extension/`,
 `popup.js` is the extension's window (its views and their rules in `popup/`), `link.js` its connection key (agreed with the app by
 ECDH), the sealing of each request and the opening of each answer, and
-`fill.js` the function that types a login into a page, `content.js` + `fields.js` the
+`fill.js` the function that types a login into a page, `card-fill.js` and `cards.js` the
+payment fields and the cards typed into them (another site's frames only once approved),
+`signals.js` a site's WebAuthn Signal API calls, `content.js` + `fields.js` the
 content script (sign-in fields, submitted forms, a password pasted, the warnings), `kit.js` the
 emergency kit's keys refused in every page (every frame, at `document_start`), `agent.js`
 whether an AI agent or a program drives the browser (then nothing is shown in pages),
@@ -204,7 +209,7 @@ extension reloading itself into the newer version the app wrote into its folder.
 (the relay), `passkey-worker.js` (the worker's side) and `passkey.html`/`passkey.js` (the window
 where the person chooses). See
 [apps/extension/README.md](apps/extension/README.md). Tests: `cargo test -p vault-browser` and
-`node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs apps/extension/test/kit.test.mjs`.
+`node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs apps/extension/test/kit.test.mjs apps/extension/test/cards.test.mjs`.
 
 Rules for this part: UI in a page only as the extension's own frame (`inline.html`, at the
 session's address `chrome.runtime.getURL` gives), never as page DOM, and every click there goes
@@ -235,6 +240,9 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/updates.rs` | Updates: GitHub's newest release, looked for every hour (Settings → About → Look for updates by itself) and on Check for updates; a newer one installs itself (Install updates by itself, or Install now: `vault_platform::self_update`), each step shown in the title bar and About, then Restart now or Later |
 | `src/controller/toolbar.rs` | The title bar's toolbar: the sidebar hidden or shown (device setting), search from anywhere (Ctrl+F), the vault's name and its icon on this computer (device state), the alerts (marked as read for a week, by count, in device state) and Windows' own notification of new leaks |
 | `src/controller/security.rs` | The security log (what is recorded, Settings → Security → Security log) and the unlock screen's secure desktop |
+| `src/controller/site_rules.rs` | Settings → Browser extension → Site rules |
+| `src/controller/weigh.rs` | A new password weighed: reused in the vault, or known leaked (leak watch on) |
+| `src/controller/signals.rs` | What sites said of passkeys (the Signal API), for the person to decide on the item page |
 | `src/tray.rs` | The notification area icon (tray mode) and its menu window (`ui/tray.slint`) |
 | `src/i18n.rs` | The app's language: picks a compiled-in catalogue from `translations/` |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
@@ -366,7 +374,7 @@ cargo run -p vault-mobile                                  # the phone app in a 
 cargo run -p vault-mobile --example phone_screens -- target/phone-screens   # its screens as PNGs
 cargo run -p vault-cli -- --help                           # the `vault` command
 cargo run -p vault-server -- serve                         # a sync server (docs/SERVER.md)
-node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs apps/extension/test/kit.test.mjs
+node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs apps/extension/test/kit.test.mjs apps/extension/test/cards.test.mjs
 ```
 
 Fuzzing needs a nightly toolchain and `cargo install cargo-fuzz` (on Windows, see

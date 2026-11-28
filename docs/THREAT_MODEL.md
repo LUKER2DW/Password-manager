@@ -333,6 +333,35 @@ On top of that:
   extension controls it and can take it back). It reads and changes no other setting. Two
   password managers offering to save the same login invite saving it in the browser's store,
   which an infostealer reads more easily than the vault.
+- **Cards in pages** (F5): a card leaves the app only for a pick in the card under a payment
+  field (its click check) or in the extension's window, after the item lock's check when it
+  is locked or every use asks, and is typed only into documents the worker chose: the tab's
+  own origin, and a frame of another origin only when the person approved that frame's site
+  for the page's site (kept by the app with the site's rules, `card_frames`; a page can't set
+  it). Each document checks its own origin before typing (`card-fill.js`), and a sandboxed one
+  gets nothing. To find payment fields in frames the worker runs a reading script in all of
+  the tab's frames (`scripting`, already held, with the https host permission): no new
+  permission. A frame approved for a shop can read what it is given, which is why approval is
+  per frame site and per shop site, and named before it is given. Limit: an approved
+  provider's frame that is itself compromised gets the card, as it would get it typed.
+- **Site rules** (F16) are kept in the device state (`state.json`), not in the vault: they
+  name the sites given a rule, readable by anything running as the person (an infostealer
+  learns those sites, not a secret). The app enforces them before answering; the extension's
+  window may change them for the site in front (a stolen pairing could loosen one, but it can
+  already ask for anything the rules would refuse elsewhere), and each change from the browser
+  is told in the app.
+- **The save card's weighing** (F18): the app compares the new password with the vault's open
+  logins (counts only go back) and, only while the leak watch is on, asks the breach service
+  for the password's 5-character SHA-1 prefix, padded, as the leak check does; each prefix's
+  answer stays in memory a few minutes. The editor does the same once typing pauses, so a
+  prefix of a password still being typed may be asked.
+- **Icons in the extension's window**: handed over by the app as `data:` PNGs from its sealed
+  cache, only while Website icons is on; the window's policy allows `data:` images for this
+  (`img-src 'self' data:`), no script or network source.
+- **The Signal API** (F23): what a page says of passkeys is only noted; nothing is removed or
+  renamed until the person chooses on the item's page, and only passkeys of the site the page
+  may speak for are concerned. A page learns nothing back. At most 10 signals a minute per
+  tab reach the app.
 - **Passkeys** (extension 0.4): a script in each https page's own world (top frame only)
   stands in front of `navigator.credentials` and passes a passkey request, as plain data, to the
   extension. It needs no new permission, and holds nothing of the vault: it gets back only

@@ -937,7 +937,18 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
 - ⬜ F3. Health without the network: two-factor available, saved without HTTPS, passkey
   available, card expiring.
 - ⬜ F4. Username generator: plus-addressed email, a domain's catch-all, random words.
-- ⬜ F5. Cards and addresses filled in the browser (payment fields in another site's frame).
+- ✅ F5. Cards filled in the browser (`cards`, `card_fill`): payment fields found by `cc-*`
+  autofill marks and common names (`card-fill.js`, `fields.js`), the vault's cards offered
+  under a payment field and in the extension's window (brand, last four, holder, expiry;
+  never a number), each fill through the item lock and the per-use check, typed field by
+  field (expiry joined or split, selects, two or four digits as the field shows). Frames: the
+  page's own origin fills; a frame of another site (a payment provider's) only once the person
+  approved that frame's site for the page's site, in the card (click check) or the window,
+  kept by the app with the site's rules (`card_frames`, F16) and shown in Settings; a frame of
+  a site not approved is named, never filled; sandboxed documents get nothing (`cards.js`,
+  S22's rule on the extension side). ⬜ Addresses: wait for identity items (F7); the hook is
+  `card-fill.js`'s field kinds and a request of their own beside `card_fill`. ⬜ Tried in a
+  real Chrome on a checkout with an embedded provider's frame.
 - ⬜ F6. Unlock with a hardware key (challenge-response, or FIDO2 `hmac-secret`).
 - ✅ F7. Identity items (`ItemKind::Identity`, details as fields with fixed names,
   `vault_core::identity`, document numbers hidden; JSON import and export as the common
@@ -990,13 +1001,27 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
 - ⬜ F13. Sharing and emergency access (a written design first, `docs/spec/SHARING.md`).
 - ⬜ F14. Passkey provider for Windows 11.
 - ⬜ F15. Linux, macOS, and the CLI level with the apps.
-- ⬜ F16. Per-site rules: never offer to save, never show the card, never fill, no passkeys.
+- ✅ F16. Per-site rules: never offer to save, never show the card, never fill, no passkeys
+  (`vault_browser::rules`), for a host and the hosts under it, the most specific winning.
+  Kept per device in `state.json` (`device::SiteRule`), not in the vault: no format change in
+  this batch, so they don't sync (a later format version can carry them). The app refuses what
+  they forbid before answering, locked or not (`site_rule`), and names the rule in its
+  `logins` answer so the extension offers nothing it forbids. Set in Settings → Browser
+  extension → Site rules and from the extension's window for the site in front (`site_rule`,
+  told in the app).
 - ⬜ F17. More lock triggers and "lock everything": on minimising to the tray, hiding revealed
   text on losing focus, how often Windows Hello asks for the master password, Lock in the
   extension, a global shortcut, `--lock`.
-- ⬜ F18. The save card and the editor warn of a reused or leaked new password.
-- ⬜ F19. Help changing a password: `/.well-known/change-password`, and the change URLs and
-  password rules of the `password-manager-resources` lists, built in.
+- ✅ F18. The save card and the editor warn of a reused or leaked new password: reuse from the
+  vault's open logins (counts only), leaks through the leak check's k-anonymous range query
+  only while the leak watch is on, off the UI thread, each prefix's answer kept a few minutes
+  (`controller/weigh.rs`, `weigh`). The editor weighs leaks once typing pauses.
+- ✅ F19. Help changing a password: *Change password* on a login's item page and *Change on
+  the site* on health warnings open the site's page from the `password-manager-resources`
+  list, else its `/.well-known/change-password` (always https); the list's password rules
+  feed the generator for a field that says none (`password_rules`). The lists are pinned in
+  `crates/browser/data/password-manager-resources/` (MIT, notice kept, commit named in its
+  README), compiled in, never fetched (`vault_browser::resources`).
 - ✅ F20. Authenticator: five-character codes (`encoder=steam` or `otpauth://steam/`, the
   platform's name only where the person reads it), import from other authenticator apps
   (`otpauth-migration://` transfer payloads, `otpauth://` link lists and the common apps' JSON
@@ -1011,7 +1036,15 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   them with Restore (`Vault::restore_version`).
 - ✅ F22. Archived items: out of search, filling, the authenticator and health, not deleted;
   the Archive list on the desktop.
-- ⬜ F23. The WebAuthn Signal API: a site says a passkey is gone or its names changed.
+- ✅ F23. The WebAuthn Signal API: `signalUnknownCredential`, `signalAllAcceptedCredentials`
+  and `signalCurrentUserDetails` are wrapped in the page's world (the browser's own handler
+  still called), relayed and bounded (`signals.js`, 10 a minute per tab), and the app notes
+  them on the matching passkeys of the site the page may speak for (`passkey_signal`). The
+  item page says what the site said under the passkey, with *Remove it* / *Use this name* and
+  *Keep as it is*; nothing changes by itself. Notes live in memory while the app runs.
+- ✅ Website icons in the extension's window from the app's sealed cache (`icons`), only while
+  Website icons is on; the extension fetches nothing (the window's policy takes `data:`
+  images).
 - ⬜ F24. Show a password in large type.
 - ⬜ F25. A settings review on the health page, and "ignore this warning".
 - ⬜ F26. Quick access by a global shortcut (search, copy, type) and configurable shortcuts.
