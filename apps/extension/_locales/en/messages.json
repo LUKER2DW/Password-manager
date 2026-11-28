@@ -272,6 +272,12 @@
   "oldAppText": {
     "message": "The Vault app on this computer is older than this extension and didn't understand it. In Vault, open Settings, About, and choose Check for updates, then try again."
   },
+  "outdatedTitle": {
+    "message": "Update the extension"
+  },
+  "outdatedText": {
+    "message": "Vault accepts no extension this old, so it answers nothing it asks. In Vault, open Settings → Browser extension and choose Add to a browser: it writes the newest extension into its folder. Then reload the extension on the browser's extensions page, or restart the browser."
+  },
   "changedSinceTitle": {
     "message": "Not updated"
   },
@@ -529,6 +535,15 @@
   },
   "prefsPasskeysHint": {
     "message": "When a site makes or asks for a passkey, Vault offers its own: in a window of its own, or under the sign-in field when the site suggests passkeys there. Choose “Use another device” in the window for a phone or security key. Turned off, the browser handles passkeys as before."
+  },
+  "prefsAgent": {
+    "message": "An AI agent or a program is using this browser"
+  },
+  "prefsAgentHint": {
+    "message": "On, Vault shows nothing in web pages: no list under sign-in fields, no offer to save there, no passkeys among a field's suggestions. Fill, save and copy from this window instead, which asks as usual. What a page holds is within an agent's reach, and a page can hide instructions for it. Vault does this by itself when the browser says a program drives it."
+  },
+  "prefsAgentAutomated": {
+    "message": "This browser says a program is driving it: Vault shows nothing in pages, whatever this box says."
   },
   "lockButton": {
     "message": "Lock"

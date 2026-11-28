@@ -9,7 +9,9 @@
 // or `#save`, with `:up` when the card sits above the field, then `|` and the page's colour
 // scheme, then `|` and the offer: which field of the page the card was shown under. A login
 // picked here is typed into that field's form only (fill.js). The content script changes only
-// the first part when the card has to move above, which doesn't reload this page.
+// the first part when the card has to move above. The page sets this address at the browser's
+// address for this session (`use_dynamic_url`), which Chrome serves from the extension's own:
+// so the change loads this page again, and its click check starts over.
 //
 // Under a sign-in field, while the page waits for a field's suggestions (a passkey request
 // with `mediation: "conditional"`), the site's passkeys in Vault come first: picking one has
@@ -72,8 +74,14 @@ let hoveredSince = 0;
 document.addEventListener("pointermove", () => (hoveredSince ||= performance.now()), true);
 document.documentElement.addEventListener("pointerleave", () => (hoveredSince = 0));
 
+// While an AI agent or another program drives the browser (agent.js), the content script draws
+// no card; one drawn anyway (by a copy of it from before the extension was updated) takes no
+// click. The worker refuses its requests too.
+const driven = () => globalThis.VaultAgent?.driven() ?? true;
+
 function genuine(event) {
   const now = performance.now();
+  if (driven()) return false;
   if (!event.isTrusted || visibleSince === 0 || now - visibleSince < VISIBLE_FOR_MS) return false;
   const byMouse = event.detail > 0 && (event.pointerType ?? "mouse") === "mouse";
   return !byMouse || (hoveredSince > 0 && now - hoveredSince >= HOVERED_FOR_MS);

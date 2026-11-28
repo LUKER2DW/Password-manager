@@ -227,6 +227,7 @@ test("a role=button inside a form sends that form when it reads like a sign-in",
 // ---- content.js: when what was typed is read at all ----
 
 const CONTENT = readFileSync(new URL("../content.js", import.meta.url), "utf8");
+const AGENT = readFileSync(new URL("../agent.js", import.meta.url), "utf8");
 
 /** IntersectionObserverEntry as a browser that reports a frame's visibility has it (v2). */
 class VouchingEntry {
@@ -240,9 +241,13 @@ class VouchingEntry {
  * listeners, `submitted` is what reached the worker. `saves` is the extension's setting, as
  * stored (`held`: not read yet until `release()`). `vouches`: the browser reports whether the
  * frame is fully visible (Firefox doesn't). `waiting`: the request for a field's suggestions
- * that passkeys.js holds, if any.
+ * that passkeys.js holds, if any. `webdriver`: the browser says a program drives it; `agent`:
+ * the person said an agent uses it (agent.js).
  */
-async function contentScript(inputs, { saves = true, held = false, vouches = true, waiting, worker } = {}) {
+async function contentScript(
+  inputs,
+  { saves = true, held = false, vouches = true, waiting, worker, webdriver = false, agent = false } = {},
+) {
   const listeners = {};
   const toWorker = [];
   const fromWorker = [];
@@ -286,6 +291,7 @@ async function contentScript(inputs, { saves = true, held = false, vouches = tru
     getComputedStyle: () => ({ colorScheme: "normal", borderBottomWidth: "0", boxShadow: "none", backgroundColor: "transparent" }),
     IntersectionObserverEntry: vouches ? VouchingEntry : class {},
     VaultPasskeys: { waiting: () => waiting },
+    navigator: { webdriver },
     // A field's value as the browser's setter writes it (the fields here keep it as their own).
     HTMLInputElement: {
       prototype: Object.defineProperty({}, "value", {
@@ -313,12 +319,13 @@ async function contentScript(inputs, { saves = true, held = false, vouches = tru
         onMessage: { addListener: (listener) => fromWorker.push(listener) },
       },
       storage: {
-        local: { get: async (key) => read.then(() => ({ [key]: saves })) },
+        local: { get: async (key) => read.then(() => ({ [key]: key === "vaultAgent" ? agent : saves })) },
         onChanged: { addListener: (listener) => storage.push(listener) },
       },
     },
   };
   vm.createContext(sandbox);
+  vm.runInContext(AGENT, sandbox);
   vm.runInContext(SCRIPT, sandbox);
   vm.runInContext(CONTENT, sandbox);
   await settle();
@@ -330,6 +337,7 @@ async function contentScript(inputs, { saves = true, held = false, vouches = tru
     },
     tell: (message) => fromWorker.forEach((listener) => listener(message)),
     turn: (on) => storage.forEach((listener) => listener({ vaultSaves: { newValue: on } }, "local")),
+    agentTurn: (on) => storage.forEach((listener) => listener({ vaultAgent: { newValue: on } }, "local")),
     release: async () => {
       release();
       await settle();
@@ -611,4 +619,50 @@ test("a login sent to the wrong site and a key of the kit are said in the corner
   // Nothing else is shown on a word from the worker.
   content.tell({ kind: "warn", about: "anything" });
   assert.equal(content.appended.length, 3);
+});
+
+// ---- an AI agent or a program driving the browser (S28, agent.js) ----
+
+test("while an agent or a program drives the browser, nothing is drawn in the page; the window takes over", async () => {
+  for (const driven of [{ webdriver: true }, { agent: true }]) {
+    const { inputs, user, password } = signInForm();
+    const page = await contentScript(inputs, driven);
+    page.sandbox.document.activeElement = user;
+    page.fire("focusin", { target: user });
+    await settle();
+    assert.equal(page.appended.length, 0, `no card under the field: ${JSON.stringify(driven)}`);
+    // Asked only whether the page looks like a saved site, as where no card can be drawn.
+    const focused = page.toWorker.filter((message) => message.kind === "field-focused");
+    assert.ok(focused.length > 0 && focused.every((message) => message.framed === false));
+    // A login waiting to be saved: the toolbar button says so, not a card in the page.
+    page.tell({ kind: "offer-save" });
+    assert.equal(page.appended.length, 0, "no save card");
+    assert.ok(page.toWorker.some((message) => message.kind === "offer-waiting"));
+    // Warnings go to the button and the window too.
+    page.tell({ kind: "warn", about: "sent" });
+    page.fire("paste", { target: password, clipboardData: pastedText("pasted-pw") });
+    await settle();
+    assert.equal(page.appended.length, 0, "no warning drawn");
+  }
+});
+
+test("until it is known whether an agent drives the browser, nothing is drawn; turned on, the cards on screen go", async () => {
+  const { inputs, user } = signInForm();
+  const page = await contentScript(inputs, { held: true });
+  page.sandbox.document.activeElement = user;
+  page.fire("focusin", { target: user });
+  await settle();
+  assert.equal(page.appended.length, 0, "not read yet: nothing drawn");
+  await page.release();
+  page.fire("focusin", { target: user });
+  await settle();
+  assert.equal(page.appended.length, 1, "known, and no agent: the card");
+  const card = page.appended[0];
+  page.agentTurn(true);
+  assert.equal(card.removed, true, "turned on: the card goes at once");
+  page.tell({ kind: "offer-save" });
+  assert.equal(page.appended.length, 1, "and none comes");
+  page.agentTurn(false);
+  page.tell({ kind: "offer-save" });
+  assert.equal(page.appended.length, 2, "turned off: cards again");
 });

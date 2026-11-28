@@ -2,8 +2,9 @@
 //
 // Used by the extension's window and by its background worker. Every question except the
 // first "connect" is sealed with the connection key, and so is every answer (see link.js).
+// Each one names this extension's version: the app answers only one it accepts.
 
-import { loadKey, opened, seal } from "./link.js";
+import { extensionVersion, loadKey, opened, seal } from "./link.js";
 
 const HOST = "vault.desktop.browser_host";
 
@@ -24,16 +25,22 @@ export async function send(message) {
  * refusal as "not paired" is tried once more with a fresh counter before it is believed: the
  * extension then really is unknown to the app (it was disconnected there, or another vault is
  * open), and the caller offers to connect again. An app older than sealed questions answers
- * "not understood" (`bad_request`): the window says to update it.
+ * "not understood" (`bad_request`): the window says to update it. One that accepts no
+ * extension of this version answers `outdated_extension` (with the version it carries, which
+ * update.js reloads into when this copy came from the app's folder): the window says to update
+ * the extension.
+ *
+ * What is sealed is `{ version, request }` (crates/browser/src/protocol.rs `asked`).
  */
 export async function ask(request) {
   const key = await loadKey();
   if (!key) return { type: "error", code: "not_paired" };
-  let sent = await seal(key, request);
+  const text = { version: extensionVersion(), request };
+  let sent = await seal(key, text);
   let reply = await opened(key, sent, await send(sent.message));
   if (reply.code !== "not_paired") return heard(reply);
   await new Promise((done) => setTimeout(done, 120));
-  sent = await seal(key, request);
+  sent = await seal(key, text);
   return heard(await opened(key, sent, await send(sent.message)));
 }
 
@@ -92,6 +99,19 @@ export async function vaultSaves() {
 // while they are off; that is written down here as `vaultWarns`, so content.js reads nothing
 // typed for them and the worker sends nothing to compare. Not said yet counts as on (the
 // app's default): the app then refuses to compare, and nothing is shown.
+
+/**
+ * Whether the person said an AI agent or a program uses this browser (the extension's window,
+ * agent.js): nothing is then drawn in pages. Kept in `chrome.storage.local`, until turned off.
+ */
+export async function agentChosen() {
+  try {
+    const { vaultAgent: on = false } = await chrome.storage.local.get("vaultAgent");
+    return on === true;
+  } catch {
+    return false;
+  }
+}
 
 /** Whether the app's warnings about other sites are on, as its last answer said. */
 export async function vaultWarns() {

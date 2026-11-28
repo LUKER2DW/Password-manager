@@ -1,7 +1,10 @@
 // The extension's own settings: whether Vault offers to save passwords instead of the browser
 // (the browser's "Offer to save passwords and passkeys" is then off, and its settings say
 // this extension controls it; turned off, Vault keeps and offers nothing typed into sign-in
-// forms, see app.js), and whether Vault keeps passkeys. Back goes to where the person was.
+// forms, see app.js), whether Vault keeps passkeys, and whether an AI agent or a program is
+// using this browser (then nothing is shown in pages, agent.js; kept in
+// `chrome.storage.local` until turned off, since a browser an agent drives is usually one kept
+// for it). Back goes to where the person was.
 
 import { dropPendingSaves, vaultSaves } from "../app.js";
 import { here } from "./state.js";
@@ -23,6 +26,15 @@ export async function showPrefs(back) {
     passkeys.checked = vaultPasskeys;
   });
   passkeys.onchange = () => chrome.storage.local.set({ vaultPasskeys: passkeys.checked });
+  $("prefs-agent-label").textContent = t("prefsAgent");
+  $("prefs-agent-hint").textContent = t("prefsAgentHint");
+  const agent = $("prefs-agent");
+  chrome.storage.local.get("vaultAgent").then(({ vaultAgent = false }) => {
+    agent.checked = vaultAgent === true;
+  });
+  agent.onchange = () => chrome.storage.local.set({ vaultAgent: agent.checked });
+  // The browser's own word that a program drives it counts whatever the box says.
+  $("prefs-agent-state").textContent = globalThis.navigator?.webdriver === true ? t("prefsAgentAutomated") : "";
   const box = $("prefs-saving");
   const state = $("prefs-saving-state");
   const saving = chrome.privacy.services.passwordSavingEnabled;

@@ -51,18 +51,18 @@
     },
     {
       "matches": ["https://*/*"],
-      "js": ["passkeys.js"],
+      "js": ["agent.js", "passkeys.js"],
       "run_at": "document_start",
       "all_frames": false
     },
     {
       "matches": ["https://*/*"],
-      "js": ["fields.js", "content.js"],
+      "js": ["agent.js", "fields.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": false
     }
   ],
-  "web_accessible_resources": [{ "resources": ["inline.html"], "matches": ["https://*/*"] }],
+  "web_accessible_resources": [{ "resources": ["inline.html"], "matches": ["https://*/*"], "use_dynamic_url": true }],
   "permissions": ["activeTab", "scripting", "nativeMessaging", "storage", "favicon", "privacy"],
   "host_permissions": ["https://*/*"],
   "content_security_policy": {

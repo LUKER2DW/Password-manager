@@ -107,6 +107,10 @@ export function explain(code) {
       // The app didn't understand: it is older than this extension (sealed requests, the key
       // agreement).
       return say(t("oldAppTitle"), t("oldAppText"), { isError: true });
+    case "outdated_extension":
+      // The app accepts no extension this old (an old copy put back in its folder, one loaded
+      // from elsewhere): it answers nothing until the extension is the newest.
+      return say(t("outdatedTitle"), t("outdatedText"), { isError: true });
     default:
       return say(t("failed"), "", { ...connected, isError: true });
   }

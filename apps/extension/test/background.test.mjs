@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
 
-import { openRequest, sealed } from "./sealed.mjs";
+import { openRequest, sealed, versionOf } from "./sealed.mjs";
 
 // ---- the stand-ins, in place before the worker loads ----
 
@@ -49,13 +49,21 @@ const local = {};
 const told = [];
 const badges = [];
 const storageListeners = [];
+const versions = [];
+// The address `chrome.runtime.getURL` gives the frame: the extension's own, or (Chrome with
+// `use_dynamic_url`) one for this session only.
+let frameHost = "vault-extension";
 let onMessage;
 const ignored = { addListener() {} };
 
 globalThis.chrome = {
   runtime: {
     id: "vault-extension",
-    getURL: (path) => `chrome-extension://vault-extension/${path.replace(/^\//, "")}`,
+    getURL: (path) => {
+      const file = path.replace(/^\//, "");
+      return `chrome-extension://${file.startsWith("inline.html") ? frameHost : "vault-extension"}/${file}`;
+    },
+    getManifest: () => ({ version: "0.4.8" }),
     onInstalled: ignored,
     onStartup: ignored,
     onMessage: { addListener: (listener) => (onMessage = listener) },
@@ -63,6 +71,7 @@ globalThis.chrome = {
     // request as the app does.
     sendNativeMessage: async (_host, envelope) => {
       const request = openRequest(envelope);
+      versions.push(versionOf(envelope));
       asked.push(request);
       const answer = answers[request.type];
       return sealed(envelope, typeof answer === "function" ? await answer(request) : (answer ?? { type: "error", code: "bad_request" }));
@@ -111,7 +120,7 @@ globalThis.chrome = {
   privacy: { services: { passwordSavingEnabled: { get: async () => ({}), set: async () => {}, clear: async () => {} } } },
 };
 
-await import("../background.js");
+const { isFrameUrl } = await import("../background.js");
 
 const ORIGIN = "https://login.example";
 let nextTab = 1;
@@ -391,8 +400,13 @@ test("offers of two tabs stored at once are both kept, and none outlives saving 
 
 const INLINE_SCRIPT = readFileSync(new URL("../inline.js", import.meta.url), "utf8");
 
-/** inline.js as the save card, with the worker's replies from `replies` (by message kind). */
-async function saveCard(replies) {
+const AGENT_SCRIPT = readFileSync(new URL("../agent.js", import.meta.url), "utf8");
+
+/**
+ * inline.js as the save card, with the worker's replies from `replies` (by message kind).
+ * `webdriver`: the browser says a program drives it; `agent`: the person said so (agent.js).
+ */
+async function saveCard(replies, { webdriver = false, agent = false } = {}) {
   const elements = new Map();
   const element = () => ({
     hidden: false,
@@ -434,8 +448,13 @@ async function saveCard(replies) {
     getComputedStyle: () => ({ marginBottom: "0" }),
     performance: { now: () => now },
     setTimeout,
+    navigator: { webdriver },
     chrome: {
       i18n: { getMessage: (key) => key },
+      storage: {
+        local: { get: async (key) => ({ [key]: key === "vaultAgent" ? agent : undefined }) },
+        onChanged: { addListener() {} },
+      },
       runtime: {
         getURL: (path) => `chrome-extension://vault-extension/${path}`,
         sendMessage: async (message) => {
@@ -447,6 +466,7 @@ async function saveCard(replies) {
     },
   };
   vm.createContext(sandbox);
+  vm.runInContext(AGENT_SCRIPT, sandbox);
   vm.runInContext(INLINE_SCRIPT, sandbox);
   await settle();
   const $ = (id) => sandbox.document.getElementById(id);
@@ -495,6 +515,22 @@ test("the card never closes silently on an offer that is gone: it shows the one 
   assert.equal(gone.$("save-no").textContent, "saveClose");
   await gone.press("save-no");
   assert.ok(gone.sent.some((message) => message.kind === "frame-dismiss"));
+});
+
+test("while an agent or a program drives the browser, a card drawn anyway takes no click", async () => {
+  const replies = { "frame-save-info": { id: "offer-1", origin: ORIGIN, username: "me", update: false }, "frame-save": { done: true } };
+  for (const driven of [{ webdriver: true }, { agent: true }]) {
+    const card = await saveCard(replies, driven);
+    card.seen();
+    card.later(500);
+    await card.press("save-yes");
+    assert.ok(!card.sent.some((message) => message.kind === "frame-save"), JSON.stringify(driven));
+  }
+  // Neither: the same click counts.
+  const card = await saveCard(replies);
+  card.seen();
+  await card.press("save-yes");
+  assert.ok(card.sent.some((message) => message.kind === "frame-save"));
 });
 
 test("the card says when the login was changed in Vault since the update was offered", async () => {
@@ -729,4 +765,81 @@ test("where the browser draws no warning in pages, the button is marked and the 
   assert.deepEqual(await fromWindow({ kind: "tab-warnings", tabId: t.id }), {});
   // Asked by anything but the extension's window: nothing.
   assert.equal(await t.page({ kind: "tab-warnings", tabId: chrome2.id }), undefined);
+});
+
+// ---- S24: the frame's address of this session; S25: the version named; S28: agents ----
+
+test("the frame is known at this session's address and at the extension's own, and nothing else is", async () => {
+  frameHost = "0b5c2f4e-9d31-4a7e-8c6b-2f1d3e4a5b6c";
+  try {
+    // What the content script puts in the page: this session's address, not the fixed id.
+    const placed = chrome.runtime.getURL("inline.html#logins|normal|x");
+    assert.ok(!placed.includes("vault-extension"), placed);
+    assert.ok(isFrameUrl(placed));
+    // What Chrome reports for the frame: it serves that address from the extension's own.
+    assert.ok(isFrameUrl("chrome-extension://vault-extension/inline.html#logins|normal|x"));
+    for (const other of [
+      "https://login.example/inline.html",
+      "chrome-extension://another-extension/inline.html",
+      "chrome-extension://vault-extension/popup.html",
+      "chrome-extension://vault-extension/inline.html.evil",
+      "not a url",
+      undefined,
+    ]) {
+      assert.ok(!isFrameUrl(other), String(other));
+    }
+    // The worker answers the frame at either address.
+    answers = { logins: LOGINS };
+    const t = tab();
+    for (const url of [placed, "chrome-extension://vault-extension/inline.html#logins|normal|x"]) {
+      const listed = await new Promise((resolve) =>
+        onMessage({ kind: "frame-logins" }, { id: "vault-extension", tab: tabs.get(t.id), frameId: 7, url }, resolve),
+      );
+      assert.equal(listed.items.length, 1, url);
+    }
+    // A page that claims to be the frame is the page.
+    const claimed = await new Promise((resolve) =>
+      onMessage(
+        { kind: "frame-logins" },
+        { id: "vault-extension", tab: tabs.get(t.id), frameId: 0, url: `${ORIGIN}/inline.html` },
+        resolve,
+      ),
+    );
+    assert.equal(claimed, undefined);
+  } finally {
+    frameHost = "vault-extension";
+  }
+});
+
+test("every request names the extension's version, from its manifest", async () => {
+  answers = { logins: LOGINS };
+  versions.length = 0;
+  const t = tab();
+  await t.page({ kind: "field-focused" });
+  assert.ok(versions.length > 0);
+  assert.ok(versions.every((version) => version === "0.4.8"), versions.join());
+});
+
+test("while the person says an agent uses the browser, the frame gets nothing and the page is answered as frameless", async () => {
+  answers = { logins: LOGINS, fill: { type: "fill", origin: ORIGIN, username: "me", password: "s3cret" } };
+  const t = tab();
+  await chrome.storage.local.set({ vaultAgent: true });
+  try {
+    scripted.length = 0;
+    asked.length = 0;
+    told.length = 0;
+    assert.equal(await t.frame({ kind: "frame-fill", id: "item-1", offer: "offer-1" }), undefined);
+    assert.equal(await t.frame({ kind: "frame-logins" }), undefined);
+    assert.equal(await t.frame({ kind: "frame-save", offer: "offer-1" }), undefined);
+    assert.equal(scripted.length, 0, "nothing is filled");
+    assert.equal(asked.filter((request) => request.type === "fill").length, 0, "the app is asked for no password");
+    // How it sits is still heard (a card from an older content script can be closed).
+    await t.frame({ kind: "frame-size", which: "logins", height: 120 });
+    assert.ok(told.some(({ message }) => message.kind === "size"));
+    // A sign-in field: only whether the page looks like a saved site, as where no card is drawn.
+    assert.deepEqual(await t.page({ kind: "field-focused" }), { show: false });
+  } finally {
+    await chrome.storage.local.set({ vaultAgent: false });
+  }
+  assert.deepEqual(await t.page({ kind: "field-focused" }), { show: true }, "turned off: cards again");
 });

@@ -308,6 +308,7 @@ test("a refusal is the WebAuthn error the page expects, and an abort is told to 
 // the relay itself.
 
 const RELAY = readFileSync(new URL("../passkeys.js", import.meta.url), "utf8");
+const AGENT = readFileSync(new URL("../agent.js", import.meta.url), "utf8");
 const WINDOW_SCRIPT = readFileSync(new URL("../passkey.js", import.meta.url), "utf8");
 const MESSAGES = JSON.parse(readFileSync(new URL("../_locales/en/messages.json", import.meta.url), "utf8"));
 
@@ -450,9 +451,10 @@ class VouchingEntry {
 /**
  * One document of a tab, with the relay (passkeys.js) in it. `restarted`: the worker answers
  * a field's suggestions with "waits" and then forgets them, as one the browser stopped since.
- * `vouches`: the browser reports a frame's visibility (Firefox doesn't).
+ * `vouches`: the browser reports a frame's visibility (Firefox doesn't). `webdriver`: the
+ * browser says a program drives it; `agent`: the person said an agent uses it (agent.js).
  */
-function load(tabId, url, { restarted = false, vouches = true, documentOrigin } = {}) {
+function load(tabId, url, { restarted = false, vouches = true, documentOrigin, webdriver = false, agent = false } = {}) {
   const documentId = `doc-${nextDocument++}`;
   const origin = new URL(url).origin;
   const heard = { message: [], pagehide: [] };
@@ -461,10 +463,14 @@ function load(tabId, url, { restarted = false, vouches = true, documentOrigin } 
     location: { origin },
     origin: documentOrigin ?? origin,
     IntersectionObserverEntry: vouches ? VouchingEntry : class {},
+    navigator: { webdriver },
     addEventListener: (type, listener) => heard[type]?.push(listener),
     postMessage: (data) => answers.set(data.id, data.answer),
     chrome: {
-      storage: { onChanged: { addListener: (listener) => browser.heard.storage.push(listener) } },
+      storage: {
+        local: { get: async (key) => ({ [key]: key === "vaultAgent" ? agent : browser.local[key] }) },
+        onChanged: { addListener: (listener) => browser.heard.storage.push(listener) },
+      },
       runtime: {
         // To the background worker, a moment later, as the browser relays it.
         sendMessage: async (message) => {
@@ -488,6 +494,7 @@ function load(tabId, url, { restarted = false, vouches = true, documentOrigin } 
   win.window = win;
   browser.documents.set(documentId, { tabId });
   vm.createContext(win);
+  vm.runInContext(AGENT, win);
   vm.runInContext(RELAY, win);
   // The page's own global, as the relay sees it (`window`).
   const inner = vm.runInContext("globalThis", win);
@@ -849,6 +856,29 @@ test("no passkey for the site, a locked vault, or a browser with no frame: the b
   await until(() => tab.doc.answer("r1"), "the page is answered");
   assert.deepEqual(plain(tab.doc.answer("r1")), { fallback: true });
   assert.equal(browser.asked.length, 0);
+});
+
+test("while an agent or a program drives the browser, a field's suggestions are the browser's; Vault's window still answers", async () => {
+  for (const driven of [{ webdriver: true }, { agent: true }]) {
+    reset({ passkeys: LISTED, passkey_get: ASSERTION });
+    const windows = browser.windows.length;
+    const tab = openTab(PAGE_URL, driven);
+    tab.doc.ask("r1", SUGGEST);
+    await until(() => tab.doc.answer("r1"), "the page is answered");
+    assert.deepEqual(plain(tab.doc.answer("r1")), { fallback: true }, JSON.stringify(driven));
+    assert.equal(tab.doc.waiting(), undefined, "nothing waits for a card in the page");
+    assert.equal(browser.asked.length, 0, "Vault isn't even asked");
+    // A request that opens Vault's own window is still Vault's, with its usual checks.
+    tab.doc.ask("r2", GET);
+    await until(() => browser.windows.length > windows, "Vault's window opens");
+    tab.doc.cancel("r2");
+    await pause();
+  }
+  // Turned off again: Vault's suggestions are back.
+  reset({ passkeys: LISTED });
+  const tab = openTab(PAGE_URL, { agent: false });
+  tab.doc.ask("r1", SUGGEST);
+  await until(() => tab.doc.waiting(), "the request waits in the page");
 });
 
 test("a field's suggestions end with an abort, a later request, a navigation or passkeys turned off", async () => {

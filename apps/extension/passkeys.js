@@ -34,8 +34,17 @@
 
   // The frame under a field counts a click only when the browser vouches that nothing covers
   // it (IntersectionObserver v2, `isVisible`). A browser that can't (Firefox) shows no frame
-  // in pages (content.js), so a field's suggestions there are the browser's own.
+  // in pages (content.js), so a field's suggestions there are the browser's own; and so are
+  // they while an AI agent or another program drives the browser (agent.js), in any browser.
+  // A request that opens Vault's own passkey window is still Vault's.
   const framed = typeof IntersectionObserverEntry === "function" && "isVisible" in IntersectionObserverEntry.prototype;
+  /** Whether a field's suggestions may be Vault's: once it is known that no program drives the browser. */
+  async function suggests() {
+    const agent = globalThis.VaultAgent;
+    if (!framed || !agent) return false;
+    await agent.ready;
+    return !agent.driven();
+  }
 
   async function relay(message) {
     try {
@@ -93,11 +102,17 @@
       settle({ error: "AbortError" });
       relay({ kind: "passkey-cancel", id: earlier });
     }
-    if (!request || (request.conditional === true && !framed)) {
+    if (!request) {
       answer(id, { fallback: true });
       return;
     }
     open.add(id);
+    if (request.conditional === true && !(await suggests())) {
+      // Cancelled meanwhile: the page no longer waits for an answer.
+      if (open.delete(id)) answer(id, { fallback: true });
+      return;
+    }
+    if (!open.has(id)) return;
     const reply = await relay({ kind: "passkey", id, request });
     if (reply?.waits === true && request.conditional === true) {
       // Vault has passkeys for this site: the page waits for a pick under a field (unless it

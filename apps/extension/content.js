@@ -18,6 +18,15 @@
 // button then marks. The warnings below are not drawn there either: the toolbar button shows
 // "!" and the extension's window says what it is about (background.js, popup/site.js).
 //
+// The same holds, in every browser, while an AI agent or another program drives the browser
+// (agent.js: the browser says so, or the person did in the extension's window): nothing is
+// drawn in pages, and the extension's window does it all. Turned on with cards on screen, they
+// go at once.
+//
+// The frame's address is the browser's own for this session (`use_dynamic_url` in the
+// manifest, built with `chrome.runtime.getURL`): it doesn't carry the extension's fixed id, and
+// a page can't load `inline.html` at that id to learn that Vault is installed.
+//
 // It also warns, in the same frame, and names no secret to the page:
 // - when a sign-in field is focused on a page that only looks like a site of the vault
 //   (`paypa1.com` for `paypal.com`; the app compares, from the vault's own sites);
@@ -42,7 +51,11 @@
     typedLogin,
     sentScope,
   } = globalThis.VaultFields;
-  const framed = typeof IntersectionObserverEntry === "function" && "isVisible" in IntersectionObserverEntry.prototype;
+  // Whether a card may be drawn in this page: the browser vouches for the frame's visibility,
+  // and no program drives the browser (unknown counts as one: agent.js).
+  const vouches = typeof IntersectionObserverEntry === "function" && "isVisible" in IntersectionObserverEntry.prototype;
+  const driven = () => globalThis.VaultAgent?.driven() ?? true;
+  let framed = vouches && !driven();
   const inputs = () => Array.from(document.querySelectorAll("input"));
   const frames = { logins: null, save: null };
   // What each frame shows and which offer it is, kept here: the page can read and change a
@@ -108,6 +121,9 @@
   }
 
   /** The frame's address: what to show, `:up` above the field, the page's scheme, the offer. */
+  // (`chrome.runtime.getURL` gives this session's address in Chrome, `use_dynamic_url`. Chrome
+  // then serves the page from the extension's own address, so a change of the part after "#"
+  // loads the frame again there, and its click check starts over.)
   function frameUrl(which, up = false, offer = "") {
     return chrome.runtime.getURL(`inline.html#${which}${up ? ":up" : ""}|${encodeURIComponent(pageScheme())}|${offer}`);
   }
@@ -178,7 +194,7 @@
     const left = Math.max(0, Math.min(box.left - 10, window.innerWidth - 300));
     frame.style.setProperty("top", `${top}px`, "important");
     frame.style.setProperty("left", `${left}px`, "important");
-    // Only the part after "#" changes: the frame learns where to draw its arrow, unreloaded.
+    // Only the part after "#" changes: the frame learns where to draw its arrow.
     const { which, offer } = about.get(frame) ?? {};
     const url = frameUrl(which, !fits, offer);
     if (frame.src !== url) frame.src = url;
@@ -469,6 +485,19 @@
     }
   });
 
-  // A login sent on the page before this one may still be waiting for an answer.
-  say({ kind: "pending" }).then((answer) => answer?.offer && offerSave());
+  // An agent or a program takes over the browser (or the person says so): the cards on screen
+  // go, and none is drawn until that ends.
+  globalThis.VaultAgent?.watch((now) => {
+    framed = vouches && !now;
+    if (now) {
+      close("logins");
+      close("save");
+    }
+  });
+
+  // A login sent on the page before this one may still be waiting for an answer (asked once
+  // whether an agent drives the browser is known, so its card isn't drawn for one).
+  Promise.resolve(globalThis.VaultAgent?.ready)
+    .then(() => say({ kind: "pending" }))
+    .then((answer) => answer?.offer && offerSave());
 })();

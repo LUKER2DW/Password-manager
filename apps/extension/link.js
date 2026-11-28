@@ -7,6 +7,20 @@
 // request is sealed with a key derived from it, and every answer opened with another, so a
 // program put between the browser and the app reads nothing and can't forge an answer. The
 // master password is never here.
+//
+// Connecting and every sealed request name this extension's version (its manifest's): the app
+// connects and answers only an extension of the version it accepts or later
+// (crates/browser/src/protocol.rs `MIN_EXTENSION_VERSION`), and refuses an older one with
+// `outdated_extension`.
+
+/** This extension's version, as its manifest says ("" where there is none: a test). */
+export function extensionVersion() {
+  try {
+    return String(chrome.runtime.getManifest().version ?? "");
+  } catch {
+    return "";
+  }
+}
 
 const DB = "vault-link";
 const STORE = "keys";
@@ -247,8 +261,8 @@ async function agreedCode(ours, theirs) {
 
 /**
  * Connects to the app with a key that never travels (pairing.rs): a fresh ECDH P-256 key pair
- * made here (its private half not extractable), a commitment to its public half, the app's
- * public key in return, then ours revealed. Both sides then hold
+ * made here (its private half not extractable), a commitment to its public half (with this
+ * extension's version), the app's public key in return, then ours revealed. Both sides then hold
  * `K = HKDF-SHA-256(ECDH secret, salt = ours ‖ theirs, info = "vault-browser/pairing")` and
  * show the same eight-character code, which the person compares before connecting in the app.
  *
@@ -261,7 +275,7 @@ export async function agree(send, keep, pair) {
   const keys = pair ?? (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]));
   const ours = new Uint8Array(await crypto.subtle.exportKey("raw", keys.publicKey));
   const commit = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", concat(COMMIT_LABEL, ours))));
-  const offer = await send({ type: "pair", commit });
+  const offer = await send({ type: "pair", commit, version: extensionVersion() });
   if (offer?.type !== "pair_offer") return { error: offer?.type === "error" ? offer.code : "bad_answer" };
   const theirs = fromHex(offer.key, 65);
   if (!theirs || theirs[0] !== 4) return { error: "bad_answer" };

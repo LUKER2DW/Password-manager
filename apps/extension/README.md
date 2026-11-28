@@ -93,6 +93,14 @@ not in a store yet). Test with a test vault.
   The app decides, from the vault's own sites: nothing is downloaded and the extension keeps
   nothing. The first two follow the app's Settings → Browser extension → "Warn when a page
   isn't the site a password belongs to" (on by default); the kit's keys are always refused.
+- **An AI agent or a program driving the browser**: nothing is shown in pages (no card under
+  fields, no save card, no passkeys among a field's suggestions, no warning drawn), as in
+  Firefox: the extension's window fills, saves and copies, with its usual checks, the toolbar
+  button marks a login waiting to be saved (**1**) or a warning (**!**), and Vault's passkey
+  window still answers a site's request. It happens by itself when the browser says a program
+  drives it (`navigator.webdriver`: WebDriver, a headless browser, Chrome started for
+  automation), and when you turn on *An AI agent or a program is using this browser* in the
+  extension's Settings (kept until you turn it off). Cards already on screen go at once.
 
 ## How it stays safe
 
@@ -161,7 +169,30 @@ not in a store yet). Test with a test vault.
 - The frame in pages is the extension's own page in a cross-origin iframe: the page can't read
   or script it. A click there counts only once the browser reports the frame fully visible,
   with nothing drawn over it (against extension clickjacking). It never shows a password
-  except a freshly generated one.
+  except a freshly generated one. Its address is the browser's for this session
+  (`use_dynamic_url`, Chrome 130 and later; made only with `chrome.runtime.getURL`): it
+  doesn't carry the extension's fixed id, and a page can't load `inline.html` at that id to
+  learn that Vault is installed. Chrome serves it from the extension's own address, so the
+  worker knows the frame by either (`isFrameUrl`), and a change of the address (the card
+  moving above its field) loads the frame again, its click check starting over. Firefox
+  ignores the key (a warning on `about:debugging`): its extension address is a random id per
+  profile already, and it draws no frame in pages.
+- While an agent or a program drives the browser (above, `agent.js`), the content script draws
+  nothing and takes away what it drew, the frame takes no click (one drawn by a copy of the
+  content script from before an update), and the worker answers no frame while the setting
+  is on. The setting is in `chrome.storage.local` (the content scripts read it there; the
+  session storage, which holds the logins waiting to be saved, stays closed to them), and
+  until it is read it counts as on. `navigator.webdriver` is read in the extension's isolated
+  world, which a page's scripts can't change; an agent can hide it, and no other standard sign
+  of an agent exists, so the setting is there for those.
+- **Versions:** the extension names its version (its manifest's) when it connects and inside
+  every sealed request; the app answers only one of the version it accepts or later
+  (`MIN_EXTENSION_VERSION`, `crates/browser/src/protocol.rs`). An older one hears
+  `outdated_extension`: a copy in the app's folder reloads itself into the newer one the app
+  names in that answer, any other copy says *Update the extension* (in Vault, Settings →
+  Browser extension → Add to a browser writes the newest into its folder). The extensions
+  of releases up to 0.4.7, which signed their requests instead of sealing them and were handed
+  their key when they connected, are refused that way.
 - A login typed into a page waits in the browser's memory (never on disk) for at most two
   minutes, and goes to the app to be kept only if you choose *Save* (before that only to be
   compared with other sites', while the app's warnings are on). Before offering an update, the app
@@ -287,7 +318,8 @@ you allow in it.
 
 The same folder runs in Firefox 153 or later (desktop). Firefox reads `background.scripts`
 (an event page) where Chrome reads `background.service_worker`, and ignores `key`,
-`minimum_chrome_version` and the `favicon` permission (with a warning on `about:debugging`).
+`minimum_chrome_version`, `use_dynamic_url` and the `favicon` permission (with a warning on
+`about:debugging`).
 
 1. Step 1 above: the app's setting points Firefox at the host too.
 2. Add to a browser → Firefox opens `about:debugging#/runtime/this-firefox`: choose *Load
@@ -322,11 +354,12 @@ What differs in Firefox:
 
 | File | Role |
 |---|---|
-| `manifest.json` | Manifest V3 for Chrome, Edge and Firefox: `activeTab`, `scripting`, `nativeMessaging`, `storage`, `favicon` (Chrome, Edge), `privacy`; https pages for the content scripts |
+| `manifest.json` | Manifest V3 for Chrome, Edge and Firefox: `activeTab`, `scripting`, `nativeMessaging`, `storage`, `favicon` (Chrome, Edge), `privacy`; https pages for the content scripts; `inline.html` the one page a page may load, at this session's address only (`use_dynamic_url`) |
 | `popup.html`, `popup.css`, `popup.js` | The extension's window: this site, all logins, codes, generator, new login, settings |
 | `popup/*.js` | Its views (`site.js`, `vault.js`, `entry.js`, `codes.js`, `generator.js`, `new-login.js`, `prefs.js`, `pairing.js`) and the rules they share, each testable on its own (`throttle.js`, `countdown.js`, `asks.js`, `cells.js`, `strength.js`, `options.js`, `version.js`, `tint.js`, `icon-pages.js`) |
 | `content.js`, `fields.js` | Content script: sign-in and new-password fields, submitted forms, a password pasted into a password field, placing the frame and the warnings |
 | `kit.js` | Content script in every https document, frames too, at `document_start`: the emergency kit's keys refused in pages |
+| `agent.js` | Whether an AI agent or a program drives the browser (`navigator.webdriver`, or the person's setting): loaded before `passkeys.js`, `content.js` and `inline.js`, which then show nothing in pages |
 | `inline.html`, `inline.css`, `inline.js` | The frame under a field (logins, the site's passkeys, or a new password), the save offer, and the warnings (a lookalike page, another site's password pasted or sent, a key of the kit) |
 | `background.js` | The worker between the content script, the frame and the app |
 | `passkeys-page.js` | In the page's own world: stands in front of `navigator.credentials` for passkeys |

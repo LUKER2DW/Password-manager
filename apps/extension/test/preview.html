@@ -8,7 +8,9 @@
   codes_shown,
   generator, words, long, new_login, pin, wrong_pin, hello, setup, pair, pair_wait, empty,
   locked, not_running, insecure, item_locked, username, update, update_manual, prefs,
-  long_texts, lookalike (a page that only looks like a saved site).
+  prefs_agent (an AI agent uses this browser, the person said), prefs_automated (the browser
+  says a program drives it), outdated (the app accepts no extension this old), long_texts,
+  lookalike (a page that only looks like a saved site).
   In-page frames: inline (the logins under a field), inline_passkeys (with the site's passkeys,
   while the page waits for a field's suggestions), suggest (a new password), save (the save
   offer), save_lookalike (on a page that only looks like a saved site), warn_lookalike,
@@ -77,6 +79,7 @@
       /** What the app would answer to each request, for this state. */
       globalThis.previewAnswer = async (request) => {
         if (state === "not_running") return { type: "error", code: "not_running" };
+        if (state === "outdated") return { type: "error", code: "outdated_extension", minimum: "0.4.8" };
         if (state === "pair_wait") return { type: "error", code: "not_paired" };
         if (state === "locked" && request.type !== "generate") return { type: "error", code: "locked" };
         switch (request.type) {
@@ -120,6 +123,8 @@
       if (state === "update") local.extensionUpdate = { version: "0.5.0", manual: false };
       if (state === "update_manual") local.extensionUpdate = { version: "0.5.0", manual: true };
       if (state === "long") local.generatorOptions = { length: 128 };
+      if (state === "prefs_agent") local.vaultAgent = true;
+      if (state === "prefs_automated") Object.defineProperty(Navigator.prototype, "webdriver", { get: () => true });
       window.chrome = {
         i18n: {
           getMessage: (key, parts = []) => {
@@ -260,7 +265,7 @@
             click("#check-go");
           }
         }
-        if (state === "prefs") click("#foot-prefs");
+        if (state.startsWith("prefs")) click("#foot-prefs");
         if (state.startsWith("codes")) {
           click("#tab-codes");
           await wait(50);

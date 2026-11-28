@@ -15,7 +15,10 @@
 //   suggestions, and only for the tab's own origin (passkey-worker.js);
 // - a password a page was given (pasted into a password field, or sent from a sign-in form)
 //   goes to the app only to be compared with the other sites' (`elsewhere`), and is not kept:
-//   what comes back, and what the frame shows, is the name of the site it belongs to.
+//   what comes back, and what the frame shows, is the name of the site it belongs to;
+// - while the person says an AI agent or a program uses this browser (agent.js), the frame's
+//   requests get nothing and the page is answered as one where no card is drawn: only the
+//   extension's window offers logins then.
 
 import {
   ask,
@@ -26,6 +29,7 @@ import {
   pendingSave,
   setPendingSave,
   updateRequest,
+  agentChosen,
   vaultSaves,
   vaultWarns,
 } from "./app.js";
@@ -42,7 +46,26 @@ import {
 } from "./passkey-worker.js";
 import { applyUpdate, checkForUpdate } from "./update.js";
 
-const INLINE = chrome.runtime.getURL("inline.html");
+/**
+ * Whether `url` is the extension's frame in pages (inline.html). Its address in a page is the
+ * browser's for this session (`use_dynamic_url`), which is what `chrome.runtime.getURL` gives;
+ * Chrome serves it from the extension's own address, so that is what the browser reports as
+ * the sender. Either one; nothing else (a page can't have an extension's address).
+ */
+export function isFrameUrl(url) {
+  try {
+    const at = new URL(url);
+    if (at.pathname !== "/inline.html") return false;
+    const own = new URL(chrome.runtime.getURL("popup.html"));
+    const session = new URL(chrome.runtime.getURL("inline.html"));
+    return at.protocol === own.protocol && (at.host === own.host || at.host === session.host);
+  } catch {
+    return false;
+  }
+}
+
+/** The frame's messages that only say how it sits, answered even while an agent drives the browser. */
+const LAYOUT = new Set(["frame-size", "frame-dismiss"]);
 
 // ---- Chrome's own password saving ----
 //
@@ -383,7 +406,14 @@ async function handle(message, sender) {
     return message.kind.startsWith("passkey-") ? passkeyFromWindow(message, sender) : undefined;
   }
   if (!tab?.id) return undefined;
-  const fromFrame = typeof sender.url === "string" && sender.url.startsWith(INLINE);
+  const fromFrame = isFrameUrl(sender.url);
+  // An agent or a program uses this browser, the person said: no card in pages acts (content.js
+  // draws none; one drawn by a copy of it from before an update gets nothing here), and the
+  // page is answered as one where no card can be drawn.
+  if (await agentChosen()) {
+    if (fromFrame && !LAYOUT.has(message.kind)) return undefined;
+    if (!fromFrame) message = { ...message, framed: false };
+  }
   // A key of the emergency kit refused in a document of the tab, any frame of it (kit.js): the
   // page's own frame says why. Nothing of the key comes with it.
   if (message.kind === "kit-refused" && !fromFrame) {

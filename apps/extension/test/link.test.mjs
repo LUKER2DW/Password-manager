@@ -4,10 +4,12 @@ import assert from "node:assert/strict";
 import { createECDH, createHash, createHmac, hkdfSync, webcrypto } from "node:crypto";
 import { test } from "node:test";
 
-import { agree, freshCounter, opened, seal } from "../link.js";
-import { openRequest, sealed } from "./sealed.mjs";
+import { agree, extensionVersion, freshCounter, opened, seal } from "../link.js";
+import { openText, sealed } from "./sealed.mjs";
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
+// The extension's manifest, as the browser gives it.
+globalThis.chrome = { runtime: { getManifest: () => ({ version: "0.4.8" }) } };
 
 const hmacKey = (raw) => webcrypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
 
@@ -19,6 +21,14 @@ const ANSWER_NONCE = Buffer.from(Array.from({ length: 12 }, (_, i) => i + 0x21))
 const REQUEST_DATA =
   "AQIDBAUGBwgJCgsMHtP2/rQqZUHHS+svo50x6RGFhF5yN20hcEMv/K9x2HiZiTpKgUmu+dECSD6oT/oj2BS+bMkb0SZ2T252VA==";
 const ANSWER_DATA = "ISIjJCUmJygpKissm6LbrMi/r6elsr/MgqvvVY5ATBtOVbI6FYJcbhUi3IqbMwXbdel3kYt6GF0=";
+
+test("the version named is the manifest's", () => {
+  assert.equal(extensionVersion(), "0.4.8");
+  const saved = globalThis.chrome;
+  globalThis.chrome = undefined;
+  assert.equal(extensionVersion(), "", "no manifest: none");
+  globalThis.chrome = saved;
+});
 
 test("counters follow the clock and differ when made at once", () => {
   const before = Date.now() * 1000;
@@ -37,13 +47,13 @@ test("a request is sealed with its counter, and nothing of it is readable", asyn
   assert.deepEqual(sent.message, { type: "sealed", counter: COUNTER, data: REQUEST_DATA });
   assert.equal(sent.counter, COUNTER);
   assert.deepEqual([...sent.nonce], [...NONCE]);
-  assert.deepEqual(openRequest(sent.message, RAW), request);
+  assert.deepEqual(openText(sent.message, RAW), request);
 
   const fresh = await seal(key, request);
   assert.ok(!JSON.stringify(fresh.message).includes("github"));
   assert.notEqual(fresh.message.data, (await seal(key, request, fresh.counter)).message.data, "fresh nonces");
-  assert.throws(() => openRequest({ ...fresh.message, counter: fresh.counter + 1 }, RAW), "the counter is bound");
-  assert.throws(() => openRequest(fresh.message, Buffer.alloc(32, 8)), "another connection");
+  assert.throws(() => openText({ ...fresh.message, counter: fresh.counter + 1 }, RAW), "the counter is bound");
+  assert.throws(() => openText(fresh.message, Buffer.alloc(32, 8)), "another connection");
 });
 
 test("an answer is read only when sealed to its own request", async () => {
@@ -129,8 +139,13 @@ test("connecting agrees on a key that never travels, and on the code", async () 
   assert.deepEqual(agreed, { code: "74At LSYM" });
   assert.equal(kept.code, "74At LSYM");
   assert.equal(kept.revealed, false, "kept before ours is revealed");
-  // The vectors of pairing.rs: the commitment, our public key, the key both sides hold.
-  assert.deepEqual(app.heard[0], { type: "pair", commit: "56135d400b11486d786cc15da678e0498718808a61cd417e7bc3b40405d108e8" });
+  // The vectors of pairing.rs: the commitment, our public key, the key both sides hold. The
+  // request to connect names this extension's version: the app connects only one it accepts.
+  assert.deepEqual(app.heard[0], {
+    type: "pair",
+    commit: "56135d400b11486d786cc15da678e0498718808a61cd417e7bc3b40405d108e8",
+    version: "0.4.8",
+  });
   assert.deepEqual(app.heard[1], {
     type: "pair_key",
     key: "040217e617f0b6443928278f96999e69a23a4f2c152bdf6d6cdf66e5b80282d4ed194a7debcb97712d2dda3ca85aa8765a56f45fc758599652f2897c65306e5794",
@@ -159,6 +174,10 @@ test("connecting stops at an app that refuses or answers something else", async 
   for (const key of ["04", "zz".repeat(65), "05" + "00".repeat(64), "04" + "00".repeat(64)]) {
     assert.deepEqual(await agree(async () => ({ type: "pair_offer", key }), keepNothing), { error: "bad_answer" });
   }
+  // An app that accepts no extension this old says so, and nothing is kept.
+  assert.deepEqual(await agree(async () => ({ type: "error", code: "outdated_extension", minimum: "0.5.0" }), keepNothing), {
+    error: "outdated_extension",
+  });
   // A key handed over whole, as an older app does: not taken.
   assert.deepEqual(await agree(async () => ({ type: "pairing", key: "ab".repeat(32), code: "123 456" }), keepNothing), {
     error: "bad_answer",
