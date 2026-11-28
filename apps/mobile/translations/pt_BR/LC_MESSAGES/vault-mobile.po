@@ -4185,4 +4185,18 @@ msgstr "Uma chave SSH assinou para um programa"
 msgctxt "Messages"
 msgid "Auto-type typed a login into “{}”"
 msgstr "A digitação automática digitou um login em “{}”"
+msgctxt "Messages"
+msgid "Type your master password: it's asked once each time the app starts. Windows Hello works after that."
+msgstr "Digite sua senha mestra: ela é pedida uma vez sempre que o app inicia. Depois disso, o Windows Hello funciona."
 
+msgctxt "Messages"
+msgid "Type a domain of yours, such as example.com, whose every address reaches you."
+msgstr "Digite um domínio seu, como example.com, em que todo endereço chega até você."
+
+msgctxt "Messages"
+msgid "Type your email address, such as you@example.com."
+msgstr "Digite seu endereço de e-mail, como you@example.com."
+
+msgctxt "Messages"
+msgid "The vault command can't reach this app: {}"
+msgstr "O comando vault não consegue chegar a este app: {}"
