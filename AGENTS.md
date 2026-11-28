@@ -290,7 +290,10 @@ The toolchain comes from `rust-toolchain.toml`. On Windows, if `cargo` is not on
 the shell with `$env:Path = "$HOME\.cargo\bin;$env:Path"` (PowerShell). Windows builds get
 Control Flow Guard from `.cargo/config.toml`; a `RUSTFLAGS` variable replaces those flags, so
 don't set one for a Windows build (the release refuses an exe without it,
-`apps/desktop/check-exe.ps1`).
+`apps/desktop/check-exe.ps1`). Each checkout, git worktrees included, builds in its own build
+folder: never point `CARGO_TARGET_DIR` or `--target-dir` at another checkout's `target/`. Cargo
+names a workspace's own crates by their path inside the workspace, so two checkouts sharing one
+folder overwrite each other's builds (a stale build script, the other's test binaries).
 
 ```bash
 cargo build --workspace
