@@ -139,6 +139,21 @@ fn now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+/// An icon of the cache (64 × 64 RGBA) as a `data:` address of a PNG, for the browser
+/// extension's window: it shows the app's icons without fetching anything itself.
+pub fn data_url(pixels: &[u8]) -> Option<String> {
+    use base64::Engine as _;
+    let picture = image::RgbaImage::from_raw(ICON_SIZE, ICON_SIZE, pixels.to_vec())?;
+    let mut png = Vec::new();
+    picture
+        .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
+        .ok()?;
+    Some(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(png)
+    ))
+}
+
 /// The site part of a URL: its host, lowercase, with the port when it isn't the usual one
 /// (`192.168.1.10:8443`). `None` for anything that isn't a plain web address.
 pub fn host_of(url: &str) -> Option<String> {

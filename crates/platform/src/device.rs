@@ -240,6 +240,40 @@ pub struct Settings {
     /// (`secure_desktop.rs`): other programs' keyboard hooks and screen capture don't reach
     /// it. Off by default: screen readers and on-screen keyboards don't either.
     pub secure_desktop: bool,
+    /// What the browser extension may do on particular sites (Settings → Browser extension,
+    /// and the extension's window for the site in front). Kept on this device only, in this
+    /// file: the vault's format has no place for them yet. Not secret, but it names the sites
+    /// given a rule.
+    pub site_rules: Vec<SiteRule>,
+}
+
+/// What the browser extension may do on one site: the host and every host under it
+/// (`example.com` covers `www.example.com` and `shop.example.com`). Every rule is off by
+/// default; a site with none of them on is not kept.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SiteRule {
+    /// The host, lowercase, without `www.` (`example.com`, `intranet.example:8443`).
+    pub host: String,
+    /// Never offer to save a login typed there, nor to update its password.
+    pub never_save: bool,
+    /// Never show the card under its fields (the extension's window still lists its logins).
+    pub no_card: bool,
+    /// Never fill there: no login, one-time code or card is typed into its pages.
+    pub never_fill: bool,
+    /// The vault's passkeys are not offered there; the browser's own handle the site.
+    pub no_passkeys: bool,
+    /// Hosts of other sites whose frames in this site's pages may get a card (a payment
+    /// provider's fields embedded in a shop's checkout). Empty: only the site's own fields.
+    pub card_frames: Vec<String>,
+}
+
+impl SiteRule {
+    /// Whether nothing is set: the rule is dropped rather than kept.
+    pub fn is_empty(&self) -> bool {
+        !(self.never_save || self.no_card || self.never_fill || self.no_passkeys)
+            && self.card_frames.is_empty()
+    }
 }
 
 impl Default for Settings {
@@ -268,6 +302,7 @@ impl Default for Settings {
             update_install: true,
             sidebar_hidden: false,
             secure_desktop: false,
+            site_rules: Vec::new(),
         }
     }
 }

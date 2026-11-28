@@ -6069,6 +6069,7 @@ impl Controller {
     }
 
     // -----------------------------------------------------------------------------------------
+            site_rules: self.state.borrow().settings.site_rules.clone(),
     // Website icons (opt-in; see vault_platform::website_icons for the privacy model)
     // -----------------------------------------------------------------------------------------
 

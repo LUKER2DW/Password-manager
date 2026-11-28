@@ -18,40 +18,57 @@ const BREACH_API: &str = "https://api.pwnedpasswords.com/range/";
 /// How many times each password appears in the breaches, in the order of `queries`. Blocks:
 /// call it off the UI thread. One request per distinct prefix.
 pub fn lookup<K: Copy>(queries: &[(K, BreachQuery)]) -> Result<Vec<(K, u64)>, String> {
-    // No redirects: the prefixes go to the breach service and nowhere it might point at.
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .https_only(true)
-        .max_redirects(0)
-        .timeout_global(Some(std::time::Duration::from_secs(20)))
-        .user_agent("vault-password-manager")
-        .build()
-        .into();
+    let agent = agent();
     let mut answers: HashMap<String, String> = HashMap::new();
     let mut out = Vec::with_capacity(queries.len());
     for (key, query) in queries {
         let prefix = query.prefix().to_owned();
         if !answers.contains_key(&prefix) {
-            let mut response = agent
-                .get(format!("{BREACH_API}{prefix}"))
-                // Padding makes every answer about the same size, so the traffic doesn't
-                // reveal which prefix was asked for.
-                .header("Add-Padding", "true")
-                .call()
-                .map_err(|e| e.to_string())?;
-            if !response.status().is_success() {
-                return Err(format!("the breach service answered {}", response.status()));
-            }
-            let body = response
-                .body_mut()
-                .with_config()
-                .limit(4 * 1024 * 1024)
-                .read_to_string()
-                .map_err(|e| e.to_string())?;
-            answers.insert(prefix.clone(), body);
+            answers.insert(prefix.clone(), range_with(&agent, &prefix)?);
         }
         out.push((*key, query.count_in(&answers[&prefix])));
     }
     Ok(out)
+}
+
+/// The breach service's answer for one prefix (`BreachQuery::prefix`, 5 hex characters): every
+/// suffix it knows in that range, padded. Blocks: call it off the UI thread. A prefix that isn't
+/// 5 hex characters is refused before anything is sent.
+pub fn range(prefix: &str) -> Result<String, String> {
+    if prefix.len() != 5 || !prefix.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("not a prefix".into());
+    }
+    range_with(&agent(), prefix)
+}
+
+fn agent() -> ureq::Agent {
+    // No redirects: the prefixes go to the breach service and nowhere it might point at.
+    ureq::Agent::config_builder()
+        .https_only(true)
+        .max_redirects(0)
+        .timeout_global(Some(std::time::Duration::from_secs(20)))
+        .user_agent("vault-password-manager")
+        .build()
+        .into()
+}
+
+fn range_with(agent: &ureq::Agent, prefix: &str) -> Result<String, String> {
+    let mut response = agent
+        .get(format!("{BREACH_API}{prefix}"))
+        // Padding makes every answer about the same size, so the traffic doesn't reveal which
+        // prefix was asked for.
+        .header("Add-Padding", "true")
+        .call()
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("the breach service answered {}", response.status()));
+    }
+    response
+        .body_mut()
+        .with_config()
+        .limit(4 * 1024 * 1024)
+        .read_to_string()
+        .map_err(|e| e.to_string())
 }
 
 /// [`lookup`] for one password.
