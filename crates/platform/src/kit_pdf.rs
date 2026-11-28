@@ -8,10 +8,19 @@
 //! A filled kit also carries each key as a QR code, drawn as black squares (still no
 //! picture), so the phone can scan it: the Secret Key at its first unlock, the parts when it
 //! recovers the vault.
+//!
+//! A kit saved as a file is encrypted with the PDF's own AES-256 password protection
+//! (`protect.rs`, CRYPTO.md §3.10), so a copy of the file alone gives nothing away; the
+//! printed kit's temporary file is not, so printing asks for nothing.
 
 use std::fmt::Write as _;
 
+use anyhow::Result;
 use zeroize::Zeroizing;
+
+mod protect;
+
+pub use protect::open as open_protected;
 
 /// What goes on the kit. Text fields are printed as given.
 #[derive(Debug, Clone, Copy)]
@@ -469,7 +478,7 @@ impl Page {
     }
 
     /// The small print at the foot: what to do with the file, and which vault this is.
-    fn footer(&mut self, vault_id: &str) {
+    fn footer(&mut self, vault_id: &str, protected: bool) {
         self.y = MARGIN - 22.0;
         self.text_at(
             MARGIN,
@@ -477,7 +486,11 @@ impl Page {
             Font::Regular,
             8.0,
             0.5,
-            "Made offline by Vault. If this page was saved as a file, delete the file after printing.",
+            if protected {
+                "Made offline by Vault. This file opens only with the kit's PDF password."
+            } else {
+                "Made offline by Vault. If this page was saved as a file, delete the file after printing."
+            },
         );
         let id = format!("Vault {vault_id}");
         self.text_at(
@@ -491,10 +504,74 @@ impl Page {
     }
 }
 
-/// Renders the kit: a page with the Secret Key and room for the master password, then a page
-/// for each recovery part. With `filled` off, the boxes are empty, to be written in by hand.
-/// The bytes contain the keys: they are wiped from memory when dropped.
+/// Renders the kit to print: a page with the Secret Key and room for the master password (and
+/// the saved files' password), then a page for each recovery part. With `filled` off, the
+/// boxes are empty, to be written in by hand. Not protected: it is for the printer, from a
+/// temporary file. The bytes contain the keys: they are wiped from memory when dropped.
 pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
+    let mut pages = kit_pages(kit, false);
+    let streams: Vec<Zeroizing<Vec<u8>>> = pages
+        .iter()
+        .map(|page| Zeroizing::new(page.as_bytes().to_vec()))
+        .collect();
+    assemble(&mut pages, streams, None)
+}
+
+/// The kit as a file to keep, protected by `password` (the kit's PDF password as written,
+/// CRYPTO.md §3.10): the same pages as [`render`], encrypted with AES-256 (PDF revision 6).
+pub fn render_protected(kit: &KitContents<'_>, password: &str) -> Result<Zeroizing<Vec<u8>>> {
+    let protection = protect::Protection::new(password)?;
+    let mut pages = kit_pages(kit, true);
+    let streams = encrypt_pages(&pages, &protection)?;
+    Ok(assemble(&mut pages, streams, Some(&protection)))
+}
+
+/// One recovery part alone, as a PDF of one page, not protected (see
+/// [`render_part_protected`]).
+pub fn render_part(
+    label: vault_core::PartLabel,
+    part: &str,
+    vault_id: &str,
+    created_at: u64,
+    filled: bool,
+) -> Zeroizing<Vec<u8>> {
+    let date = date_text(created_at);
+    let mut pages = [part_page(label, part, filled, &date, vault_id, false)];
+    let streams = vec![Zeroizing::new(pages[0].as_bytes().to_vec())];
+    assemble(&mut pages, streams, None)
+}
+
+/// One recovery part alone, as a protected PDF of one page (see [`render_protected`]): saved
+/// as a file of its own, so the three parts (which together open the vault without the master
+/// password) never share a file.
+pub fn render_part_protected(
+    label: vault_core::PartLabel,
+    part: &str,
+    vault_id: &str,
+    created_at: u64,
+    filled: bool,
+    password: &str,
+) -> Result<Zeroizing<Vec<u8>>> {
+    let protection = protect::Protection::new(password)?;
+    let date = date_text(created_at);
+    let mut pages = [part_page(label, part, filled, &date, vault_id, true)];
+    let streams = encrypt_pages(&pages, &protection)?;
+    Ok(assemble(&mut pages, streams, Some(&protection)))
+}
+
+fn encrypt_pages(
+    pages: &[String],
+    protection: &protect::Protection,
+) -> Result<Vec<Zeroizing<Vec<u8>>>> {
+    pages
+        .iter()
+        .map(|page| protection.encrypt(page.as_bytes()))
+        .collect()
+}
+
+/// The kit's pages' content streams; `protected`: for a file to keep (its footer says so, and
+/// it has no boxes for its own password).
+fn kit_pages(kit: &KitContents<'_>, protected: bool) -> Vec<String> {
     let date = date_text(kit.created_at);
     let mut pages = Vec::with_capacity(4);
     let mut page = Page::new();
@@ -528,7 +605,7 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
             "Recovery parts A, B and C are printed only with the kit that makes them.",
         );
     }
-    page.footer(kit.vault_id);
+    page.footer(kit.vault_id, protected);
     pages.push(page.ops);
 
     if let Some(parts) = kit.parts {
@@ -552,28 +629,21 @@ pub fn render(kit: &KitContents<'_>) -> Zeroizing<Vec<u8>> {
                     "Parts A and B together bring back your Secret Key; with part C as well they \
                      let you choose a new master password.",
                 );
-                page.footer(kit.vault_id);
+                page.footer(kit.vault_id, protected);
                 pages.push(page.ops);
                 continue;
             }
-            pages.push(part_page(label, value, kit.filled, &date, kit.vault_id));
+            pages.push(part_page(
+                label,
+                value,
+                kit.filled,
+                &date,
+                kit.vault_id,
+                protected,
+            ));
         }
     }
-
-    assemble(&mut pages)
-}
-
-/// One recovery part alone, as a PDF of one page: saved as a file of its own, so the three
-/// parts (which together open the vault without the master password) never share a file.
-pub fn render_part(
-    label: vault_core::PartLabel,
-    part: &str,
-    vault_id: &str,
-    created_at: u64,
-    filled: bool,
-) -> Zeroizing<Vec<u8>> {
-    let date = date_text(created_at);
-    assemble(&mut [part_page(label, part, filled, &date, vault_id)])
+    pages
 }
 
 /// A recovery part's page: its boxes (filled or empty), its QR code, what it does.
@@ -583,6 +653,7 @@ fn part_page(
     filled: bool,
     date: &str,
     vault_id: &str,
+    protected: bool,
 ) -> String {
     let letter = label.letter();
     let mut page = Page::new();
@@ -617,64 +688,105 @@ fn part_page(
         "On its own: opens nothing, so losing one part, or having it found, is not the end. \
          Make a new kit in the app if that happens.",
     ]);
-    page.footer(vault_id);
+    page.footer(vault_id, protected);
     page.ops
 }
 
-/// Wraps content streams into a complete PDF file, one page each.
-fn assemble(pages: &mut [String]) -> Zeroizing<Vec<u8>> {
+/// Wraps content streams into a complete PDF file, one page each: `streams` are the pages'
+/// contents as the file holds them (encrypted by `protection` when there is one). The pages'
+/// text held the keys: it is wiped here.
+fn assemble(
+    pages: &mut [String],
+    streams: Vec<Zeroizing<Vec<u8>>>,
+    protection: Option<&protect::Protection>,
+) -> Zeroizing<Vec<u8>> {
     let fonts = ["Helvetica", "Helvetica-Bold", "Courier", "Courier-Bold"];
-    // 1 catalog, 2 page tree, 3–6 fonts, then a page and its content for each page.
+    // 1 catalog, 2 page tree, 3–6 fonts, then a page and its content for each page, then the
+    // encrypt dictionary of a protected file.
     let first_page = 3 + fonts.len();
     let kids: Vec<String> = (0..pages.len())
         .map(|index| format!("{} 0 R", first_page + 2 * index))
         .collect();
-    let mut objects: Vec<String> = vec![
-        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
-        format!(
-            "<< /Type /Pages /Kids [{}] /Count {} >>",
-            kids.join(" "),
-            pages.len()
+    let catalog = if protection.is_some() {
+        // Revision 6 was first published as Adobe's extension level 8 to PDF 1.7.
+        "<< /Type /Catalog /Pages 2 0 R \
+         /Extensions << /ADBE << /BaseVersion /1.7 /ExtensionLevel 8 >> >> >>"
+    } else {
+        "<< /Type /Catalog /Pages 2 0 R >>"
+    };
+    let mut objects: Vec<Zeroizing<Vec<u8>>> = vec![
+        Zeroizing::new(catalog.as_bytes().to_vec()),
+        Zeroizing::new(
+            format!(
+                "<< /Type /Pages /Kids [{}] /Count {} >>",
+                kids.join(" "),
+                pages.len()
+            )
+            .into_bytes(),
         ),
     ];
     for base in fonts {
-        objects.push(format!(
-            "<< /Type /Font /Subtype /Type1 /BaseFont /{base} /Encoding /WinAnsiEncoding >>"
+        objects.push(Zeroizing::new(
+            format!(
+                "<< /Type /Font /Subtype /Type1 /BaseFont /{base} /Encoding /WinAnsiEncoding >>"
+            )
+            .into_bytes(),
         ));
     }
-    for (index, content) in pages.iter().enumerate() {
+    for (index, stream) in streams.into_iter().enumerate() {
         let content_id = first_page + 2 * index + 1;
-        objects.push(format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PAGE_W} {PAGE_H}] /Contents {content_id} 0 R \
-             /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> >> >>"
+        objects.push(Zeroizing::new(
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PAGE_W} {PAGE_H}] /Contents {content_id} 0 R \
+                 /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> >> >>"
+            )
+            .into_bytes(),
         ));
-        objects.push(format!(
-            "<< /Length {} >>\nstream\n{content}endstream",
-            content.len()
-        ));
+        let mut body = Zeroizing::new(Vec::with_capacity(stream.len() + 48));
+        body.extend_from_slice(format!("<< /Length {} >>\nstream\n", stream.len()).as_bytes());
+        body.extend_from_slice(&stream);
+        // The end of line before `endstream`: the plain text ends with one already.
+        if !stream.ends_with(b"\n") {
+            body.push(b'\n');
+        }
+        body.extend_from_slice(b"endstream");
+        objects.push(body);
+    }
+    if let Some(protection) = protection {
+        objects.push(Zeroizing::new(protection.dictionary().into_bytes()));
     }
 
-    let total: usize = objects.iter().map(String::len).sum();
+    let total: usize = objects.iter().map(|body| body.len()).sum();
     let mut out = Zeroizing::new(Vec::with_capacity(total + 1024));
-    out.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
+    out.extend_from_slice(if protection.is_some() {
+        b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n"
+    } else {
+        b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n"
+    });
     let mut offsets = Vec::with_capacity(objects.len());
     for (index, body) in objects.iter().enumerate() {
         offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", index + 1).as_bytes());
+        out.extend_from_slice(format!("{} 0 obj\n", index + 1).as_bytes());
+        out.extend_from_slice(body);
+        out.extend_from_slice(b"\nendobj\n");
     }
     let xref = out.len();
     let mut table = format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1);
     for offset in offsets {
         let _ = writeln!(table, "{offset:010} 00000 n ");
     }
+    // The encrypt dictionary is the last object.
+    let encrypt = protection.map_or_else(String::new, |protection| {
+        format!(" /Encrypt {} 0 R /ID {}", objects.len(), protection.id())
+    });
     let _ = write!(
         table,
-        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+        "trailer\n<< /Size {} /Root 1 0 R{encrypt} >>\nstartxref\n{xref}\n%%EOF\n",
         objects.len() + 1
     );
     out.extend_from_slice(table.as_bytes());
-    // The content streams held the keys in Strings: wipe them too.
-    for text in objects.iter_mut().chain(pages.iter_mut()) {
+    // The content streams held the keys in Strings: wipe them too (`objects` wipes itself).
+    for text in pages.iter_mut() {
         zeroize::Zeroize::zeroize(text);
     }
     out
@@ -683,6 +795,8 @@ fn assemble(pages: &mut [String]) -> Zeroizing<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const PDF_PASSWORD: &str = "cupped reverend native quaking";
 
     const PARTS: [&str; 3] = [
         "A0-AAAAAAA-BBBBBBB-CCCCCCC-DDDDDDD",
@@ -707,15 +821,19 @@ mod tests {
 
     #[test]
     fn a_part_saved_alone_holds_only_that_part() {
-        let alone = render_part(
+        let alone = render_part_protected(
             vault_core::PartLabel::B,
             PARTS[1],
             "0123456789abcdef0123456789abcdef",
             1_794_441_600,
             true,
-        );
+            PDF_PASSWORD,
+        )
+        .unwrap();
         check_xref(&alone);
-        let text = String::from_utf8_lossy(&alone);
+        assert!(!String::from_utf8_lossy(&alone).contains("EEEEEEE"));
+        let opened = open_protected(&alone, PDF_PASSWORD).unwrap();
+        let text = String::from_utf8_lossy(&opened);
         assert!(text.contains("EEEEEEE") && text.contains("Recovery part B"));
         assert!(!text.contains("AAAAAAA") && !text.contains("JJJJJJJ"));
         assert!(!text.contains("ABCDEFG"), "nor the Secret Key");
@@ -865,5 +983,92 @@ mod tests {
         assert_eq!(date_text(0), "1 January 1970");
         assert_eq!(date_text(951_782_400), "29 February 2000");
         assert_eq!(pdf_string("a(b)c\\é—"), "a\\(b\\)c\\\\\\351\\227");
+    }
+
+    const SECRET_KEY: &str = "S0-ABCDEFG-HJKMNPQ-RSTVWXY-Z012345";
+
+    fn contents(parts: Option<[&'static str; 3]>) -> KitContents<'static> {
+        KitContents {
+            secret_key: SECRET_KEY,
+            parts,
+            vault_id: "0123456789abcdef0123456789abcdef",
+            created_at: 1_794_441_600,
+            filled: true,
+            part_c_elsewhere: false,
+        }
+    }
+
+    /// The kit protected by its PDF password (CRYPTO.md §3.10): saved, or printed with its
+    /// parts. Nothing of it reads without the password, and the password is not in it.
+    #[test]
+    fn a_protected_kit_opens_only_with_its_password() {
+        let saved = render_protected(&contents(None), PDF_PASSWORD).unwrap();
+        let raw = String::from_utf8_lossy(&saved);
+        assert!(raw.starts_with("%PDF-1.7"));
+        assert!(raw.contains("/ExtensionLevel 8"));
+        assert!(raw.contains("/Filter /Standard /V 5 /R 6"));
+        assert!(
+            raw.contains("/Encrypt 9 0 R /ID [<"),
+            "the last object, after one page and its content"
+        );
+        // Nothing of the keys or the words is readable without the password.
+        for clear in ["ABCDEFG", "S0-", "SECRET KEY", "cupped", "Emergency kit"] {
+            assert!(!raw.contains(clear), "{clear} in the clear");
+        }
+        check_xref(&saved);
+
+        // Either spelling opens it, and gives the kit's page, without the password itself.
+        let opened = open_protected(&saved, PDF_PASSWORD).unwrap();
+        let compact = open_protected(&saved, &PDF_PASSWORD.replace(' ', "")).unwrap();
+        assert_eq!(*opened, *compact);
+        let text = String::from_utf8_lossy(&opened);
+        assert!(text.contains(&format!("/ActualText ({SECRET_KEY})")));
+        assert!(text.contains("MASTER PASSWORD"));
+        assert!(!text.contains("cupped") && !text.contains("PDF PASSWORD"));
+        assert!(text.contains("opens only with the kit's PDF password"));
+        assert_eq!(boxes(&text), 28);
+
+        // Not with another password, nor in capitals.
+        assert!(open_protected(&saved, "cupped reverend native quakers").is_none());
+        assert!(open_protected(&saved, &PDF_PASSWORD.to_uppercase()).is_none());
+        assert!(open_protected(&saved, "").is_none());
+        // Nor once a stream is altered (its padding no longer checks out, or the text changes).
+        let mut altered = saved.to_vec();
+        let at = raw
+            .find(
+                "stream
+",
+            )
+            .unwrap()
+            + "stream
+"
+            .len()
+            + 40;
+        altered[at] ^= 0x01;
+        assert_ne!(
+            open_protected(&altered, PDF_PASSWORD).map(|bytes| bytes.to_vec()),
+            Some(opened.to_vec())
+        );
+        // Two saves of the same kit share nothing: new file key, salts and IVs.
+        let again = render_protected(&contents(None), PDF_PASSWORD).unwrap();
+        assert_ne!(*again, *saved);
+
+        // Printed with its parts: four pages behind the same password.
+        let printed = render_protected(&contents(Some(PARTS)), PDF_PASSWORD).unwrap();
+        check_xref(&printed);
+        let raw = String::from_utf8_lossy(&printed);
+        assert!(raw.contains("/Count 4") && !raw.contains("AAAAAAA"));
+        let opened = open_protected(&printed, PDF_PASSWORD).unwrap();
+        let text = String::from_utf8_lossy(&opened);
+        assert!(
+            PARTS
+                .iter()
+                .all(|part| text.contains(&format!("({part}) Tj")))
+        );
+        assert_eq!(boxes(&text), 4 * 28);
+        // The plain kit (empty boxes to fill in by hand holds no key) is as before.
+        let plain = render(&contents(None));
+        assert!(String::from_utf8_lossy(&plain).starts_with("%PDF-1.4"));
+        assert!(String::from_utf8_lossy(&plain).contains("delete the file after printing"));
     }
 }

@@ -1239,6 +1239,7 @@ dependencies = [
  "block-buffer 0.12.1",
  "crypto-common 0.2.2",
  "inout 0.2.6",
+ "zeroize",
 ]
 
 [[package]]
@@ -7831,11 +7832,13 @@ dependencies = [
 name = "vault-platform"
 version = "0.0.0"
 dependencies = [
+ "aes 0.9.4",
  "android-native-keyring-store",
  "anyhow",
  "arboard",
  "axum",
  "base64 0.23.1",
+ "cbc 0.2.1",
  "crc32fast",
  "dirs",
  "flate2",
