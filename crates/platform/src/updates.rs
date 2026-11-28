@@ -14,7 +14,8 @@
 //! gives one, must agree with): the phone's package, and the browser extension's zip. Android
 //! installs the package only when it is this app, newer, and signed with the same certificate
 //! as the app already installed (the phone checks that before Android's installer gets it, and
-//! Android checks it again).
+//! Android checks it again). The desktop app's program is taken the same way and replaces the
+//! running one (`self_update`).
 
 use std::{io::Read, time::Duration};
 
@@ -24,10 +25,10 @@ use vault_sync_wire::{
     releases::{self, ManifestError, Package, Release, Verified},
 };
 
-const USER_AGENT: &str = "vault-password-manager";
+pub(crate) const USER_AGENT: &str = "vault-password-manager";
 
 /// How long to wait before each further try of a request the network failed.
-const RETRY_WAITS: [Duration; 2] = [Duration::from_secs(2), Duration::from_secs(5)];
+pub(crate) const RETRY_WAITS: [Duration; 2] = [Duration::from_secs(2), Duration::from_secs(5)];
 
 /// The newest release of the project, with its manifest checked against
 /// `releases::RELEASE_KEYS`. Blocks: call it off the UI thread.
@@ -114,7 +115,7 @@ pub fn extension_package(release: &Verified) -> Result<Vec<u8>, PackageError> {
 }
 
 /// How a failure of the network starts, in [`fetch`]'s errors.
-const NETWORK: &str = "the network failed: ";
+pub(crate) const NETWORK: &str = "the network failed: ";
 
 /// `package`, downloaded (at most `max` bytes) and checked against what the manifest lists for
 /// it.
@@ -168,7 +169,7 @@ fn fetch(url: &str, size: u64, max: usize) -> Result<Vec<u8>, String> {
 
 /// Makes `request`, and again after each of `waits` while the network fails it. What the
 /// server answered (an HTTP error, a body too large) is never asked again.
-fn with_retries<T>(
+pub(crate) fn with_retries<T>(
     waits: &[Duration],
     mut request: impl FnMut() -> Result<T, ureq::Error>,
 ) -> Result<T, String> {

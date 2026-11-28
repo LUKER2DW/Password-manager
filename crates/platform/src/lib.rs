@@ -32,6 +32,7 @@ pub mod screen;
 pub mod secret_store;
 pub mod secure_buffer;
 pub mod secure_memory;
+pub mod self_update;
 pub mod session_watch;
 pub mod single_instance;
 pub mod sync;

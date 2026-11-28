@@ -85,6 +85,10 @@ struct VaultState {
     /// nothing secret), so that a restart doesn't clear the wait they impose.
     #[serde(default, skip_serializing_if = "UnlockAttempts::is_clear")]
     unlock_attempts: UnlockAttempts,
+    /// The icon chosen for this vault on this computer (a line icon's name, as a folder's);
+    /// none shows the vault name's initial. Not in the vault: each device picks its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
 }
 
 /// How many of a vault's earlier ids on this device are remembered.
@@ -195,6 +199,12 @@ pub struct Settings {
     /// anonymous request; nothing about the vault). On by default, so a fix reaches every
     /// computer soon after it is released.
     pub update_checks: bool,
+    /// A newer version found is downloaded, checked against the release's signed manifest and
+    /// put in this program's place by itself (`self_update`); the person then chooses when to
+    /// restart. On by default. Off, it is only told, with a button that does the same.
+    pub update_install: bool,
+    /// The open vault's index (categories and folders, on the left) is hidden.
+    pub sidebar_hidden: bool,
 }
 
 impl Default for Settings {
@@ -219,6 +229,8 @@ impl Default for Settings {
             browser_always_asks: true,
             backdrop: true,
             update_checks: true,
+            update_install: true,
+            sidebar_hidden: false,
         }
     }
 }
@@ -488,6 +500,28 @@ impl DeviceState {
             .get_mut(vault_id)
             .map(|v| std::mem::take(&mut v.unlock_attempts))
             .unwrap_or_default()
+    }
+
+    /// The icon chosen for vault `vault_id` on this device ("" for its initial).
+    pub fn vault_icon(&self, vault_id: &str) -> String {
+        self.vaults
+            .get(vault_id)
+            .and_then(|v| v.icon.clone())
+            .unwrap_or_default()
+    }
+
+    /// Chooses the icon of vault `vault_id` on this device ("" for its initial). Only a line
+    /// icon's name is kept: letters, digits and dashes, short.
+    pub fn set_vault_icon(&mut self, vault_id: &str, icon: &str) {
+        let fits = icon.len() <= 32
+            && icon
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        let icon = (fits && !icon.is_empty()).then(|| icon.to_owned());
+        if icon.is_none() && !self.vaults.contains_key(vault_id) {
+            return;
+        }
+        self.vaults.entry(vault_id.to_owned()).or_default().icon = icon;
     }
 
     /// Where this device last found the vault's keyfile.
@@ -852,6 +886,32 @@ mod tests {
             }
         );
         assert_eq!(state.check_rollback("other", 0), RollbackStatus::Ok);
+    }
+
+    #[test]
+    fn a_vault_icon_is_kept_per_vault() {
+        let mut state = DeviceState::default();
+        assert_eq!(state.vault_icon("aa"), "");
+        state.set_vault_icon("aa", "briefcase");
+        assert_eq!(state.vault_icon("aa"), "briefcase");
+        assert_eq!(
+            state.vault_icon("bb"),
+            "",
+            "another vault keeps its initial"
+        );
+        state.set_vault_icon("aa", "../not an icon");
+        assert_eq!(state.vault_icon("aa"), "", "only a line icon's name");
+        state.set_vault_icon("cc", "");
+        assert!(!state.vaults.contains_key("cc"), "nothing kept for nothing");
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(
+            !json.contains("\"icon\""),
+            "no icon written when there is none"
+        );
+        state.set_vault_icon("aa", "home");
+        let back: DeviceState =
+            serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert_eq!(back.vault_icon("aa"), "home");
     }
 
     #[test]
