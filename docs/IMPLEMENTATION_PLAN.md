@@ -791,6 +791,9 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   only if the person says so; a new master password can be checked against known breaches
   first (a box, off by default; `--check-leaks`), with the leak check's k-anonymous query.
   Desktop `controller/passwords.rs` and `ui/review.slint`, phone `controller/passwords.rs`.
+  The new vault's suggested master password comes from the generator's compact options (the
+  same as a new login's, folded under the suggestion), words first, and never one below the
+  floor: the words or the length grow until it holds (the phone never makes a vault).
 - ✅ S20. Unlock attempts (`vault_core::attempts`): failed tries counted per vault in the device
   state (`device.rs`; the phone's `prefs.rs`), surviving a restart; from the fifth in a row a
   wait of 30 s doubling up to 15 min, counted down on the unlock screen and enforced in the
