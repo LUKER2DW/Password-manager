@@ -367,14 +367,6 @@ pub struct GeneratorPrefs {
     pub min_uppercase: u32,
     pub min_digits: u32,
     pub min_symbols: u32,
-    /// The editor's username generator: 0 two words, 1 the person's email with a tag after a
-    /// `+`, 2 a random name at the person's own domain.
-    pub username_kind: u8,
-    /// The email address tagged (kind 1) and the domain (kind 2), as typed here.
-    pub username_email: String,
-    pub username_domain: String,
-    /// Two words: four digits after them.
-    pub username_number: bool,
 }
 
 impl Default for GeneratorPrefs {
@@ -399,10 +391,6 @@ impl Default for GeneratorPrefs {
             min_uppercase: 0,
             min_digits: 0,
             min_symbols: 0,
-            username_kind: 0,
-            username_email: String::new(),
-            username_domain: String::new(),
-            username_number: true,
         }
     }
 }
