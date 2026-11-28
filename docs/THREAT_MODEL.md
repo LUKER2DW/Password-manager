@@ -221,8 +221,8 @@ On top of that:
   different codes and can't steer them (CRYPTO.md §3.9). A program that merely asks the app to
   connect makes it show a code the extension doesn't show: the dialog says to refuse then, and
   says so again when a second request replaces the one waiting. This rests on the person
-  comparing; the earlier way (typing the extension's code into the app) didn't, and remains
-  only for extensions older than the key agreement, whose code the app never shows.
+  comparing; the earlier way (a key handed to the extension, its code typed into the app)
+  went with the extensions that used it (the version floor, below).
   The browsers find the app's host through a per-user registry value and a manifest file,
   which another program of this user could point at a host of its own, sitting between the
   browser and the app. Every request and every answer is sealed (AES-256-GCM, CRYPTO.md
@@ -230,13 +230,34 @@ On top of that:
   logins, not a password being filled or saved, not the PIN typed for a locked login) and
   can't forge an answer (a password it knows, a passkey of its own, a list of logins). Nor
   can it take the key at the next connection: it would have to agree on one key with each
-  side, and the code the person types then differs from the app's (the extension commits to
-  its key first, so the relay can't pick keys that make the codes agree; one chance in a
-  million per attempt). While the link runs the app also checks the registration every few
-  seconds, puts it back when it changed, refuses that message and says so. An extension older
-  than this (not reloaded since the update) still signs its requests and gets plain answers,
-  and is still handed its key when it connects: a relay reads that one's traffic, as before.
-  It goes when a version floor (M10 S25) refuses older extensions.
+  side, and the two codes the person compares then differ (the extension commits to its key
+  first, so the relay can't pick keys that make the codes agree; one chance in 56^8, about
+  10^14, per attempt). While the link runs the app also checks the registration every few
+  seconds, puts it back when it changed, refuses that message and says so.
+  **A version floor** (M10 S25): the extension names its version (its manifest's) when it
+  connects and inside every sealed request, and the app connects and answers only one of
+  `MIN_EXTENSION_VERSION` or later (`crates/browser/src/protocol.rs`); an older one hears
+  `outdated_extension` and nothing else, and the app says so once. Someone who already runs
+  as the person could put back the files of an old release with a known fault in the
+  extension's folder (each release's files are genuine, so a signature on them wouldn't
+  tell); that copy gets nothing from the vault. The extensions released before the sealed
+  link (up to 0.4.7) sign their requests with the key itself and were handed that key when
+  they connected, so a relay read their traffic: they name no version and are refused,
+  connecting included, and that path is gone from the app. The floor is raised when a
+  release fixes a fault in the extension that must not stay reachable. A copy loaded from
+  the app's folder hears the version the app carries in the refusal and reloads itself into
+  it; one loaded from elsewhere says to update it (Settings → Browser extension → Add to a
+  browser writes the newest). What it doesn't stop: a program of the person's that edits
+  the extension's files can write any version into them (the app puts back files changed in
+  its folder every five minutes, and the code the person compares at connecting is still the
+  defence against a program in the extension's place).
+  **The native host's parent process is not checked** (it would be the browser, with a valid
+  Authenticode signature): Chrome and Edge start the host through `cmd.exe` (`COMSPEC`), so the
+  parent is the command prompt and the browser its parent in turn, by process ids that can be
+  reused; and a program of the same user can start the host with any process it can open as
+  its parent (`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`), the browser included. The check would
+  stop no one it is meant for, and the host is a relay that reads nothing: the sealed link is
+  what keeps a host in between from reading or forging anything.
   Known limit: a program already running as the same Windows user can copy the browser's
   stored data, pairing key included, and then ask like the extension does. It gets nothing
   while the vault is locked. By default (Settings → Browser extension, "Ask … every time")
@@ -275,6 +296,35 @@ On top of that:
   on the frame itself would make the browser stop vouching for its visibility (checked:
   `isVisible` turns false), and the click check would refuse every click. Residual risk: a site with
   an XSS flaw can read what is filled into its own page, as it can read what the person types.
+  **The frame's address** (M10 S24) is the browser's for this session
+  (`use_dynamic_url`, Chrome 130 and later): the frame's `src` doesn't carry the extension's
+  fixed id, and a page can't load `chrome-extension://<id>/inline.html` to learn, without the
+  person doing anything, that Vault is installed. Chrome serves that address from the
+  extension's own, which is what the worker sees as the frame's (`isFrameUrl`). Limits: a page
+  where the card appears sees an extension's frame there (and that session's address, the same
+  on every site until the browser restarts), and a page can still tell Vault is there from
+  `navigator.credentials`, which the passkeys script stands in front of; another extension's
+  redirect rules have been shown to reveal a dynamic address (Chromium issue 513184498).
+  Firefox ignores the key (a warning on `about:debugging`); its extension address is already a
+  random id per profile, and it shows no card in pages anyway. Chrome 127 to 129 ignore it too.
+  **Tabs driven by an AI agent** (M10 S28): an agent that drives the browser through its
+  debugging protocol sends input the browser marks as trusted and can wait out the click
+  check, a login filled into a page stays in its fields within the agent's reach, and a page
+  can carry instructions for the agent (prompt injection; agentic browsers have filled saved
+  data into fake shops and helped fill phishing pages). So while the browser says a program
+  drives it (`navigator.webdriver`: WebDriver, Marionette and BiDi, a headless browser, Chrome
+  started with `--enable-automation`, `--remote-debugging-pipe` or `--remote-debugging-port=0`),
+  or the person turns on "An AI agent or a program is using this browser" in the extension's
+  window, nothing is shown in pages: no card under fields, no save card, no passkeys in a
+  field's suggestions (`apps/extension/agent.js`). The extension's window still fills, saves
+  and copies with its usual checks, and Vault's passkey window still answers a site's
+  request. Three places hold it: the content script draws nothing (and takes away what it
+  drew), the frame takes no click, and the worker answers no frame while the person's choice
+  is on. Limits: no other standard signal of agentic browsing exists (browsers built around an
+  agent say nothing a page or an extension can read, and a user-agent string is anyone's
+  claim), and an agent can hide `navigator.webdriver` (a fixed debugging port, a flag that
+  turns it off, an extension driving the browser through `chrome.debugger`): the person's
+  choice covers those. An agent can still use the extension's own window like a person.
 - **The `privacy` permission** (extension 0.3) is used for one browser setting only: Chrome's
   "Offer to save passwords and passkeys", turned off while the person leaves saving to Vault
   (the default, changed in the extension's Settings; Chrome's own settings show that the
@@ -355,6 +405,16 @@ On top of that:
   extension and any browser. A copy loaded from anywhere else (the project's folder, the
   release's zip) is not watched. Unpacked extensions get none of the stores' review or signature
   checks; the extension in the stores (F12) will.
+- **An older copy of the apps put back** (M10 S25): a program running as the person could put an
+  old release's `vault-desktop.exe` or `vault.exe` (genuine, signed once S15 signs them) in place
+  of the newest, one with a fault fixed since. The device state (`state.json`) keeps, for each
+  vault, the newest version of the apps that opened it on this computer (the desktop app and
+  the CLI are released together, at one version), never lowered. An older one still opens the
+  vault (the person must reach it; refusing would also lock out someone who went back on
+  purpose), and says so: the desktop app in a notice after the unlock, the CLI on stderr, every
+  time, with how to get the newest. It is a warning, not a lock: the program that swapped the
+  exe can also edit `state.json`. On a phone, Android refuses to install a lower `versionCode`
+  over the installed app (docs/MOBILE.md).
 - **Firefox**: the same extension and host. Firefox doesn't report whether
   a frame in a page is covered (no IntersectionObserver v2), so there the extension draws
   nothing inside pages (no card under fields, no save card, no warning): filling and saving

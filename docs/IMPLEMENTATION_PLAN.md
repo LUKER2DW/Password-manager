@@ -641,7 +641,7 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   the desktop each such text names what it is instead of its value (item page, notes,
   recovery codes, generator, authenticator, kit); the headless test walks the whole tree for
   the secrets.
-- 🚧 S10. The browser link: every request and answer sealed with AES-256-GCM under keys
+- ✅ S10. The browser link: every request and answer sealed with AES-256-GCM under keys
   derived from the connection key, each answer bound to its request (`pairing.rs`
   `seal_request`/`open_request`/`seal_answer`, `link.js` `seal`/`opened`), so a relay put in
   the host's place reads nothing and can't forge answers; connecting by ECDH P-256 with a
@@ -650,9 +650,19 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   never travels; the host's registration (registry values and manifests) checked while
   the link runs and put back, with a notice. Known-answer vectors computed apart (Node's
   OpenSSL) are checked on both sides. An app older than this answers the new extension "not
-  understood", and the extension says to update the app; an older extension still signs its
-  requests and is still handed its key (until S25). Later: the host checking that its parent
-  is a signed browser.
+  understood", and the extension says to update the app. The older extensions' way (signed
+  requests, a key handed over at connecting with a six-digit code typed into the app) ended
+  with S25: they are refused, and the code is gone from the app (`Pending::handed_over`,
+  `PairingKey::verify`, the dialog's typed code); their tests are refusal tests now. Not done:
+  the host checking that its parent process is a browser with a valid Authenticode signature.
+  Chrome and Edge start the host through `cmd.exe` (`COMSPEC`, Chromium's
+  `launch_context_win.cc`), so the parent is the command prompt and the browser the one above
+  it, found by process ids that can be reused; and any program of the same user can start the
+  host with a parent of its choosing (`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` with a handle to
+  the browser), which is the attacker the check is for. It would need new `unsafe` (a
+  process snapshot, `WinVerifyTrust`, a list of the browsers' signers kept current) to stop
+  no one, while the host is a relay that reads nothing: the sealed link is the defence
+  (THREAT_MODEL.md).
 - ✅ S11. Keys in memory: a global allocator that wipes every block before freeing it (and
   never grows one in place) in the desktop app, the CLI and the phone app
   (`wiping_alloc.rs`); typed secrets in one area of memory locked in RAM once and left out
@@ -777,14 +787,50 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   `vendor/` with that one line added (Slint's Java side has no way to set it), a test failing
   when a Slint update leaves the copy unused (`vendor/update-slint-android.ps1` makes it
   again). ⬜ Tried on a device (Gboard's incognito mark in a note and the search).
-- ⬜ S24. The extension frame's address changes each session (`use_dynamic_url`), so pages
-  can't detect Vault.
-- ⬜ S25. A minimum extension version the app accepts, and a warning when an exe older than
-  one already used runs.
+- ✅ S24. The extension frame's address changes each session: `"use_dynamic_url": true` on
+  `inline.html` (the only web-accessible resource), its address made only with
+  `chrome.runtime.getURL`, so the frame's `src` carries no fixed id and a page can't probe
+  `chrome-extension://<id>/inline.html` to learn that Vault is installed. Chrome (130 and
+  later) serves the session's address from the extension's own (a redirect, Chromium's
+  `extension_protocols.cc`), so the worker knows the frame by either (`isFrameUrl`, tested),
+  and the card moving above its field loads the frame again (its click check starts over).
+  Firefox has no such key (its manifest schema lists it as an unknown property: a warning on
+  `about:debugging`, nothing else); its `moz-extension://` address is already a random id per
+  profile, and it draws no frame in pages. ⬜ Tried in a real Chrome (the card under a field,
+  moved above it, the save card).
+- ✅ S25. Versions. (a) The extension names its version (its manifest's) when it connects
+  (`pair`) and inside every sealed request (`{"version","request"}`, `protocol::asked`, the
+  request passed on as it came); the app connects and answers only one of
+  `MIN_EXTENSION_VERSION` or later and refuses any other with `outdated_extension` (sealed to
+  the connected extension, with the version the app carries so a copy in its folder reloads
+  into it; plain for connecting and for the old signed requests), and says so once a run in a
+  notice. The extension's window says *Update the extension* and how (Settings → Browser
+  extension → Add to a browser). The floor is 0.4.7: the sealed link isn't in a release yet
+  and carries 0.4.7 until the next release raises every app's version, and every released
+  extension up to 0.4.7 names no version, so it is refused whatever the floor; raise it when
+  a release fixes a fault in the extension. (b) The device state keeps, for each vault, the
+  newest version of the apps that opened it on this computer (`DeviceState::note_version`,
+  never lowered; the desktop app and the CLI share it, released at one version); an older
+  one opens the vault all the same and says so, every time: the desktop app in a notice after
+  the unlock, the CLI on stderr, with how to get the newest. The phone: Android refuses a
+  lower `versionCode` over the installed app (docs/MOBILE.md), nothing to build.
 - ⬜ S26. A local security log (unlocks, failures, each use through the extension, exports,
   the kit, devices), sealed on this device.
 - ⬜ S27. The master password typed on a secure desktop (Windows).
-- ⬜ S28. Tabs driven by an AI agent get no offers in the page, only the extension's window.
+- ✅ S28. Tabs driven by an AI agent get no offers in the page, only the extension's window:
+  while the browser says a program drives it (`navigator.webdriver`, read in the isolated
+  world) or the person turns on "An AI agent or a program is using this browser" in the
+  extension's Settings (`vaultAgent` in `chrome.storage.local`: the content scripts read it
+  there, and a browser an agent drives is usually one kept for it, so it stays until turned
+  off), nothing is drawn in pages: no card under fields, no save card, no warning, no passkeys
+  in a field's suggestions (`agent.js`, loaded before `passkeys.js`, `content.js` and
+  `inline.js`). The window fills, saves and copies with its checks; the toolbar button marks
+  what waits; Vault's passkey window still answers. Unknown until read counts as on; turned
+  on, the cards on screen go; the frame refuses clicks and the worker answers no frame too.
+  No other standard signal of agentic browsing was found (Chrome sets `webdriver` for
+  `--enable-automation`, headless, `--remote-debugging-pipe` and `--remote-debugging-port=0`
+  only; agentic browsers and `chrome.debugger` set nothing; user-agent strings are not
+  used). Tests in `fields.test.mjs`, `background.test.mjs`, `passkeys.test.mjs`.
 - ✅ S29. The extension asks every time: by default every password, one-time code, fill,
   copy and passkey the extension uses asks for Windows Hello (the item lock's key, or the
   vault's quick unlock key) or the item lock's PIN or password in that request, with no grace

@@ -105,8 +105,8 @@ there is one (`tpm.rs`: RSA-2048 made in the chip through NCrypt's Platform Cryp
 not exportable, CRYPTO.md §2.2.1; the plain form kept only without a TPM, an older one moved
 under the chip after an unlock, checked first; the chip behind `KeyWrapper`, and the tests'
 stand-in `MemoryChip` behind the `test-chip` feature, so the apps' tests make no keys in the
-real chip), per-device state and rollback detection
-(`device.rs`), clipboard that stays out of history (`clipboard.rs`, `clipboard_android.rs`),
+real chip), per-device state, rollback detection and the newest version of the apps that
+opened each vault here (`device.rs`), clipboard that stays out of history (`clipboard.rs`, `clipboard_android.rs`),
 screen-capture blocking (`screen.rs`), typed secrets (`secure_buffer.rs`) kept in one area
 locked in RAM, and the Windows key shield (`secure_memory.rs`), the global allocator that wipes
 every block it frees (`wiping_alloc.rs`),
@@ -161,7 +161,9 @@ The extension holds no secrets. `origin.rs` decides which saved website belongs 
 `lookalike.rs` which saved site a page only looks like (from the vault's own sites, offline)
 and how a host is shown (punycode when it mixes scripts), `kit.rs` the emergency kit's keys
 recognised in what a page sends, `protocol.rs` is the JSON it exchanges with the
-app, `pairing.rs` is the connection key and the proof on every request, `service.rs` answers
+app (and the oldest extension the app answers, `MIN_EXTENSION_VERSION`: every sealed request
+names the extension's version), `pairing.rs` is the connection key and the sealing of every
+request and answer, `service.rs` answers
 from an open vault (with the item lock as a `Gate`), `host.rs` is the native host's relay
 between the browser and the app's pipe, run by the desktop app's own executable when a browser
 starts it with the extension's origin (`apps/desktop/src/main.rs`). In `apps/extension/`,
@@ -169,7 +171,8 @@ starts it with the extension's origin (`apps/desktop/src/main.rs`). In `apps/ext
 ECDH), the sealing of each request and the opening of each answer, and
 `fill.js` the function that types a login into a page, `content.js` + `fields.js` the
 content script (sign-in fields, submitted forms, a password pasted, the warnings), `kit.js` the
-emergency kit's keys refused in every page (every frame, at `document_start`),
+emergency kit's keys refused in every page (every frame, at `document_start`), `agent.js`
+whether an AI agent or a program drives the browser (then nothing is shown in pages),
 `inline.html`/`inline.js` the frame shown under a field (and its warnings), `background.js`
 the worker between them and the app, `generator.js` the
 reading of a site's password rules, `app.js` the native messaging calls, `update.js` the
@@ -180,8 +183,9 @@ where the person chooses). See
 [apps/extension/README.md](apps/extension/README.md). Tests: `cargo test -p vault-browser` and
 `node --test apps/extension/test/fill.test.mjs apps/extension/test/fields.test.mjs apps/extension/test/background.test.mjs apps/extension/test/link.test.mjs apps/extension/test/generator.test.mjs apps/extension/test/passkeys.test.mjs apps/extension/test/popup.test.mjs apps/extension/test/update.test.mjs apps/extension/test/kit.test.mjs`.
 
-Rules for this part: UI in a page only as the extension's own frame (`inline.html`), never as
-page DOM, and every click there goes through the visibility check; no new permission without
+Rules for this part: UI in a page only as the extension's own frame (`inline.html`, at the
+session's address `chrome.runtime.getURL` gives), never as page DOM, and every click there goes
+through the visibility check; nothing in pages while an agent drives the browser; no new permission without
 a threat-model note; passwords are made, copied and decided on by the app, not the extension;
 the extension stays free of packages and build steps.
 

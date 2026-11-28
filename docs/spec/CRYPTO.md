@@ -565,7 +565,10 @@ the extension (`crates/browser/src/pairing.rs`, `apps/extension/link.js`):
 
 1. The extension makes an ephemeral P-256 key pair (the private half a non-extractable
    WebCrypto key) and sends `commit = SHA-256("vault-browser/pairing-commit" ‖ E)`, `E` its
-   public key as an uncompressed SEC1 point (65 bytes).
+   public key as an uncompressed SEC1 point (65 bytes), with its version
+   (`{"type":"pair","commit":hex,"version":"0.4.8"}`, its manifest's). The app goes on only
+   for a version of `MIN_EXTENSION_VERSION` or later (`crates/browser/src/protocol.rs`), and
+   answers anything else plain `{"type":"error","code":"outdated_extension","minimum":…}`.
 2. The app makes an ephemeral key pair and answers its public key `A`.
 3. The extension sends `E`; the app refuses it unless it matches `commit`.
 4. Both compute
@@ -584,11 +587,10 @@ by choosing its keys: the commitment makes it answer the extension before it kno
 commit towards the app before it knows `A` (the same reason Bluetooth's numeric comparison
 commits first). Each attempt has one chance in 56^8 (about 10^14), in front of the person.
 
-An extension older than this asks without a commitment and is handed a random `K` with a
-six-digit code (the first 4 bytes of `SHA-256("vault-browser/pairing-code" ‖ K)`, big-endian,
-mod 10^6), which the person types into the app: whoever asked knows it, so the app never shows
-it. That key travels through whatever is between the browser and the app. Still accepted until
-a version floor ends it.
+An extension older than this asked without a commitment and was handed a random `K`, which
+travelled through whatever was between the browser and the app. Such a request (`{"type":
+"pair"}` alone), and one that names no version or an older one, is refused
+(`outdated_extension`); the app hands out no key.
 
 From `K`, by one block of HKDF-SHA-256-Expand (`HMAC-SHA-256(K, info ‖ 0x01)`; `K` is 32 uniform
 bytes, so there is no extract step, RFC 5869 §3.3):
@@ -600,16 +602,22 @@ K_ans = HKDF-Expand(K, info = "vault-browser/answers",  L = 32)
 
 A request is `{"type":"sealed","counter":c,"data":base64(n ‖ ciphertext ‖ tag)}` with
 `AES-256-GCM(K_req, nonce n (12 random bytes), request text, aad = "vault-browser/request" ‖ c
-(8 bytes LE))`; `c` is the sender's clock in milliseconds × 1000 plus a random part below 1000,
+(8 bytes LE))`, the request text being `{"version":"0.4.8","request":{…}}`: the request and the
+extension's version. A request whose version is below `MIN_EXTENSION_VERSION`, or that names
+none (a bare request), is answered sealed `{"type":"error","code":"outdated_extension",
+"minimum":…,"extension_version":…}` (the version of the extension the app carries) and
+nothing else; `c` is the sender's clock in milliseconds × 1000 plus a random part below 1000,
 accepted once and only within two minutes of the app's clock. Its answer is
 `{"type":"sealed","data":base64(m ‖ ciphertext ‖ tag)}` with `AES-256-GCM(K_ans, nonce m (12
 random bytes), answer text, aad = "vault-browser/answer" ‖ c ‖ n)`: bound to that request. Only
-"not connected", "not running" and "not understood" travel plain. Nonces are random, never the
+"not connected", "not running", "not understood" and a too old extension's request to connect
+travel plain. Nonces are random, never the
 counter (the app's record of counters seen starts empty at every start); at a few requests per
 minute, random 96-bit nonces stay far from GCM's limits.
 
-An extension older than sealed requests sends `{"type":"signed","counter":c,"body":…,"mac":…}`
-with `mac = HMAC-SHA-256(K, c (8 bytes LE) ‖ body)` and gets plain answers.
+An extension older than sealed requests sent `{"type":"signed","counter":c,"body":…,"mac":…}`
+(`mac = HMAC-SHA-256(K, c (8 bytes LE) ‖ body)`) and got plain answers: such a message is now
+answered plain `outdated_extension`, its MAC not even checked.
 
 The app keeps `K` sealed with the vault (`subkey("local/browser-pairing")`, §6) and a copy under
 DPAPI for filling while locked (§3.4); the extension keeps it as a non-extractable WebCrypto
