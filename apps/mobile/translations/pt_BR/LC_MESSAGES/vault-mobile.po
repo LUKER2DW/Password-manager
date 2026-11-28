@@ -3864,6 +3864,7 @@ msgctxt "Messages"
 msgid "other details"
 msgstr "outros detalhes"
 
+msgctxt "Words"
 msgid "Clear the security log?"
 msgstr "Apagar o registro de segurança?"
 
