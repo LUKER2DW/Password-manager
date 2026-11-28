@@ -741,8 +741,14 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   extension's window, and the save card says it; the locked app answers it too. Hosts that mix
   scripts (or are all Latin-looking letters of another script) are shown in punycode. Tested
   with a table of lookalikes and of ordinary other sites that must not warn.
-- ⬜ S22. Android autofill against the AutoFail cases (USENIX Security 2026): sandboxed
-  frames, only the focused form's fields, the account oracle.
+- ✅ S22. Android autofill against the AutoFail cases (USENIX Security 2026): a "null"
+  domain (a sandboxed frame, an opaque origin) is nobody's site; a form in a frame of another
+  site than the page around it (`autofill::same_site`, the registrable domain) gets no offer
+  and saves nothing; the fields filled are only those of the origin the login is for (already
+  so: one form per origin). The account oracle doesn't apply: an app that isn't a known
+  browser sees only its own logins, and a locked vault offers the same single line to every
+  app. Within one origin all of a page's fields are one form, which crosses no boundary (the
+  page reads them all anyway). ⬜ Tried on a device with the paper's test pages.
 - ✅ S23. Android's keyboard learns nothing typed in the vault's fields: every text field asks
   it not to (`IME_FLAG_NO_PERSONALIZED_LEARNING`), through Slint's Android backend built from
   `vendor/` with that one line added (Slint's Java side has no way to set it), a test failing

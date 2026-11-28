@@ -50,7 +50,7 @@ was removed. It is done on a computer (the desktop app's Emergency kit page or
 | A1 | File/backup thief | Copy of the vault, unlimited offline brute force | **Yes**, the primary goal |
 | A2 | Compromised sync server | Reads, modifies, reorders, rolls back and replays data; responds maliciously | **Yes**: the server is untrusted (lessons from the ETH Zurich 2026 study) |
 | A3 | Network attacker | MITM, replay | **Yes**: end-to-end encryption plus TLS |
-| A4 | Malicious website / phishing | Fake pages, iframes, clickjacking, DOM manipulation | **Yes**: autofill bound to the exact origin, confirmation outside the page DOM; warnings for pages that only look like a saved site and for a password given to the wrong site, and the emergency kit's keys refused in every page (§3) |
+| A4 | Malicious website / phishing | Fake pages, iframes, clickjacking, DOM manipulation | **Yes**: autofill bound to the exact origin, confirmation outside the page DOM; on the phone nothing offered in a frame of another site than the page, nor in a sandboxed one; warnings for pages that only look like a saved site and for a password given to the wrong site, and the emergency kit's keys refused in every page (§3) |
 | A5 | Malicious Android app | WebView hosting a third-party login (AutoSpill) | **Yes**: app package and signature validation |
 | A6 | Physical access to a **locked** device | Stolen PC or phone | **Yes**: vault encrypted; quick unlock rate-limited by hardware (TPM/StrongBox) |
 | A7 | Malware while the vault is **locked** | Reads disk, keylogger | **Partially**, see §3 |
