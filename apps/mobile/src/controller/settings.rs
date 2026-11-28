@@ -499,6 +499,7 @@ impl Controller {
             recovery_codes: count(clear.recovery_codes),
             notes: count(clear.notes),
             formula_like: count(clear.formula_like),
+            readable_passkeys: count(clear.passkeys),
         })
     }
 

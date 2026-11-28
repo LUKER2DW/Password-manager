@@ -4096,3 +4096,16 @@ msgctxt "Messages"
 msgid "The copy from {} couldn't be read. Settings → Sync says why."
 msgstr "A cópia de {} não pôde ser lida. Configurações → Sincronização diz por quê."
 
+msgctxt "Messages"
+msgid "No QR code with a one-time code key was found in that picture. Use a sharp screenshot of the whole code, or paste the setup key instead."
+msgstr "Nenhum código QR com uma chave de código de uso único foi encontrado nessa imagem. Use uma captura nítida do código inteiro ou cole a chave de configuração."
+
+msgctxt "Messages"
+msgid "That picture couldn't be read: {}"
+msgstr "Não foi possível ler essa imagem: {}"
+
+msgctxt "Messages"
+msgid "{n} passkey with its private key, which signs in without a password"
+msgid_plural "{n} passkeys with their private keys, which sign in without a password"
+msgstr[0] "{n} chave de acesso com sua chave privada, que entra sem senha"
+msgstr[1] "{n} chaves de acesso com suas chaves privadas, que entram sem senha"
