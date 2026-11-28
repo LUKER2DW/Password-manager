@@ -89,6 +89,34 @@ struct VaultState {
     /// none shows the vault name's initial. Not in the vault: each device picks its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     icon: Option<String>,
+    /// The title bar's alerts marked as read, by kind: how many there were then, and when.
+    /// Only counts (how many weak passwords, a sync that failed), never which items.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    alerts_read: BTreeMap<String, AlertRead>,
+}
+
+/// An alert marked as read: how many there were, and when (Unix seconds).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AlertRead {
+    pub count: u32,
+    pub at: i64,
+}
+
+/// How long an alert marked as read stays out of sight while it isn't dealt with.
+pub const ALERT_QUIET_SECONDS: i64 = 7 * 24 * 60 * 60;
+
+impl AlertRead {
+    /// Whether an alert of `count` is shown at `now`, when this one was its last reading: there
+    /// are more of it than were read, or a week has passed.
+    pub fn shows(read: Option<Self>, count: u32, now: i64) -> bool {
+        count > 0
+            && match read {
+                None => true,
+                Some(read) => {
+                    count > read.count || now.saturating_sub(read.at) >= ALERT_QUIET_SECONDS
+                }
+            }
+    }
 }
 
 /// How many of a vault's earlier ids on this device are remembered.
@@ -502,6 +530,53 @@ impl DeviceState {
             .unwrap_or_default()
     }
 
+    /// The alerts of vault `vault_id` marked as read here, by kind.
+    pub fn alerts_read(&self, vault_id: &str) -> BTreeMap<String, AlertRead> {
+        self.vaults
+            .get(vault_id)
+            .map(|v| v.alerts_read.clone())
+            .unwrap_or_default()
+    }
+
+    /// Marks the alerts `counts` (kind, how many now) of vault `vault_id` read at `now`.
+    pub fn mark_alerts_read(&mut self, vault_id: &str, counts: &[(&str, u32)], now: i64) {
+        let entry = self.vaults.entry(vault_id.to_owned()).or_default();
+        for (kind, count) in counts {
+            if *count > 0 {
+                entry.alerts_read.insert(
+                    (*kind).to_owned(),
+                    AlertRead {
+                        count: *count,
+                        at: now,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Follows the alerts of vault `vault_id` down as they are dealt with: a kind now at fewer
+    /// than were read keeps the lower count (so one more shows at once), and one at none is
+    /// forgotten. Returns whether anything changed (save it then).
+    pub fn settle_alerts(&mut self, vault_id: &str, counts: &[(&str, u32)]) -> bool {
+        let Some(entry) = self.vaults.get_mut(vault_id) else {
+            return false;
+        };
+        let mut changed = false;
+        for (kind, count) in counts {
+            let Some(read) = entry.alerts_read.get_mut(*kind) else {
+                continue;
+            };
+            if *count == 0 {
+                entry.alerts_read.remove(*kind);
+                changed = true;
+            } else if *count < read.count {
+                read.count = *count;
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// The icon chosen for vault `vault_id` on this device ("" for its initial).
     pub fn vault_icon(&self, vault_id: &str) -> String {
         self.vaults
@@ -886,6 +961,36 @@ mod tests {
             }
         );
         assert_eq!(state.check_rollback("other", 0), RollbackStatus::Ok);
+    }
+
+    #[test]
+    fn alerts_read_come_back_after_a_week_or_when_there_are_more() {
+        let mut state = DeviceState::default();
+        let now = 1_800_000_000;
+        assert!(AlertRead::shows(None, 2, now), "never read");
+        assert!(!AlertRead::shows(None, 0, now), "nothing to tell");
+        state.mark_alerts_read("aa", &[("weak", 2), ("leaked", 0)], now);
+        let read = state.alerts_read("aa");
+        assert_eq!(read.len(), 1, "only what there was");
+        let weak = read.get("weak").copied();
+        assert!(!AlertRead::shows(weak, 2, now + 60), "read");
+        assert!(
+            AlertRead::shows(weak, 3, now + 60),
+            "a new one shows at once"
+        );
+        assert!(
+            AlertRead::shows(weak, 2, now + ALERT_QUIET_SECONDS),
+            "back after a week, not dealt with"
+        );
+        // One dealt with: the count follows it down, so the next new one shows at once.
+        assert!(state.settle_alerts("aa", &[("weak", 1)]));
+        let weak = state.alerts_read("aa").get("weak").copied();
+        assert_eq!(weak.map(|w| w.count), Some(1));
+        assert!(AlertRead::shows(weak, 2, now + 60));
+        // All dealt with: forgotten.
+        assert!(state.settle_alerts("aa", &[("weak", 0)]));
+        assert!(state.alerts_read("aa").is_empty());
+        assert!(!state.settle_alerts("aa", &[("weak", 0)]));
     }
 
     #[test]

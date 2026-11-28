@@ -22,6 +22,7 @@ pub mod keyfile;
 pub mod kit_pdf;
 pub mod leak_check;
 pub mod locale;
+pub mod os_notice;
 pub mod part_picture;
 pub mod paths;
 pub mod process;
