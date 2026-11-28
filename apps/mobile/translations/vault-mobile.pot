@@ -3831,12 +3831,12 @@ msgctxt "FieldLabel"
 msgid "required"
 msgstr ""
 
-#: ../desktop/ui/icons.slint:589
+#: ../desktop/ui/icons.slint:592
 msgctxt "SourcePicker"
 msgid "Choose…"
 msgstr ""
 
-#: ../desktop/ui/icons.slint:646
+#: ../desktop/ui/icons.slint:649
 msgctxt "SourcePicker"
 msgid "on this computer"
 msgstr ""
@@ -4537,6 +4537,13 @@ msgid ""
 msgstr ""
 
 #: ../desktop/ui/model.slint:380
+msgctxt "Messages"
+msgid ""
+"There's no window behind Vault to type into. Click into the program's field "
+"first, then come back here and choose Auto-type."
+msgstr ""
+
+#: ../desktop/ui/model.slint:361
 msgctxt "Messages"
 msgid ""
 "Locked secrets are in the way. Open the item lock first: type its PIN or "

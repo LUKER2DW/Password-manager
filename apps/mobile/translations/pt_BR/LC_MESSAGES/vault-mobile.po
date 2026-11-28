@@ -4145,3 +4145,31 @@ msgstr "A extensão do navegador preencheu um cartão"
 msgctxt "Messages"
 msgid "The browser extension filled an address"
 msgstr "A extensão do navegador preencheu um endereço"
+
+msgctxt "Messages"
+msgid "There's no window behind Vault to type into. Click into the program's field first, then come back here and choose Auto-type."
+msgstr "Não há uma janela atrás do Vault para digitar. Clique primeiro no campo do programa, depois volte aqui e escolha Digitar."
+
+msgctxt "Messages"
+msgid "The SSH key “{}” signed for a program."
+msgstr "A chave SSH “{}” assinou para um programa."
+
+msgctxt "Messages"
+msgid "Typed into “{}”."
+msgstr "Digitado em “{}”."
+
+msgctxt "Messages"
+msgid "Auto-type stopped: “{}” changed or another window took the keyboard. Nothing more was typed."
+msgstr "A digitação parou: “{}” mudou ou outra janela tomou o teclado. Nada mais foi digitado."
+
+msgctxt "Messages"
+msgid "Auto-type stopped: Ctrl, Alt, Shift or the Windows key was held. Let go and try again."
+msgstr "A digitação parou: Ctrl, Alt, Shift ou a tecla Windows estava pressionada. Solte e tente de novo."
+
+msgctxt "Messages"
+msgid "Windows refused the typed keys for “{}”."
+msgstr "O Windows recusou as teclas digitadas para “{}”."
+
+msgctxt "Messages"
+msgid "SSH_AUTH_SOCK copied: set it as an environment variable for your user, then open a new terminal."
+msgstr "SSH_AUTH_SOCK copiado: defina-o como variável de ambiente do seu usuário e abra um novo terminal."
