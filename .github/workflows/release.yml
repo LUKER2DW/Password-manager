@@ -8,21 +8,28 @@
 # Each run keeps them as artifacts, with a provenance attestation for every file. When the
 # version they carry has no release yet, the run publishes the GitHub release v<version>
 # (marked the latest; its notes are that version's section of CHANGELOG.md) and the server's
-# image, ghcr.io/<owner>/vault-server, for amd64 and arm64. To release: bump the version in
+# image, ghcr.io/<owner>/vault-server, for amd64 and arm64. The release holds manifest.json,
+# which lists every file's name, size and SHA-256, the commit and the APK's certificate, and
+# manifest.json.minisig, its signature with the manifest key (minisign's format,
+# tools/release): the apps take a release only with that signature, by one of the keys they
+# carry (vault_sync_wire::releases::RELEASE_KEYS). To release: bump the version in
 # apps/mobile/Cargo.toml, apps/mobile-android/Cargo.toml, apps/desktop/Cargo.toml,
 # apps/cli/Cargo.toml, apps/server/Cargo.toml and apps/extension/manifest.json (the run refuses
 # them unequal), add the phone's notes (apps/mobile/ui/app.slint) and the CHANGELOG.md section,
 # push to main. The phones and the desktop app find it by themselves within the hour.
 #
-# The release key lives only in the secrets of the `android-release` environment, which GitHub
+# The signing keys live only in the secrets of the `android-release` environment, which GitHub
 # hands to jobs running for main alone (the environment's branch policy), and only once the
 # maintainer approved that run (its required reviewer, admins included): a pull request, a run
-# from another branch, or a push alone never sees it. Only a run that publishes asks for it.
-#   ANDROID_SIGNING_STORE     the key (release.p12: PKCS#12, alias "vault"), in base64
-#   ANDROID_SIGNING_PASSWORD  its password
-# The APK must come out signed with the certificate named below, or nothing is published: a key
-# swapped in the secrets can't sign a release. `gh attestation verify <file> --repo <repo>` says
-# a file was built here, and from which commit.
+# from another branch, or a push alone never sees them. Only a run that publishes asks for them.
+#   ANDROID_SIGNING_STORE      the APK's key (release.p12: PKCS#12, alias "vault"), in base64
+#   ANDROID_SIGNING_PASSWORD   its password
+#   RELEASE_MANIFEST_KEY       the manifest key (tools/release/make-manifest-keys.ps1), in base64
+#   RELEASE_MANIFEST_PASSWORD  its password
+# Two jobs get them, each after its own approval: the APK's job and the manifest's. The APK must
+# come out signed with the certificate named below, and the manifest with a key the apps carry,
+# or nothing is published: a key swapped in the secrets can't sign a release.
+# `gh attestation verify <file> --repo <repo>` says a file was built here, and from which commit.
 name: Release
 
 on:
@@ -40,6 +47,7 @@ on:
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "CHANGELOG.md"
+      - "tools/release/**"
       - ".github/workflows/release.yml"
   workflow_dispatch:
 
@@ -324,9 +332,85 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  # The release manifest, signed. Only a run that publishes has this job, and its secret, the
+  # manifest key, comes from the android-release environment (main only, after the
+  # maintainer's approval). The signing tool is built before the key is near, so no build
+  # script runs with it in reach; the signature is then checked the way the apps check it,
+  # with the keys they carry, and every file against the manifest.
+  manifest:
+    name: Release manifest (signed)
+    needs: [version, apk, windows, server, extension]
+    if: needs.version.outputs.publish == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    environment: android-release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: rustup show active-toolchain
+      - name: The signing tool
+        run: cargo build --release --locked -p vault-release
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Manifest
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          $out = New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP "manifest")
+          $files = @(Get-ChildItem dist -File | ForEach-Object FullName)
+          $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          ./target/release/vault-release.exe manifest --version $env:VERSION --date $date `
+            --commit $env:GITHUB_SHA --certificate $env:RELEASE_CERTIFICATE `
+            --out (Join-Path $out "manifest.json") @files
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Content (Join-Path $out "manifest.json")
+      - name: Signature
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          MANIFEST_KEY: ${{ secrets.RELEASE_MANIFEST_KEY }}
+          VAULT_RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_MANIFEST_PASSWORD }}
+        run: |
+          if (-not $env:MANIFEST_KEY -or -not $env:VAULT_RELEASE_KEY_PASSWORD) {
+            Write-Output "::error::The android-release environment has no manifest key"
+            exit 1
+          }
+          $key = Join-Path $env:RUNNER_TEMP "manifest.key"
+          try {
+            [IO.File]::WriteAllBytes($key, [Convert]::FromBase64String($env:MANIFEST_KEY.Trim()))
+            ./target/release/vault-release.exe sign --key $key `
+              --manifest (Join-Path $env:RUNNER_TEMP "manifest/manifest.json") --version $env:VERSION
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          } finally {
+            Remove-Item -Force $key -ErrorAction SilentlyContinue
+          }
+      - name: Check the signature with the keys the apps carry
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          ./target/release/vault-release.exe verify `
+            --manifest (Join-Path $env:RUNNER_TEMP "manifest/manifest.json") --version $env:VERSION --files dist
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: manifest
+          path: ${{ runner.temp }}/manifest/
+          retention-days: 7
+          if-no-files-found: error
+
   release:
     name: Attest and publish
-    needs: [version, apk, windows, server, extension]
+    needs: [version, apk, windows, server, extension, manifest]
+    # Also when there is no manifest job (a run that doesn't publish); never after one failed.
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -363,6 +447,12 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
+          for file in manifest.json manifest.json.minisig; do
+            if [ ! -s "dist/$file" ]; then
+              echo "::error::No signed manifest ($file): nothing is published"
+              exit 1
+            fi
+          done
           notes="$RUNNER_TEMP/notes.md"
           # This version's section of CHANGELOG.md, each paragraph and list item joined onto
           # one line (the release page keeps line breaks).
@@ -386,7 +476,7 @@ jobs:
           - **Sync server:** the image \`$image:$VERSION\` (amd64, arm64), or the program \`vault-server-linux-x64\`, \`vault-server-linux-arm64\`, \`vault-server-windows-x64.exe\`. With \`--app-updates $GITHUB_REPOSITORY\` (as in \`apps/server/compose.yaml\`) it hands each new phone app to your phones by itself.
           - **Command line (Windows x64):** \`vault.exe\`.
 
-          Each file's SHA-256 is listed next to it below. \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` checks it was built here, from commit $GITHUB_SHA.
+          Each file's SHA-256 is listed next to it below, and in \`manifest.json\`, signed with the project's manifest key (\`manifest.json.minisig\`): the apps take an update only with that signature. \`minisign -Vm manifest.json -P <key>\` checks it, with a key from docs/CODE_SIGNING.md. \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` checks a file was built here, from commit $GITHUB_SHA.
           EOF
           if [ -n "$prev" ]; then
             printf '\n**Full changelog**: %s/%s/compare/%s...%s\n' \

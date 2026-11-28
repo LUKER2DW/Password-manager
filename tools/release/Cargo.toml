@@ -1,0 +1,37 @@
+[package]
+name = "vault-release"
+version = "0.0.0"
+description = "The release manifest: its keys, writing it and signing it (minisign's format), for the release workflow and the maintainer"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "vault-release"
+path = "src/main.rs"
+
+[dependencies]
+# The secret key sealed under its password (sealed_export, CRYPTO.md §3.3), and the heap wiped.
+vault-core = { path = "../../crates/core" }
+vault-platform = { path = "../../crates/platform" }
+# The manifest's layout, the keys the apps carry, and their own check of a signature.
+vault-sync-wire = { path = "../../crates/sync-wire" }
+anyhow = "1"
+base64 = "0.22"
+# minisign's signature: Ed25519 over the manifest's BLAKE2b-512 (CRYPTO.md §9).
+blake2 = "0.11"
+clap = { version = "4.6", features = ["derive"] }
+ed25519-dalek = { version = "2.2", features = ["zeroize"] }
+getrandom = "0.4"
+serde_json = "1.0"
+sha2 = "0.11"
+zeroize = "1.9"
+
+[dev-dependencies]
+tempfile = "3.27"
+# The reference implementation, to check that what this signs is minisign's.
+minisign = "0.10"
