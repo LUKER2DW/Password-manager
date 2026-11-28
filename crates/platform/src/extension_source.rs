@@ -1,9 +1,11 @@
 //! Where the browser extension's files come from, before the app writes them into the folder the
 //! browser loads (`extension_folder`):
 //! - by default, the newest GitHub release of the project: its `vault-extension-<version>.zip`,
-//!   downloaded when the app looks for its own updates (`updates::extension_package`), taken only
-//!   when its SHA-256 is the one the release list gives, read strictly ([`Extension::from_zip`])
-//!   and kept next to the folder (`browser-extension-release.zip`) with that digest;
+//!   downloaded when the app looks for its own updates (`updates::extension_package`), from a
+//!   release whose manifest is signed by the project's release key (CRYPTO.md §9), taken only
+//!   when its size and SHA-256 are the ones that manifest lists, read strictly
+//!   ([`Extension::from_zip`]) and kept next to the folder (`browser-extension-release.zip`)
+//!   with that digest;
 //! - the copy built into the desktop app, whenever it is newer than the release kept (or none
 //!   was downloaded yet, or there is no network);
 //! - instead of both, a folder of the person's (someone who changes the extension), read with
@@ -366,7 +368,7 @@ pub struct Choice {
     pub release: Option<KeptRelease>,
 }
 
-/// A release's zip, kept: its version and the SHA-256 GitHub listed for it.
+/// A release's zip, kept: its version and the SHA-256 its release's signed manifest listed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeptRelease {
     pub version: String,
@@ -412,15 +414,16 @@ pub fn set_folder(folder: Option<&Path>) -> Result<()> {
     save_choice_in(&app_dir, &choice)
 }
 
-/// Keeps a release's zip, downloaded for `version` with the SHA-256 GitHub listed: taken only
-/// when the bytes have that very digest and hold the extension of that version. What it holds.
+/// Keeps a release's zip, downloaded for `version` with the SHA-256 its signed manifest lists:
+/// taken only when the bytes have that very digest and hold the extension of that version. What
+/// it holds.
 pub fn keep_release(version: &str, sha256: &str, zip: &[u8]) -> Result<Extension> {
     keep_release_in(&paths::app_dir()?, version, sha256, zip)
 }
 
 fn keep_release_in(app_dir: &Path, version: &str, sha256: &str, zip: &[u8]) -> Result<Extension> {
     if hex(&Sha256::digest(zip)) != sha256.to_ascii_lowercase() {
-        bail!("the file downloaded isn't the one GitHub lists (SHA-256 differs)");
+        bail!("the file downloaded isn't the one its release's manifest lists (SHA-256 differs)");
     }
     let extension = Extension::from_zip(zip)?;
     if extension.version != version {
@@ -636,7 +639,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_release_is_kept_only_with_the_digest_github_lists() {
+    fn a_release_is_kept_only_with_the_digest_its_manifest_lists() {
         let home = tempfile::tempdir().unwrap();
         let zip = zip_of(&files(), true, 0);
         let sha256 = hex(&Sha256::digest(&zip));

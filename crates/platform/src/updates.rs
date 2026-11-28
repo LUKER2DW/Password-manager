@@ -6,17 +6,22 @@
 //! A request the network failed (a name that didn't resolve, a connection that didn't open) is
 //! made again after a moment: a phone's DNS often fails for a second, for every app on it.
 //!
-//! The phone's package is taken only as GitHub lists it in the release (its size and SHA-256),
-//! and Android installs it only when it is this app, newer, and signed with the same
-//! certificate as the app already installed (the phone checks that before Android's installer
-//! gets it, and Android checks it again).
+//! A release counts only with its manifest signed offline by one of
+//! `releases::RELEASE_KEYS` (CRYPTO.md §9): [`latest`] downloads `manifest.json` and its
+//! `manifest.json.minisig` with the release list and hands back the release only once they
+//! check out, so no newer version is ever told or offered without them. A file is then taken
+//! only as that manifest lists it (its size and SHA-256, which GitHub's own digest, when it
+//! gives one, must agree with): the phone's package, and the browser extension's zip. Android
+//! installs the package only when it is this app, newer, and signed with the same certificate
+//! as the app already installed (the phone checks that before Android's installer gets it, and
+//! Android checks it again).
 
 use std::{io::Read, time::Duration};
 
 use sha2::{Digest, Sha256};
 use vault_sync_wire::{
     MAX_APP_BYTES,
-    releases::{self, Release},
+    releases::{self, ManifestError, Package, Release, Verified},
 };
 
 const USER_AGENT: &str = "vault-password-manager";
@@ -24,8 +29,30 @@ const USER_AGENT: &str = "vault-password-manager";
 /// How long to wait before each further try of a request the network failed.
 const RETRY_WAITS: [Duration; 2] = [Duration::from_secs(2), Duration::from_secs(5)];
 
-/// The newest release of the project. Blocks: call it off the UI thread.
-pub fn latest() -> Result<Release, String> {
+/// The newest release of the project, with its manifest checked against
+/// `releases::RELEASE_KEYS`. Blocks: call it off the UI thread.
+pub fn latest() -> Result<Verified, String> {
+    let release = latest_unchecked()?;
+    let version = release.version.clone();
+    checked(release).map_err(|err| format!("release {version}: {err}"))
+}
+
+/// `release` with its manifest and signature downloaded and checked.
+fn checked(release: Release) -> Result<Verified, String> {
+    let (manifest, signature) = release.manifest_assets().map_err(|err| err.to_string())?;
+    let manifest = fetch(&manifest.url, manifest.size, releases::MAX_MANIFEST_BYTES)?;
+    let signature = fetch(
+        &signature.url,
+        signature.size,
+        releases::MAX_SIGNATURE_BYTES,
+    )?;
+    release
+        .verify(&manifest, &signature, &releases::RELEASE_KEYS)
+        .map_err(|err| err.to_string())
+}
+
+/// GitHub's answer for the newest release, not checked yet.
+fn latest_unchecked() -> Result<Release, String> {
     // GitHub's API answers directly: no redirect is followed.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .https_only(true)
@@ -47,32 +74,37 @@ pub fn latest() -> Result<Release, String> {
     Release::parse(&body).ok_or_else(|| "GitHub's answer isn't a release".to_owned())
 }
 
-/// The phone app's package of `release`, downloaded and checked against what the release lists
-/// for it (size and SHA-256). Blocks: call it off the UI thread.
-pub fn phone_package(release: &Release) -> Result<Vec<u8>, String> {
-    let asset = release
+/// The phone app's package of `release`, downloaded and checked against what its manifest
+/// lists for it (size and SHA-256). Blocks: call it off the UI thread.
+pub fn phone_package(release: &Verified) -> Result<Vec<u8>, String> {
+    let package = release
         .phone_package()
-        .ok_or_else(|| format!("release {} has no phone app", release.version))?;
-    download(asset, MAX_APP_BYTES)
+        .map_err(|err| format!("release {}: {err}", release.version()))?;
+    download(&package, MAX_APP_BYTES)
 }
 
 /// Why the extension's zip of a release wasn't had.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PackageError {
-    /// The release lists none (or none with a SHA-256): nothing to take.
+    /// The release has none: nothing to take.
     None,
-    /// What came isn't what the release lists (size or SHA-256), or GitHub refused: said.
+    /// What came isn't what the manifest lists (size or SHA-256), the manifest doesn't list it,
+    /// or GitHub refused: said.
     Refused(String),
     /// The network failed: tried again at the next look.
     Network(String),
 }
 
 /// The browser extension's zip of `release` (`vault-extension-<version>.zip`), downloaded and
-/// checked against what the release lists for it (size and SHA-256), like the phone's package.
+/// checked against what its manifest lists for it (size and SHA-256), like the phone's package.
 /// Blocks: call it off the UI thread.
-pub fn extension_package(release: &Release) -> Result<Vec<u8>, PackageError> {
-    let asset = release.extension_package().ok_or(PackageError::None)?;
-    download(asset, releases::MAX_EXTENSION_BYTES).map_err(|err| {
+pub fn extension_package(release: &Verified) -> Result<Vec<u8>, PackageError> {
+    let package = match release.extension_package() {
+        Ok(package) => package,
+        Err(ManifestError::NoFile(_)) => return Err(PackageError::None),
+        Err(err) => return Err(PackageError::Refused(err.to_string())),
+    };
+    download(&package, releases::MAX_EXTENSION_BYTES).map_err(|err| {
         if err.starts_with(NETWORK) {
             PackageError::Network(err)
         } else {
@@ -81,20 +113,27 @@ pub fn extension_package(release: &Release) -> Result<Vec<u8>, PackageError> {
     })
 }
 
-/// How a failure of the network starts, in [`download`]'s errors.
+/// How a failure of the network starts, in [`fetch`]'s errors.
 const NETWORK: &str = "the network failed: ";
 
-/// `asset`, downloaded (at most `max` bytes) and checked against what the release lists for
+/// `package`, downloaded (at most `max` bytes) and checked against what the manifest lists for
 /// it.
-fn download(asset: &releases::Asset, max: usize) -> Result<Vec<u8>, String> {
-    let expected = asset.sha256.as_deref().ok_or("no SHA-256 listed")?;
-    let size = usize::try_from(asset.size).map_err(|_| "the package is too large")?;
-    if size > max {
-        return Err("the package is too large".into());
+fn download(package: &Package, max: usize) -> Result<Vec<u8>, String> {
+    let bytes = fetch(&package.url, package.size, max)?;
+    check_package(&bytes, package.size, &package.sha256)?;
+    Ok(bytes)
+}
+
+/// The file at `url` (github.com, which sends it on to its file store): `size` bytes, at most
+/// `max`.
+fn fetch(url: &str, size: u64, max: usize) -> Result<Vec<u8>, String> {
+    let capacity = usize::try_from(size).map_err(|_| "the file is too large")?;
+    if capacity > max {
+        return Err("the file is too large".into());
     }
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .https_only(true)
-        // github.com sends a package on to its file store.
+        // github.com sends a file on to its file store.
         .max_redirects(4)
         .timeout_global(Some(Duration::from_secs(15 * 60)))
         .user_agent(USER_AGENT)
@@ -102,12 +141,12 @@ fn download(asset: &releases::Asset, max: usize) -> Result<Vec<u8>, String> {
         .into();
     let mut failed_network = false;
     let bytes = with_retries(&RETRY_WAITS, || {
-        let mut bytes = Vec::with_capacity(size);
-        let got = agent.get(&asset.url).call().and_then(|answer| {
+        let mut bytes = Vec::with_capacity(capacity);
+        let got = agent.get(url).call().and_then(|answer| {
             answer
                 .into_body()
                 .into_reader()
-                .take(asset.size + 1)
+                .take(size + 1)
                 .read_to_end(&mut bytes)
                 .map_err(ureq::Error::from)
         });
@@ -121,7 +160,9 @@ fn download(asset: &releases::Asset, max: usize) -> Result<Vec<u8>, String> {
             err
         }
     })?;
-    check_package(&bytes, asset.size, expected)?;
+    if u64::try_from(bytes.len()).ok() != Some(size) {
+        return Err("the file downloaded isn't the size the release lists".into());
+    }
     Ok(bytes)
 }
 
@@ -152,23 +193,27 @@ fn network_failed(err: &ureq::Error) -> bool {
     )
 }
 
-/// Whether `bytes` are the package a release lists: `size` bytes with SHA-256 `sha256`.
+/// Whether `bytes` are the package a manifest lists: `size` bytes with SHA-256 `sha256`.
 fn check_package(bytes: &[u8], size: u64, sha256: &str) -> Result<(), String> {
     if u64::try_from(bytes.len()).ok() != Some(size) {
-        return Err("the package downloaded isn't the size GitHub lists".into());
+        return Err("the package downloaded isn't the size its manifest lists".into());
     }
     let got: String = Sha256::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
     if got != sha256 {
-        return Err("the package downloaded isn't the one GitHub lists (SHA-256 differs)".into());
+        return Err(
+            "the package downloaded isn't the one its manifest lists (SHA-256 differs)".into(),
+        );
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use vault_sync_wire::releases::testing::{TestKey, verified};
+
     use super::*;
 
     #[test]
@@ -203,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn a_package_is_taken_only_as_the_release_lists_it() {
+    fn a_package_is_taken_only_as_the_manifest_lists_it() {
         let bytes = b"a test package";
         let sha256: String = Sha256::digest(bytes)
             .iter()
@@ -219,5 +264,24 @@ mod tests {
             check_package(bytes, 14, &"0".repeat(64)).is_err(),
             "another digest"
         );
+    }
+
+    /// The phone's package of a signed release: what is downloaded is checked against the
+    /// manifest's SHA-256, so a package swapped on GitHub's side (same name and size, other
+    /// bytes, and GitHub's digest of the new bytes) is refused.
+    #[test]
+    fn a_package_whose_sha256_differs_from_the_manifest_is_refused() {
+        let key = TestKey::new();
+        let name = releases::phone_package_name("1.2.3");
+        let signed: &[u8] = b"PK the package the owner signed";
+        let release = verified("1.2.3", &[(&name, signed)], &key);
+        let package = release.phone_package().unwrap();
+        assert!(check_package(signed, package.size, &package.sha256).is_ok());
+        let swapped: &[u8] = b"PK another package, same size!!";
+        assert_eq!(swapped.len(), signed.len());
+        assert!(check_package(swapped, package.size, &package.sha256).is_err());
+        // The extension's zip, missing from the release: nothing to take, said apart from a
+        // refusal.
+        assert_eq!(extension_package(&release), Err(PackageError::None));
     }
 }
