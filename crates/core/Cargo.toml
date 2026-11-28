@@ -29,9 +29,10 @@ crypto_box = { version = "0.9", features = ["seal"] }
 ed25519-dalek = { version = "2.2", features = ["zeroize", "pkcs8", "pem"] }
 ssh-key = { version = "0.6.7", default-features = false, features = ["alloc", "std", "ed25519", "ecdsa", "encryption"] }
 # ssh-key's own wire format, to hand it an ECDSA scalar (the same release ssh-key uses).
-ssh-encoding = { version = "0.2", default-features = false }
-rsa = { version = "0.10", default-features = false, features = ["std", "encoding"] }
-p384 = { version = "0.14", default-features = false, features = ["arithmetic", "pkcs8", "pem"] }
+ssh-encoding = { version = "0.2", default-features = false, features = ["alloc"] }
+# `getrandom`: an SSH agent's RSA signature (ssh.rs `agent_sign`) is blinded with the OS randomness.
+rsa = { version = "0.10", default-features = false, features = ["std", "encoding", "getrandom", "pkcs1v15"] }
+p384 = { version = "0.14", default-features = false, features = ["arithmetic", "ecdsa", "pkcs8", "pem"] }
 getrandom = "0.4"
 hkdf = "0.13"
 hmac = { version = "0.13", features = ["zeroize"] }

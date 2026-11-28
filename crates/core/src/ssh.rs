@@ -11,7 +11,7 @@
 //! own crates (`rsa`, `p256`, `p384`, `ed25519-dalek`), whose numbers are handed to `ssh-key`;
 //! nothing here parses key bytes by hand.
 
-use ssh_encoding::Decode;
+use ssh_encoding::{Decode, Encode};
 use ssh_key::{
     HashAlg, LineEnding, Mpint, PrivateKey, PublicKey,
     private::{EcdsaKeypair, EcdsaPrivateKey, Ed25519Keypair, KeypairData, RsaKeypair},
@@ -409,6 +409,164 @@ pub fn fingerprint(public_key: &str) -> Option<String> {
         .map(|key| key.fingerprint(HashAlg::Sha256).to_string())
 }
 
+/// What an SSH agent calls a key: its public half in SSH's wire form (the "key blob" the
+/// agent protocol lists and a client names when it asks for a signature). `None` when
+/// `public_key` isn't a public key line.
+pub fn public_key_blob(public_key: &str) -> Option<Vec<u8>> {
+    let key = PublicKey::from_openssh(public_key.trim()).ok()?;
+    let mut blob = Vec::new();
+    key.key_data().encode(&mut blob).ok()?;
+    Some(blob)
+}
+
+/// The agent protocol's flags on a sign request for an RSA key: which hash the client wants
+/// (draft-miller-ssh-agent §3.6.1). Without either, a client asks for `ssh-rsa` (SHA-1),
+/// which is refused.
+pub const AGENT_RSA_SHA2_256: u32 = 2;
+pub const AGENT_RSA_SHA2_512: u32 = 4;
+
+/// Why an SSH key item's key didn't sign.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignProblem {
+    /// The item's private key doesn't read as one (or has a passphrase, which a kept key
+    /// never has).
+    NotAKey,
+    /// A key or a signature this app doesn't make: P-521, DSA, a security key's (`sk-`), or
+    /// RSA with SHA-1.
+    Unsupported,
+}
+
+/// Signs `data` with an SSH key item's private key (`private_key`, in OpenSSH's form), the
+/// way an SSH agent answers a sign request: the signature in SSH's wire form (the
+/// algorithm's name, then the signature), as the agent's answer carries it.
+///
+/// Each key type signs through its own crate (`ed25519-dalek`; `p256` and `p384`, RFC 6979
+/// nonces, SHA-256 and SHA-384 as RFC 5656 asks; `rsa`, PKCS #1 v1.5 with SHA-256 or
+/// SHA-512 as RFC 8332 asks, blinded), and `ssh-key` writes the result; nothing here signs by
+/// hand. `flags` are the agent protocol's (`AGENT_RSA_SHA2_*`); other key types ignore them.
+pub fn agent_sign(
+    private_key: &str,
+    data: &[u8],
+    flags: u32,
+) -> std::result::Result<Vec<u8>, SignProblem> {
+    use ssh_key::{Algorithm, EcdsaCurve, Signature};
+    let key = PrivateKey::from_openssh(private_key.trim()).map_err(|_| SignProblem::NotAKey)?;
+    if key.is_encrypted() {
+        return Err(SignProblem::NotAKey);
+    }
+    let signature = match key.key_data() {
+        KeypairData::Ed25519(pair) => {
+            use ed25519_dalek::Signer;
+            let seed = Zeroizing::new(pair.private.to_bytes());
+            let signing = ed25519_dalek::SigningKey::from_bytes(&seed);
+            let signed = signing.sign(data);
+            Signature::new(Algorithm::Ed25519, signed.to_bytes().to_vec())
+        }
+        KeypairData::Ecdsa(EcdsaKeypair::NistP256 { private, .. }) => {
+            use p256::ecdsa::signature::Signer;
+            let signing = p256::ecdsa::SigningKey::from_slice(private.as_slice())
+                .map_err(|_| SignProblem::NotAKey)?;
+            let signed: p256::ecdsa::Signature = signing.sign(data);
+            let (r, s) = signed.split_bytes();
+            Signature::new(
+                Algorithm::Ecdsa {
+                    curve: EcdsaCurve::NistP256,
+                },
+                ecdsa_signature(&r, &s)?,
+            )
+        }
+        KeypairData::Ecdsa(EcdsaKeypair::NistP384 { private, .. }) => {
+            use p384::ecdsa::signature::Signer;
+            let signing = p384::ecdsa::SigningKey::from_slice(private.as_slice())
+                .map_err(|_| SignProblem::NotAKey)?;
+            let signed: p384::ecdsa::Signature = signing.sign(data);
+            let (r, s) = signed.split_bytes();
+            Signature::new(
+                Algorithm::Ecdsa {
+                    curve: EcdsaCurve::NistP384,
+                },
+                ecdsa_signature(&r, &s)?,
+            )
+        }
+        KeypairData::Rsa(pair) => {
+            let (hash, signed) = rsa_sign(pair, data, flags)?;
+            Signature::new(Algorithm::Rsa { hash: Some(hash) }, signed)
+        }
+        _ => return Err(SignProblem::Unsupported),
+    }
+    .map_err(|_| SignProblem::Unsupported)?;
+    let mut blob = Vec::new();
+    signature
+        .encode(&mut blob)
+        .map_err(|_| SignProblem::Unsupported)?;
+    Ok(blob)
+}
+
+/// An ECDSA signature as SSH writes it inside the signature (RFC 5656 §3.1.2): r and s as
+/// two `mpint`s.
+fn ecdsa_signature(r: &[u8], s: &[u8]) -> std::result::Result<Vec<u8>, SignProblem> {
+    let mut blob = Vec::new();
+    for number in [r, s] {
+        let mpint = Mpint::from_positive_bytes(number).map_err(|_| SignProblem::Unsupported)?;
+        mpint
+            .encode(&mut blob)
+            .map_err(|_| SignProblem::Unsupported)?;
+    }
+    Ok(blob)
+}
+
+/// RSA, PKCS #1 v1.5 with the hash the client asked for (SHA-512 when it takes both).
+fn rsa_sign(
+    pair: &RsaKeypair,
+    data: &[u8],
+    flags: u32,
+) -> std::result::Result<(HashAlg, Vec<u8>), SignProblem> {
+    use rsa::signature::{SignatureEncoding, Signer};
+    let hash = if flags & AGENT_RSA_SHA2_512 != 0 {
+        HashAlg::Sha512
+    } else if flags & AGENT_RSA_SHA2_256 != 0 {
+        HashAlg::Sha256
+    } else {
+        return Err(SignProblem::Unsupported);
+    };
+    let n = pair
+        .public
+        .n
+        .as_positive_bytes()
+        .ok_or(SignProblem::NotAKey)?;
+    let bits = u32::try_from(n.len() * 8).map_err(|_| SignProblem::NotAKey)?;
+    let number = |value: &Mpint, bits: u32| {
+        let bytes = value.as_positive_bytes().ok_or(SignProblem::NotAKey)?;
+        rsa::BoxedUint::from_be_slice(bytes, bits).map_err(|_| SignProblem::NotAKey)
+    };
+    let e_bytes = pair
+        .public
+        .e
+        .as_positive_bytes()
+        .ok_or(SignProblem::NotAKey)?;
+    let e_bits = u32::try_from(e_bytes.len() * 8).map_err(|_| SignProblem::NotAKey)?;
+    let key = rsa::PrivateKey::from_components(
+        number(&pair.public.n, bits)?,
+        number(&pair.public.e, e_bits)?,
+        number(&pair.private.d, bits)?,
+        vec![
+            number(&pair.private.p, bits)?,
+            number(&pair.private.q, bits)?,
+        ],
+    )
+    .map_err(|_| SignProblem::NotAKey)?;
+    let signed = match hash {
+        HashAlg::Sha512 => rsa::pkcs1v15::SigningKey::<sha2::Sha512>::new(key)
+            .try_sign(data)
+            .map(|s| s.to_vec()),
+        _ => rsa::pkcs1v15::SigningKey::<sha2::Sha256>::new(key)
+            .try_sign(data)
+            .map(|s| s.to_vec()),
+    }
+    .map_err(|_| SignProblem::Unsupported)?;
+    Ok((hash, signed))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -586,6 +744,156 @@ mod tests {
             from_pkcs8_der(b"\x30\x00", "").err(),
             Some(KeyProblem::Unsupported)
         );
+    }
+
+    /// The signature an agent answers with, read back and checked by each key type's own
+    /// verifier against the item's public key.
+    #[test]
+    fn the_agent_signs_with_each_kind_of_key_and_each_signature_verifies() {
+        use ssh_key::{Algorithm, Signature};
+        let data = b"a session id and a userauth request, as ssh sends them";
+        let signed = |private: &str, flags: u32| {
+            let blob = agent_sign(private, data, flags).unwrap();
+            Signature::decode(&mut blob.as_slice()).unwrap()
+        };
+        let public_of = |private: &str| {
+            PublicKey::from_openssh(&public_key_of(private).unwrap())
+                .unwrap()
+                .key_data()
+                .clone()
+        };
+        let mpints = |bytes: &[u8]| {
+            let mut reader = bytes;
+            let r = Mpint::decode(&mut reader).unwrap();
+            let s = Mpint::decode(&mut reader).unwrap();
+            assert!(reader.is_empty());
+            (
+                r.as_positive_bytes().unwrap().to_vec(),
+                s.as_positive_bytes().unwrap().to_vec(),
+            )
+        };
+        let padded = |bytes: &[u8], size: usize| {
+            let mut out = vec![0u8; size - bytes.len()];
+            out.extend_from_slice(bytes);
+            out
+        };
+
+        // Ed25519 (deterministic: the same request, the same signature).
+        let pair = generate_ed25519("agent@test").unwrap();
+        let signature = signed(&pair.private_key, 0);
+        assert_eq!(signature.algorithm(), Algorithm::Ed25519);
+        assert_eq!(signed(&pair.private_key, 0), signature);
+        let ssh_key::public::KeyData::Ed25519(public) = public_of(&pair.private_key) else {
+            panic!("not Ed25519");
+        };
+        let verifying = ed25519_dalek::VerifyingKey::from_bytes(&public.0).unwrap();
+        let bytes: [u8; 64] = signature.as_bytes().try_into().unwrap();
+        verifying
+            .verify_strict(data, &ed25519_dalek::Signature::from_bytes(&bytes))
+            .unwrap();
+        assert!(
+            verifying
+                .verify_strict(
+                    b"something else",
+                    &ed25519_dalek::Signature::from_bytes(&bytes)
+                )
+                .is_err()
+        );
+
+        // ECDSA P-256 (SHA-256).
+        let secret = p256::SecretKey::from_slice(&[7u8; 32]).unwrap();
+        let sec1 = secret.to_sec1_pem(p256::pkcs8::LineEnding::LF).unwrap();
+        let pair = import(&sec1, None, "").unwrap();
+        let signature = signed(&pair.private_key, 0);
+        assert_eq!(signature.algorithm().as_str(), "ecdsa-sha2-nistp256");
+        let (r, s) = mpints(signature.as_bytes());
+        let ecdsa = p256::ecdsa::Signature::from_scalars(
+            <[u8; 32]>::try_from(padded(&r, 32)).unwrap(),
+            <[u8; 32]>::try_from(padded(&s, 32)).unwrap(),
+        )
+        .unwrap();
+        use p256::ecdsa::signature::Verifier;
+        p256::ecdsa::VerifyingKey::from(secret.public_key())
+            .verify(data, &ecdsa)
+            .unwrap();
+
+        // ECDSA P-384 (SHA-384), ssh-keygen's test key.
+        let p384_openssh = include_str!("../testdata/ssh/p384-openssh.txt");
+        let signature = signed(p384_openssh, 0);
+        assert_eq!(signature.algorithm().as_str(), "ecdsa-sha2-nistp384");
+        let (r, s) = mpints(signature.as_bytes());
+        let ecdsa = p384::ecdsa::Signature::from_scalars(
+            <[u8; 48]>::try_from(padded(&r, 48)).unwrap(),
+            <[u8; 48]>::try_from(padded(&s, 48)).unwrap(),
+        )
+        .unwrap();
+        let ssh_key::public::KeyData::Ecdsa(public) = public_of(p384_openssh) else {
+            panic!("not ECDSA");
+        };
+        p384::ecdsa::VerifyingKey::from_sec1_bytes(public.as_sec1_bytes())
+            .unwrap()
+            .verify(data, &ecdsa)
+            .unwrap();
+
+        // RSA: SHA-512 or SHA-256 as asked, never SHA-1.
+        let rsa_openssh = include_str!("../testdata/ssh/rsa-2048-openssh.txt");
+        let ssh_key::public::KeyData::Rsa(public) = public_of(rsa_openssh) else {
+            panic!("not RSA");
+        };
+        let n = public.n.as_positive_bytes().unwrap();
+        let e = public.e.as_positive_bytes().unwrap();
+        let verifying = rsa::PublicKey::new(
+            rsa::BoxedUint::from_be_slice(n, u32::try_from(n.len() * 8).unwrap()).unwrap(),
+            rsa::BoxedUint::from_be_slice(e, u32::try_from(e.len() * 8).unwrap()).unwrap(),
+        )
+        .unwrap();
+        let signature = signed(rsa_openssh, AGENT_RSA_SHA2_512);
+        assert_eq!(signature.algorithm().as_str(), "rsa-sha2-512");
+        assert_eq!(signature.as_bytes().len(), 256);
+        rsa::pkcs1v15::VerifyingKey::<sha2::Sha512>::new(verifying.clone())
+            .verify(
+                data,
+                &rsa::pkcs1v15::Signature::try_from(signature.as_bytes()).unwrap(),
+            )
+            .unwrap();
+        let signature = signed(rsa_openssh, AGENT_RSA_SHA2_256);
+        assert_eq!(signature.algorithm().as_str(), "rsa-sha2-256");
+        rsa::pkcs1v15::VerifyingKey::<sha2::Sha256>::new(verifying)
+            .verify(
+                data,
+                &rsa::pkcs1v15::Signature::try_from(signature.as_bytes()).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            agent_sign(rsa_openssh, data, 0).unwrap_err(),
+            SignProblem::Unsupported
+        );
+
+        // What isn't a key signs nothing.
+        assert_eq!(
+            agent_sign("not a key", data, 0).unwrap_err(),
+            SignProblem::NotAKey
+        );
+    }
+
+    #[test]
+    fn the_agent_lists_a_key_by_its_public_half_in_wire_form() {
+        let pair = generate_ed25519("agent@test").unwrap();
+        let blob = public_key_blob(&pair.public_key).unwrap();
+        // string "ssh-ed25519", string the 32 bytes.
+        assert_eq!(blob.len(), 4 + 11 + 4 + 32);
+        assert_eq!(&blob[4..15], b"ssh-ed25519");
+        let read = ssh_key::public::KeyData::decode(&mut blob.as_slice()).unwrap();
+        assert_eq!(
+            &read,
+            PublicKey::from_openssh(&pair.public_key)
+                .unwrap()
+                .key_data()
+        );
+        // The comment isn't part of it.
+        let without = pair.public_key.rsplit_once(' ').unwrap().0;
+        assert_eq!(public_key_blob(without).unwrap(), blob);
+        assert_eq!(public_key_blob("ssh-ed25519 not-base64"), None);
     }
 
     fn key_data_of(text: &str) -> KeypairData {
