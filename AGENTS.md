@@ -51,6 +51,7 @@ crates/
 tools/
   release/              vault-release: the release manifest (write, sign, check) and
                         make-manifest-keys.ps1, which makes its keys
+  site-lists/           update.ps1: refreshes the bundled lists of sites with codes and passkeys
 docs/
   THREAT_MODEL.md       who we defend against and the principles that follow
   ARCHITECTURE.md       overall design and decisions
@@ -64,6 +65,7 @@ docs/
   spec/CRYPTO.md        exact cryptography (normative)
   spec/VAULT_FORMAT.md  exact file format (normative)
   spec/SYNC.md          sync: the merge, the targets, the server protocol
+  spec/SHARING.md       sharing and emergency access: the design (not built yet)
 fuzz/                   cargo-fuzz targets (outside the workspace, nightly) and their seeds
 research/               local notes, git-ignored, never committed
 vendor/                 third-party crates built from here with one change each (README.md):
@@ -94,8 +96,9 @@ filesystem policy** beyond atomic writes.
 | `item.rs` | `ItemData`, `ItemSummary`, folders, recovery codes, password history, attachments |
 | `card.rs` | Payment cards: Luhn, brand detection, expiry, masking |
 | `ssh.rs` | SSH keys: a new Ed25519 key, a key brought in read in any common form (OpenSSH's, a passphrase asked once; PKCS#8, PKCS#1, SEC1) and kept in OpenSSH's without a passphrase, its public half, fingerprint and type (RustCrypto `ssh-key`); the SSH agent's signatures (`agent_sign`: Ed25519, ECDSA P-256/P-384, RSA with SHA-2) and the key blob it lists |
-| `generator.rs` | Passwords and passphrases (uniform sampling, word lists) |
-| `health.rs` | Strength (zxcvbn), reuse, age, the k-anonymous breach query, and the one-factor floor (`holds_alone`, CRYPTO.md §3.3.1) |
+| `generator.rs` | Passwords, passphrases (uniform sampling, word lists) and usernames (two words, an email tagged after a `+`, a name at a catch-all domain) |
+| `health.rs` | Strength (zxcvbn), reuse, age, what a login's site offers that it doesn't use (`Advice`), the k-anonymous breach query, and the one-factor floor (`holds_alone`, CRYPTO.md §3.3.1) |
+| `site_lists.rs` | The sites that offer one-time codes and those that take passkeys, lists bundled in `data/` (2FA Directory, Passkeys Directory) and compared offline; websites saved without HTTPS |
 | `attempts.rs` | Unlock attempts on one device: the count, the growing wait, its two clocks (THREAT_MODEL.md) |
 | `sealed_export.rs` | An export sealed under a password of its own (`.vaultx`) |
 | `drop_box.rs` | Logins saved from the browser while locked, sealed to a public key only the open vault reads |
@@ -138,8 +141,9 @@ emergency kit PDF
 AES-256 password protection, `kit_pdf/protect.rs`), a recovery part hidden in a picture (`part_picture.rs`), opt-in website icons
 fetched directly from each site with a sealed cache (`website_icons.rs`), the `.vault` file
 type for this user on Windows (icon, opens in the app; `file_types.rs`), starting at sign-in
-(`autostart.rs`, the user's `Run` key) and one running copy of the desktop app
-(`single_instance.rs`), the registry calls these share (`registry.rs`), locking with Windows
+(`autostart.rs`, the user's `Run` key), one running copy of the desktop app
+(`single_instance.rs`, and `--lock` passed to it), shortcuts from any program (`hotkeys.rs`),
+the `vault` command's requests to the open app (`cli_link.rs`, on the browser link's pipe code), the registry calls these share (`registry.rs`), locking with Windows
 (`session_watch.rs`: session lock, user switch, sign-out, sleep), the process's own hardening
 (`process.rs`: DLLs from System32 only), file helpers and
 secure wiping (`files.rs`), app paths (`paths.rs`), the apps' updates from GitHub's releases
@@ -177,9 +181,11 @@ Importers only produce `ItemData`; they never touch keys.
 ### 2.4 `apps/cli` (vault-cli)
 
 `vault init | info | list | add | show | edit | rm | generate | totp | passwd | renew-key |
-recover | kit | part-picture | forget | keyfile | import | sync` (`sync --take-new-key` takes a
-vault key renewed on another device; `kit --pdf` saves the kit protected by its PDF password,
-`kit --pdf-password` shows that password). Same vault and device state as the desktop app. `tests/cli.rs` runs the binary, including sync through a running server.
+recover | kit | part-picture | forget | keyfile | import | sync | run | inject | git-credential`
+(`sync --take-new-key` takes a vault key renewed on another device; `kit --pdf` saves the kit
+protected by its PDF password, `kit --pdf-password` shows that password; `run`, `inject` and
+`git-credential` ask the open desktop app instead of opening the vault, each use approved there,
+`src/through_app.rs`). Same vault and device state as the desktop app. `tests/cli.rs` runs the binary, including sync through a running server.
 
 ### 2.4.1 `crates/browser` (vault-browser) and `apps/extension/`
 
@@ -240,6 +246,8 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/attachments.rs` | Files attached to items and SSH key items in the editor and on the item page |
 | `src/controller/ssh_agent.rs` | The SSH agent: Settings → Security, its pipe, every signature approved in a dialog ("don't ask again" 5 minutes for one key and program), the item lock respected |
 | `src/controller/autotype.rs` | Auto-type: the window behind the app, its title and a 3-second countdown, then username, Tab, password, Enter while that window has the keyboard |
+| `src/controller/cli_link.rs` | The `vault` command's requests (`run`, `inject`, `git-credential`): heard while Settings allows it, each shown and answered only once allowed |
+| `src/controller/health_ignored.rs` | Password health's ignored warnings, kept per vault on this computer in a file sealed with the vault key |
 | `src/controller/watch.rs` | The leak watch: every login checked once a day while open, new leaks told and shown on Password health |
 | `src/controller/passwords.rs` | A new password's review: the one-factor floor's warnings, the breach check of a new master password, the protected export's refusal (`ui/review.slint`) |
 | `src/controller/attempts.rs` | Unlock attempts: counted in the device state, the wait enforced and counted down, told once at the next unlock |
@@ -253,7 +261,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/signals.rs` | What sites said of passkeys (the Signal API), for the person to decide on the item page |
 | `src/tray.rs` | The notification area icon (tray mode) and its menu window (`ui/tray.slint`) |
 | `src/i18n.rs` | The app's language: picks a compiled-in catalogue from `translations/` |
-| `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
+| `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events), the shortcuts from any program (`apply_hotkeys`), hiding what is shown when the window loses the focus |
 | `src/view.rs` | Pure presentation rules (unit-tested): filters, tints, crack times, dates |
 | `src/qr.rs` | A QR code read from a picture file (Authenticator → From a QR picture…; `rqrr`) |
 | `src/sketch.rs` | Hand-drawn strokes generated in Rust |
@@ -264,7 +272,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `ui/model.slint` | Structs shared with Rust and **every user-facing message** |
 | `ui/widgets.slint` | Buttons, fields, secure field, dropdown, slider… |
 | `ui/icons.slint` | Field icons (Lucide), card network marks, import source icons |
-| `ui/dialogs.slint` | Dialogs over the whole window (`Modal`, `FolderDialog`, `PartsUsedDialog`) |
+| `ui/dialogs.slint` | Dialogs over the whole window (`Modal`, `FolderDialog`, `PartsUsedDialog`, `LargeTypeDialog`) |
 | `ui/strength.slint` | The strength meter (shared with the phone) |
 | `ui/tray.slint` | The notification area's menu window |
 | `ui/welcome.slint`, `vault.slint`, `pages.slint`, `kit.slint`, `app.slint` | Screens; right-click menus live in `app.slint` |

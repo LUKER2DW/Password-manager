@@ -928,15 +928,23 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   pypdf, qpdf (pikepdf) and PDFium (pypdfium2) with either spelling, a wrong password refused.
 
 **Features** (F2, F7 and F8 change the file format: one format version for the three)
-- ⬜ F1. Lock options: ask for the master password at every start of the app.
+- ✅ F1. Settings → Security → "Also ask for it the first time after the app starts" (with
+  Windows Hello on): the first unlock of each vault after a start takes the master password, and
+  Windows Hello only after that (`master_at_start`, the lock screen says why).
 - ✅ F2. Trash (format v11): Delete puts an item in the trash (`trashed_at`), restorable for 30
   days, then deleted for good on the next save; "Delete for good" from the trash. A deletion's
   tombstone names the versions it removed (SYNC.md §4.2), so a restore or an edit elsewhere
   survives it whatever the clocks; of a trashed and an untrashed version, the untrashed wins
   (§4.3). Desktop: the Trash list, Restore and Delete for good; phone: the Trash filter.
-- ⬜ F3. Health without the network: two-factor available, saved without HTTPS, passkey
-  available, card expiring.
-- ⬜ F4. Username generator: plus-addressed email, a domain's catch-all, random words.
+- ✅ F3. Health without the network: tiles for websites saved with `http://` (this computer's
+  own addresses aside), sites that offer one-time codes the login doesn't keep, and sites that
+  take passkeys the login has none of, with each site's "How to turn it on" page
+  (`health::Advice`, `vault_core::site_lists`: lists bundled from 2FA Directory and Passkeys
+  Directory, refreshed by hand with `tools/site-lists/update.ps1`; never fetched by the apps).
+  Expiring cards and expiry dates were there already.
+- ✅ F4. Username generator: Generate next to the editor's username, with two words (and four
+  digits), the person's email with a tag after a `+`, or a random name at their own catch-all
+  domain (`generator::generate_username`; the choices kept with the generator's).
 - ✅ F5. Cards filled in the browser (`cards`, `card_fill`): payment fields found by `cc-*`
   autofill marks and common names (`card-fill.js`, `fields.js`), the vault's cards offered
   under a payment field and in the extension's window (brand, last four, holder, expiry;
@@ -1027,7 +1035,10 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   to the next start). Settings → About → "Install updates by itself" (on by default); off, the
   version is only told and Install now does the same. A folder that can't be written is told
   and the release page opens.
-- ⬜ F13. Sharing and emergency access (a written design first, `docs/spec/SHARING.md`).
+- ⬜ F13. Sharing and emergency access. The design is written (`docs/spec/SHARING.md`): sharing
+  cards checked by safety words, shared folders as small vaults of their own signed by their
+  owner and editors, emergency access split between the contact and the person's own sync
+  server, which keeps the waiting time, and sealed notes. Its four steps are still to build.
 - ⬜ F14. Passkey provider for Windows 11. Designed (ARCHITECTURE.md §5.2): the plugin
   passkey manager API, what it needs (package identity, a COM server, Windows' credential
   list), what is reused (`vault_core::passkey`, the Android provider's flow) and the risks;
@@ -1041,9 +1052,12 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   `logins` answer so the extension offers nothing it forbids. Set in Settings → Browser
   extension → Site rules and from the extension's window for the site in front (`site_rule`,
   told in the app).
-- ⬜ F17. More lock triggers and "lock everything": on minimising to the tray, hiding revealed
-  text on losing focus, how often Windows Hello asks for the master password, Lock in the
-  extension, a global shortcut, `--lock`.
+- ✅ F17. More lock triggers: Settings → Security locks when the window goes to the
+  notification area (off by default) and hides a shown password when another window takes the
+  focus (on); how many days Windows Hello opens the vault before the master password is asked
+  (1 to 30, 14 by default); `vault-desktop --lock` locks the running copy and starts nothing
+  (`single_instance::ask_to_lock`); a shortcut from any program locks (F26); the extension's
+  Lock was there already.
 - ✅ F18. The save card and the editor warn of a reused or leaked new password: reuse from the
   vault's open logins (counts only), leaks through the leak check's k-anonymous range query
   only while the leak watch is on, off the UI thread, each prefix's answer kept a few minutes
@@ -1086,9 +1100,20 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
 - ✅ Website icons in the extension's window from the app's sealed cache (`icons`), only while
   Website icons is on; the extension fetches nothing (the window's policy takes `data:`
   images).
-- ⬜ F24. Show a password in large type.
-- ⬜ F25. A settings review on the health page, and "ignore this warning".
-- ⬜ F26. Quick access by a global shortcut (search, copy, type) and configurable shortcuts.
+- ✅ F24. A password in large type: Large type on the item page opens a dialog with each
+  character in a numbered box of its own, digits and symbols coloured apart from letters and a
+  space shown as ␣ (`LargeTypeDialog`). It closes with the reveal's countdown, Escape or Close,
+  and its characters stay out of the accessibility tree like the revealed password.
+- ✅ F25. Password health lists the settings weaker than suggested (a long auto-lock or
+  clipboard, not locking with Windows, no item lock, no update checks, the extension filling
+  without asking or listing the whole vault, a long Windows Hello interval), each with Change
+  and Ignore; and any warning can be ignored, kept for each vault on this computer in a file
+  sealed with the vault key (`controller/health_ignored.rs`), listed apart with Don't ignore.
+- ✅ F26. Shortcuts from any program, chosen in Settings → Appearance: the vault's search
+  (Ctrl+Shift+Space by default, or Ctrl+Alt+Space, or off) and its lock (off by default,
+  Ctrl+Alt+L or Ctrl+Shift+L), a combination another program holds said so
+  (`vault_platform::hotkeys`). Still to do: copying or typing from the quick search without
+  the window.
 - ✅ F27. Export as KDBX 4 (`vault_import::export_kdbx`, CRYPTO.md §3.12): the `keepass`
   crate, ChaCha20 and Argon2id 256 MiB / 3 passes / 4 lanes, a password of the person's (12
   characters at least) and optionally a keyfile; every item whole in KeePassXC's places
@@ -1101,8 +1126,12 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   KeePass reader's passkeys, files, extra websites and history, each tested with constructed
   rows. Not read: zip exports (a manager's `.1pux`, a zip of CSVs: unzip first), headerless
   CSVs, XML exports.
-- ⬜ F29. CLI automation through the open app (`vault run`, `vault inject`, a git credential
-  helper), each use approved in the app.
+- ✅ F29. CLI automation through the open app: `vault run` (variables set to
+  `vault://item/field` hold the secrets), `vault inject` (a template's
+  `{{ vault://item/field }}`) and `vault git-credential` (git's helper, https only). The command
+  never opens the vault: it asks the desktop app over a pipe of the user's
+  (`vault_platform::cli_link`), which shows the program, what for and which fields, and answers
+  after Allow once or for 10 minutes (Settings → Security → The vault command, off by default).
 
 F2, F7, F8, F21, F22 and S18 are format v11. A copy of another format version is said plainly
 on the desktop (which device, and whether this app or that one needs updating); the phone still

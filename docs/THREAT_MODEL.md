@@ -455,6 +455,19 @@ On top of that:
   holds it. Items in the trash, archived items and templates never reach the browser either.
   What this doesn't cover: a program running as the person while the vault is open can still
   ask, with that key, for the logins of any site it names, and use what the person allows.
+- **The vault command asking the open app** (F29: `vault run`, `vault inject`,
+  `vault git-credential`; Settings → Security → The vault command, off by default): while it is
+  on, the app listens on a named pipe only this Windows user may open, remote clients refused.
+  Any program of the user may ask, so nothing is given without the person: each request is
+  shown with the asking program's full path, what it is for and which items' fields, and
+  answered only after Allow (once, or for 10 minutes for the same program asking the same
+  things; forgotten when the vault locks). Nothing is given while the vault is locked, nor from
+  an item waiting for the item lock; a counter-based code is never given. The command talks
+  only to `vault-desktop.exe`, so a program that took the pipe's name first learns which items
+  are asked for, not their values. What this doesn't cover: a program running as the person
+  can ask while the person is in front of the screen and hope for a quick Allow, and gets what
+  it is allowed; and what is handed to a program (its environment, a filled file) is that
+  program's to keep.
 - **An older copy of the apps put back** (M10 S25): a program running as the person could put an
   old release's `vault-desktop.exe` or `vault.exe` (genuine, signed once S15 signs them) in place
   of the newest, one with a fault fixed since. The device state (`state.json`) keeps, for each
