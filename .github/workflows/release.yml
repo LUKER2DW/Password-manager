@@ -243,11 +243,16 @@ jobs:
         run: cargo build --release --locked -p vault-desktop -p vault-cli -p vault-server
       # ASLR, DEP, Control Flow Guard and DLLs from System32 only (.cargo/config.toml) in every
       # exe, or nothing ships.
+      # And the version information (apps/windows-version-info.rs). -Authenticode joins once the
+      # SignPath Foundation signs them (docs/CODE_SIGNING.md).
       - name: Protections
         shell: pwsh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: >-
           apps/desktop/check-exe.ps1
           -Exe target/release/vault-desktop.exe, target/release/vault.exe, target/release/vault-server.exe
+          -Version $env:VERSION
       # Names without the version: a new one replaces the old file in place, and the browsers
       # and Explorer keep pointing at it.
       - name: Collect

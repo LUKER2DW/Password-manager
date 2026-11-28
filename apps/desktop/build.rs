@@ -1,6 +1,7 @@
-//! Puts the app's icon into the Windows executable (`assets/app.rc` → `assets/app.ico`), so
-//! Explorer, the taskbar and system prompts such as Windows Hello show it. The window's own
-//! icon is set by the UI at run time.
+//! Puts the app's icon into the Windows executable (`assets/app.ico`), so Explorer, the taskbar
+//! and system prompts such as Windows Hello show it, with the program's version information
+//! (`../windows-version-info.rs`: product, company, version). The window's own icon is set by
+//! the UI at run time.
 //!
 //! Also builds the browser extension's files into the app (`$OUT_DIR/extension_files.rs`,
 //! read by `src/controller/extension.rs`): what the release's zip holds (`.github/workflows/
@@ -13,14 +14,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
+include!("../windows-version-info.rs");
+
 fn main() {
-    println!("cargo:rerun-if-changed=assets/app.rc");
+    println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=assets/app.ico");
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        embed_resource::compile("assets/app.rc", embed_resource::NONE)
-            .manifest_optional()
-            .expect("the app's icon resource could not be compiled");
-    }
+    let manifest_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    windows_version_info(
+        "Vault password manager",
+        "vault-desktop.exe",
+        "GPL-3.0-or-later",
+        &icon_line(&manifest_dir.join("assets").join("app.ico")),
+    );
     extension_files();
 }
 

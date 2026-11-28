@@ -5,9 +5,17 @@
 # it on every exe before publishing (.github/workflows/release.yml), so a build that lost one
 # (a RUSTFLAGS that replaced the config's flags, a changed linker) never ships.
 #
+# With -Version, each program's version information must name the product ("Vault"), the
+# project as its company and that version (apps/windows-version-info.rs). With -Authenticode,
+# each must carry a valid Authenticode signature whose signer is the SignPath Foundation
+# (docs/CODE_SIGNING.md): the release turns it on once its programs are signed there.
+#
 #   apps/desktop/check-exe.ps1 -Exe target/release/vault-desktop.exe, target/release/vault.exe
+#   apps/desktop/check-exe.ps1 -Exe vault-desktop.exe -Version 0.5.0 -Authenticode
 param(
-    [Parameter(Mandatory)][string[]]$Exe
+    [Parameter(Mandatory)][string[]]$Exe,
+    [string]$Version,
+    [switch]$Authenticode
 )
 
 $ErrorActionPreference = "Stop"
@@ -79,11 +87,35 @@ foreach ($path in $Exe) {
         }
     }
 
+    if ($Version) {
+        $info = (Get-Item (Resolve-Path $path)).VersionInfo
+        if ($info.ProductName -cne "Vault" -or $info.CompanyName -cne "Vault" -or
+            $info.ProductVersion -cne $Version -or $info.FileVersion -cne $Version) {
+            $missing += "version information for Vault $Version (it says: $($info.ProductName) $($info.ProductVersion), $($info.CompanyName))"
+        }
+    }
+    if ($Authenticode) {
+        # The certificate SignPath issues changes over time: its signer is checked by name,
+        # and Windows checks the chain to a trusted root.
+        $signature = Get-AuthenticodeSignature (Resolve-Path $path)
+        $signer = if ($signature.SignerCertificate) {
+            $signature.SignerCertificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)
+        }
+        if ($signature.Status -ne "Valid" -or $signer -cne "SignPath Foundation") {
+            $missing += "an Authenticode signature by SignPath Foundation (it has: $($signature.Status), $signer)"
+        } elseif (-not $signature.TimeStamperCertificate) {
+            $missing += "a timestamp on its Authenticode signature"
+        }
+    }
+
     if ($missing) {
         Write-Host "${name}: lacks $($missing -join ', ')"
         $failed = $true
     } else {
-        Write-Host "${name}: ASLR (high entropy), DEP, Control Flow Guard ($functions functions may be called indirectly), DLLs from System32"
+        $extra = ""
+        if ($Version) { $extra += ", version information for $Version" }
+        if ($Authenticode) { $extra += ", signed by SignPath Foundation" }
+        Write-Host "${name}: ASLR (high entropy), DEP, Control Flow Guard ($functions functions may be called indirectly), DLLs from System32$extra"
     }
 }
 if ($failed) { throw "A program lacks a protection the build should give it." }
