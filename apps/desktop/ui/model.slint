@@ -26,6 +26,18 @@ export struct ExtensionBrowser {
     is-default: bool,
 }
 
+// A site the browser extension has rules for (Settings → Browser extension → Site rules),
+// kept on this computer: its host and its switches, and the hosts of other sites whose frames
+// in its pages may get a card ("" for none).
+export struct SiteRuleRow {
+    site: string,
+    never-save: bool,
+    no-card: bool,
+    never-fill: bool,
+    no-passkeys: bool,
+    card-frames: string,
+}
+
 export struct FileRow {
     name: string,
     size: string,
@@ -36,6 +48,10 @@ export struct PasskeyRow {
     site: string,
     user: string,
     created: string,
+    // What its site said through the browser (the Signal API): 0 nothing, 1 it no longer
+    // knows this passkey, 2 the account is named `signal-name` now.
+    signal: int,
+    signal-name: string,
 }
 
 export struct ItemRow {
@@ -98,6 +114,7 @@ export struct HealthRow {
     weakness: int,    // why it is weak (Messages.weakness); problem 5: 1 for an expiry date
     age-unit: int,    // how long ago the password was set (Messages.ago)
     age-amount: int,
+    has-site: bool,   // a login with a website: its page for changing the password is offered
 }
 
 // One entry of the file being imported, for review. Nothing secret.
@@ -301,6 +318,7 @@ export global Messages {
 
     public pure function error(code: int, detail: string) -> string {
         if (code == 0) { return ""; }
+        if (code == 150) { return @tr("That isn't a site: type its address, such as example.com."); }
         if (code == 1) { return @tr("That master password doesn't open this vault. Check Caps Lock and try again."); }
         if (code == 2) { return @tr("That Secret Key has a typo. Compare it with your emergency kit, group by group."); }
         if (code == 3) { return @tr("A Secret Key starts with S0- followed by four groups of seven characters."); }
@@ -525,6 +543,10 @@ export global Messages {
         if (code == 99) { return @tr("Vault didn't take the browser extension of GitHub's release {}. It keeps the one it has.", arg); }
         if (code == 98) { return @tr("Vault couldn't check the browser extension's files ({}). It tries again in a few minutes; if this keeps coming back, restart the browser, then Vault.", arg); }
         if (code == 88) { return @tr("The vault key was renewed, but the vault locked before the new kit showed. Open Emergency kit and issue new recovery parts: the ones made then can't be shown again."); }
+        if (code == 142) { return @tr("A site said something about a passkey of “{}”: its page shows what, and lets you decide.", arg); }
+        if (code == 143) { return @tr("Open the item's secrets first (the item lock), then decide."); }
+        if (code == 140) { return @tr("The browser extension changed the rules for {}. Settings → Browser extension → Site rules shows them.", arg); }
+        if (code == 141) { return @tr("Rules for {} added: choose what the extension doesn't do there.", arg); }
         if (code == 123) { return @tr("PDF password copied. The clipboard clears in {} seconds.", arg); }
         if (code == 125) { return @tr("“{}” is in the trash. It is deleted for good after 30 days; until then, Trash brings it back.", arg); }
         if (code == 126) { return @tr("“{}” is back from the trash.", arg); }

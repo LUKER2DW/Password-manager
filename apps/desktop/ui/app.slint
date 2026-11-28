@@ -2,7 +2,7 @@ import { Theme, Sketch, Secrets } from "theme.slint";
 // The monospace font, built in (see Theme.mono-font).
 import "fonts/JetBrainsMono-Regular.ttf";
 import "fonts/JetBrainsMono-SemiBold.ttf";
-import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock, SecurityLine } from "model.slint";
+import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, SiteRuleRow, Messages, ItemLock, SecurityLine } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList, VaultMark } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage, UpdateCard } from "pages.slint";
@@ -912,6 +912,9 @@ export component AppWindow inherits Window {
     in property <string> revealed-field-value;
     callback reveal-field(int);
     callback open-url(int);
+    callback change-password-at(int);
+    callback passkey-signal(int, bool);
+    callback health-change(int);
     callback copy-url(int);
     in property <int> detail-brand;
     in property <bool> detail-username-is-email;
@@ -968,6 +971,8 @@ export component AppWindow inherits Window {
     in property <int> ed-crack-unit;
     in property <int> ed-crack-amount;
     in property <int> ed-weakness;
+    in property <int> ed-reused;
+    in property <int> ed-leaked: -1;
     in property <[EditField]> ed-fields;
     callback card-number-edited(string);
     callback field-edited(int, bool, string);
@@ -1045,6 +1050,11 @@ export component AppWindow inherits Window {
     in property <[ExtensionBrowser]> extension-browsers;
     in-out property <int> extension-browser;
     callback add-extension(int);
+    in property <[SiteRuleRow]> site-rules;
+    in-out property <string> site-rule-new;
+    callback site-rule-toggled(string, int, bool);
+    callback site-rule-removed(string);
+    callback site-rule-added(string);
     callback open-extension-folder();
     // What is in use (SettingsPage: 0 built in, 1 a GitHub release, 2 the person's folder),
     // choosing such a folder, and going back to GitHub's releases.
@@ -1477,6 +1487,8 @@ export component AppWindow inherits Window {
                 revealed-field-value: root.revealed-field-value;
                 reveal-field(i) => { root.reveal-field(i); }
                 open-url(i) => { root.open-url(i); }
+                change-password-at(i) => { root.change-password-at(i); }
+                passkey-signal(i, yes) => { root.passkey-signal(i, yes); }
                 copy-url(i) => { root.copy-url(i); }
                 brand: root.detail-brand;
                 username-is-email: root.detail-username-is-email;
@@ -1547,6 +1559,8 @@ export component AppWindow inherits Window {
                 crack-unit: root.ed-crack-unit;
                 crack-amount: root.ed-crack-amount;
                 weakness: root.ed-weakness;
+                reused-count: root.ed-reused;
+                leak-count: root.ed-leaked;
                 card-number-edited(text) => { root.card-number-edited(text); }
                 fields: root.ed-fields;
                 field-edited(i, is-name, text) => { root.field-edited(i, is-name, text); }
@@ -1649,6 +1663,11 @@ export component AppWindow inherits Window {
                 extension-browsers: root.extension-browsers;
                 extension-browser <=> root.extension-browser;
                 add-extension(index) => { root.add-extension(index); }
+                site-rules: root.site-rules;
+                site-rule-new <=> root.site-rule-new;
+                site-rule-toggled(site, which, on) => { root.site-rule-toggled(site, which, on); }
+                site-rule-removed(site) => { root.site-rule-removed(site); }
+                site-rule-added(site) => { root.site-rule-added(site); }
                 open-extension-folder => { root.open-extension-folder(); }
                 extension-source: root.extension-source;
                 extension-version: root.extension-version;
@@ -1802,6 +1821,7 @@ export component AppWindow inherits Window {
                 filter-changed(f) => { root.health-filter-changed(f); }
                 check-leaks => { root.check-leaks(); }
                 open-row(i) => { root.health-open(i); }
+                change-row(i) => { root.health-change(i); }
             }
             if root.panel == Panel.kit: KitPage {
                 error-code: root.error-code;

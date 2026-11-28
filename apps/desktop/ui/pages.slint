@@ -2,7 +2,7 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock, SecurityLine } from "model.slint";
+import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, ExtensionBrowser, SiteRuleRow, Messages, ItemLock, SecurityLine } from "model.slint";
 import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker, IconLook, FolderLook } from "icons.slint";
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip, PdfPassword } from "kit.slint";
@@ -249,6 +249,9 @@ export component DetailPage inherits Rectangle {
     callback file-save(int);
     // The login's passkeys (who and where show while it is locked too).
     in property <[PasskeyRow]> passkeys;
+    // The person's answer to what a passkey's site said (its index; yes: remove it, or take
+    // the new names).
+    callback passkey-signal(int, bool);
     in property <string> folder;
     in property <int> codes-total;
     in property <int> codes-left;
@@ -309,6 +312,9 @@ export component DetailPage inherits Rectangle {
     callback reveal-field(int);
     callback open-url(int);
     callback copy-url(int);
+    // The site's page for changing the password (its `/.well-known/change-password`, or the
+    // page the built-in list names).
+    callback change-password-at(int);
     // The item's secrets (password, codes, hidden fields) wait for a check; `check` says which:
     // 0 the master password, 1 a PIN, 2 another password.
     in property <bool> locked;
@@ -615,6 +621,10 @@ export component DetailPage inherits Rectangle {
                     text: @tr("Open");
                     clicked => { root.open-url(index); }
                 }
+                if root.kind == 0 && root.has-password && index == 0: QuietButton {
+                    text: @tr("Change password");
+                    clicked => { root.change-password-at(index); }
+                }
                 QuietButton {
                     text: @tr("Copy");
                     clicked => { root.copy-url(index); }
@@ -740,7 +750,9 @@ export component DetailPage inherits Rectangle {
                 spacing: 6px;
                 padding-top: 6px;
                 Text { text: @tr("Passkeys"); font-size: Theme.small; color: Theme.graphite; }
-                for passkey in root.passkeys: HorizontalLayout {
+                for passkey[index] in root.passkeys: VerticalLayout {
+                  spacing: 4px;
+                  HorizontalLayout {
                     spacing: 10px;
                     VerticalLayout {
                         alignment: center;
@@ -770,6 +782,30 @@ export component DetailPage inherits Rectangle {
                         color: Theme.graphite;
                         vertical-alignment: center;
                     }
+                  }
+                  if passkey.signal != 0: HorizontalLayout {
+                    spacing: 8px;
+                    padding-left: 26px;
+                    Text {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        text: passkey.signal == 1
+                            ? @tr("The site says it no longer knows this passkey.")
+                            : @tr("The site says this account is now {}.", passkey.signal-name);
+                        font-size: Theme.small;
+                        color: Theme.seal;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+                    QuietButton {
+                        text: passkey.signal == 1 ? @tr("Remove it") : @tr("Use this name");
+                        clicked => { root.passkey-signal(index, true); }
+                    }
+                    QuietButton {
+                        text: @tr("Keep as it is");
+                        clicked => { root.passkey-signal(index, false); }
+                    }
+                  }
                 }
             }
 
@@ -1181,6 +1217,10 @@ export component EditorPage inherits Rectangle {
     in property <int> crack-unit;
     in property <int> crack-amount;
     in property <int> weakness;
+    // The new password is that of this many other logins, and turned up this many times in
+    // known breaches (-1: not known, or the leak watch is off).
+    in property <int> reused-count;
+    in property <int> leak-count: -1;
     callback card-number-edited(string);
     callback field-edited(int, bool, string);  // index, true = name / false = value, text
     callback field-hidden(int, bool);
@@ -1523,6 +1563,18 @@ export component EditorPage inherits Rectangle {
                 crack-unit: root.crack-unit;
                 crack-amount: root.crack-amount;
                 weakness: root.weakness;
+            }
+            // Written out rather than under an `if`, so that it wraps (AGENTS.md §5.6).
+            Text {
+                property <bool> shows: root.kind == 0 && (root.reused-count > 0 || root.leak-count > 0);
+                visible: self.shows;
+                height: self.shows ? self.preferred-height : 0px;
+                text: root.leak-count > 0
+                    ? @tr("This password turned up in data breaches {} times: choose another.", root.leak-count)
+                    : @tr("Same password as {n} other login: a leak of one exposes both." | "Same password as {n} other logins: a leak of one exposes them all." % root.reused-count);
+                font-size: Theme.small;
+                color: Theme.seal;
+                wrap: word-wrap;
             }
             // An SSH key: the key in hand (its type, fingerprint and public half; the private
             // key stays in Rust), a passphrase asked once for a key that has one, and the ways
@@ -2720,6 +2772,13 @@ export component SettingsPage inherits Rectangle {
     in property <[ExtensionBrowser]> extension-browsers;
     in-out property <int> extension-browser;
     callback add-extension(int);
+    // Site rules: `which` 0 never save, 1 no card, 2 never fill, 3 no passkeys, 4 the frames
+    // approved for cards (only taken back, never added here).
+    in property <[SiteRuleRow]> site-rules;
+    in-out property <string> site-rule-new;
+    callback site-rule-toggled(string, int, bool);
+    callback site-rule-removed(string);
+    callback site-rule-added(string);
     callback open-extension-folder();
     in property <int> extension-source;
     in property <string> extension-version;
@@ -3666,6 +3725,93 @@ export component SettingsPage inherits Rectangle {
                             text: @tr("Show a notice here for every login the extension fills");
                             checked <=> root.browser-fill-notices;
                             toggled => { root.settings-changed(); }
+                        }
+                    }
+                    if root.browser-extension: SettingsCard {
+                        icon: "globe";
+                        title: @tr("Site rules");
+                        summary: @tr("What the extension doesn't do on particular sites, and the sites under them. Kept on this computer; the extension's window sets them for the site in front too.");
+                        for rule in root.site-rules: VerticalLayout {
+                            spacing: 4px;
+                            HorizontalLayout {
+                                spacing: 12px;
+                                Text {
+                                    horizontal-stretch: 1;
+                                    min-width: 0px;
+                                    text: rule.site;
+                                    font-size: Theme.body;
+                                    font-weight: 600;
+                                    color: Theme.ink;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                }
+                                QuietButton {
+                                    text: @tr("Remove");
+                                    clicked => { root.site-rule-removed(rule.site); }
+                                }
+                            }
+                            HorizontalLayout {
+                                spacing: 16px;
+                                alignment: start;
+                                Check {
+                                    text: @tr("Never offer to save");
+                                    checked: rule.never-save;
+                                    toggled => { root.site-rule-toggled(rule.site, 0, self.checked); }
+                                }
+                                Check {
+                                    text: @tr("No card under fields");
+                                    checked: rule.no-card;
+                                    toggled => { root.site-rule-toggled(rule.site, 1, self.checked); }
+                                }
+                                Check {
+                                    text: @tr("Never fill");
+                                    checked: rule.never-fill;
+                                    toggled => { root.site-rule-toggled(rule.site, 2, self.checked); }
+                                }
+                                Check {
+                                    text: @tr("No passkeys");
+                                    checked: rule.no-passkeys;
+                                    toggled => { root.site-rule-toggled(rule.site, 3, self.checked); }
+                                }
+                            }
+                            if rule.card-frames != "": HorizontalLayout {
+                                spacing: 12px;
+                                Text {
+                                    horizontal-stretch: 1;
+                                    min-width: 0px;
+                                    text: @tr("Cards also go into the payment frames of {}", rule.card-frames);
+                                    font-size: Theme.small;
+                                    color: Theme.graphite;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                }
+                                QuietButton {
+                                    text: @tr("Stop");
+                                    clicked => { root.site-rule-toggled(rule.site, 4, false); }
+                                }
+                            }
+                        }
+                        if root.site-rules.length == 0: Text {
+                            text: @tr("No site has rules yet.");
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            LineField {
+                                horizontal-stretch: 1;
+                                placeholder: @tr("A site, such as example.com");
+                                text <=> root.site-rule-new;
+                                accepted => { root.site-rule-added(root.site-rule-new); }
+                            }
+                            VerticalLayout {
+                                alignment: end;
+                                QuietButton {
+                                    outlined: true;
+                                    text: @tr("Add a site");
+                                    clicked => { root.site-rule-added(root.site-rule-new); }
+                                }
+                            }
                         }
                     }
                     SettingsCard {
@@ -4704,6 +4850,8 @@ export component HealthPage inherits Rectangle {
     callback filter-changed(int);
     callback check-leaks();
     callback open-row(int);
+    // A warned login's page for changing its password on its site.
+    callback change-row(int);
 
     ScrollView {
         // No sideways scrolling: the page is as wide as the window, and what it holds wraps.
@@ -4899,6 +5047,13 @@ export component HealthPage inherits Rectangle {
                                 font-size: Theme.small;
                                 color: row.problem <= 3 ? Theme.seal : Theme.graphite;
                                 overflow: elide;
+                            }
+                        }
+                        if row.has-site && row.problem <= 4: VerticalLayout {
+                            alignment: center;
+                            QuietButton {
+                                text: @tr("Change on the site");
+                                clicked => { root.change-row(index); }
                             }
                         }
                     }

@@ -998,6 +998,55 @@ fn whole_app_flow_headless() {
     );
     app.set_browser_warnings(true);
     app.invoke_settings_changed();
+    // Site rules (F16): set from the extension's window for the site in front, kept in this
+    // device's state, told in the app, and enforced before anything is answered.
+    let ruled = json(ask(
+        r#"{"type":"site_rule","url":"https://www.github.com/login","rule":{"never_fill":true}}"#,
+    ));
+    assert_eq!(ruled["site"], "github.com", "{ruled}");
+    assert_eq!(ruled["rule"]["never_fill"], true);
+    assert_eq!(app.get_notice_code(), 140);
+    let kept = vault_platform::DeviceState::load()
+        .unwrap()
+        .settings
+        .site_rules;
+    assert_eq!(kept.len(), 1);
+    assert!(kept[0].never_fill);
+    let listed = json(ask(r#"{"type":"logins","url":"https://github.com/login"}"#));
+    assert_eq!(
+        listed["rule"]["never_fill"], true,
+        "the extension hears the rule"
+    );
+    let refused = ask(&format!(
+        r#"{{"type":"fill","url":"https://github.com/session","id":"{id}"}}"#
+    ));
+    assert!(refused.contains("site_rule"), "{refused}");
+    // Settings lists it, and turning the switch off there lets the fill through again.
+    assert_eq!(app.get_site_rules().row_count(), 1);
+    app.invoke_site_rule_toggled("github.com".into(), 2, false);
+    assert!(
+        !vault_platform::DeviceState::load()
+            .unwrap()
+            .settings
+            .site_rules[0]
+            .never_fill
+    );
+    app.invoke_site_rule_removed("github.com".into());
+    assert!(
+        vault_platform::DeviceState::load()
+            .unwrap()
+            .settings
+            .site_rules
+            .is_empty()
+    );
+    // Added by hand: what isn't a site is refused.
+    app.invoke_site_rule_added("not a site ://".into());
+    assert_eq!(app.get_error_code(), 150);
+    app.invoke_site_rule_added("https://shop.example/cart".into());
+    assert_eq!(app.get_site_rules().row_count(), 1);
+    app.invoke_site_rule_removed("shop.example".into());
+    app.set_browser_warnings(true);
+    app.invoke_settings_changed();
     let filled = ask(&format!(
         r#"{{"type":"fill","url":"https://github.com/session","id":"{id}"}}"#
     ));

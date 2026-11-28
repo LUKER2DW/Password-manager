@@ -9,7 +9,7 @@ use std::{
     path::PathBuf,
     rc::{Rc, Weak},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use slint::{
@@ -59,6 +59,8 @@ mod passwords;
 mod protection;
 mod renew;
 mod security;
+mod signals;
+mod site_rules;
 mod syncing;
 mod toolbar;
 mod updates;
@@ -66,6 +68,7 @@ mod updates;
 /// How long a copy started after an update waits for the one it replaced to end.
 pub const UPDATE_HANDOVER: std::time::Duration = updates::HANDOVER;
 mod watch;
+mod weigh;
 
 /// What to draw next to an item.
 struct IconVisual {
@@ -218,6 +221,8 @@ mod error {
     /// picture couldn't be read (the detail says why).
     pub const NO_QR_KEY: i32 = 140;
     pub const PICTURE: i32 = 141;
+    /// Settings → Site rules: what was typed isn't a site (or the list is full).
+    pub const SITE_RULE_ADDRESS: i32 = 150;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -358,6 +363,14 @@ mod notice {
     pub const SYNC_OLDER_FORMAT: i32 = 133;
     /// Another device's copy couldn't be read (arg: its name, empty when not in the list).
     pub const SYNC_UNREADABLE: i32 = 134;
+    /// The extension's window changed a site's rule (the argument: the site).
+    pub const SITE_RULE_CHANGED: i32 = 140;
+    /// Settings → Site rules: a site added (the argument: the site).
+    pub const SITE_RULE_ADDED: i32 = 141;
+    /// A site said something of a passkey (the argument: its login's title).
+    pub const PASSKEY_SIGNAL: i32 = 142;
+    /// Acting on it needs the item's secrets open.
+    pub const PASSKEY_SIGNAL_LOCKED: i32 = 143;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -632,6 +645,11 @@ struct State {
     health_generation: u64,
     health_ids: Vec<ItemId>,
     leaks: HashMap<ItemId, u64>,
+    /// The breach service's answers for the prefixes of new passwords weighed lately (the
+    /// editor, the extension's save card), by prefix: `None` while asked (`weigh.rs`).
+    leak_ranges: HashMap<String, Option<(Instant, String)>>,
+    /// What sites said of the vault's passkeys (the Signal API), for the person to decide.
+    passkey_notes: Vec<vault_browser::service::PasskeyNote>,
     /// The newer release Check for updates found (its page on github.com).
     release_page: Option<String>,
     /// The newer version a notice already told of (once per version while the app runs).
@@ -729,6 +747,8 @@ struct Timers {
     extension_check: Timer,
     /// Ticks the unlock screen's countdown after too many failed tries.
     unlock_wait: Timer,
+    /// The editor's new password, weighed against known leaks once typing pauses.
+    weigh: Timer,
 }
 
 pub struct Controller {
@@ -845,6 +865,8 @@ impl Controller {
                 health_generation: 0,
                 health_ids: Vec::new(),
                 leaks: HashMap::new(),
+                leak_ranges: HashMap::new(),
+                passkey_notes: Vec::new(),
                 release_page: None,
                 update_told: None,
                 restarted: false,
@@ -1202,6 +1224,10 @@ impl Controller {
         on!(on_check_leaks, |c| c.check_leaks());
         on!(on_check_updates, |c| c.check_updates());
         on!(on_add_extension, |c, index| c.add_extension(index));
+        on!(on_site_rule_toggled, |c, site, which, on| c
+            .site_rule_toggled(&site, which, on));
+        on!(on_site_rule_removed, |c, site| c.site_rule_removed(&site));
+        on!(on_site_rule_added, |c, site| c.site_rule_added(&site));
         on!(on_open_extension_folder, |c| c.open_extension_folder());
         on!(on_choose_extension_folder, |c| c.choose_extension_folder());
         on!(on_use_extension_release, |c| c.use_extension_release());
@@ -1216,6 +1242,11 @@ impl Controller {
         on!(on_alerts_read, |c| c.mark_alerts_read());
         on!(on_alerts_changed, |c| c.refresh_alerts());
         on!(on_health_open, |c, index| c.health_open(index));
+        on!(on_health_change, |c, index| c.health_change(index));
+        on!(on_change_password_at, |c, index| c
+            .change_password_at(index));
+        on!(on_passkey_signal, |c, index, yes| c
+            .passkey_signal(index, yes));
         on!(on_add_wordlist, |c| c.add_wordlist());
         on!(on_remove_wordlist, |c| c.remove_wordlist());
         on!(on_vault_settings_changed, |c| c.vault_settings_changed());
@@ -3623,6 +3654,26 @@ impl Controller {
         }
     }
 
+    /// The site's page for changing the password of the selected login (F19): the one the
+    /// built-in list names, else its `/.well-known/change-password`.
+    fn change_password_at(&self, index: i32) {
+        let Some((_, item)) = self.selected_item_raw() else {
+            return;
+        };
+        if let Some(url) = usize::try_from(index).ok().and_then(|i| item.urls.get(i)) {
+            self.open_change_page(url);
+        }
+    }
+
+    pub(super) fn open_change_page(&self, site: &str) {
+        let Some(page) = vault_browser::resources::change_password_url(site) else {
+            return;
+        };
+        if let Err(err) = files::open_web_link(&page) {
+            self.notify_long(notice::LINK_FAILED, &format!("{page} ({err:#})"));
+        }
+    }
+
     fn copy_url(&self, index: i32) {
         let Some((_, item)) = self.selected_item_raw() else {
             return;
@@ -5081,6 +5132,7 @@ impl Controller {
         app.set_extension_steps(false);
         self.show_extension_browsers();
         self.show_extension_source();
+        self.show_site_rules();
         self.show_vault_settings();
         self.state.borrow_mut().security_log_shown = 0;
         self.show_security_log();
@@ -6017,6 +6069,7 @@ impl Controller {
             update_install: app.get_update_install(),
             sidebar_hidden: app.get_sidebar_hidden(),
             secure_desktop: app.get_secure_desktop(),
+            site_rules: self.state.borrow().settings.site_rules.clone(),
         };
         app.global::<Theme>()
             .set_backdrop(i32::from(settings.backdrop));
@@ -6069,7 +6122,6 @@ impl Controller {
     }
 
     // -----------------------------------------------------------------------------------------
-            site_rules: self.state.borrow().settings.site_rules.clone(),
     // Website icons (opt-in; see vault_platform::website_icons for the privacy model)
     // -----------------------------------------------------------------------------------------
 

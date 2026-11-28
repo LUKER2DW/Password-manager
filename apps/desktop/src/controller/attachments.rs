@@ -25,7 +25,7 @@ use crate::{
 const MAX_KEY_FILE: u64 = 64 * 1024;
 
 /// A login's passkeys as the item page and the editor list them.
-fn passkey_rows(passkeys: &[vault_core::Passkey]) -> Vec<PasskeyRow> {
+pub(super) fn passkey_rows(passkeys: &[vault_core::Passkey]) -> Vec<PasskeyRow> {
     passkeys
         .iter()
         .map(|passkey| PasskeyRow {
@@ -36,6 +36,8 @@ fn passkey_rows(passkeys: &[vault_core::Passkey]) -> Vec<PasskeyRow> {
                 passkey.user_name.as_str().into()
             },
             created: view::date(passkey.created_at).into(),
+            signal: 0,
+            signal_name: slint::SharedString::new(),
         })
         .collect()
 }
@@ -347,7 +349,8 @@ impl Controller {
         let files: &[Attachment] = if locked { &[] } else { &item.attachments };
         let app = self.app();
         app.set_detail_files(rows(files));
-        app.set_detail_passkeys(ModelRc::new(VecModel::from(passkey_rows(&item.passkeys))));
+        let selected = self.state.borrow().selected;
+        app.set_detail_passkeys(self.detail_passkey_rows(selected, &item.passkeys));
     }
 
     /// Saves one of the open item's files where the person picks.

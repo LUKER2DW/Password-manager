@@ -528,6 +528,8 @@ impl Controller {
         app.set_ed_crack_unit(unit);
         app.set_ed_crack_amount(amount);
         app.set_ed_weakness(weakness);
+        // Reused in the vault, or known leaked (F18): said under the strength.
+        self.weigh_editor_soon();
     }
 
     pub(super) fn card_number_edited(&self, text: &str) {
@@ -714,6 +716,8 @@ impl Controller {
                 weakness,
                 age_unit,
                 age_amount,
+                has_site: kind == ItemKind::Login
+                    && vault_browser::resources::change_password_url(&url).is_some(),
             });
         }
         self.state.borrow_mut().health_ids = ids;
@@ -742,6 +746,27 @@ impl Controller {
         self.state.borrow_mut().selected = Some(id);
         self.refresh_list();
         self.show_detail();
+    }
+
+    /// "Change on the site" on a health warning: the login's page for changing its password.
+    pub(super) fn health_change(&self, index: i32) {
+        let site = {
+            let state = self.state.borrow();
+            let Some(id) = usize::try_from(index)
+                .ok()
+                .and_then(|i| state.health_ids.get(i).copied())
+            else {
+                return;
+            };
+            state
+                .session
+                .as_ref()
+                .and_then(|s| s.vault.get_item(&id).ok())
+                .and_then(|item| item.urls.first().cloned())
+        };
+        if let Some(site) = site {
+            self.open_change_page(&site);
+        }
     }
 
     /// Asks the breach service about every login's password (k-anonymous; see health.rs).

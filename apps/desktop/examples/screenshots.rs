@@ -468,11 +468,27 @@ fn main() {
             site: "github.com".into(),
             user: "octocat".into(),
             created: "12 Nov 2026".into(),
+            ..Default::default()
         }])))
     };
     app.set_notes_shown(false);
     app.set_detail_passkeys(passkeys());
     camera.shot("vault-passkey", "A login's passkey on the item page");
+    // What the site said through the browser (the Signal API), waiting for the person.
+    app.set_detail_passkeys(slint::ModelRc::from(std::rc::Rc::new(
+        slint::VecModel::from(vec![PasskeyRow {
+            site: "github.com".into(),
+            user: "octocat".into(),
+            created: "12 Nov 2026".into(),
+            signal: 1,
+            ..Default::default()
+        }]),
+    )));
+    camera.shot(
+        "vault-passkey-signal",
+        "A site said it no longer knows a passkey: the person decides",
+    );
+    app.set_detail_passkeys(passkeys());
     app.invoke_edit_item();
     app.set_ed_passkeys(passkeys());
     camera.shot(

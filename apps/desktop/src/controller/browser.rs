@@ -24,6 +24,7 @@ use vault_browser::{
     host::NOT_RUNNING,
     pairing::{Envelope, Offer, PairingKey, Pending},
     protocol::{self, Check, CopyWhat, ErrorCode, Secret},
+    rules,
     service::{self, Gate, Held, Kept, Opened},
 };
 use vault_core::{GuardCheck, GuardOpened, ItemData, ItemGuard, Vault, storage};
@@ -67,6 +68,18 @@ fn request_type(request: &[u8]) -> String {
     }
     serde_json::from_slice::<Kind>(request).map_or_else(|_| String::new(), |k| k.kind)
 }
+
+/// The page a request is about (its `url`), if it names one.
+fn request_url(request: &[u8]) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct WithUrl {
+        url: Option<String>,
+    }
+    serde_json::from_slice::<WithUrl>(request).ok()?.url
+}
+
+/// The person's rule for a site refused this request (`vault_browser::rules`).
+const SITE_RULE: &[u8] = br#"{"type":"error","code":"site_rule"}"#;
 
 /// The password a `save` or `update` request carries, if any (wiped on drop).
 fn request_password(request: &[u8]) -> Option<Secret> {
@@ -399,16 +412,127 @@ impl Controller {
         if let Some(refused) = self.browser_turned_off(&kind) {
             return refused;
         }
+        // The person's rule for the page's site, locked or not.
+        let url = request_url(request).unwrap_or_default();
+        if !url.is_empty() && rules::refused(&self.state.borrow().settings.site_rules, &kind, &url)
+        {
+            return Zeroizing::new(SITE_RULE.to_vec());
+        }
         // The same, locked or not: what the extension needs to know of the app.
         let answer = if kind == "status" {
             self.browser_status()
+        } else if kind == "site_rule" {
+            self.browser_site_rule(request)
+        } else if kind == "weigh" {
+            self.browser_weigh(request)
+        } else if kind == "icons" {
+            self.browser_icons(request)
         } else if self.state.borrow().session.is_none() {
             self.browser_locked(request, device)
         } else {
             self.browser_inner(request, device)
         };
-        let answer = self.with_browser_settings(&kind, answer);
+        let answer = self.with_browser_settings(&kind, &url, answer);
         self.with_extension_version(&kind, answer)
+    }
+
+    /// The extension's window changed the rule for the site in front (`site_rule`): kept in
+    /// this device's state, told here in a notice (a rule loosened from the browser doesn't go
+    /// unnoticed), and the rule as it is now answered.
+    fn browser_site_rule(&self, request: &[u8]) -> Zeroizing<Vec<u8>> {
+        let bad = || Zeroizing::new(BAD_REQUEST.to_vec());
+        let Ok(protocol::Request::SiteRule { url, rule }) =
+            serde_json::from_slice::<protocol::Request>(request)
+        else {
+            return bad();
+        };
+        // Only a page a login could be filled on: the site of the tab in front.
+        if vault_browser::origin::Origin::of_page(&url).is_err() {
+            return bad();
+        }
+        let Some(site) = rules::site_key(&url) else {
+            return bad();
+        };
+        let now = {
+            let mut state = self.state.borrow_mut();
+            let mut kept = state.settings.site_rules.clone();
+            let Ok(now) = rules::apply(&mut kept, &site, &rule) else {
+                return bad();
+            };
+            state.settings.site_rules = kept;
+            now
+        };
+        self.save_settings();
+        self.show_site_rules();
+        self.notify(notice::SITE_RULE_CHANGED, &site);
+        let rule = now
+            .as_ref()
+            .and_then(|_| rules::rules_json(&self.state.borrow().settings.site_rules, &url));
+        let answer = serde_json::json!({ "type": "site_rule", "site": site, "rule": rule });
+        Zeroizing::new(serde_json::to_vec(&answer).unwrap_or_else(|_| BAD_REQUEST.to_vec()))
+    }
+
+    /// The website icons the app has for the extension's window: from its sealed cache, only
+    /// while Settings → Website icons is on and the vault is open (the cache is sealed with
+    /// it). Nothing is fetched for this request.
+    fn browser_icons(&self, request: &[u8]) -> Zeroizing<Vec<u8>> {
+        use vault_platform::website_icons as favicon;
+        let Ok(protocol::Request::Icons { sites }) =
+            serde_json::from_slice::<protocol::Request>(request)
+        else {
+            return Zeroizing::new(BAD_REQUEST.to_vec());
+        };
+        let state = self.state.borrow();
+        if state.session.is_none() {
+            return Zeroizing::new(LOCKED.to_vec());
+        }
+        let mut icons = serde_json::Map::new();
+        if state.settings.website_icons {
+            for site in sites.iter().take(40) {
+                let Some(host) = favicon::host_of(site) else {
+                    continue;
+                };
+                if let Some(url) = state
+                    .icons
+                    .get(&favicon::cache_key(&host))
+                    .and_then(favicon::data_url)
+                {
+                    icons.insert(site.clone(), url.into());
+                }
+            }
+        }
+        let answer = serde_json::json!({
+            "type": "icons",
+            "on": state.settings.website_icons,
+            "icons": icons,
+        });
+        Zeroizing::new(serde_json::to_vec(&answer).unwrap_or_else(|_| BAD_REQUEST.to_vec()))
+    }
+
+    /// The save card's question about a new password (F18): how many other logins have it, and
+    /// how often it was found in breaches (left out while the leak watch is off; `null` while
+    /// the breach service is asked: the extension asks again a moment later).
+    fn browser_weigh(&self, request: &[u8]) -> Zeroizing<Vec<u8>> {
+        let Ok(protocol::Request::Weigh { url, password }) =
+            serde_json::from_slice::<protocol::Request>(request)
+        else {
+            return Zeroizing::new(BAD_REQUEST.to_vec());
+        };
+        if self.state.borrow().session.is_none() {
+            return Zeroizing::new(LOCKED.to_vec());
+        }
+        let Ok(origin) = vault_browser::origin::Origin::of_page(&url) else {
+            return Zeroizing::new(BAD_REQUEST.to_vec());
+        };
+        if password.as_str().len() > 1024 || vault_browser::kit::holds_kit_key(password.as_str()) {
+            return Zeroizing::new(BAD_REQUEST.to_vec());
+        }
+        let reused = self.reused_count(password.as_str(), None, Some(&origin));
+        let mut answer = serde_json::json!({ "type": "weighed", "reused": reused });
+        if let Some(leaked) = self.leak_count(password.as_str(), |_| {}) {
+            answer["leaked"] = leaked.map_or(serde_json::Value::Null, Into::into);
+        }
+        Zeroizing::new(serde_json::to_vec(&answer).unwrap_or_else(|_| BAD_REQUEST.to_vec()))
     }
 
     /// What Settings → Browser extension turned off is refused before anything is read:
@@ -419,7 +543,9 @@ impl Controller {
         let settings = &self.state.borrow().settings;
         let off = match kind {
             "save" | "changed" | "update" => !settings.browser_saves,
-            "passkeys" | "passkey_get" | "passkey_create" => !settings.browser_passkeys,
+            "passkeys" | "passkey_get" | "passkey_create" | "passkey_signal" => {
+                !settings.browser_passkeys
+            }
             "elsewhere" => !settings.browser_warnings,
             _ => false,
         };
@@ -430,19 +556,25 @@ impl Controller {
     /// the extension doesn't offer it: `"saves": false`, `"passkeys": false`, `"warns": false`
     /// (and then no lookalike is named either: the extension stops sending what a page was
     /// given, and warns about no page).
-    fn with_browser_settings(&self, kind: &str, answer: Zeroizing<Vec<u8>>) -> Zeroizing<Vec<u8>> {
+    fn with_browser_settings(
+        &self,
+        kind: &str,
+        url: &str,
+        answer: Zeroizing<Vec<u8>>,
+    ) -> Zeroizing<Vec<u8>> {
         if !matches!(kind, "status" | "logins") {
             return answer;
         }
-        let (saves, passkeys, warns) = {
+        let (saves, passkeys, warns, rule) = {
             let settings = &self.state.borrow().settings;
             (
                 settings.browser_saves,
                 settings.browser_passkeys,
                 settings.browser_warnings,
+                rules::rules_json(&settings.site_rules, url),
             )
         };
-        if saves && passkeys && warns {
+        if saves && passkeys && warns && rule.is_none() {
             return answer;
         }
         // Names and usernames only (a status or a list of logins, never a password).
@@ -458,6 +590,11 @@ impl Controller {
         if !warns {
             reply.remove("lookalike");
             reply.insert("warns".into(), false.into());
+        }
+        // The person's rule for this site: the extension leaves out what it forbids (and the
+        // app refuses it anyway, `trusted_answer`).
+        if let Some(rule) = rule {
+            reply.insert("rule".into(), rule);
         }
         serde_json::to_vec(&reply).map_or(answer, Zeroizing::new)
     }
@@ -556,6 +693,8 @@ impl Controller {
         if let Some(kept) = answer.kept {
             self.record_generated(&kept.password, &kept.site);
         }
+        // A site's word about passkeys (the Signal API): noted for the person.
+        self.note_passkey_signals(std::mem::take(&mut answer.signals));
         if changed {
             self.state.borrow_mut().summaries_stale = true;
             if locked_out || !self.save_vault() {

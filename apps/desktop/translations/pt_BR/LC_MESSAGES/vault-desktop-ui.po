@@ -5781,3 +5781,103 @@ msgstr "Arquivo-chave: {}"
 msgctxt "ExportDialog"
 msgid "No keyfile"
 msgstr "Sem arquivo-chave"
+msgid "The browser extension changed the rules for {}. Settings → Browser extension → Site rules shows them."
+msgstr "A extensão do navegador mudou as regras de {}. Configurações → Extensão do navegador → Regras por site as mostra."
+
+msgctxt "Messages"
+msgid "Rules for {} added: choose what the extension doesn't do there."
+msgstr "Regras para {} adicionadas: escolha o que a extensão não faz lá."
+
+msgctxt "Messages"
+msgid "A site said something about a passkey of “{}”: its page shows what, and lets you decide."
+msgstr "Um site disse algo sobre uma chave de acesso de “{}”: a página dele mostra o quê, e deixa você decidir."
+
+msgctxt "Messages"
+msgid "Open the item's secrets first (the item lock), then decide."
+msgstr "Abra primeiro os segredos do item (o bloqueio de itens) e depois decida."
+
+msgctxt "Messages"
+msgid "That isn't a site: type its address, such as example.com."
+msgstr "Isso não é um site: digite o endereço dele, como example.com."
+
+msgctxt "DetailPage"
+msgid "Change password"
+msgstr "Mudar a senha"
+
+msgctxt "DetailPage"
+msgid "Keep as it is"
+msgstr "Manter como está"
+
+msgctxt "DetailPage"
+msgid "Remove it"
+msgstr "Remover"
+
+msgctxt "DetailPage"
+msgid "The site says it no longer knows this passkey."
+msgstr "O site diz que não conhece mais esta chave de acesso."
+
+msgctxt "DetailPage"
+msgid "The site says this account is now {}."
+msgstr "O site diz que esta conta agora é {}."
+
+msgctxt "DetailPage"
+msgid "Use this name"
+msgstr "Usar este nome"
+
+msgctxt "EditorPage"
+msgid "This password turned up in data breaches {} times: choose another."
+msgstr "Esta senha apareceu em vazamentos de dados {} vezes: escolha outra."
+
+msgctxt "HealthPage"
+msgid "Change on the site"
+msgstr "Mudar no site"
+
+msgctxt "SettingsPage"
+msgid "A site, such as example.com"
+msgstr "Um site, como example.com"
+
+msgctxt "SettingsPage"
+msgid "Add a site"
+msgstr "Adicionar um site"
+
+msgctxt "SettingsPage"
+msgid "Cards also go into the payment frames of {}"
+msgstr "Os cartões também vão para os quadros de pagamento de {}"
+
+msgctxt "SettingsPage"
+msgid "Never fill"
+msgstr "Nunca preencher"
+
+msgctxt "SettingsPage"
+msgid "Never offer to save"
+msgstr "Nunca oferecer para salvar"
+
+msgctxt "SettingsPage"
+msgid "No card under fields"
+msgstr "Sem cartão sob os campos"
+
+msgctxt "SettingsPage"
+msgid "No passkeys"
+msgstr "Sem chaves de acesso"
+
+msgctxt "SettingsPage"
+msgid "No site has rules yet."
+msgstr "Nenhum site tem regras ainda."
+
+msgctxt "SettingsPage"
+msgid "Site rules"
+msgstr "Regras por site"
+
+msgctxt "SettingsPage"
+msgid "Stop"
+msgstr "Parar"
+
+msgctxt "SettingsPage"
+msgid "What the extension doesn't do on particular sites, and the sites under them. Kept on this computer; the extension's window sets them for the site in front too."
+msgstr "O que a extensão não faz em certos sites e nos sites abaixo deles. Guardadas neste computador; a janela da extensão também as define para o site aberto."
+
+msgctxt "EditorPage"
+msgid "Same password as {n} other login: a leak of one exposes both."
+msgid_plural "Same password as {n} other logins: a leak of one exposes them all."
+msgstr[0] "Mesma senha de {n} outro login: o vazamento de um expõe os dois."
+msgstr[1] "Mesma senha de {n} outros logins: o vazamento de um expõe todos."
