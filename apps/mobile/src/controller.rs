@@ -272,6 +272,9 @@ mod notice {
     pub const FAILED_UNLOCKS: i32 = 28;
     /// This phone's copy of a vault was removed after too many failed unlocks (its name).
     pub const COPY_REMOVED: i32 = 29;
+    /// Format v11: an item went to the trash, or came back from it.
+    pub const TRASHED: i32 = 30;
+    pub const RESTORED: i32 = 31;
 }
 
 /// How long a copied secret may stay on the clipboard (Settings), in seconds.
@@ -326,6 +329,8 @@ fn system_edit(buffer: &mut SecretBuffer, text: &str, cursor: usize) -> usize {
     );
     at + buffer.insert_str(at, &typed)
 }
+/// The list's filter for the items in the trash (format v11).
+const TRASH_FILTER: i32 = 7;
 const NOTICE_FOR: Duration = Duration::from_secs(3);
 const LOCK_CHOICES: [Duration; 3] = [
     Duration::from_secs(60),
@@ -352,6 +357,7 @@ pub(super) fn tint(kind: ItemKind, key: &str) -> Color {
         ItemKind::SecureNote => (0x2F, 0x7D, 0x68),
         ItemKind::Passkey => (0x5C, 0x4B, 0x7A),
         ItemKind::SshKey => (0x3E, 0x4A, 0x5C),
+        ItemKind::Identity => (0x7A, 0x5A, 0x3C),
         ItemKind::Login => {
             // FNV-1a: tiny, stable across runs and platforms.
             let hash = key.to_lowercase().bytes().fold(0x811C_9DC5u32, |h, b| {
@@ -379,6 +385,7 @@ fn kind_index(kind: ItemKind) -> i32 {
         ItemKind::SecureNote => 2,
         ItemKind::Passkey => 3,
         ItemKind::SshKey => 4,
+        ItemKind::Identity => 5,
     }
 }
 
@@ -847,6 +854,8 @@ impl Controller {
         on!(on_save_item, |c| c.save_item());
         on!(on_cancel_edit, |c| c.close_editor());
         on!(on_delete_item, |c| c.delete_item());
+        on!(on_trash_item, |c| c.trash_item());
+        on!(on_restore_item, |c| c.restore_item());
         on!(on_copy_code, |c, index| c.copy_code(index));
         on!(on_move_code, |c, from, to| c.move_code(from, to));
         on!(on_ed_website_changed, |c| c.editor_site_icon());
@@ -2456,7 +2465,11 @@ impl Controller {
             let mut rows = Vec::new();
             let mut ids = Vec::new();
             for item in &summaries {
+                // The trash has a filter of its own; archived items and templates are kept
+                // for the desktop, out of the phone's lists (format v11).
                 let fits = match filter {
+                    TRASH_FILTER => item.trashed_at != 0,
+                    _ if !item.is_active() => false,
                     1 => item.favorite,
                     2 => item.kind == ItemKind::Login,
                     3 => item.kind == ItemKind::Card,
@@ -2968,7 +2981,7 @@ impl Controller {
                 return;
             };
             let mut summaries = vault.summaries().unwrap_or_default();
-            summaries.retain(|item| item.has_totp);
+            summaries.retain(|item| item.has_totp && item.is_active());
             // In the order the person gave them (held and dragged), the rest after them by
             // title.
             let order = state
@@ -3078,6 +3091,7 @@ impl Controller {
             clear(&app, SharedString::new());
         }
         app.set_ed_favorite(false);
+        app.set_ed_trashed(false);
         app.set_ed_confirm_delete(false);
         app.set_ed_folder(-1);
         app.set_ed_glyph(SharedString::new());
@@ -3117,6 +3131,7 @@ impl Controller {
             app.set_ed_totp(item.totp.as_str().into());
             app.set_ed_notes(item.notes.as_str().into());
             app.set_ed_favorite(item.favorite);
+            app.set_ed_trashed(item.trashed_at != 0);
             app.set_ed_folder(self.folder_index(item.folder));
             let (glyph, glyph_color, glyph_bg) = icons::look_of(&item.icon_url);
             app.set_ed_glyph(glyph);
@@ -3330,7 +3345,57 @@ impl Controller {
         self.notify(notice::SAVED, "");
     }
 
-    /// Delete, once the confirmation sheet said yes (app.slint, `ask(5)`).
+    /// Puts the item being edited in the trash (format v11): out of every list but the
+    /// Trash filter, restorable for 30 days.
+    fn trash_item(&self) {
+        self.trash_or_restore(true);
+    }
+
+    /// Takes the item being edited out of the trash.
+    fn restore_item(&self) {
+        self.trash_or_restore(false);
+    }
+
+    fn trash_or_restore(&self, trash: bool) {
+        let done = {
+            let mut state = self.state.borrow_mut();
+            let state = &mut *state;
+            let (Some(vault), Some(id)) = (state.vault.as_mut(), state.editing) else {
+                return;
+            };
+            let title = vault.get_item(&id).map(|item| item.title.clone()).ok();
+            let changed = if trash {
+                vault.trash_item(&id)
+            } else {
+                vault.restore_item(&id)
+            };
+            changed.ok().and(title)
+        };
+        let Some(title) = done else {
+            return;
+        };
+        if !self.save() {
+            return;
+        }
+        {
+            let mut state = self.state.borrow_mut();
+            state.editing = None;
+            state.selected = None;
+        }
+        self.close_editor();
+        self.clear_item_page();
+        self.notify(
+            if trash {
+                notice::TRASHED
+            } else {
+                notice::RESTORED
+            },
+            &title,
+        );
+    }
+
+    /// Delete for good (an item in the trash), once the confirmation sheet said yes
+    /// (app.slint, `ask(5)`).
     fn delete_item(&self) {
         let removed = {
             let mut state = self.state.borrow_mut();

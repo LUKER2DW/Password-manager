@@ -3755,3 +3755,79 @@ msgstr "O Vault não consegue se substituir em {}: essa pasta não pode ser grav
 msgctxt "Messages"
 msgid "The new version is in place but couldn't be started ({}). Start Vault again."
 msgstr "A nova versão está no lugar, mas não pôde ser iniciada ({}). Abra o Vault de novo."
+
+msgctxt "Words"
+msgid "“{}” is in the trash: deleted for good after 30 days. The Trash filter brings it back."
+msgstr "“{}” está na lixeira: é apagado de vez depois de 30 dias. O filtro Lixeira o traz de volta."
+
+msgctxt "Words"
+msgid "“{}” is back from the trash."
+msgstr "“{}” voltou da lixeira."
+
+msgctxt "PhoneWindow"
+msgid "Trash"
+msgstr "Lixeira"
+
+msgctxt "PhoneWindow"
+msgid "Move to the trash"
+msgstr "Mover para a lixeira"
+
+msgctxt "PhoneWindow"
+msgid "Restore"
+msgstr "Restaurar"
+
+msgctxt "PhoneWindow"
+msgid "Delete for good"
+msgstr "Apagar de vez"
+
+msgctxt "Messages"
+msgid "SSH key"
+msgstr "Chave SSH"
+
+msgctxt "Messages"
+msgid "Identity"
+msgstr "Identidade"
+
+msgctxt "Messages"
+msgid "Tags are separated by commas: at most 32, each up to 40 characters."
+msgstr "As etiquetas são separadas por vírgulas: no máximo 32, cada uma com até 40 caracteres."
+
+msgctxt "Messages"
+msgid "Type the expiry date as year-month-day, for example 2027-03-31."
+msgstr "Digite a data de validade como ano-mês-dia, por exemplo 2027-03-31."
+
+msgctxt "Messages"
+msgid "“{}” is in the trash. It is deleted for good after 30 days; until then, Trash brings it back."
+msgstr "“{}” está na lixeira. É apagado de vez depois de 30 dias; até lá, a Lixeira o traz de volta."
+
+msgctxt "Messages"
+msgid "“{}” is back from the trash."
+msgstr "“{}” voltou da lixeira."
+
+msgctxt "Messages"
+msgid "“{}” is archived: kept, out of search, filling and health. Archive lists it."
+msgstr "“{}” foi arquivado: guardado, fora da busca, do preenchimento e da saúde. O Arquivo o lista."
+
+msgctxt "Messages"
+msgid "“{}” is out of the archive."
+msgstr "“{}” saiu do arquivo."
+
+msgctxt "Messages"
+msgid "The earlier version of “{}” is back; the one it replaced is kept among its earlier versions."
+msgstr "A versão anterior de “{}” voltou; a que ela substituiu fica entre as versões anteriores."
+
+msgctxt "Messages"
+msgid "{} syncs with a newer version of Vault, so its copy can't be used here. Update this app: Settings → About → Check for updates."
+msgstr "{} sincroniza com uma versão mais nova do Vault, então a cópia dele não pode ser usada aqui. Atualize este app: Configurações → Sobre → Procurar atualizações."
+
+msgctxt "Messages"
+msgid "A device syncs with a newer version of Vault, so its copy can't be used here. Update this app: Settings → About → Check for updates."
+msgstr "Um dispositivo sincroniza com uma versão mais nova do Vault, então a cópia dele não pode ser usada aqui. Atualize este app: Configurações → Sobre → Procurar atualizações."
+
+msgctxt "Messages"
+msgid "{} still runs an older version of Vault, so its copy can't be used here. Update Vault on that device; it syncs again once it is updated."
+msgstr "{} ainda usa uma versão mais antiga do Vault, então a cópia dele não pode ser usada aqui. Atualize o Vault nesse dispositivo; ele volta a sincronizar quando estiver atualizado."
+
+msgctxt "Messages"
+msgid "A device still runs an older version of Vault, so its copy can't be used here. Update Vault on that device; it syncs again once it is updated."
+msgstr "Um dispositivo ainda usa uma versão mais antiga do Vault, então a cópia dele não pode ser usada aqui. Atualize o Vault nesse dispositivo; ele volta a sincronizar quando estiver atualizado."

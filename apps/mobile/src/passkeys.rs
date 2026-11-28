@@ -250,7 +250,7 @@ fn listed(descriptors: &[Descriptor]) -> Vec<Vec<u8>> {
 
 /// Whether `item` may offer passkeys: a login, not behind the item lock.
 fn usable(vault: &Vault, item: &ItemData) -> bool {
-    item.kind == ItemKind::Login && !autofill::behind_lock(vault, item)
+    item.kind == ItemKind::Login && item.is_active() && !autofill::behind_lock(vault, item)
 }
 
 /// The passkeys of `vault` that may answer `request` (a site's request options, JSON) from

@@ -489,6 +489,7 @@ pub fn logins_for(vault: &Vault, to: &Recipient) -> Vec<Login> {
         .filter_map(|id| {
             let item = vault.get_item(&id).ok()?;
             let usable = item.kind == ItemKind::Login
+                && item.is_active()
                 && !behind_lock(vault, &item)
                 && !(item.password.is_empty() && item.username.is_empty())
                 && to.0.fits(&item);
