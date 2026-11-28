@@ -911,9 +911,30 @@ proptest! {
     #[test]
     fn three_devices_converge(script in prop::collection::vec((0..3usize, op()), 0..14)) {
         let (mut d, _, _) = devices(3);
-        let mut typed = Vec::new();
+        let mut typed: Vec<(ItemId, String)> = Vec::new();
+        let mut typed_on: Vec<usize> = Vec::new();
         for (device, op) in &script {
-            typed.extend(apply(&mut d[*device].vault, op));
+            let before: Vec<ItemId> = d[*device].vault.item_ids().collect();
+            if let Some(edit) = apply(&mut d[*device].vault, op) {
+                typed.push(edit);
+                typed_on.push(*device);
+            }
+            // A device that deletes an item deletes the versions it had of it, and so the
+            // passwords it typed there (SYNC.md §4.2); an edit made elsewhere at the same time
+            // keeps the item, with its own passwords.
+            let gone: Vec<ItemId> = before
+                .into_iter()
+                .filter(|id| d[*device].vault.get_item(id).is_err())
+                .collect();
+            let mut i = 0;
+            while i < typed.len() {
+                if typed_on[i] == *device && gone.contains(&typed[i].0) {
+                    typed.remove(i);
+                    typed_on.remove(i);
+                } else {
+                    i += 1;
+                }
+            }
         }
         exchange(&mut d);
         let first = contents(&d[0].vault);

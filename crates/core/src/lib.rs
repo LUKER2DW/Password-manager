@@ -35,6 +35,7 @@ pub mod attempts;
 pub mod drop_box;
 pub mod generator;
 pub mod health;
+pub mod identity;
 pub mod kept_key;
 pub mod locked_fill;
 pub mod memory;
@@ -49,8 +50,8 @@ pub mod card;
 pub use error::Error;
 pub use guard::{GuardCheck, GuardOpened, ItemGuard};
 pub use item::{
-    Attachment, CustomField, Folder, FolderId, ItemData, ItemId, ItemKind, ItemSummary,
-    PasswordChange, RecoveryCode, SealedSecrets, VaultSettings,
+    Attachment, CustomField, Folder, FolderBrowser, FolderId, ItemData, ItemId, ItemKind,
+    ItemSummary, ItemVersion, PasswordChange, RecoveryCode, SealedSecrets, VaultSettings,
 };
 pub use kdf::{KdfMethod, KdfParams, KdfStrength, PasswordKdf};
 pub use keys::{Keyfile, PartLabel, RecoveryKey, RecoveryPart, RecoveryParts, SecretKey};
@@ -88,6 +89,11 @@ pub mod memory_test {
         key.open()
     }
 }
+
+/// The vault file format this build writes (VAULT_FORMAT.md). Sync merges only copies of this
+/// very version: a copy of another one is refused with [`Error::UnsupportedVersion`], newer
+/// when its number is higher (this app needs updating), older when lower (the other device's).
+pub const FORMAT_VERSION: u16 = format::FORMAT_VERSION;
 
 /// Convenience alias used throughout the crate.
 pub type Result<T> = std::result::Result<T, Error>;

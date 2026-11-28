@@ -96,6 +96,66 @@ pub struct Folder {
     pub color: u8,
     /// A website or image link whose picture replaces the icon ("" = none). (Format v4.)
     pub icon_url: String,
+    /// Which paired browsers reach its items. (Format v11.)
+    #[zeroize(skip)]
+    pub browser: FolderBrowser,
+}
+
+/// Which paired browsers reach a folder's items (format v11, THREAT_MODEL §3, S18).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FolderBrowser {
+    /// Every paired browser.
+    #[default]
+    Any,
+    /// None: the folder is kept out of the browser.
+    Never,
+    /// Only the extension of this pairing (`vault_browser::pairing::PairingKey::id`); any other
+    /// pairing, here or on another computer, doesn't get its items.
+    Only([u8; 8]),
+}
+
+impl FolderBrowser {
+    /// Whether the extension of pairing `pairing` (`None`: not known) reaches the folder.
+    pub fn allows(self, pairing: Option<[u8; 8]>) -> bool {
+        match self {
+            FolderBrowser::Any => true,
+            FolderBrowser::Never => false,
+            FolderBrowser::Only(id) => pairing == Some(id),
+        }
+    }
+}
+
+/// Folder as stored from format v4 to v10 (before the browser setting).
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub(crate) struct FolderV10 {
+    #[zeroize(skip)]
+    pub(crate) id: FolderId,
+    pub(crate) name: String,
+    pub(crate) icon: String,
+    #[zeroize(skip)]
+    pub(crate) color: u8,
+    pub(crate) icon_url: String,
+}
+
+impl fmt::Debug for FolderV10 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FolderV10")
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl FolderV10 {
+    pub(crate) fn upgrade(mut self) -> Folder {
+        Folder {
+            id: self.id,
+            name: std::mem::take(&mut self.name),
+            icon: std::mem::take(&mut self.icon),
+            color: self.color,
+            icon_url: std::mem::take(&mut self.icon_url),
+            browser: FolderBrowser::Any,
+        }
+    }
 }
 
 /// Folder as stored by format v3 (icon and colour, no picture link).
@@ -125,6 +185,7 @@ impl FolderV3 {
             icon: std::mem::take(&mut self.icon),
             color: self.color,
             icon_url: String::new(),
+            browser: FolderBrowser::Any,
         }
     }
 }
@@ -153,6 +214,7 @@ impl FolderV1 {
             icon: String::new(),
             color: 0,
             icon_url: String::new(),
+            browser: FolderBrowser::Any,
         }
     }
 }
@@ -272,6 +334,9 @@ pub enum ItemKind {
     /// An SSH key pair: the private key where a login keeps its password, the public key and
     /// its fingerprint in fields (format v9; see `crate::ssh`).
     SshKey,
+    /// A person's details: name, address, phone, email, documents (format v11; see
+    /// `crate::identity`).
+    Identity,
 }
 
 /// A file kept with an item (format v9): a scan, a document, a key file. It is encrypted with
@@ -387,6 +452,46 @@ pub struct ItemData {
     /// The login's passkeys. While the item is locked their private keys are sealed with its
     /// other secrets; who and where stay readable. (Format v10.)
     pub passkeys: Vec<Passkey>,
+    /// Plain words to sort and find items by (see [`ItemData::set_tags`]). (Format v11.)
+    pub tags: Vec<String>,
+    /// When the item expires (Unix seconds; 0 = never): a document, a card, an account.
+    /// (Format v11.)
+    #[zeroize(skip)]
+    pub expires_at: i64,
+    /// When it was put in the trash (Unix seconds; 0 = not in it). (Format v11.)
+    #[zeroize(skip)]
+    pub trashed_at: i64,
+    /// Kept, but out of search, filling and health. (Format v11.)
+    #[zeroize(skip)]
+    pub archived: bool,
+    /// A shape new items start from ([`ItemData::from_template`]), not an account. (Format v11.)
+    #[zeroize(skip)]
+    pub template: bool,
+    /// The browser extension never gets it. (Format v11.)
+    #[zeroize(skip)]
+    pub no_browser: bool,
+    /// Earlier versions, oldest first (see [`crate::Vault::update_item`]); empty while the item
+    /// is locked. (Format v11.)
+    pub versions: Vec<ItemVersion>,
+}
+
+/// An item as it was before a change (format v11): the whole item but its own versions,
+/// password history, attachments and passkeys.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub struct ItemVersion {
+    /// When it stopped being the current version (Unix seconds).
+    #[zeroize(skip)]
+    pub saved_at: i64,
+    pub item: ItemData,
+}
+
+impl fmt::Debug for ItemVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ItemVersion")
+            .field("saved_at", &self.saved_at)
+            .field("item", &self.item)
+            .finish()
+    }
 }
 
 /// A guarded item's secrets, encrypted under the item guard key, with the few facts a locked
@@ -416,6 +521,22 @@ pub(crate) struct ItemSecrets {
     attachments: Vec<Attachment>,
     /// Format v10: the private keys of the item's passkeys, in the order of `passkeys`.
     passkey_keys: Vec<Vec<u8>>,
+    /// Format v11: the item's earlier versions.
+    versions: Vec<ItemVersion>,
+}
+
+/// Sealed secrets as written in format v10 (before the item's versions). Read as they are
+/// found, like [`ItemSecretsV6`].
+#[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub(crate) struct ItemSecretsV10 {
+    password: String,
+    totp: String,
+    notes: String,
+    fields: Vec<String>,
+    recovery_codes: Vec<RecoveryCode>,
+    password_history: Vec<PasswordChange>,
+    attachments: Vec<Attachment>,
+    passkey_keys: Vec<Vec<u8>>,
 }
 
 /// Sealed secrets as written in format v9 (before passkeys). Read as they are found, like
@@ -444,11 +565,24 @@ pub(crate) struct ItemSecretsV6 {
 }
 
 impl ItemSecrets {
-    /// Reads sealed secrets in the current layout, the one before passkeys (v9), or the one
-    /// before attachments (v6 to v8).
+    /// Reads sealed secrets in the current layout, the one before versions (v10), the one
+    /// before passkeys (v9), or the one before attachments (v6 to v8).
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self> {
         if let Ok(secrets) = crate::format::decode_exact::<Self>(bytes) {
             return Ok(secrets);
+        }
+        if let Ok(mut old) = crate::format::decode_exact::<ItemSecretsV10>(bytes) {
+            return Ok(Self {
+                password: std::mem::take(&mut old.password),
+                totp: std::mem::take(&mut old.totp),
+                notes: std::mem::take(&mut old.notes),
+                fields: std::mem::take(&mut old.fields),
+                recovery_codes: std::mem::take(&mut old.recovery_codes),
+                password_history: std::mem::take(&mut old.password_history),
+                attachments: std::mem::take(&mut old.attachments),
+                passkey_keys: std::mem::take(&mut old.passkey_keys),
+                versions: Vec::new(),
+            });
         }
         if let Ok(mut old) = crate::format::decode_exact::<ItemSecretsV9>(bytes) {
             return Ok(Self {
@@ -460,6 +594,7 @@ impl ItemSecrets {
                 password_history: std::mem::take(&mut old.password_history),
                 attachments: std::mem::take(&mut old.attachments),
                 passkey_keys: Vec::new(),
+                versions: Vec::new(),
             });
         }
         let mut old: ItemSecretsV6 = crate::format::decode_exact(bytes)?;
@@ -472,6 +607,7 @@ impl ItemSecrets {
             password_history: std::mem::take(&mut old.password_history),
             attachments: Vec::new(),
             passkey_keys: Vec::new(),
+            versions: Vec::new(),
         })
     }
 }
@@ -508,6 +644,7 @@ impl ItemData {
                 .iter_mut()
                 .map(|passkey| std::mem::take(&mut passkey.key))
                 .collect(),
+            versions: std::mem::take(&mut self.versions),
         }
     }
 
@@ -533,6 +670,7 @@ impl ItemData {
         self.recovery_codes = std::mem::take(&mut secrets.recovery_codes);
         self.password_history = std::mem::take(&mut secrets.password_history);
         self.attachments = std::mem::take(&mut secrets.attachments);
+        self.versions = std::mem::take(&mut secrets.versions);
         for (passkey, key) in self
             .passkeys
             .iter_mut()
@@ -617,6 +755,13 @@ impl ItemData {
             sealed: None,
             attachments: Vec::new(),
             passkeys: Vec::new(),
+            tags: Vec::new(),
+            expires_at: 0,
+            trashed_at: 0,
+            archived: false,
+            template: false,
+            no_browser: false,
+            versions: Vec::new(),
         }
     }
 
@@ -649,6 +794,152 @@ impl ItemData {
     pub fn touch(&mut self) {
         self.updated_at = unix_now();
     }
+
+    /// The most tags an item has.
+    pub const MAX_TAGS: usize = 32;
+    /// The longest tag.
+    pub const MAX_TAG_CHARS: usize = 40;
+    /// How long an item stays in the trash before it is deleted for good (30 days).
+    pub const TRASH_SECONDS: i64 = 30 * 86_400;
+
+    /// An item in use: not in the trash, not archived, not a template (see
+    /// [`ItemSummary::is_active`]).
+    pub fn is_active(&self) -> bool {
+        self.trashed_at == 0 && !self.archived && !self.template
+    }
+
+    /// Whether it has this tag (ignoring case).
+    pub fn has_tag(&self, tag: &str) -> bool {
+        has_tag(&self.tags, tag)
+    }
+
+    /// Sets the tags from what the person typed: separated by commas (or new lines), trimmed,
+    /// empty ones dropped, the same tag once (ignoring case), in the order typed. Refused past
+    /// [`ItemData::MAX_TAGS`] tags or [`ItemData::MAX_TAG_CHARS`] characters, or with control
+    /// characters.
+    pub fn set_tags(&mut self, text: &str) -> Result<()> {
+        let mut tags: Vec<String> = Vec::new();
+        for tag in text
+            .split([',', '\n'])
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        {
+            if !has_tag(&tags, tag) {
+                tags.push(tag.to_owned());
+            }
+        }
+        check_tags(&tags)?;
+        self.tags = tags;
+        Ok(())
+    }
+
+    /// Whether the tags keep to the rules of [`ItemData::set_tags`].
+    pub(crate) fn check_tags(&self) -> Result<()> {
+        check_tags(&self.tags)
+    }
+
+    /// A new item in the shape of this template: its kind, websites, tags, folder, icon and
+    /// fields, with every secret and the values of hidden fields left empty. Not a template
+    /// itself, no title.
+    pub fn from_template(&self) -> Self {
+        let mut item = Self::new(self.kind, "");
+        item.urls.clone_from(&self.urls);
+        item.tags.clone_from(&self.tags);
+        item.folder = self.folder;
+        item.icon_url.clone_from(&self.icon_url);
+        item.reprompt = self.reprompt;
+        item.no_browser = self.no_browser;
+        if self.kind != ItemKind::SecureNote {
+            item.notes.clone_from(&self.notes);
+        }
+        item.custom_fields = self
+            .custom_fields
+            .iter()
+            .map(|field| CustomField {
+                name: field.name.clone(),
+                value: if field.sensitive {
+                    String::new()
+                } else {
+                    field.value.clone()
+                },
+                sensitive: field.sensitive,
+            })
+            .collect();
+        item
+    }
+
+    /// This item as one of its earlier versions keeps it: without versions, password history,
+    /// files and passkeys, and with nothing sealed.
+    pub(crate) fn as_version(&self) -> Self {
+        let mut item = self.clone();
+        item.versions.clear();
+        item.password_history.clear();
+        item.attachments.clear();
+        item.passkeys.clear();
+        item.sealed = None;
+        item
+    }
+
+    /// Whether `other` has other contents than this item: anything but the mark, the folder,
+    /// the trash, the archive, when it changed, and what a version doesn't keep.
+    pub(crate) fn contents_differ(&self, other: &Self) -> bool {
+        let view = |item: &Self| {
+            let mut view = item.as_version();
+            view.favorite = false;
+            view.folder = None;
+            view.trashed_at = 0;
+            view.archived = false;
+            view.updated_at = 0;
+            view.password_changed_at = 0;
+            view
+        };
+        view(self) != view(other)
+    }
+
+    /// Makes the contents of `version` the current ones; the folder, the mark, the trash and
+    /// archive, the files, the passkeys, the history and the versions stay as they are.
+    pub(crate) fn take_contents(&mut self, version: &ItemData) {
+        self.kind = version.kind;
+        self.title.clone_from(&version.title);
+        self.username.clone_from(&version.username);
+        self.password.clone_from(&version.password);
+        self.urls.clone_from(&version.urls);
+        self.notes.clone_from(&version.notes);
+        self.totp.clone_from(&version.totp);
+        self.custom_fields.clone_from(&version.custom_fields);
+        self.recovery_codes.clone_from(&version.recovery_codes);
+        self.icon_url.clone_from(&version.icon_url);
+        self.reprompt = version.reprompt;
+        self.tags.clone_from(&version.tags);
+        self.expires_at = version.expires_at;
+        self.template = version.template;
+        self.no_browser = version.no_browser;
+    }
+}
+
+fn has_tag(tags: &[String], tag: &str) -> bool {
+    let tag = tag.to_lowercase();
+    tags.iter().any(|t| t.to_lowercase() == tag)
+}
+
+fn check_tags(tags: &[String]) -> Result<()> {
+    let mut seen: Vec<String> = Vec::with_capacity(tags.len());
+    for tag in tags {
+        let lower = tag.to_lowercase();
+        if tag.trim() != tag
+            || tag.is_empty()
+            || tag.chars().count() > ItemData::MAX_TAG_CHARS
+            || tag.chars().any(char::is_control)
+            || seen.contains(&lower)
+        {
+            return Err(crate::Error::InvalidName);
+        }
+        seen.push(lower);
+    }
+    if tags.len() > ItemData::MAX_TAGS {
+        return Err(crate::Error::InvalidName);
+    }
+    Ok(())
 }
 
 impl fmt::Debug for ItemData {
@@ -680,6 +971,13 @@ impl fmt::Debug for ItemData {
             .field("locked", &self.sealed.is_some())
             .field("attachments", &self.attachments)
             .field("passkeys", &self.passkeys)
+            .field("tags", &self.tags)
+            .field("expires_at", &self.expires_at)
+            .field("trashed_at", &self.trashed_at)
+            .field("archived", &self.archived)
+            .field("template", &self.template)
+            .field("no_browser", &self.no_browser)
+            .field("versions", &self.versions.len())
             .finish()
     }
 }
@@ -726,6 +1024,13 @@ impl ItemDataV0 {
             recovery_codes: Vec::new(),
             attachments: Vec::new(),
             passkeys: Vec::new(),
+            tags: Vec::new(),
+            expires_at: 0,
+            trashed_at: 0,
+            archived: false,
+            template: false,
+            no_browser: false,
+            versions: Vec::new(),
         }
     }
 }
@@ -775,6 +1080,13 @@ impl ItemDataV1 {
             sealed: None,
             attachments: Vec::new(),
             passkeys: Vec::new(),
+            tags: Vec::new(),
+            expires_at: 0,
+            trashed_at: 0,
+            archived: false,
+            template: false,
+            no_browser: false,
+            versions: Vec::new(),
         }
     }
 }
@@ -826,6 +1138,13 @@ impl ItemDataV2 {
             sealed: None,
             attachments: Vec::new(),
             passkeys: Vec::new(),
+            tags: Vec::new(),
+            expires_at: 0,
+            trashed_at: 0,
+            archived: false,
+            template: false,
+            no_browser: false,
+            versions: Vec::new(),
         }
     }
 }
@@ -878,6 +1197,13 @@ impl ItemDataV3 {
             sealed: None,
             attachments: Vec::new(),
             passkeys: Vec::new(),
+            tags: Vec::new(),
+            expires_at: 0,
+            trashed_at: 0,
+            archived: false,
+            template: false,
+            no_browser: false,
+            versions: Vec::new(),
         }
     }
 }
@@ -932,6 +1258,13 @@ impl ItemDataV5 {
             sealed: None,
             attachments: Vec::new(),
             passkeys: Vec::new(),
+            tags: Vec::new(),
+            expires_at: 0,
+            trashed_at: 0,
+            archived: false,
+            template: false,
+            no_browser: false,
+            versions: Vec::new(),
         }
     }
 }
@@ -988,6 +1321,13 @@ impl ItemDataV8 {
             sealed: self.sealed.take(),
             attachments: Vec::new(),
             passkeys: Vec::new(),
+            tags: Vec::new(),
+            expires_at: 0,
+            trashed_at: 0,
+            archived: false,
+            template: false,
+            no_browser: false,
+            versions: Vec::new(),
         }
     }
 }
@@ -1046,6 +1386,79 @@ impl ItemDataV9 {
             sealed: self.sealed.take(),
             attachments: std::mem::take(&mut self.attachments),
             passkeys: Vec::new(),
+            tags: Vec::new(),
+            expires_at: 0,
+            trashed_at: 0,
+            archived: false,
+            template: false,
+            no_browser: false,
+            versions: Vec::new(),
+        }
+    }
+}
+
+/// Item data as stored in format v10 (before tags, the trash, archiving, templates, the browser
+/// flag and versions). Read-only: such vaults are upgraded when opened.
+#[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub(crate) struct ItemDataV10 {
+    #[zeroize(skip)]
+    pub(crate) kind: ItemKind,
+    pub(crate) title: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) urls: Vec<String>,
+    pub(crate) notes: String,
+    pub(crate) totp: String,
+    pub(crate) favorite: bool,
+    pub(crate) custom_fields: Vec<CustomField>,
+    pub(crate) created_at: i64,
+    pub(crate) updated_at: i64,
+    #[zeroize(skip)]
+    pub(crate) folder: Option<FolderId>,
+    pub(crate) recovery_codes: Vec<RecoveryCode>,
+    pub(crate) password_history: Vec<PasswordChange>,
+    pub(crate) password_changed_at: i64,
+    pub(crate) icon_url: String,
+    #[zeroize(skip)]
+    pub(crate) reprompt: bool,
+    #[zeroize(skip)]
+    pub(crate) sealed: Option<SealedSecrets>,
+    pub(crate) attachments: Vec<Attachment>,
+    pub(crate) passkeys: Vec<Passkey>,
+}
+
+impl ItemDataV10 {
+    /// Moves the fields into the current item layout; sealed secrets stay sealed as they are
+    /// (they are read in the v10 layout when the guard opens).
+    pub(crate) fn upgrade(mut self) -> ItemData {
+        ItemData {
+            kind: self.kind,
+            title: std::mem::take(&mut self.title),
+            username: std::mem::take(&mut self.username),
+            password: std::mem::take(&mut self.password),
+            urls: std::mem::take(&mut self.urls),
+            notes: std::mem::take(&mut self.notes),
+            totp: std::mem::take(&mut self.totp),
+            favorite: self.favorite,
+            custom_fields: std::mem::take(&mut self.custom_fields),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            folder: self.folder,
+            recovery_codes: std::mem::take(&mut self.recovery_codes),
+            password_history: std::mem::take(&mut self.password_history),
+            password_changed_at: self.password_changed_at,
+            icon_url: std::mem::take(&mut self.icon_url),
+            reprompt: self.reprompt,
+            sealed: self.sealed.take(),
+            attachments: std::mem::take(&mut self.attachments),
+            passkeys: std::mem::take(&mut self.passkeys),
+            tags: Vec::new(),
+            expires_at: 0,
+            trashed_at: 0,
+            archived: false,
+            template: false,
+            no_browser: false,
+            versions: Vec::new(),
         }
     }
 }
@@ -1088,6 +1501,36 @@ pub struct ItemSummary {
     /// sealed).
     #[zeroize(skip)]
     pub passkeys: usize,
+    pub tags: Vec<String>,
+    /// When it expires (0 = never).
+    #[zeroize(skip)]
+    pub expires_at: i64,
+    /// When it was put in the trash (0 = not in it).
+    #[zeroize(skip)]
+    pub trashed_at: i64,
+    #[zeroize(skip)]
+    pub archived: bool,
+    #[zeroize(skip)]
+    pub template: bool,
+    /// The item itself is kept out of the browser (its folder may keep it out too).
+    #[zeroize(skip)]
+    pub no_browser: bool,
+    /// How many earlier versions it keeps (0 while the item is locked).
+    #[zeroize(skip)]
+    pub versions: usize,
+}
+
+impl ItemSummary {
+    /// An item in use: not in the trash, not archived, not a template. Only these are searched,
+    /// filled, checked by health and shown in the main lists.
+    pub fn is_active(&self) -> bool {
+        self.trashed_at == 0 && !self.archived && !self.template
+    }
+
+    /// Whether it has this tag (ignoring case).
+    pub fn has_tag(&self, tag: &str) -> bool {
+        has_tag(&self.tags, tag)
+    }
 }
 
 impl ItemSummary {
@@ -1136,6 +1579,13 @@ impl ItemSummary {
             card_brand,
             attachments: data.attachments.len(),
             passkeys: data.passkeys.len(),
+            tags: data.tags.clone(),
+            expires_at: data.expires_at,
+            trashed_at: data.trashed_at,
+            archived: data.archived,
+            template: data.template,
+            no_browser: data.no_browser,
+            versions: data.versions.len(),
         }
     }
 }

@@ -9,7 +9,7 @@ use crate::{
     Error, Folder, FolderId, GuardCheck, ItemData, ItemGuard, ItemId, Result, aead,
     format::{self, ItemRecord},
     guard::GuardSlot,
-    item::PasswordChange,
+    item::{ItemVersion, PasswordChange},
     memory::ShieldedKey,
     padding,
     sync::{DeviceId, Gone, MergeReport, SeenRevisions, guard_key_id, record_digest},
@@ -188,11 +188,12 @@ impl Side<'_> {
     }
 
     /// Which of two concurrent versions is newer: revision, then the time of the change, then
-    /// the contents without the password history (so every device picks the same one, and a
-    /// version that only gained history ranks as the one it came from).
+    /// the contents without the password history and earlier versions (so every device picks
+    /// the same one, and a version that only gained history ranks as the one it came from).
     fn rank(&self) -> Result<(u64, i64, [u8; 32])> {
         let mut plain = self.data.clone();
         plain.password_history.clear();
+        plain.versions.clear();
         let bytes = format::encode_secret(&plain)?;
         Ok((
             self.record.revision,
@@ -333,7 +334,8 @@ impl Vault {
         // Tombstones and devices first: they decide what the rest may bring back.
         let tombstones_before = self.sync.tombstones.len();
         for t in &theirs.sync.tombstones {
-            self.sync.bury(t.kind, t.id, t.deleted_at);
+            self.sync
+                .bury_versions(t.kind, t.id, t.deleted_at, &t.versions);
         }
         if self
             .sync
@@ -521,7 +523,16 @@ impl Vault {
                 .map(|record| self.side(record, foreign, theirs.sync.lineage(&id)))
                 .transpose()?;
             let deleted = self.sync.tombstone(Gone::Item, id.as_bytes());
-            let buried = |side: &Side<'_>| deleted.is_some_and(|at| side.data.updated_at <= at);
+            // A deletion from format v11 on names the versions it removed; an older one removes
+            // what was not changed after it.
+            let gone_versions = self.sync.buried_versions(&id).to_vec();
+            let buried = |side: &Side<'_>| {
+                if gone_versions.is_empty() {
+                    deleted.is_some_and(|at| side.data.updated_at <= at)
+                } else {
+                    gone_versions.contains(&side.digest)
+                }
+            };
             let (ours, other) = match (ours, other) {
                 (Some(ours), None) => {
                     if buried(&ours) {
@@ -583,13 +594,20 @@ impl Vault {
                 merged.push(ours.record.clone());
                 continue;
             }
-            let (winner, loser) = if ours.rank()? >= other.rank()? {
+            // Someone still using the item counts more than someone deleting it: of a version in
+            // the trash and one out of it, the one out of it wins (SYNC.md §4.3).
+            let ours_wins = match (ours.data.trashed_at == 0, other.data.trashed_at == 0) {
+                (true, false) => true,
+                (false, true) => false,
+                _ => ours.rank()? >= other.rank()?,
+            };
+            let (winner, loser) = if ours_wins {
                 (&ours, &other)
             } else {
                 (&other, &ours)
             };
             let result = self
-                .keep_both_passwords(&winner.data, &loser.data)
+                .keep_both(&winner.data, &loser.data)?
                 .unwrap_or_else(|| winner.data.clone());
             let mut lineage = vec![ours.digest, other.digest];
             lineage.extend(ours.lineage.iter().chain(&other.lineage).copied());
@@ -658,6 +676,68 @@ impl Vault {
     fn open_visible(&self, record: &ItemRecord) -> Result<ItemData> {
         let padded = self.decrypt_item(record)?;
         format::decode_exact(padding::unpad(&padded)?)
+    }
+
+    /// The winner with what the loser has that it doesn't: the loser's passwords in its
+    /// history, and the loser itself (with its earlier versions) among its versions. `None`
+    /// when there is nothing to add.
+    fn keep_both(&self, winner: &ItemData, loser: &ItemData) -> Result<Option<ItemData>> {
+        let passwords = self.keep_both_passwords(winner, loser);
+        let versions = self.keep_both_versions(winner, loser)?;
+        if passwords.is_none() && versions.is_none() {
+            return Ok(None);
+        }
+        let mut folded = passwords.unwrap_or_else(|| winner.clone());
+        if let Some(versions) = versions {
+            folded.versions = versions;
+        }
+        Ok(Some(folded))
+    }
+
+    /// The winner's versions with the loser's and the loser itself, oldest first, the same
+    /// contents once, cut to the history limit. `None` when that is what the winner has.
+    fn keep_both_versions(
+        &self,
+        winner: &ItemData,
+        loser: &ItemData,
+    ) -> Result<Option<Vec<ItemVersion>>> {
+        let mut all: Vec<ItemVersion> = winner.versions.clone();
+        let mut add = |version: ItemVersion| {
+            if !all.iter().any(|known| known.item == version.item) {
+                all.push(version);
+            }
+        };
+        for version in &loser.versions {
+            add(version.clone());
+        }
+        if winner.contents_differ(loser) {
+            add(ItemVersion {
+                saved_at: loser.updated_at,
+                item: loser.as_version(),
+            });
+        }
+        if all.len() == winner.versions.len() {
+            return Ok(None);
+        }
+        let mut keyed = all
+            .into_iter()
+            .map(|version| {
+                Ok((
+                    version.saved_at,
+                    format::encode_secret(&version.item)?,
+                    version,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        keyed.sort_by(|a, b| (a.0, a.1.as_slice()).cmp(&(b.0, b.1.as_slice())));
+        let mut versions: Vec<ItemVersion> = keyed.into_iter().map(|(_, _, v)| v).collect();
+        let limit = usize::from(self.settings.history_limit);
+        let excess = versions.len().saturating_sub(limit);
+        versions.drain(..excess);
+        if versions == winner.versions {
+            return Ok(None);
+        }
+        Ok(Some(versions))
     }
 
     /// The winner with the loser's password added to its history, when the loser had one the

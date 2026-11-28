@@ -706,15 +706,15 @@ fn foreign_files_and_future_versions_are_rejected() {
         Err(Error::NotAVault)
     ));
     let mut bytes = f.vault.to_bytes().unwrap();
-    bytes[8] = 11; // format_version = 11: from the future
+    bytes[8] = 12; // format_version = 12: from the future
     assert!(matches!(
         Vault::open(&bytes, Unlock::Recovery(&f.recovery_key)),
-        Err(Error::UnsupportedVersion(11))
+        Err(Error::UnsupportedVersion(12))
     ));
     // Relabelling a current file as an older version never opens it: the header no longer
     // parses in the old layout, and where it does (v5, same body layout aside) the version is
     // part of the authenticated header, so the body won't decrypt.
-    for older in 0..9u8 {
+    for older in 0..11u8 {
         let mut relabelled = f.vault.to_bytes().unwrap();
         relabelled[8] = older;
         assert!(matches!(

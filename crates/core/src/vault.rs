@@ -9,12 +9,13 @@ use crate::{
     RecoveryKey, RecoveryPart, RecoveryParts, Result, SecretKey, VaultSettings, aead,
     format::{
         self, ItemRecord, KeySlot, PartsSlot, SlotKind, VaultBody, VaultBodyV0, VaultBodyV1,
-        VaultBodyV2, VaultBodyV3, VaultBodyV4, VaultBodyV5, VaultBodyV6, VaultHeader,
+        VaultBodyV2, VaultBodyV3, VaultBodyV4, VaultBodyV5, VaultBodyV6, VaultBodyV10, VaultHeader,
     },
     guard::{GuardKeySlots, GuardOpened, GuardSlot, WrappedGuardKey},
     item::{
-        FolderV1, FolderV3, ItemDataV0, ItemDataV1, ItemDataV2, ItemDataV3, ItemDataV5, ItemDataV8,
-        ItemDataV9, ItemSecrets, PasswordChange, SealedSecrets,
+        FolderBrowser, FolderV1, FolderV3, FolderV10, ItemDataV0, ItemDataV1, ItemDataV2,
+        ItemDataV3, ItemDataV5, ItemDataV8, ItemDataV9, ItemDataV10, ItemSecrets, ItemVersion,
+        PasswordChange, SealedSecrets,
     },
     keys::{self, Keyfile, VaultKey},
     memory::ShieldedKey,
@@ -404,7 +405,7 @@ impl Vault {
                 VaultBody {
                     revision: old.revision,
                     items: old.items,
-                    folders: old.folders,
+                    folders: old.folders.into_iter().map(FolderV10::upgrade).collect(),
                     settings: old.settings,
                     guard: ItemGuard::default(),
                     sync: SyncState::default(),
@@ -415,7 +416,7 @@ impl Vault {
                 VaultBody {
                     revision: old.revision,
                     items: old.items,
-                    folders: old.folders,
+                    folders: old.folders.into_iter().map(FolderV10::upgrade).collect(),
                     settings: old.settings,
                     guard: old.guard.upgrade(),
                     sync: SyncState::default(),
@@ -426,10 +427,21 @@ impl Vault {
                 VaultBody {
                     revision: old.revision,
                     items: old.items,
-                    folders: old.folders,
+                    folders: old.folders.into_iter().map(FolderV10::upgrade).collect(),
                     settings: old.settings,
                     guard: old.guard,
                     sync: SyncState::default(),
+                }
+            }
+            7..=10 => {
+                let old: VaultBodyV10 = format::decode_exact(plain)?;
+                VaultBody {
+                    revision: old.revision,
+                    items: old.items,
+                    folders: old.folders.into_iter().map(FolderV10::upgrade).collect(),
+                    settings: old.settings,
+                    guard: old.guard,
+                    sync: old.sync.upgrade(),
                 }
             }
             _ => format::decode_exact(plain)?,
@@ -479,6 +491,7 @@ impl Vault {
                 5 => format::decode_exact::<ItemDataV5>(plain)?.upgrade(),
                 6..=8 => format::decode_exact::<ItemDataV8>(plain)?.upgrade(),
                 9 => format::decode_exact::<ItemDataV9>(plain)?.upgrade(),
+                10 => format::decode_exact::<ItemDataV10>(plain)?.upgrade(),
                 _ => return Err(Error::Malformed),
             };
             let (id, revision) = (self.items[index].id, self.items[index].revision);
@@ -797,6 +810,7 @@ impl Vault {
             icon: String::new(),
             color: 0,
             icon_url: String::new(),
+            browser: FolderBrowser::Any,
         });
         self.touch_folder(id);
         Ok(id)
@@ -869,6 +883,34 @@ impl Vault {
         Ok(())
     }
 
+    /// Which paired browsers reach a folder's items (format v11, S18).
+    pub fn set_folder_browser(&mut self, id: &FolderId, browser: FolderBrowser) -> Result<()> {
+        let folder = self
+            .folders
+            .iter_mut()
+            .find(|f| f.id == *id)
+            .ok_or(Error::FolderNotFound)?;
+        if folder.browser == browser {
+            return Ok(());
+        }
+        folder.browser = browser;
+        self.touch_folder(*id);
+        Ok(())
+    }
+
+    /// Whether the extension of pairing `pairing` may get this item at all (S18): not when the
+    /// item is kept out of the browser, when its folder keeps it out or keeps it to another
+    /// pairing, or when it is not in use ([`ItemData::is_active`]).
+    pub fn reaches_browser(&self, item: &ItemData, pairing: Option<[u8; 8]>) -> bool {
+        if !item.is_active() || item.no_browser {
+            return false;
+        }
+        let folder = item
+            .folder
+            .and_then(|id| self.folders.iter().find(|f| f.id == id));
+        folder.is_none_or(|folder| folder.browser.allows(pairing))
+    }
+
     /// Deletes a folder. Its items are kept and simply leave the folder.
     pub fn remove_folder(&mut self, id: &FolderId) -> Result<()> {
         let index = self
@@ -933,6 +975,7 @@ impl Vault {
     /// Serializes the vault into file bytes. Increments the vault revision.
     pub fn to_bytes(&mut self) -> Result<Vec<u8>> {
         let next_revision = self.revision.checked_add(1).ok_or(Error::Malformed)?;
+        self.purge_trash(crate::item::unix_now())?;
         self.sync.prune(crate::item::unix_now());
         let header_bytes = format::encode_header(&self.header)?;
         let body = VaultBody {
@@ -1080,10 +1123,16 @@ impl Vault {
         };
         data.check_attachments()?;
         data.check_passkeys()?;
+        data.check_tags()?;
         let mut data = data.clone();
         if data.password_changed_at == 0 && !data.password.is_empty() {
             data.password_changed_at = data.created_at;
         }
+        let excess = data
+            .versions
+            .len()
+            .saturating_sub(usize::from(self.settings.history_limit));
+        data.versions.drain(..excess);
         let record = if self.needs_unlock_to_store(&data) {
             self.seal_item(id, 1, &data)?
         } else {
@@ -1159,6 +1208,7 @@ impl Vault {
     pub fn update_item(&mut self, id: &ItemId, data: &ItemData) -> Result<()> {
         data.check_attachments()?;
         data.check_passkeys()?;
+        data.check_tags()?;
         let index = self.position(id).ok_or(Error::ItemNotFound)?;
         let revision = self.items[index]
             .revision
@@ -1179,8 +1229,10 @@ impl Vault {
                 return Ok(());
             }
             // Read while locked, written after the secrets were opened: they are unchanged.
+            let before = old.clone();
             data.sealed = None;
             data.put_secrets(old.take_secrets())?;
+            self.keep_version(&before, &mut data);
             let record = self.store_item(*id, revision, &data)?;
             self.replace_record(index, record);
             return Ok(());
@@ -1202,6 +1254,8 @@ impl Vault {
             data.password_history = history;
             data.password_changed_at = crate::item::unix_now();
         }
+        data.versions = std::mem::take(&mut old.versions);
+        self.keep_version(&old, &mut data);
         // An item still waiting for its seal (added while the guard was closed) stays that
         // way: it can be starred, moved or edited without the guard's check, like when it was
         // added. `old` was read in full with the guard key out of memory, so it was not sealed.
@@ -1212,6 +1266,88 @@ impl Vault {
         };
         self.replace_record(index, record);
         Ok(())
+    }
+
+    /// Keeps `old` among the earlier versions of `data` when the change alters its contents
+    /// (format v11), and keeps no more versions than the vault's history limit, dropping the
+    /// oldest.
+    fn keep_version(&self, old: &ItemData, data: &mut ItemData) {
+        if old.contents_differ(data) {
+            data.versions.push(ItemVersion {
+                saved_at: crate::item::unix_now(),
+                item: old.as_version(),
+            });
+        }
+        let limit = usize::from(self.settings.history_limit);
+        let excess = data.versions.len().saturating_sub(limit);
+        data.versions.drain(..excess);
+    }
+
+    /// Makes earlier version `index` of an item (in [`ItemData::versions`], oldest first) its
+    /// current contents; its folder, mark, files, passkeys and state stay as they are. A change
+    /// like any other: the contents it replaces are kept as a version in their turn. Needs the
+    /// item's secrets open.
+    pub fn restore_version(&mut self, id: &ItemId, index: usize) -> Result<()> {
+        let mut item = self.get_item(id)?;
+        if item.is_locked() {
+            return Err(Error::SecretsLocked);
+        }
+        let version = item
+            .versions
+            .get(index)
+            .ok_or(Error::ItemNotFound)?
+            .item
+            .clone();
+        item.take_contents(&version);
+        item.updated_at = later(item.updated_at);
+        self.update_item(id, &item)
+    }
+
+    /// Puts an item in the trash (format v11): kept, out of the lists, search and the browser,
+    /// and deleted for good after 30 days ([`ItemData::TRASH_SECONDS`]). A change like any
+    /// other, so it syncs; a locked item goes too, its secrets kept sealed.
+    pub fn trash_item(&mut self, id: &ItemId) -> Result<()> {
+        let mut item = self.get_item(id)?;
+        if item.trashed_at != 0 {
+            return Ok(());
+        }
+        item.trashed_at = crate::item::unix_now().max(1);
+        item.updated_at = later(item.updated_at);
+        self.update_item(id, &item)
+    }
+
+    /// Takes an item out of the trash.
+    pub fn restore_item(&mut self, id: &ItemId) -> Result<()> {
+        let mut item = self.get_item(id)?;
+        if item.trashed_at == 0 {
+            return Ok(());
+        }
+        item.trashed_at = 0;
+        item.updated_at = later(item.updated_at);
+        self.update_item(id, &item)
+    }
+
+    /// The items in the trash, deleted for good. Returns how many.
+    pub fn empty_trash(&mut self) -> Result<usize> {
+        self.purge_trash(i64::MAX)
+    }
+
+    /// Deletes for good the items in the trash since 30 days before `now` (every item in it
+    /// for `i64::MAX`). Runs on every save.
+    fn purge_trash(&mut self, now: i64) -> Result<usize> {
+        let oldest = now.saturating_sub(ItemData::TRASH_SECONDS);
+        let mut gone = Vec::new();
+        for record in &self.items {
+            let padded = self.decrypt_item(record)?;
+            let item: ItemData = format::decode_exact(padding::unpad(&padded)?)?;
+            if item.trashed_at != 0 && (now == i64::MAX || item.trashed_at <= oldest) {
+                gone.push(record.id);
+            }
+        }
+        for id in &gone {
+            self.remove_item(id)?;
+        }
+        Ok(gone.len())
     }
 
     /// Puts a new version of item `index` in place, remembering the one it replaces: sync
@@ -1241,14 +1377,23 @@ impl Vault {
         Ok(())
     }
 
+    /// Deletes an item for good (the apps' "Delete" puts it in the trash first,
+    /// [`Vault::trash_item`]).
     pub fn remove_item(&mut self, id: &ItemId) -> Result<()> {
         let index = self.position(id).ok_or(Error::ItemNotFound)?;
-        self.items.remove(index);
+        let record = self.items.remove(index);
+        let mut versions = vec![record_digest(&record.data)];
+        versions.extend(self.sync.lineage(id).iter().copied());
         self.sync.forget_item(id);
-        // Kept as a tombstone, so a copy on another device that still has it doesn't bring it
-        // back when the two are merged.
-        self.sync
-            .bury(Gone::Item, *id.as_bytes(), crate::item::unix_now());
+        // Kept as a tombstone, so a copy on another device that still has this version (or an
+        // older one) doesn't bring it back when the two are merged; a version made since, on
+        // another device, is kept (SYNC.md §4.2).
+        self.sync.bury_versions(
+            Gone::Item,
+            *id.as_bytes(),
+            crate::item::unix_now(),
+            &versions,
+        );
         Ok(())
     }
 

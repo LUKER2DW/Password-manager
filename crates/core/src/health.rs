@@ -139,12 +139,18 @@ pub struct ItemHealth {
     pub set_at: i64,
 }
 
-/// Health of every login with a password, plus expired cards.
+/// Health of every login with a password, plus expired cards, and the items whose expiry date
+/// (format v11) is past or within [`EXPIRES_SOON_SECONDS`].
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HealthReport {
     pub logins: Vec<ItemHealth>,
     pub expired_cards: Vec<ItemId>,
+    /// With the date each one expires, soonest first.
+    pub expiring: Vec<(ItemId, i64)>,
 }
+
+/// An item whose expiry date is this close is listed on Password health (30 days).
+pub const EXPIRES_SOON_SECONDS: i64 = 30 * 86_400;
 
 impl HealthReport {
     pub fn weak(&self) -> impl Iterator<Item = &ItemHealth> {
@@ -181,6 +187,7 @@ pub fn audit(vault: &Vault, now: i64, month_year: (u32, u32)) -> Result<HealthRe
 pub struct AuditInput {
     logins: Vec<AuditLogin>,
     expired_cards: Vec<ItemId>,
+    expiring: Vec<(ItemId, i64)>,
     now: i64,
 }
 
@@ -201,15 +208,23 @@ impl std::fmt::Debug for AuditInput {
 }
 
 /// Reads what [`audit`] looks at: every login's password and the words around it, and which
-/// cards have expired. Items whose secrets are locked are left out.
+/// cards have expired. Items whose secrets are locked are left out, and so are items not in use
+/// (in the trash, archived, templates).
 pub fn collect(vault: &Vault, now: i64, month_year: (u32, u32)) -> Result<AuditInput> {
     let mut input = AuditInput {
         logins: Vec::new(),
         expired_cards: Vec::new(),
+        expiring: Vec::new(),
         now,
     };
     for id in vault.item_ids() {
         let item = vault.get_item(&id)?;
+        if !item.is_active() {
+            continue;
+        }
+        if item.expires_at != 0 && item.expires_at <= now.saturating_add(EXPIRES_SOON_SECONDS) {
+            input.expiring.push((id, item.expires_at));
+        }
         match item.kind {
             ItemKind::Login if !item.password.is_empty() => {
                 input.logins.push(AuditLogin {
@@ -239,9 +254,12 @@ pub fn collect(vault: &Vault, now: i64, month_year: (u32, u32)) -> Result<AuditI
 impl AuditInput {
     /// Estimates every password's strength and counts reuse.
     pub fn analyze(self) -> HealthReport {
+        let mut expiring = self.expiring.clone();
+        expiring.sort_by_key(|(id, at)| (*at, *id.as_bytes()));
         let mut report = HealthReport {
             logins: Vec::with_capacity(self.logins.len()),
             expired_cards: self.expired_cards.clone(),
+            expiring,
         };
         let mut fingerprints: Vec<[u8; 32]> = Vec::with_capacity(self.logins.len());
         for login in &self.logins {

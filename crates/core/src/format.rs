@@ -6,8 +6,8 @@ use zeroize::Zeroizing;
 use crate::{
     Error, Folder, ItemGuard, ItemId, KdfParams, PasswordKdf, Result, VaultSettings,
     guard::ItemGuardV5,
-    item::{FolderV1, FolderV3},
-    sync::SyncState,
+    item::{FolderV1, FolderV3, FolderV10},
+    sync::{SyncState, SyncStateV10},
 };
 
 pub(crate) const MAGIC: &[u8; 8] = b"PMVAULT\0";
@@ -28,14 +28,17 @@ pub(crate) const MAGIC: &[u8; 8] = b"PMVAULT\0";
 /// v9 = SSH key items, and files attached to items (in the item, and in its sealed secrets when
 /// the item lock covers it);
 /// v10 = passkeys in logins (who and where in the item, the private keys with its secrets, so
-/// sealed with them when the item lock covers it).
-pub(crate) const FORMAT_VERSION: u16 = 10;
+/// sealed with them when the item lock covers it);
+/// v11 = the trash, archived items, templates, identities, tags and an expiry date, each item's
+/// earlier versions (with its secrets), items and folders kept out of the browser, and
+/// tombstones that name the versions they delete.
+pub(crate) const FORMAT_VERSION: u16 = 11;
 /// Last version whose header has Argon2id parameters only.
 const LAST_ARGON2_ONLY_VERSION: u16 = 5;
 /// Last version whose header has no recovery parts.
 const LAST_HEADER_WITHOUT_PARTS: u16 = 7;
 /// Last version that changed the item layout: items of older files are re-encrypted on open.
-pub(crate) const ITEM_LAYOUT_VERSION: u16 = 10;
+pub(crate) const ITEM_LAYOUT_VERSION: u16 = 11;
 /// Oldest version this build still reads (and upgrades on the next save).
 pub(crate) const OLDEST_READABLE_VERSION: u16 = 0;
 const ENVELOPE_PREFIX: usize = 8 + 2 + 4;
@@ -174,12 +177,24 @@ pub(crate) struct VaultBody {
     pub(crate) sync: SyncState,
 }
 
+/// Body layout of formats v7 to v10 (folders without the browser setting, tombstones without
+/// versions).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct VaultBodyV10 {
+    pub(crate) revision: u64,
+    pub(crate) items: Vec<ItemRecord>,
+    pub(crate) folders: Vec<FolderV10>,
+    pub(crate) settings: VaultSettings,
+    pub(crate) guard: ItemGuard,
+    pub(crate) sync: SyncStateV10,
+}
+
 /// Body layout of format v6 (no sync state).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct VaultBodyV6 {
     pub(crate) revision: u64,
     pub(crate) items: Vec<ItemRecord>,
-    pub(crate) folders: Vec<Folder>,
+    pub(crate) folders: Vec<FolderV10>,
     pub(crate) settings: VaultSettings,
     pub(crate) guard: ItemGuard,
 }
@@ -189,7 +204,7 @@ pub(crate) struct VaultBodyV6 {
 pub(crate) struct VaultBodyV5 {
     pub(crate) revision: u64,
     pub(crate) items: Vec<ItemRecord>,
-    pub(crate) folders: Vec<Folder>,
+    pub(crate) folders: Vec<FolderV10>,
     pub(crate) settings: VaultSettings,
     pub(crate) guard: ItemGuardV5,
 }
@@ -199,7 +214,7 @@ pub(crate) struct VaultBodyV5 {
 pub(crate) struct VaultBodyV4 {
     pub(crate) revision: u64,
     pub(crate) items: Vec<ItemRecord>,
-    pub(crate) folders: Vec<Folder>,
+    pub(crate) folders: Vec<FolderV10>,
     pub(crate) settings: VaultSettings,
 }
 

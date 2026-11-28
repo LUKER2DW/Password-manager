@@ -81,6 +81,22 @@ pub(crate) struct Tombstone {
     pub(crate) id: [u8; 16],
     pub(crate) kind: Gone,
     pub(crate) deleted_at: i64,
+    /// Items (format v11): the versions the deletion removed, newest first (the deleted record's
+    /// digest and its lineage, see [`record_digest`]). A version not among them was made after
+    /// it, or alongside it, and is kept. Empty for a tombstone written before v11, which removes
+    /// an item by the time it last changed instead.
+    pub(crate) versions: Vec<[u8; 8]>,
+}
+
+/// How many deleted versions a tombstone names.
+pub(crate) const TOMBSTONE_VERSIONS: usize = 16;
+
+/// A tombstone as written from format v7 to v10 (no versions).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct TombstoneV10 {
+    pub(crate) id: [u8; 16],
+    pub(crate) kind: Gone,
+    pub(crate) deleted_at: i64,
 }
 
 /// Tombstones older than this are dropped (SYNC.md §4.2).
@@ -123,6 +139,47 @@ pub(crate) fn record_digest(data: &[u8]) -> [u8; 8] {
     let mut id = [0; 8];
     id.copy_from_slice(&digest[..8]);
     id
+}
+
+/// The sync state as written from format v7 to v10 (tombstones without versions).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct SyncStateV10 {
+    pub(crate) writer: DeviceId,
+    pub(crate) tombstones: Vec<TombstoneV10>,
+    pub(crate) folder_times: Vec<(FolderId, i64)>,
+    pub(crate) order_changed_at: i64,
+    pub(crate) settings_changed_at: i64,
+    pub(crate) unlock_revision: u64,
+    pub(crate) guard_revision: u64,
+    pub(crate) guard_key_id: [u8; 8],
+    pub(crate) devices: Vec<SyncDevice>,
+    pub(crate) lineage: Vec<(ItemId, Vec<[u8; 8]>)>,
+}
+
+impl SyncStateV10 {
+    pub(crate) fn upgrade(self) -> SyncState {
+        SyncState {
+            writer: self.writer,
+            tombstones: self
+                .tombstones
+                .into_iter()
+                .map(|t| Tombstone {
+                    id: t.id,
+                    kind: t.kind,
+                    deleted_at: t.deleted_at,
+                    versions: Vec::new(),
+                })
+                .collect(),
+            folder_times: self.folder_times,
+            order_changed_at: self.order_changed_at,
+            settings_changed_at: self.settings_changed_at,
+            unlock_revision: self.unlock_revision,
+            guard_revision: self.guard_revision,
+            guard_key_id: self.guard_key_id,
+            devices: self.devices,
+            lineage: self.lineage,
+        }
+    }
 }
 
 impl SyncState {
@@ -179,18 +236,58 @@ impl SyncState {
     }
 
     pub(crate) fn bury(&mut self, kind: Gone, id: [u8; 16], at: i64) {
+        self.bury_versions(kind, id, at, &[]);
+    }
+
+    /// Leaves a tombstone that names the `versions` deleted (items, format v11). Merged with
+    /// one already there: the latest time, its versions and these, the newest first.
+    pub(crate) fn bury_versions(
+        &mut self,
+        kind: Gone,
+        id: [u8; 16],
+        at: i64,
+        versions: &[[u8; 8]],
+    ) {
         match self
             .tombstones
             .iter_mut()
             .find(|t| t.kind == kind && t.id == id)
         {
-            Some(t) => t.deleted_at = t.deleted_at.max(at),
-            None => self.tombstones.push(Tombstone {
-                id,
-                kind,
-                deleted_at: at,
-            }),
+            Some(t) => {
+                t.deleted_at = t.deleted_at.max(at);
+                let mut all = versions.to_vec();
+                for v in &t.versions {
+                    if !all.contains(v) {
+                        all.push(*v);
+                    }
+                }
+                all.truncate(TOMBSTONE_VERSIONS);
+                t.versions = all;
+            }
+            None => {
+                let mut kept = Vec::new();
+                for v in versions {
+                    if !kept.contains(v) {
+                        kept.push(*v);
+                    }
+                }
+                kept.truncate(TOMBSTONE_VERSIONS);
+                self.tombstones.push(Tombstone {
+                    id,
+                    kind,
+                    deleted_at: at,
+                    versions: kept,
+                });
+            }
         }
+    }
+
+    /// The versions a tombstone of item `id` names (empty: none, or one written before v11).
+    pub(crate) fn buried_versions(&self, id: &ItemId) -> &[[u8; 8]] {
+        self.tombstones
+            .iter()
+            .find(|t| t.kind == Gone::Item && t.id == *id.as_bytes())
+            .map_or(&[], |t| t.versions.as_slice())
     }
 
     /// Drops tombstones older than [`TOMBSTONE_DAYS`] before `now`.

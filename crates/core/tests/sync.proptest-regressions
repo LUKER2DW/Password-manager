@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc 4aa776a150789f888e05012bdc18842f71dbc8ba944813a930c6711b693a5d1f # shrinks to script = [(0, Add(0)), (1, Edit(0, 0)), (0, Edit(30, 1))]
 cc fca0db712f387911504af3d1b312c2d0977276cdb54842d5953d568e82457e68 # shrinks to script = [(2, Edit(137, 239)), (1, Edit(15, 154)), (1, Add(175)), (0, Edit(89, 191)), (2, Add(223)), (0, Add(26))]
+cc 6a5ea081fd3d340cf516cf023889f7e7c00f32dcc665283fa28dc13fbdf09824 # shrinks to script = [(1, Delete(0)), (0, Edit(0, 0))]

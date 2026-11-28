@@ -227,6 +227,57 @@ fn reads_the_committed_v10_fixture() {
 }
 
 #[test]
+fn the_v10_fixture_is_upgraded_on_save() {
+    let bytes = std::fs::read(fixture_dir().join("vault-v10.bin")).unwrap();
+    let (secret_key, [a, b, c]) = credentials();
+    let unlock = || Unlock::Password {
+        password: PASSWORD,
+        secret_key: &secret_key,
+    };
+    let mut vault = Vault::open(&bytes, unlock()).unwrap();
+    let saved = vault.to_bytes().unwrap();
+    assert_eq!(&saved[8..10], &11u16.to_le_bytes());
+    let mut reopened = Vault::open(&saved, unlock()).unwrap();
+    assert_eq!(
+        reopened.item_ids().count(),
+        4,
+        "the deleted item stays deleted"
+    );
+    // The folder reaches every browser; every item is in use, with no tags or versions.
+    assert_eq!(
+        reopened.folders()[0].browser,
+        vault_core::FolderBrowser::Any
+    );
+    // The guarded item's secrets, sealed in the v10 layout (with its file and passkey key),
+    // still open with the PIN.
+    assert!(reopened.unlock_secrets(GUARD_PIN).unwrap());
+    let folder = reopened.folders()[0].id;
+    let items = read(&reopened);
+    assert_eq!(items, expected_items(Some(folder)));
+    assert!(items.iter().all(|item| item.is_active()
+        && item.tags.is_empty()
+        && item.versions.is_empty()
+        && item.expires_at == 0
+        && !item.no_browser));
+    assert!(Vault::open(&saved, Unlock::Parts([&a, &b, &c])).is_ok());
+    // A change now keeps the earlier version, the guarded item's too (sealed with it).
+    let id = reopened
+        .item_ids()
+        .find(|id| reopened.get_item(id).unwrap().title == "Fixture Login")
+        .unwrap();
+    let mut login = reopened.get_item(&id).unwrap();
+    login.username = "renamed-user".into();
+    reopened.update_item(&id, &login).unwrap();
+    let again = reopened.to_bytes().unwrap();
+    let mut third = Vault::open(&again, unlock()).unwrap();
+    assert!(third.get_item(&id).unwrap().versions.is_empty(), "sealed");
+    assert!(third.unlock_secrets(GUARD_PIN).unwrap());
+    let versions = third.get_item(&id).unwrap().versions.clone();
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].item.username, "fixture-user");
+}
+
+#[test]
 fn the_fixture_merges_with_a_copy_from_its_other_device() {
     let bytes = std::fs::read(fixture_dir().join("vault-v10.bin")).unwrap();
     let (secret_key, _) = credentials();
