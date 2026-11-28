@@ -18,7 +18,10 @@ use vault_core::{
 use zeroize::Zeroizing;
 
 use vault_platform::sync::{self, ServerTarget, Target as _};
-use vault_sync_wire::releases::{self, Release as GithubRelease};
+use vault_sync_wire::releases::{
+    self, Verified as GithubRelease,
+    testing::{self as signing, TestKey},
+};
 
 use crate::{
     Controller,
@@ -1673,6 +1676,10 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     drop(other);
     // Settings → Updates, from the vault server rather than GitHub: the server's owner
     // published one; the phone fetches it, checks it and hands it to Android's installer.
+    // The manifests here are signed with a key made for this test, which the phone is told
+    // to take in place of the project's.
+    let key = TestKey::new();
+    controller.use_release_keys(vec![key.public()]);
     assert!(app.get_updates_available());
     app.invoke_update_source_changed(1);
     assert!(app.get_update_servers());
@@ -1684,14 +1691,70 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     );
     let package = b"PK a test package, not an app".to_vec();
     let store = vault_server::Store::open(server.data.path()).unwrap();
-    store.publish_app(&package, "0.0.0").unwrap();
+    store.publish_app(&package, "0.0.0", None).unwrap();
     app.invoke_check_update();
     assert_eq!(
         app.get_update_state(),
         2,
         "the same version isn't an update"
     );
-    store.publish_app(&package, "99.0.0").unwrap();
+    // A newer one without the release's signed manifest (the owner's own build, or a server
+    // older than this): never offered.
+    store.publish_app(&package, "99.0.0", None).unwrap();
+    app.invoke_check_update();
+    assert_eq!(
+        (app.get_update_state(), app.get_error_code()),
+        (5, 27),
+        "{}",
+        app.get_error_detail()
+    );
+    // Signed by another key than the one taken: refused too.
+    let stranger = TestKey::new();
+    store
+        .publish_app(
+            &package,
+            "99.0.0",
+            Some(&signed_update(&stranger, "99.0.0", &package)),
+        )
+        .unwrap();
+    app.invoke_check_update();
+    assert_eq!(app.get_update_state(), 5, "{}", app.get_error_detail());
+    // A server that changes what it hands on: another package under the signed manifest, or
+    // the manifest itself rewritten for its own package. The phone refuses both.
+    let signed = signed_update(&key, "99.0.0", &package);
+    let other_package = b"PK\x03\x04 a package the server swapped in".to_vec();
+    store
+        .publish_app(&other_package, "99.0.0", Some(&signed))
+        .unwrap();
+    app.invoke_check_update();
+    assert_eq!(
+        app.get_update_state(),
+        5,
+        "another package than the signed one"
+    );
+    let rewritten = releases::SignedManifest {
+        manifest: signing::manifest_of(
+            "99.0.0",
+            &[(
+                &releases::phone_package_name("99.0.0"),
+                other_package.as_slice(),
+            )],
+        ),
+        signature: signed.signature.clone(),
+    };
+    store
+        .publish_app(&other_package, "99.0.0", Some(&rewritten))
+        .unwrap();
+    app.invoke_check_update();
+    assert_eq!(
+        app.get_update_state(),
+        5,
+        "a manifest changed after signing"
+    );
+    // The release's own manifest and signature, as `--app-updates` keeps them: offered.
+    store
+        .publish_app(&package, "99.0.0", Some(&signed))
+        .unwrap();
     app.invoke_check_update();
     assert_eq!(
         (app.get_update_state(), app.get_update_version().as_str()),
@@ -1719,6 +1782,8 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
         let fresh_path = dir.path().join("second phone").join("vault.vault");
         let second = Controller::start(&fresh, fresh_path.clone(), true);
         assert_eq!(fresh.get_screen(), Screen::Start);
+        // The start screen tells of the look for updates, with its switch, on by default.
+        assert!(fresh.get_update_checks());
         fresh.set_setup_invite("not an invite".into());
         fresh.invoke_setup_from_server();
         assert_eq!(fresh.get_error_code(), 28, "not an invite: its own message");
@@ -2658,23 +2723,36 @@ fn a_pdf_preview_shows_no_more_than_its_budget() {
     }
 }
 
-/// A release as GitHub's stand-in gives it: version `version`, with the phone's package.
+/// The key the tests' releases are signed with (made for these tests, in memory only).
+fn release_key() -> &'static TestKey {
+    static KEY: std::sync::LazyLock<TestKey> = std::sync::LazyLock::new(TestKey::new);
+    &KEY
+}
+
+/// A release as GitHub's stand-in gives it: version `version`, its manifest signed and checked
+/// (as `vault_platform::updates::latest` hands one back), with the phone's package or, without
+/// it, only the desktop app.
 fn github_release(version: &str, with_package: bool) -> GithubRelease {
-    let tag = format!("v{version}");
     let name = releases::phone_package_name(version);
-    GithubRelease {
-        version: version.to_owned(),
-        page: format!("https://github.com/o/r/releases/tag/{tag}"),
-        assets: if with_package {
-            vec![releases::Asset {
-                url: format!("https://github.com/o/r/releases/download/{tag}/{name}"),
-                name,
-                size: 30,
-                sha256: Some("0".repeat(64)),
-            }]
-        } else {
-            Vec::new()
-        },
+    let files: Vec<(&str, &[u8])> = if with_package {
+        vec![(&name, b"PK a test package from GitHub")]
+    } else {
+        vec![("vault-desktop.exe", b"a test program")]
+    };
+    signing::verified(version, &files, release_key())
+}
+
+/// A phone app update as `vault-server` keeps one: `package` as version `version`, with the
+/// release's manifest and its signature by `key`.
+fn signed_update(key: &TestKey, version: &str, package: &[u8]) -> releases::SignedManifest {
+    let manifest = signing::manifest_of(
+        version,
+        &[(&releases::phone_package_name(version), package)],
+    );
+    let signature = key.sign_release(&manifest, version);
+    releases::SignedManifest {
+        manifest,
+        signature,
     }
 }
 
@@ -2697,7 +2775,7 @@ fn updates_come_from_github_unless_the_server_is_chosen() {
         Err("offline".into())
     }
     fn package(release: &GithubRelease) -> Result<Vec<u8>, String> {
-        assert_eq!(release.version, "99.0.0");
+        assert_eq!(release.version(), "99.0.0");
         Ok(b"PK a test package from GitHub".to_vec())
     }
     let github = |latest| Github { latest, package };

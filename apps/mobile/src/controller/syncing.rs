@@ -92,7 +92,10 @@ mod native {
         DeviceState, SyncPlace, SyncTo, secret_store,
         sync::{self, KnownTags, Role, ServerTarget, Tags},
     };
-    use vault_sync_wire::{DeviceKey, InviteLink, releases::Release as GithubRelease};
+    use vault_sync_wire::{
+        DeviceKey, InviteLink,
+        releases::{self, Verified as GithubRelease},
+    };
 
     use zeroize::Zeroizing;
 
@@ -214,6 +217,9 @@ mod native {
         update_put_off: Option<String>,
         /// What stands in for GitHub in tests (`None`: GitHub itself).
         github: Option<Github>,
+        /// The keys a release manifest is checked with: tests' own (`None`: the project's,
+        /// `releases::RELEASE_KEYS`).
+        release_keys: Option<Vec<String>>,
         /// Copies sealed under a vault key renewed on another device (SYNC.md §4.7), kept
         /// until this phone takes the new key (Settings, Sync asks for its Secret Key).
         renewed: Vec<(DeviceId, Vec<u8>)>,
@@ -285,12 +291,13 @@ mod native {
     enum Source {
         /// The project's releases on GitHub (the default).
         Github(Github),
-        /// The servers the open vault syncs through.
-        Servers(Place),
+        /// The servers the open vault syncs through, and the keys their updates' manifests
+        /// must be signed with (the servers are trusted with nothing there).
+        Servers(Box<Place>, Vec<String>),
     }
 
     /// How GitHub is asked: `vault_platform::updates`, or a stand-in in tests (which never
-    /// reach the network).
+    /// reach the network). Either hands back a release only with its manifest checked.
     #[derive(Debug, Clone, Copy)]
     pub(crate) struct Github {
         pub latest: fn() -> Result<GithubRelease, String>,
@@ -924,7 +931,19 @@ mod native {
                 return Some(Source::Github(github));
             }
             let place = self.sync_place()?;
-            (!Self::update_servers(&place).is_empty()).then_some(Source::Servers(place))
+            let keys = self.release_keys();
+            (!Self::update_servers(&place).is_empty())
+                .then_some(Source::Servers(Box::new(place), keys))
+        }
+
+        /// The keys a release manifest must be signed with.
+        fn release_keys(&self) -> Vec<String> {
+            self.state
+                .borrow()
+                .sync
+                .release_keys
+                .clone()
+                .unwrap_or_else(|| releases::RELEASE_KEYS.map(str::to_owned).to_vec())
         }
 
         /// Settings → About and updates → "Get updates from": GitHub (0) or the vault's
@@ -955,6 +974,13 @@ mod native {
         #[cfg(test)]
         pub(crate) fn use_github(&self, github: Github) {
             self.state.borrow_mut().sync.github = Some(github);
+        }
+
+        /// Tests: a server's update is checked with `keys` (test keys) instead of the
+        /// project's.
+        #[cfg(test)]
+        pub(crate) fn use_release_keys(&self, keys: Vec<String>) {
+            self.state.borrow_mut().sync.release_keys = Some(keys);
         }
 
         /// Settings → Sync now: a round, and the servers asked for an update after it.
@@ -1061,39 +1087,67 @@ mod native {
                 Source::Github(github) => {
                     let release = (github.latest)()?;
                     if !release.is_newer_than(installed) {
-                        return Ok(Release::Newest(release.version));
+                        return Ok(Release::Newest(release.version().to_owned()));
                     }
-                    if release.phone_package().is_none() {
-                        return Err(format!("release {} has no phone app", release.version));
-                    }
-                    Ok(Release::Newer(release.version, None))
+                    release
+                        .phone_package()
+                        .map_err(|err| format!("release {}: {err}", release.version()))?;
+                    Ok(Release::Newer(release.version().to_owned(), None))
                 }
-                Source::Servers(place) => Self::newest_on_servers(place, installed),
+                Source::Servers(place, keys) => Self::newest_on_servers(place, keys, installed),
             }
         }
 
         /// Asks every server the vault syncs through for the phone app's update and compares
-        /// the newest one with `installed`. A server that doesn't answer is an error only when
-        /// none answered.
-        fn newest_on_servers(place: &Place, installed: &str) -> Result<Release, String> {
+        /// the newest one with `installed`. An update is offered only when its release's
+        /// manifest, which the server hands on, is signed by one of `keys` and lists the
+        /// package the server has (`releases::verify_app_release`): a server can withhold an
+        /// update, never make one. A server that doesn't answer is an error only when none
+        /// answered; an update refused is one only when no other server has one.
+        fn newest_on_servers(
+            place: &Place,
+            keys: &[String],
+            installed: &str,
+        ) -> Result<Release, String> {
+            let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
             let mut newest: Option<(vault_sync_wire::AppRelease, Role)> = None;
-            let mut failed = None;
+            let mut there: Option<String> = None;
+            let (mut failed, mut refused) = (None, None);
             let mut answered = false;
             for (url, role) in Self::update_servers(place) {
                 let asked = Self::server_for(place, &url, role)
                     .and_then(|server| server.app_release().map_err(|err| format!("{err:#}")));
-                match asked {
+                let release = match asked {
                     Ok(release) => {
                         answered = true;
-                        if let Some(release) = release
-                            && newest.as_ref().is_none_or(|(known, _)| {
-                                vault_sync_wire::is_newer(&release.version, &known.version)
-                            })
-                        {
-                            newest = Some((release, role));
-                        }
+                        release
                     }
-                    Err(why) => failed = failed.or(Some(why)),
+                    Err(why) => {
+                        failed = failed.or(Some(why));
+                        continue;
+                    }
+                };
+                let Some(release) = release else {
+                    continue;
+                };
+                if !vault_sync_wire::is_newer(&release.version, installed) {
+                    // Not an update: only said as the newest there is.
+                    if there
+                        .as_deref()
+                        .is_none_or(|known| vault_sync_wire::is_newer(&release.version, known))
+                    {
+                        there = Some(release.version);
+                    }
+                    continue;
+                }
+                if let Err(err) = releases::verify_app_release(&release, &keys) {
+                    refused = refused.or(Some(format!("version {}: {err}", release.version)));
+                    continue;
+                }
+                if newest.as_ref().is_none_or(|(known, _)| {
+                    vault_sync_wire::is_newer(&release.version, &known.version)
+                }) {
+                    newest = Some((release, role));
                 }
             }
             if !answered {
@@ -1101,13 +1155,13 @@ mod native {
                     failed.unwrap_or_else(|| "this vault doesn't sync through a server".into())
                 );
             }
-            Ok(match newest {
-                Some((release, role)) if vault_sync_wire::is_newer(&release.version, installed) => {
-                    Release::Newer(release.version, Some(role))
-                }
-                Some((release, _)) => Release::Newest(release.version),
-                None => Release::Nothing,
-            })
+            if let Some((release, role)) = newest {
+                return Ok(Release::Newer(release.version, Some(role)));
+            }
+            if let Some(why) = refused {
+                return Err(format!("the server's update isn't taken: {why}"));
+            }
+            Ok(there.map_or(Release::Nothing, Release::Newest))
         }
 
         /// Settings → Updates: asks GitHub, or the vault servers (what their owner put there,
@@ -1169,10 +1223,10 @@ mod native {
         }
 
         /// "Install version …": the package is fetched from GitHub or the server that has it,
-        /// checked against its release (size and SHA-256) and handed to Android's installer,
-        /// once this app has checked it is this app, newer and signed with the same
-        /// certificate (`Updates.java`); Android asks the person and checks the signature
-        /// again.
+        /// checked against its release's signed manifest (size and SHA-256) and handed to
+        /// Android's installer, once this app has checked it is this app, newer and signed with
+        /// the same certificate (`Updates.java`); Android asks the person and checks the
+        /// signature again.
         pub(in crate::controller) fn install_update(&self) {
             let Some(source) = self.update_source() else {
                 return;
@@ -1188,7 +1242,9 @@ mod native {
                         }
                         (github.package)(&release)
                     }
-                    Source::Servers(place) => Self::package_from_servers(&place, &installed),
+                    Source::Servers(place, keys) => {
+                        Self::package_from_servers(&place, &keys, &installed)
+                    }
                 }
             };
             self.off_thread(job, |controller, result| {
@@ -1201,9 +1257,15 @@ mod native {
             });
         }
 
-        /// The newer package from the server that has it, checked against its release.
-        fn package_from_servers(place: &Place, installed: &str) -> Result<Vec<u8>, String> {
-            let Release::Newer(_, Some(role)) = Self::newest_on_servers(place, installed)? else {
+        /// The newer package from the server that has it, checked against its release and that
+        /// release's signed manifest (again: the server may have changed it since).
+        fn package_from_servers(
+            place: &Place,
+            keys: &[String],
+            installed: &str,
+        ) -> Result<Vec<u8>, String> {
+            let Release::Newer(_, Some(role)) = Self::newest_on_servers(place, keys, installed)?
+            else {
                 return Err("the server has no newer version any more".into());
             };
             let (url, _) = Self::update_servers(place)
@@ -1216,6 +1278,9 @@ mod native {
                 .map_err(|err| format!("{err:#}"))?
                 .filter(|r| vault_sync_wire::is_newer(&r.version, installed))
                 .ok_or("the server has no newer version any more")?;
+            let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
+            releases::verify_app_release(&release, &keys)
+                .map_err(|err| format!("the server's update isn't taken: {err}"))?;
             server
                 .app_package(&release)
                 .map_err(|err| format!("{err:#}"))

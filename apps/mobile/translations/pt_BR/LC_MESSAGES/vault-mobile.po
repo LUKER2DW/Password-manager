@@ -3635,3 +3635,7 @@ msgstr "O Vault {} já abriu este cofre neste computador, e esta cópia é mais 
 msgctxt "Messages"
 msgid "The browser extension is older than this Vault accepts (it needs {} or later), so Vault doesn't answer it. Settings → Browser extension → Add to a browser writes the newest one into its folder; then reload it on the browser's extensions page."
 msgstr "A extensão do navegador é mais antiga do que este Vault aceita (precisa ser a {} ou mais nova), então o Vault não responde a ela. Configurações → Extensão do navegador → Adicionar a um navegador grava a mais nova na pasta dela; depois recarregue-a na página de extensões do navegador."
+
+msgctxt "PhoneWindow"
+msgid "The app asks GitHub whether a newer version is out: one request, with nothing about you or your vault in it. Nothing else is sent unless you set it up (sync, the leak check, website icons). Updates can also come from your own sync server: Settings, About and updates."
+msgstr "O app pergunta ao GitHub se saiu uma versão mais nova: um pedido, sem nada sobre você ou o seu cofre. Nada mais é enviado a menos que você configure (sincronização, verificação de vazamentos, ícones dos sites). As atualizações também podem vir do seu próprio servidor de sincronização: Configurações, Sobre e atualizações."

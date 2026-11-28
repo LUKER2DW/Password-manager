@@ -2609,6 +2609,22 @@ export component PhoneWindow inherits Window {
                     if root.error-code == 2 || root.error-code == 4 || root.error-code == 8 || root.error-code == 9: ErrorLine {
                         text: Words.error(root.error-code, root.error-detail);
                     }
+                    // What the app sends by itself, said before anything else happens: the
+                    // look for updates, with its switch (also in Settings, About and updates).
+                    Fold {
+                        open: !root.adding-vault;
+                        Section {
+                            title: @tr("Updates");
+                            note: @tr("The app asks GitHub whether a newer version is out: one request, with nothing about you or your vault in it. Nothing else is sent unless you set it up (sync, the leak check, website icons). Updates can also come from your own sync server: Settings, About and updates.");
+                            SetRow {
+                                text: @tr("Look for updates by itself");
+                                detail: @tr("Every hour while a vault is open");
+                                switch: true;
+                                checked <=> root.update-checks;
+                                toggled(on) => { root.update-checks-changed(on); }
+                            }
+                        }
+                    }
                     if root.adding-vault: HorizontalLayout {
                         alignment: start;
                         QuietButton { text: @tr("Back to my vault"); clicked => { root.cancel-add-vault(); } }
