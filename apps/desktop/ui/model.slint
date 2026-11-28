@@ -256,6 +256,8 @@ export global Messages {
         if (kind == 3 && detail == "username") { return @tr("The browser extension had a username copied"); }
         if (kind == 3 && detail == "code") { return @tr("The browser extension was given a one-time code"); }
         if (kind == 3 && detail == "passkey") { return @tr("The browser extension signed in with a passkey"); }
+        if (kind == 3 && detail == "card") { return @tr("The browser extension filled a card"); }
+        if (kind == 3 && detail == "identity") { return @tr("The browser extension filled an address"); }
         if (kind == 3 && detail == "shown") { return @tr("The browser extension showed a password in its window"); }
         if (kind == 3) { return @tr("The browser extension was given an item's details"); }
         if (kind == 4 && detail == "update") { return @tr("The browser extension changed a login's password"); }

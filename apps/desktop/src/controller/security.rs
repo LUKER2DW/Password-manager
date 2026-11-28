@@ -115,6 +115,9 @@ pub(super) fn extension_event(
     let what = match asked.kind.as_str() {
         "code" => gave::CODE,
         "reveal" => "shown",
+        // A card or an identity typed into a page (F5).
+        "card_fill" => gave::CARD,
+        "identity_fill" => gave::IDENTITY,
         _ => gave::LOGIN,
     };
     event(gave_kind, title, what)
@@ -277,6 +280,7 @@ mod tests {
             passkey_saved: None,
             passkey_used: None,
             lock: false,
+            signals: Vec::new(),
         }
     }
 
@@ -294,6 +298,13 @@ mod tests {
             (kind::EXTENSION_GAVE, "example.com", "Mail")
         );
         assert_eq!(event.detail, gave::LOGIN);
+        // A card or an address typed into a page is named as one.
+        let request = br#"{"type":"card_fill","url":"https://shop.example","id":"ab"}"#;
+        let event = extension_event(request, &fill, title, false).unwrap();
+        assert_eq!(event.detail, gave::CARD);
+        let request = br#"{"type":"identity_fill","url":"https://shop.example","id":"ab"}"#;
+        let event = extension_event(request, &fill, title, false).unwrap();
+        assert_eq!(event.detail, gave::IDENTITY);
         let request = br#"{"type":"code","url":"https://example.com","id":"ab"}"#;
         let event = extension_event(request, &fill, title, true).unwrap();
         assert_eq!(
