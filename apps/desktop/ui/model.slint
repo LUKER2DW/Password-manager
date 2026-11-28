@@ -281,6 +281,9 @@ export global Messages {
         if (kind == 16 && detail == "password") { return @tr("Autofill filled a password"); }
         if (kind == 16) { return @tr("Autofill filled a login"); }
         if (kind == 17) { return @tr("A passkey signed in"); }
+        if (kind == 18 && detail != "") { return @tr("An SSH key signed for {}", detail); }
+        if (kind == 18) { return @tr("An SSH key signed for a program"); }
+        if (kind == 19) { return @tr("Auto-type typed a login into “{}”", detail); }
         return @tr("Something this version of the app doesn't know");
     }
 

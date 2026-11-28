@@ -6088,3 +6088,16 @@ msgstr "Copiar"
 msgctxt "SettingsPage"
 msgid "The SSH agent couldn't start: no pipe name was free. Turn it off and on again, or restart the app."
 msgstr "O agente SSH não pôde iniciar: nenhum nome de pipe estava livre. Desligue e ligue de novo, ou reinicie o app."
+
+msgctxt "Messages"
+msgid "An SSH key signed for {}"
+msgstr "Uma chave SSH assinou para {}"
+
+msgctxt "Messages"
+msgid "An SSH key signed for a program"
+msgstr "Uma chave SSH assinou para um programa"
+
+msgctxt "Messages"
+msgid "Auto-type typed a login into “{}”"
+msgstr "A digitação automática digitou um login em “{}”"
+

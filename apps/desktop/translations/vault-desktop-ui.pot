@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: vault-desktop-ui VERSION\n"
-"POT-Creation-Date: 2026-11-28 07:04+0000\n"
+"POT-Creation-Date: 2026-11-28 07:05+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2003,6 +2003,21 @@ msgstr ""
 
 #: ui/model.slint:284
 msgctxt "Messages"
+msgid "An SSH key signed for {}"
+msgstr ""
+
+#: ui/model.slint:266
+msgctxt "Messages"
+msgid "An SSH key signed for a program"
+msgstr ""
+
+#: ui/model.slint:267
+msgctxt "Messages"
+msgid "Auto-type typed a login into “{}”"
+msgstr ""
+
+#: ui/model.slint:268
+msgctxt "Messages"
 msgid "Something this version of the app doesn't know"
 msgstr ""
 
@@ -2477,7 +2492,7 @@ msgid ""
 "first, then come back here and choose Auto-type."
 msgstr ""
 
-#: ui/model.slint:361
+#: ui/model.slint:364
 msgctxt "Messages"
 msgid ""
 "Locked secrets are in the way. Open the item lock first: type its PIN or "
@@ -3713,38 +3728,38 @@ msgctxt "Messages"
 msgid "The SSH key “{}” signed for a program."
 msgstr ""
 
-#: ui/model.slint:538
+#: ui/model.slint:541
 msgctxt "Messages"
 msgid "Typed into “{}”."
 msgstr ""
 
-#: ui/model.slint:539
+#: ui/model.slint:542
 msgctxt "Messages"
 msgid ""
 "Auto-type stopped: “{}” changed or another window took the keyboard. "
 "Nothing more was typed."
 msgstr ""
 
-#: ui/model.slint:540
+#: ui/model.slint:543
 msgctxt "Messages"
 msgid ""
 "Auto-type stopped: Ctrl, Alt, Shift or the Windows key was held. Let go and "
 "try again."
 msgstr ""
 
-#: ui/model.slint:541
+#: ui/model.slint:544
 msgctxt "Messages"
 msgid "Windows refused the typed keys for “{}”."
 msgstr ""
 
-#: ui/model.slint:542
+#: ui/model.slint:545
 msgctxt "Messages"
 msgid ""
 "SSH_AUTH_SOCK copied: set it as an environment variable for your user, then "
 "open a new terminal."
 msgstr ""
 
-#: ui/model.slint:543
+#: ui/model.slint:546
 msgctxt "Messages"
 msgid ""
 "The Secret Key couldn't be kept on this computer just now ({}). The vault is "

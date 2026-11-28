@@ -132,6 +132,17 @@ fn auto_type_types_a_login_into_the_window_shown() {
     assert_eq!(app.get_notice_code(), AUTOTYPE_DONE);
     assert_eq!(app.get_autotype_title(), "");
 
+    // In the security log: the login and the window, never what was typed.
+    app.invoke_open_settings();
+    let typed: Vec<_> = slint::Model::iter(&app.get_security_log())
+        .filter(|line| line.kind == 19)
+        .collect();
+    assert_eq!(typed.len(), 1);
+    assert_eq!(typed[0].title, "A Plain");
+    assert_eq!(typed[0].detail, "Remote Desktop");
+    app.invoke_select_category(0);
+    select("A Plain");
+
     // Cancelled: nothing.
     desktop.typed.borrow_mut().clear();
     app.invoke_auto_type();

@@ -162,6 +162,18 @@ fn the_ssh_agent_asks_before_every_signature() {
     app.invoke_agent_decided(false, false);
     assert_eq!(unnamed.try_recv().unwrap(), ssh_agent::failure());
 
+    // Each signature is in the security log: the key and the program, never a secret.
+    app.invoke_open_settings();
+    let signed: Vec<_> = slint::Model::iter(&app.get_security_log())
+        .filter(|line| line.kind == 18)
+        .collect();
+    assert_eq!(signed.len(), 3, "two approved, one within the 5 minutes");
+    assert!(
+        signed
+            .iter()
+            .all(|line| line.title == "Build server" && line.detail == "ssh.exe")
+    );
+
     // A key nobody has: refused at once.
     let (_, reply) = ask(&controller, b"no such key", &ssh_exe);
     assert_eq!(reply.try_recv().unwrap(), ssh_agent::failure());

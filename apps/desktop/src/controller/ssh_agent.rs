@@ -27,6 +27,7 @@ use slint::SharedString;
 use vault_core::{ItemData, ItemId, ItemKind, ssh};
 use vault_platform::{
     clipboard,
+    security_log::{Event, kind},
     ssh_agent::{self, Client, Identity, Purpose, Request},
 };
 
@@ -260,7 +261,7 @@ impl Controller {
             .item_ids()
             .filter_map(|id| {
                 let item = vault.get_item(&id).ok()?;
-                if item.kind != ItemKind::SshKey {
+                if item.kind != ItemKind::SshKey || !item.is_active() {
                     return None;
                 }
                 let public = item
@@ -323,7 +324,7 @@ impl Controller {
         if granted && !self.item_locked(&item) {
             let answer = self.agent_signature(&item_id, &data, flags);
             if answer != ssh_agent::failure() {
-                self.notify(notice::SSH_KEY_USED, &item.title);
+                self.agent_used(&item.title, client.program.as_deref());
             }
             let _ = reply.send(answer);
             return 0;
@@ -362,13 +363,23 @@ impl Controller {
             };
             item
         };
-        if item.kind != ItemKind::SshKey || self.item_locked(&item) {
+        if item.kind != ItemKind::SshKey || !item.is_active() || self.item_locked(&item) {
             return ssh_agent::failure();
         }
         ssh::agent_sign(&item.password, data, flags).map_or_else(
             |_| ssh_agent::failure(),
             |signed| ssh_agent::sign_response(&signed),
         )
+    }
+
+    /// A signature was made: said in the app and written to the security log.
+    fn agent_used(&self, title: &str, program: Option<&Path>) {
+        self.notify(notice::SSH_KEY_USED, title);
+        self.log_event(
+            Event::new(kind::SSH_SIGNED, super::view::now_unix())
+                .title(title)
+                .detail(&program_name(program)),
+        );
     }
 
     /// Shows the first question waiting, or closes the dialog when none is.
@@ -452,7 +463,7 @@ impl Controller {
                 .and_then(|s| s.vault.get_item(&ask.item).ok())
                 .map(|item| item.title.clone())
                 .unwrap_or_default();
-            self.notify(notice::SSH_KEY_USED, &title);
+            self.agent_used(&title, ask.program.as_deref());
         }
         let _ = ask.reply.send(answer);
         self.show_agent_ask();

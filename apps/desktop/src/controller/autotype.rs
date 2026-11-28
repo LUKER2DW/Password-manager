@@ -11,7 +11,10 @@ use std::rc::Rc;
 
 use slint::{ComponentHandle, SharedString, TimerMode};
 use vault_core::{ItemId, ItemKind};
-use vault_platform::autotype::{self, Desktop, Problem, Target};
+use vault_platform::{
+    autotype::{self, Desktop, Problem, Target},
+    security_log::{Event, kind},
+};
 use zeroize::Zeroizing;
 
 use super::{Controller, error, notice};
@@ -52,7 +55,10 @@ impl Controller {
             }
             return;
         };
-        if item.kind != ItemKind::Login || (item.username.is_empty() && item.password.is_empty()) {
+        if item.kind != ItemKind::Login
+            || !item.is_active()
+            || (item.username.is_empty() && item.password.is_empty())
+        {
             return;
         }
         let desktop = self.state.borrow().desktop.clone();
@@ -123,13 +129,21 @@ impl Controller {
             self.set_error(error::SECRETS_LOCKED, "");
             return;
         };
+        let title = item.title.clone();
         let username = Zeroizing::new(item.username.clone());
         let password = Zeroizing::new(item.password.clone());
         drop(item);
         let steps = autotype::login_steps(&username, &password);
         let desktop = self.state.borrow().desktop.clone();
         match autotype::type_into(&*desktop, self.own_window(), &pending.target, &steps) {
-            Ok(()) => self.notify(notice::AUTOTYPE_DONE, &pending.target.title),
+            Ok(()) => {
+                self.notify(notice::AUTOTYPE_DONE, &pending.target.title);
+                self.log_event(
+                    Event::new(kind::AUTOTYPED, super::view::now_unix())
+                        .title(&title)
+                        .detail(&pending.target.title),
+                );
+            }
             Err(problem) => self.notify_long(
                 match problem {
                     Problem::OwnWindow | Problem::WindowChanged => notice::AUTOTYPE_CHANGED,
