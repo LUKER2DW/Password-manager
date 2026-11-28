@@ -47,6 +47,7 @@ use vault_platform::website_icons::{self as favicon, IconCache};
 
 mod attachments;
 mod attempts;
+mod autotype;
 mod browser;
 mod change;
 mod confirm;
@@ -63,6 +64,7 @@ mod renew;
 mod security;
 mod signals;
 mod site_rules;
+mod ssh_agent;
 mod syncing;
 mod toolbar;
 mod updates;
@@ -225,6 +227,8 @@ mod error {
     pub const PICTURE: i32 = 141;
     /// Settings → Site rules: what was typed isn't a site (or the list is full).
     pub const SITE_RULE_ADDRESS: i32 = 150;
+    /// Auto-type found no window behind the app to type into.
+    pub const AUTOTYPE_NO_WINDOW: i32 = 151;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -377,6 +381,18 @@ mod notice {
     /// login's name); without the browser extension, how to use it.
     pub const CHANGE_READY: i32 = 144;
     pub const CHANGE_NO_EXTENSION: i32 = 145;
+    /// A program signed with an SSH key of the vault, through the SSH agent (the argument:
+    /// the key's title).
+    pub const SSH_KEY_USED: i32 = 150;
+    /// Settings → Security: the `SSH_AUTH_SOCK` line of the agent's own pipe was copied.
+    pub const SSH_AGENT_PIPE_COPIED: i32 = 151;
+    /// Auto-type typed into the window (the argument: its title); stopped because the window
+    /// changed or something else took the keyboard; because a key was held; because Windows
+    /// refused the keys.
+    pub const AUTOTYPE_DONE: i32 = 152;
+    pub const AUTOTYPE_CHANGED: i32 = 153;
+    pub const AUTOTYPE_KEYS_HELD: i32 = 154;
+    pub const AUTOTYPE_NOT_SENT: i32 = 155;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -688,6 +704,11 @@ struct State {
     secrets_open: bool,
     /// Listening for the browser extension (Settings → Browser extension).
     browser_link: Option<browser::BrowserLink>,
+    /// The SSH agent (Settings → Security): its pipe, questions waiting, approvals that last.
+    agent: ssh_agent::AgentState,
+    /// Auto-type waiting for its countdown, and the desktop it types into.
+    autotype: Option<autotype::Pending>,
+    desktop: Rc<dyn vault_platform::autotype::Desktop>,
     /// The browsers Settings → Browser extension → Add to a browser lists, in its order.
     extension_browsers: Vec<vault_platform::browsers::Browser>,
     /// The last check of the extension's folder failed (the next failure is said).
@@ -752,6 +773,8 @@ struct Timers {
     sync_retry: Timer,
     /// The leak watch: a look every hour whether a day has passed.
     leak_watch: Timer,
+    /// Auto-type's countdown.
+    autotype: Timer,
     /// Updates: a look at GitHub's releases a moment after the start, then every hour.
     update_first: Timer,
     update_every: Timer,
@@ -896,6 +919,9 @@ impl Controller {
                 unlock_seconds: None,
                 secrets_open: false,
                 browser_link: None,
+                agent: ssh_agent::AgentState::default(),
+                autotype: None,
+                desktop: autotype::system(),
                 extension_browsers: Vec::new(),
                 extension_check_failed: false,
                 extension_version: extension::VERSION.to_owned(),
@@ -932,6 +958,9 @@ impl Controller {
         CURRENT.with(|current| *current.borrow_mut() = Rc::downgrade(&controller));
         if controller.state.borrow().settings.browser_extension {
             controller.apply_browser_link(true);
+        }
+        if controller.state.borrow().settings.ssh_agent {
+            controller.apply_ssh_agent(true);
         }
 
         let secrets = app.global::<Secrets>();
@@ -1178,6 +1207,11 @@ impl Controller {
         on!(on_unlock_item_hello, |c| c.unlock_secrets_hello());
         on!(on_pairing_decided, |c, allow| c.pairing_decided(allow));
         on!(on_forget_pairing, |c| c.forget_pairing());
+        on!(on_agent_decided, |c, approve, for_a_while| c
+            .agent_decided(approve, for_a_while));
+        on!(on_copy_agent_pipe, |c| c.copy_agent_pipe());
+        on!(on_auto_type, |c| c.auto_type());
+        on!(on_autotype_cancel, |c| c.autotype_cancel());
         on!(on_sync_choose, |c| c.sync_choose());
         on!(on_sync_now, |c| c.sync_round());
         on!(on_security_log_show_more, |c| c.security_log_more());
@@ -3007,6 +3041,9 @@ impl Controller {
 
     fn lock(&self) {
         self.stop_sync();
+        // Programs waiting for an SSH signature are refused, and approvals end.
+        self.agent_refuse_all();
+        self.autotype_cancel();
         self.app().set_settings_dialog(dialog::NONE);
         self.app().set_export_asking(false);
         self.stop_lock_warning();
@@ -5157,6 +5194,7 @@ impl Controller {
         app.set_start_at_sign_in(self.starts_at_sign_in());
         app.set_browser_locked_fill(settings.browser_locked_fill);
         app.set_browser_extension(settings.browser_extension);
+        app.set_ssh_agent(settings.ssh_agent);
         app.set_browser_saves(settings.browser_saves);
         app.set_browser_passkeys(settings.browser_passkeys);
         app.set_browser_warnings(settings.browser_warnings);
@@ -6092,6 +6130,7 @@ impl Controller {
             leak_watch: app.get_leak_watch(),
             update_checks: app.get_update_checks(),
             browser_extension: app.get_browser_extension(),
+            ssh_agent: app.get_ssh_agent(),
             close_to_tray: app.get_close_to_tray(),
             start_in_tray: app.get_start_in_tray(),
             browser_locked_fill: app.get_browser_locked_fill(),
@@ -6120,8 +6159,12 @@ impl Controller {
         let watch_was_on = self.state.borrow().settings.leak_watch;
         let update_checks_were_on = self.state.borrow().settings.update_checks;
         let browser_was_on = self.state.borrow().settings.browser_extension;
+        let agent_was_on = self.state.borrow().settings.ssh_agent;
         let locked_fill_was_on = self.state.borrow().settings.browser_locked_fill;
         self.state.borrow_mut().settings = settings.clone();
+        if agent_was_on != settings.ssh_agent {
+            self.apply_ssh_agent(settings.ssh_agent);
+        }
         if browser_was_on != settings.browser_extension {
             self.apply_browser_link(settings.browser_extension);
             // Turned on: the drop box for saving while locked is made now.

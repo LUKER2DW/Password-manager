@@ -2,7 +2,7 @@
 
 import { Theme } from "theme.slint";
 import { ExportCounts, Messages } from "model.slint";
-import { Button, QuietButton, LineField, Hint, SecretField, Choice } from "widgets.slint";
+import { Button, QuietButton, LineField, Hint, SecretField, Choice, Check } from "widgets.slint";
 import { Glyph, FolderLook, FieldColors } from "icons.slint";
 import { NewPassword, PasswordReview, LeakCheckBox } from "review.slint";
 
@@ -155,6 +155,109 @@ export component PairingDialog inherits Modal {
             busy-text: @tr("Checking…");
             busy: root.busy;
             clicked => { root.decided(true); }
+        }
+    }
+}
+
+// Auto-type counts down: the window it types into, by its title, and Cancel. Escape cancels.
+export component AutoTypeDialog inherits Modal {
+    in property <string> window-title;
+    in property <int> left;
+    callback cancelled();
+    card-width: 460px;
+    dismissed => { root.cancelled(); }
+    Text {
+        text: @tr("Typing into “{}” in {}…", root.window-title, root.left);
+        font-size: Theme.title;
+        color: Theme.ink;
+        wrap: word-wrap;
+    }
+    Text {
+        text: @tr("The username, Tab, the password and Enter go to that window, as if typed. If that isn't where they belong, cancel. Typing stops if another window takes the keyboard.");
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        alignment: end;
+        Button {
+            text: @tr("Cancel");
+            clicked => { root.cancelled(); }
+        }
+    }
+}
+
+// A program asks the SSH agent for a signature: which key, which program (as Windows names
+// it), what it says it is for; approve, maybe for 5 minutes, or refuse. Escape refuses.
+export component SshAskDialog inherits Modal {
+    in property <string> key-title;
+    in property <string> fingerprint;
+    in property <string> program;
+    in property <string> parent;
+    in property <int> purpose;
+    in property <string> purpose-detail;
+    in property <bool> key-locked;
+    in property <bool> can-remember;
+    in property <int> waiting;
+    callback decided(bool, bool);
+    property <bool> for-a-while;
+    property <string> who: root.program == "" ? @tr("A program")
+        : root.parent == "" ? root.program
+        : @tr("{} (started by {})", root.program, root.parent);
+    card-width: 520px;
+    dismissed => { root.decided(false, false); }
+    Text {
+        text: @tr("Use the SSH key “{}”?", root.key-title);
+        font-size: Theme.title;
+        color: Theme.ink;
+        wrap: word-wrap;
+    }
+    Text {
+        text: root.purpose == 1 ? @tr("{} asks to sign in to a server as “{}” with this key.", root.who, root.purpose-detail)
+            : root.purpose == 2 ? @tr("{} asks to sign something with this key (a commit, a tag or a file; it says “{}”).", root.who, root.purpose-detail)
+            : @tr("{} asks for a signature with this key.", root.who);
+        font-size: Theme.body;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    if root.fingerprint != "": Text {
+        text: root.fingerprint;
+        font-family: Theme.mono-font;
+        font-size: Theme.small;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    if root.key-locked: Text {
+        text: @tr("This key is behind the item lock. Refuse, open the key's page and pass the lock, then try again in the program.");
+        font-size: Theme.small;
+        color: Theme.seal;
+        wrap: word-wrap;
+    }
+    if !root.key-locked && root.can-remember: Check {
+        text: @tr("Don't ask again for this key and this program for 5 minutes");
+        checked <=> root.for-a-while;
+    }
+    Text {
+        text: root.waiting > 0 ? @tr("If you didn't just start this, refuse. {n} more question waits after this one." | "If you didn't just start this, refuse. {n} more questions wait after this one." % root.waiting)
+            : @tr("If you didn't just start this, refuse: something else is trying to use your key.");
+        font-size: Theme.small;
+        color: Theme.graphite;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        alignment: end;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            QuietButton {
+                text: @tr("Refuse");
+                clicked => { root.decided(false, false); }
+            }
+        }
+        Button {
+            text: @tr("Approve");
+            enabled: !root.key-locked;
+            clicked => { root.decided(true, root.for-a-while); }
         }
     }
 }

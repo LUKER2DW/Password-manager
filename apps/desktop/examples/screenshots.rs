@@ -683,6 +683,22 @@ fn main() {
         "settings-full",
         "Settings → Security, whole: unlock protection level, Apply asks first",
     );
+    // The SSH agent on, Windows' own agent holding the usual pipe: the line to copy.
+    camera
+        .window
+        .set_size(PhysicalSize::new(normal.width, normal.height * 3));
+    app.set_ssh_agent(true);
+    app.set_ssh_agent_listening(2);
+    app.set_ssh_agent_pipe(r"\\.\pipe\vault-ssh-agent-S-1-5-21-0-0-0-1001".into());
+    camera.shot(
+        "settings-ssh-agent",
+        "Settings → Security, whole: the SSH agent on, on a pipe of its own (SSH_AUTH_SOCK)",
+    );
+    app.set_ssh_agent(false);
+    app.set_ssh_agent_listening(0);
+    camera
+        .window
+        .set_size(PhysicalSize::new(normal.width, normal.height * 2 + 200));
     app.set_secret_key_kept(2);
     camera.shot(
         "settings-secret-key-windows",
@@ -829,6 +845,37 @@ fn main() {
     );
     app.set_pairing_code("".into());
     app.set_browser_extension(false);
+    // A program asks the SSH agent for a signature, another waits; then one behind the lock.
+    app.set_agent_key_title("Build server".into());
+    app.set_agent_key_fingerprint("SHA256:NxwueWLNUr4Lhdr0JybEzeMoO8DMejewxuWsY0/J8Ac".into());
+    app.set_agent_program("ssh.exe".into());
+    app.set_agent_parent("git.exe".into());
+    app.set_agent_purpose(1);
+    app.set_agent_purpose_detail("git".into());
+    app.set_agent_can_remember(true);
+    app.set_agent_waiting(1);
+    app.set_agent_asking(true);
+    camera.shot(
+        "ssh-agent-ask",
+        "SSH agent: a program asks to sign in with a key; approve, maybe for 5 minutes",
+    );
+    app.set_agent_key_locked(true);
+    app.set_agent_waiting(0);
+    app.set_agent_purpose(2);
+    camera.shot(
+        "ssh-agent-ask-locked",
+        "SSH agent: a commit signature with a key behind the item lock",
+    );
+    app.set_agent_key_locked(false);
+    app.set_agent_asking(false);
+    // Auto-type counts down, showing the window it types into.
+    app.set_autotype_title("Remote Desktop Connection".into());
+    app.set_autotype_left(3);
+    camera.shot(
+        "autotype-countdown",
+        "Auto-type: the window it types into, and a 3-second countdown",
+    );
+    app.set_autotype_title("".into());
     app.set_settings_section(4);
     // Starting at sign-in on, so its second check shows too.
     app.set_start_at_sign_in(true);

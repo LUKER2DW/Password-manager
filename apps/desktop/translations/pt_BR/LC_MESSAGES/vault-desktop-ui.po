@@ -5959,3 +5959,132 @@ msgstr "A extensão do navegador preencheu um cartão"
 msgctxt "Messages"
 msgid "The browser extension filled an address"
 msgstr "A extensão do navegador preencheu um endereço"
+msgctxt "AppWindow"
+msgid "Auto-type into the window behind"
+msgstr "Digitar na janela de trás"
+
+msgctxt "AutoTypeDialog"
+msgid "Typing into “{}” in {}…"
+msgstr "Digitando em “{}” em {}…"
+
+msgctxt "AutoTypeDialog"
+msgid "The username, Tab, the password and Enter go to that window, as if typed. If that isn't where they belong, cancel. Typing stops if another window takes the keyboard."
+msgstr "O usuário, Tab, a senha e Enter vão para essa janela, como se fossem digitados. Se não é ali que eles vão, cancele. A digitação para se outra janela tomar o teclado."
+
+msgctxt "AutoTypeDialog"
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgctxt "SshAskDialog"
+msgid "A program"
+msgstr "Um programa"
+
+msgctxt "SshAskDialog"
+msgid "{} (started by {})"
+msgstr "{} (aberto por {})"
+
+msgctxt "SshAskDialog"
+msgid "Use the SSH key “{}”?"
+msgstr "Usar a chave SSH “{}”?"
+
+msgctxt "SshAskDialog"
+msgid "{} asks to sign in to a server as “{}” with this key."
+msgstr "{} pede para entrar em um servidor como “{}” com esta chave."
+
+msgctxt "SshAskDialog"
+msgid "{} asks to sign something with this key (a commit, a tag or a file; it says “{}”)."
+msgstr "{} pede para assinar algo com esta chave (um commit, uma tag ou um arquivo; ele diz “{}”)."
+
+msgctxt "SshAskDialog"
+msgid "{} asks for a signature with this key."
+msgstr "{} pede uma assinatura com esta chave."
+
+msgctxt "SshAskDialog"
+msgid "This key is behind the item lock. Refuse, open the key's page and pass the lock, then try again in the program."
+msgstr "Esta chave está atrás do bloqueio de itens. Recuse, abra a página da chave e passe pelo bloqueio, depois tente de novo no programa."
+
+msgctxt "SshAskDialog"
+msgid "Don't ask again for this key and this program for 5 minutes"
+msgstr "Não perguntar de novo por esta chave e este programa durante 5 minutos"
+
+msgctxt "SshAskDialog"
+msgid "If you didn't just start this, refuse. {n} more question waits after this one."
+msgid_plural ""
+msgstr[0] "Se você não acabou de iniciar isso, recuse. Mais {n} pergunta espera depois desta."
+msgstr[1] "Se você não acabou de iniciar isso, recuse. Mais {n} perguntas esperam depois desta."
+
+msgctxt "SshAskDialog"
+msgid "If you didn't just start this, refuse: something else is trying to use your key."
+msgstr "Se você não acabou de iniciar isso, recuse: outra coisa está tentando usar sua chave."
+
+msgctxt "SshAskDialog"
+msgid "Refuse"
+msgstr "Recusar"
+
+msgctxt "SshAskDialog"
+msgid "Approve"
+msgstr "Aprovar"
+
+msgctxt "Messages"
+msgid "There's no window behind Vault to type into. Click into the program's field first, then come back here and choose Auto-type."
+msgstr "Não há uma janela atrás do Vault para digitar. Clique primeiro no campo do programa, depois volte aqui e escolha Digitar."
+
+msgctxt "Messages"
+msgid "The SSH key “{}” signed for a program."
+msgstr "A chave SSH “{}” assinou para um programa."
+
+msgctxt "Messages"
+msgid "Typed into “{}”."
+msgstr "Digitado em “{}”."
+
+msgctxt "Messages"
+msgid "Auto-type stopped: “{}” changed or another window took the keyboard. Nothing more was typed."
+msgstr "A digitação parou: “{}” mudou ou outra janela tomou o teclado. Nada mais foi digitado."
+
+msgctxt "Messages"
+msgid "Auto-type stopped: Ctrl, Alt, Shift or the Windows key was held. Let go and try again."
+msgstr "A digitação parou: Ctrl, Alt, Shift ou a tecla Windows estava pressionada. Solte e tente de novo."
+
+msgctxt "Messages"
+msgid "Windows refused the typed keys for “{}”."
+msgstr "O Windows recusou as teclas digitadas para “{}”."
+
+msgctxt "Messages"
+msgid "SSH_AUTH_SOCK copied: set it as an environment variable for your user, then open a new terminal."
+msgstr "SSH_AUTH_SOCK copiado: defina-o como variável de ambiente do seu usuário e abra um novo terminal."
+
+msgctxt "DetailPage"
+msgid "Auto-type"
+msgstr "Digitar"
+
+msgctxt "SettingsPage"
+msgid "SSH agent"
+msgstr "Agente SSH"
+
+msgctxt "SettingsPage"
+msgid "ssh, scp and git sign in with the vault's SSH keys, and this app asks you before each signature. Off, programs can't reach the keys."
+msgstr "ssh, scp e git entram com as chaves SSH do cofre, e este app pergunta antes de cada assinatura. Desligado, os programas não alcançam as chaves."
+
+msgctxt "SettingsPage"
+msgid "The keys never leave the app: a program gets one signature after you approve it here, only while the vault is open. A key behind the item lock needs the lock opened first. “Don't ask again” lasts 5 minutes, for that key and that program only, and ends when the vault locks. Git for Windows uses an ssh of its own: run git config --global core.sshCommand C:/Windows/System32/OpenSSH/ssh.exe so it asks this app. Limit: any program running under your Windows account can ask, and it can give itself another program's name, so approve only what you just started."
+msgstr "As chaves nunca saem do app: um programa recebe uma assinatura depois que você a aprova aqui, só enquanto o cofre está aberto. Uma chave atrás do bloqueio de itens precisa do bloqueio aberto antes. “Não perguntar de novo” dura 5 minutos, só para aquela chave e aquele programa, e termina quando o cofre bloqueia. O Git para Windows usa um ssh próprio: rode git config --global core.sshCommand C:/Windows/System32/OpenSSH/ssh.exe para ele perguntar a este app. Limite: qualquer programa rodando na sua conta do Windows pode pedir, e pode se dar o nome de outro programa, então aprove só o que você acabou de iniciar."
+
+msgctxt "SettingsPage"
+msgid "Answer as the SSH agent for programs on this computer"
+msgstr "Responder como agente SSH para os programas deste computador"
+
+msgctxt "SettingsPage"
+msgid "Listening where Windows' OpenSSH looks for its agent: ssh finds it with nothing to set."
+msgstr "Escutando onde o OpenSSH do Windows procura seu agente: o ssh o encontra sem nada a configurar."
+
+msgctxt "SettingsPage"
+msgid "Windows' own SSH agent (the “OpenSSH Authentication Agent” service) or another program holds the usual pipe. Stop and disable that service, or point programs at this app's pipe with this environment variable:"
+msgstr "O agente SSH do próprio Windows (o serviço “OpenSSH Authentication Agent”) ou outro programa ocupa o pipe de costume. Pare e desative esse serviço, ou aponte os programas para o pipe deste app com esta variável de ambiente:"
+
+msgctxt "SettingsPage"
+msgid "Copy"
+msgstr "Copiar"
+
+msgctxt "SettingsPage"
+msgid "The SSH agent couldn't start: no pipe name was free. Turn it off and on again, or restart the app."
+msgstr "O agente SSH não pôde iniciar: nenhum nome de pipe estava livre. Desligue e ligue de novo, ou reinicie o app."

@@ -300,6 +300,7 @@ export component DetailPage inherits Rectangle {
     callback conceal();
     callback copy-username();
     callback copy-password();
+    callback auto-type();
     callback copy-totp();
     callback copy-field(int);
     callback show-codes();
@@ -466,6 +467,10 @@ export component DetailPage inherits Rectangle {
                     clicked => {
                         if (root.revealed-password != "") { root.conceal(); } else { root.reveal(); }
                     }
+                }
+                if root.kind == 0 && !root.locked: QuietButton {
+                    text: @tr("Auto-type");
+                    clicked => { root.auto-type(); }
                 }
                 QuietButton {
                     text: @tr("Copy");
@@ -2683,6 +2688,11 @@ export component SettingsPage inherits Rectangle {
     in-out property <bool> browser-always-asks;
     in-out property <bool> browser-whole-vault;
     in property <int> browser-ask-way;
+    // The SSH agent: on; where it listens (controller/ssh_agent.rs `listening`); its pipe.
+    in-out property <bool> ssh-agent;
+    in property <int> ssh-agent-listening;
+    in property <string> ssh-agent-pipe;
+    callback copy-agent-pipe();
     in property <bool> quick-unlock-available;
     in-out property <bool> quick-unlock-on;
     in property <string> app-version;
@@ -3218,6 +3228,55 @@ export component SettingsPage inherits Rectangle {
                         hint: @tr("Your Secret Key and your master password together open the vault, so this computer keeps the Secret Key for you. A program running as you can still ask for it while you're signed in, as it could ask Windows; the chip stops it from being copied away and opened on another computer. If the chip is ever cleared or replaced, the vault asks once for the Secret Key from your emergency kit.");
                         if root.secret-key-kept == 2: Text {
                             text: @tr("Weaker than with a chip: a copy of your Windows profile, with your Windows password, opens it on another computer.");
+                            font-size: Theme.small;
+                            color: Theme.seal;
+                            wrap: word-wrap;
+                        }
+                    }
+                    SettingsCard {
+                        icon: "terminal";
+                        title: @tr("SSH agent");
+                        summary: @tr("ssh, scp and git sign in with the vault's SSH keys, and this app asks you before each signature. Off, programs can't reach the keys.");
+                        hint: @tr("The keys never leave the app: a program gets one signature after you approve it here, only while the vault is open. A key behind the item lock needs the lock opened first. “Don't ask again” lasts 5 minutes, for that key and that program only, and ends when the vault locks. Git for Windows uses an ssh of its own: run git config --global core.sshCommand C:/Windows/System32/OpenSSH/ssh.exe so it asks this app. Limit: any program running under your Windows account can ask, and it can give itself another program's name, so approve only what you just started.");
+                        Check {
+                            text: @tr("Answer as the SSH agent for programs on this computer");
+                            checked <=> root.ssh-agent;
+                            toggled => { root.settings-changed(); }
+                        }
+                        if root.ssh-agent && root.ssh-agent-listening == 1: Text {
+                            text: @tr("Listening where Windows' OpenSSH looks for its agent: ssh finds it with nothing to set.");
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            wrap: word-wrap;
+                        }
+                        if root.ssh-agent && root.ssh-agent-listening == 2: VerticalLayout {
+                            spacing: 8px;
+                            Text {
+                                text: @tr("Windows' own SSH agent (the “OpenSSH Authentication Agent” service) or another program holds the usual pipe. Stop and disable that service, or point programs at this app's pipe with this environment variable:");
+                                font-size: Theme.small;
+                                color: Theme.graphite;
+                                wrap: word-wrap;
+                            }
+                            HorizontalLayout {
+                                spacing: 12px;
+                                Text {
+                                    text: "SSH_AUTH_SOCK=" + root.ssh-agent-pipe;
+                                    font-family: Theme.mono-font;
+                                    font-size: Theme.small;
+                                    color: Theme.ink;
+                                    wrap: word-wrap;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                QuietButton {
+                                    outlined: true;
+                                    text: @tr("Copy");
+                                    clicked => { root.copy-agent-pipe(); }
+                                }
+                            }
+                        }
+                        if root.ssh-agent && root.ssh-agent-listening == 3: Text {
+                            text: @tr("The SSH agent couldn't start: no pipe name was free. Turn it off and on again, or restart the app.");
                             font-size: Theme.small;
                             color: Theme.seal;
                             wrap: word-wrap;

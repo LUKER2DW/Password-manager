@@ -377,6 +377,7 @@ export global Messages {
         if (code == 39) { return @tr("Windows Hello no longer opens the item lock on this computer (its PIN or password was changed). Use the PIN, then turn Windows Hello on again in Settings → Item lock."); }
         if (code == 38) { return @tr("Vault couldn't find its own program file, which the browsers start for the extension, so the extension can't be connected."); }
         if (code == 42) { return @tr("The browser extension can't reach this window: its channel is already in use, by another window of the app or by another program. Close the other window, then turn the extension setting off and on again."); }
+        if (code == 151) { return @tr("There's no window behind Vault to type into. Click into the program's field first, then come back here and choose Auto-type."); }
         if (code == 37) { return @tr("Locked secrets are in the way. Open the item lock first: type its PIN or password on a locked item or on the Authenticator page, then try again."); }
 
         if (code == 24) { return @tr("The vault file was changed outside this window (another window or program). Your last change was not saved: lock and unlock to load the newest version, then make it again."); }
@@ -559,6 +560,12 @@ export global Messages {
         if (code == 129) { return @tr("The earlier version of “{}” is back; the one it replaced is kept among its earlier versions.", arg); }
         if (code == 132) { return arg != "" ? @tr("{} syncs with a newer version of Vault, so its copy can't be used here. Update this app: Settings → About → Check for updates.", arg) : @tr("A device syncs with a newer version of Vault, so its copy can't be used here. Update this app: Settings → About → Check for updates."); }
         if (code == 133) { return arg != "" ? @tr("{} still runs an older version of Vault, so its copy can't be used here. Update Vault on that device; it syncs again once it is updated.", arg) : @tr("A device still runs an older version of Vault, so its copy can't be used here. Update Vault on that device; it syncs again once it is updated."); }
+        if (code == 150) { return @tr("The SSH key “{}” signed for a program.", arg); }
+        if (code == 152) { return @tr("Typed into “{}”.", arg); }
+        if (code == 153) { return @tr("Auto-type stopped: “{}” changed or another window took the keyboard. Nothing more was typed.", arg); }
+        if (code == 154) { return @tr("Auto-type stopped: Ctrl, Alt, Shift or the Windows key was held. Let go and try again."); }
+        if (code == 155) { return @tr("Windows refused the typed keys for “{}”.", arg); }
+        if (code == 151) { return @tr("SSH_AUTH_SOCK copied: set it as an environment variable for your user, then open a new terminal."); }
         if (code == 120) { return @tr("The Secret Key couldn't be kept on this computer just now ({}). The vault is open; if the next unlock asks for the Secret Key, type it from your emergency kit.", arg); }
         if (code == 121) { return @tr("Vault {} has already opened this vault on this computer, and this copy is older. If you didn't go back to an older version yourself, someone may have put back an old one with a known fault: get the newest in Settings → About → Check for updates.", arg); }
         if (code == 122) { return @tr("The browser extension is older than this Vault accepts (it needs {} or later), so Vault doesn't answer it. Settings → Browser extension → Add to a browser writes the newest one into its folder; then reload it on the browser's extensions page.", arg); }

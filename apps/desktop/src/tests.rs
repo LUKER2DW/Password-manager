@@ -32,6 +32,8 @@ const NEW_PASSWORD: &str = "desktop test passphrase two";
 
 /// Failed unlocks: counted, the wait after five, told once at the next unlock.
 mod attempts;
+/// Auto-type into a desktop in memory.
+mod autotype;
 /// A new password's review: the warnings, the breach check, the protected export's floor.
 mod passwords;
 /// Renewing the vault key, and taking one renewed on another device.
@@ -40,6 +42,8 @@ mod renew;
 mod review;
 /// How the Secret Key is kept: under the (stand-in) chip, a cleared chip, one that fails.
 mod secret_key;
+/// The SSH agent: keys listed while open, every signature asked, the item lock respected.
+mod ssh_agent;
 
 /// Every label and value the window's accessibility tree gives out as it is now: what a screen
 /// reader reads, and any program of this user asking UI Automation.

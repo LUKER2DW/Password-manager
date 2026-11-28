@@ -6,7 +6,7 @@ import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, Co
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList, VaultMark } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage, UpdateCard } from "pages.slint";
-import { FolderDialog, PairingDialog, PartsUsedDialog, ConfirmDialog, MasterPasswordDialog, TakeKeyDialog, ItemLockDialog, ServerJoinDialog, ServerAddressDialog, ExportDialog, WebDavDialog, BackupServerDialog, InviteDialog, ExtensionStepsDialog } from "dialogs.slint";
+import { FolderDialog, PairingDialog, SshAskDialog, AutoTypeDialog, PartsUsedDialog, ConfirmDialog, MasterPasswordDialog, TakeKeyDialog, ItemLockDialog, ServerJoinDialog, ServerAddressDialog, ExportDialog, WebDavDialog, BackupServerDialog, InviteDialog, ExtensionStepsDialog } from "dialogs.slint";
 import { MenuCard, MenuEntry, MenuRule, Backdrop } from "widgets.slint";
 import { Glyph, FieldColors } from "icons.slint";
 import { NewPassword } from "review.slint";
@@ -687,6 +687,33 @@ export component AppWindow inherits Window {
     in-out property <bool> browser-paired;
     callback pairing-decided(bool);
     callback forget-pairing();
+    // The SSH agent (Settings → Security): on; where it listens (controller/ssh_agent.rs
+    // `listening`) and its pipe. A program waiting for a signature (SshAskDialog): the key,
+    // the program Windows names and the one that started it, what the request says it is for
+    // (1 a sign-in as `agent-purpose-detail`, 2 a signature for that namespace, 0 not said),
+    // whether the key waits for the item lock, whether "don't ask again" can be offered, and
+    // how many more questions wait.
+    in-out property <bool> ssh-agent;
+    in property <int> ssh-agent-listening;
+    in property <string> ssh-agent-pipe;
+    callback copy-agent-pipe();
+    in property <bool> agent-asking;
+    in property <string> agent-key-title;
+    in property <string> agent-key-fingerprint;
+    in property <string> agent-program;
+    in property <string> agent-parent;
+    in property <int> agent-purpose;
+    in property <string> agent-purpose-detail;
+    in property <bool> agent-key-locked;
+    in property <bool> agent-can-remember;
+    in property <int> agent-waiting;
+    callback agent-decided(bool, bool);
+    // Auto-type: the title of the window it will type into ("" = not waiting), the seconds
+    // left; started from the item page or its menu, cancelled.
+    in property <string> autotype-title;
+    in property <int> autotype-left;
+    callback auto-type();
+    callback autotype-cancel();
     // Sync: the folder or address ("" = off), what happened last (SyncState in
     // controller/syncing.rs), minutes since the last round (-1 never), why it failed, how
     // many items wait for the item lock, this computer's name and the other devices'.
@@ -1489,6 +1516,7 @@ export component AppWindow inherits Window {
                 conceal => { root.conceal(); }
                 copy-username => { root.copy-username(); }
                 copy-password => { root.copy-password(); }
+                auto-type => { root.auto-type(); }
                 copy-totp => { root.copy-totp(); }
                 copy-field(i) => { root.copy-field(i); }
                 revealed-field: root.revealed-field;
@@ -1702,6 +1730,10 @@ export component AppWindow inherits Window {
                 browser-always-asks <=> root.browser-always-asks;
                 browser-whole-vault <=> root.browser-whole-vault;
                 browser-ask-way: root.browser-ask-way;
+                ssh-agent <=> root.ssh-agent;
+                ssh-agent-listening: root.ssh-agent-listening;
+                ssh-agent-pipe: root.ssh-agent-pipe;
+                copy-agent-pipe => { root.copy-agent-pipe(); }
                 browser-paired <=> root.browser-paired;
                 sync-folder: root.sync-folder;
                 sync-state: root.sync-state;
@@ -1899,6 +1931,29 @@ export component AppWindow inherits Window {
         error-code: root.error-code;
         error-detail: root.error-detail;
         decided(allow) => { root.pairing-decided(allow); }
+    }
+
+    if root.screen == Screen.vault && root.autotype-title != "": AutoTypeDialog {
+        width: root.width;
+        height: root.height;
+        window-title: root.autotype-title;
+        left: root.autotype-left;
+        cancelled => { root.autotype-cancel(); }
+    }
+
+    if root.screen == Screen.vault && root.agent-asking: SshAskDialog {
+        width: root.width;
+        height: root.height;
+        key-title: root.agent-key-title;
+        fingerprint: root.agent-key-fingerprint;
+        program: root.agent-program;
+        parent: root.agent-parent;
+        purpose: root.agent-purpose;
+        purpose-detail: root.agent-purpose-detail;
+        key-locked: root.agent-key-locked;
+        can-remember: root.agent-can-remember;
+        waiting: root.agent-waiting;
+        decided(approve, for-a-while) => { root.agent-decided(approve, for-a-while); }
     }
 
     if root.screen == Screen.vault && root.folder-dialog >= 0: FolderDialog {
@@ -2226,6 +2281,12 @@ export component AppWindow inherits Window {
                 icon: "key";
                 enabled: root.detail-has-password && !root.detail-locked;
                 clicked => { root.copy-password(); }
+            }
+            if root.detail-kind == 0: MenuEntry {
+                text: @tr("Auto-type into the window behind");
+                icon: "keyboard";
+                enabled: root.detail-has-password && !root.detail-locked;
+                clicked => { root.auto-type(); }
             }
             MenuEntry {
                 text: @tr("Copy one-time code");
