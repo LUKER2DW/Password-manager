@@ -5,6 +5,8 @@
 //! - **KDBX**: KeePass-format databases (`.kdbx`, KDBX 3 and 4), opened with their password;
 //!   [`export_kdbx`] writes one (KDBX 4)
 //! - **CSV**: exports from browsers and most managers, read by their header row
+//! - **CXF**: the FIDO Alliance's Credential Exchange Format (JSON), read and written
+//!   ([`export_cxf`])
 //!
 //! [`Source`] lists where an export can come from, for the app to explain how to make one.
 //! On Windows, [`browser`] can also read a browser's own password store directly, when the user
@@ -15,12 +17,14 @@
 #[cfg(feature = "browser")]
 pub mod browser;
 mod csv_import;
+mod cxf;
 mod dates;
 mod export;
 mod json;
 mod kdbx;
 mod kdbx_export;
 
+pub use cxf::export_cxf;
 pub use kdbx_export::{KDF as KDBX_KDF, KdfParams as KdbxKdf, export_kdbx};
 pub use export::{
     ExportFormat, ExportReport, InClear, LeftOut, export_csv, export_json, export_report,

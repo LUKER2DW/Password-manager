@@ -473,6 +473,9 @@ pub enum ExportFormat {
     /// A KeePass database (KDBX 4) encrypted with a password chosen for it
     /// ([`crate::export_kdbx`]).
     Kdbx,
+    /// The FIDO Alliance's Credential Exchange Format, unencrypted JSON
+    /// ([`crate::export_cxf`]).
+    Cxf,
 }
 
 /// What an export of a vault leaves out and what it writes readable by anyone who has the
@@ -541,6 +544,9 @@ pub struct InClear {
     /// does (`=`, `+`, `-`, `@`). They are written exactly as they are, since another manager
     /// must read them unchanged, so the file must not be opened in a spreadsheet.
     pub formula_like: usize,
+    /// Passkeys with their private keys: whoever reads the file signs in with them (the
+    /// Credential Exchange document carries them so).
+    pub passkeys: usize,
 }
 
 impl InClear {
@@ -571,8 +577,13 @@ pub fn export_report(
         // The sealed export and the KeePass database keep the item whole; the plain ones
         // leave these out.
         let sealed = matches!(format, ExportFormat::Sealed | ExportFormat::Kdbx);
+        // The Credential Exchange document carries passkeys (in clear), not files or earlier
+        // passwords.
+        let cxf = format == ExportFormat::Cxf;
         let (files, passkeys, earlier) = if sealed {
             (0, 0, 0)
+        } else if cxf {
+            (item.attachments.len(), 0, item.password_history.len())
         } else {
             (
                 item.attachments.len(),
@@ -581,7 +592,7 @@ pub fn export_report(
             )
         };
         let kind_changes = match item.kind {
-            ItemKind::Passkey => !sealed,
+            ItemKind::Passkey => !sealed && !cxf,
             ItemKind::Card | ItemKind::SshKey | ItemKind::Identity => csv,
             ItemKind::Login | ItemKind::SecureNote => false,
         };
@@ -611,6 +622,9 @@ pub fn export_report(
         clear.hidden_fields += hidden;
         clear.recovery_codes += item.recovery_codes.len();
         clear.notes += usize::from(!item.notes.is_empty());
+        if cxf {
+            clear.passkeys += item.passkeys.len();
+        }
         if csv {
             clear.formula_like += [&item.password, &item.totp]
                 .iter()
@@ -860,6 +874,7 @@ mod tests {
             recovery_codes: 2,
             notes: 1,
             formula_like: 0,
+            passkeys: 0,
         };
         assert_eq!(json.in_clear, in_clear);
         assert_eq!(json.affected, ["Mail", "Shop"]);
@@ -887,6 +902,15 @@ mod tests {
             }
         );
         assert_eq!(csv.affected, ["Gmail", "Mail", "Server", "Shop", "Visa"]);
+
+        // The KeePass database keeps everything, encrypted.
+        let kdbx = report(ExportFormat::Kdbx);
+        assert!(kdbx.left_out.is_empty() && kdbx.in_clear.is_empty());
+        // The Credential Exchange document: passkeys in clear, no files or earlier passwords.
+        let cxf = report(ExportFormat::Cxf);
+        assert_eq!(cxf.in_clear.passkeys, 2);
+        assert_eq!(cxf.left_out.passkeys, 0);
+        assert_eq!(cxf.left_out.kinds_changed, 0);
     }
 
     #[test]

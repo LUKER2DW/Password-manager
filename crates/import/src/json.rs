@@ -168,9 +168,16 @@ where
     Option::deserialize(deserializer).map(Some)
 }
 
-/// Imports an unencrypted JSON export (not the encrypted variant).
+/// Imports an unencrypted JSON export (not the encrypted variant): the common layout, or a
+/// Credential Exchange document, told by its keys.
 pub(crate) fn import_json(bytes: &[u8]) -> Result<ImportReport, ImportError> {
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    if let Ok(mut document) = serde_json::from_slice::<Value>(bytes) {
+        if crate::cxf::is_cxf(&document) {
+            return crate::cxf::import_cxf(document);
+        }
+        export::wipe(&mut document);
+    }
     let export: Export = serde_json::from_slice(bytes)?;
     if export.encrypted {
         return Err(ImportError::EncryptedExport);
