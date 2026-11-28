@@ -34,16 +34,11 @@ pub const REPOSITORY: &str = "LUKER2DW/Password-manager";
 /// it ever leaks. One valid signature by either is enough. A change of keys is a release of its
 /// own, signed by a key the apps already take (docs/CODE_SIGNING.md); the test
 /// `the_trusted_keys_are_the_ones_pinned` names them by id, so none changes by accident.
-///
-// !!! STAND-INS: these two keys were made for this change and their secret halves were never
-// !!! kept (they existed in memory only), so nothing can be signed with them. They MUST be
-// !!! replaced by the maintainer's real public keys (tools/release/make-manifest-keys.ps1)
-// !!! before this is merged, or no release will ever be taken by the apps that carry them.
 pub const RELEASE_KEYS: [&str; 2] = [
-    // Primary, key id 1E22666B231AF401 (stand-in).
-    "RWQB9Boja2YiHmtUwVdU5DbeENtfiLsdbHY/IpdaUgVbwTCBC1ggAiLg",
-    // Backup, key id A1A04C844CB05E14 (stand-in).
-    "RWQUXrBMhEygoVj9D6zXZ4dk1q+26cNYMW/uaE7bnUTsCyMXEM7BDBvJ",
+    // Primary, key id E176CCB6F6ED2D5E.
+    "RWReLe32tsx24bYUvenBoZVNm003L9xbTNGaaXtyh5kDyZpELASGbiQ2",
+    // Backup, key id D1206EC499792B97.
+    "RWSXK3mZxG4g0UHPMFIxmn8I8dgQY79re11UuU/brRlNNIkGS7O6GyNM",
 ];
 
 /// The release's file that lists every other one.
@@ -1121,8 +1116,7 @@ mod tests {
     /// them): changing one fails here, so it can only be done on purpose, with this test.
     #[test]
     fn the_trusted_keys_are_the_ones_pinned() {
-        // STAND-INS (see RELEASE_KEYS): replaced with the owner's keys before merging.
-        const PINNED: [&str; 2] = ["1E22666B231AF401", "A1A04C844CB05E14"];
+        const PINNED: [&str; 2] = ["E176CCB6F6ED2D5E", "D1206EC499792B97"];
         let ids: Vec<String> = RELEASE_KEYS
             .iter()
             .map(|key| {

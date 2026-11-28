@@ -38,8 +38,8 @@ take a release signed by either one.
 
 | Key | Public key (minisign) | Key id |
 |---|---|---|
-| Primary | *pending: published here when the maintainer makes it* | — |
-| Backup | *pending* | — |
+| Primary | `RWReLe32tsx24bYUvenBoZVNm003L9xbTNGaaXtyh5kDyZpELASGbiQ2` | `E176CCB6F6ED2D5E` |
+| Backup | `RWSXK3mZxG4g0UHPMFIxmn8I8dgQY79re11UuU/brRlNNIkGS7O6GyNM` | `D1206EC499792B97` |
 
 The signed (trusted) comment of each signature is `vault-release v<version>`: a signature is
 bound to its version. The apps refuse a manifest whose version, comment and release tag don't
