@@ -199,6 +199,25 @@ pub fn format_expiry((month, year): (u32, u32)) -> String {
     format!("{month:02}/{:02}", year % 100)
 }
 
+/// This month and its four-digit year, from the system's clock (UTC), for [`is_expired`].
+pub fn this_month() -> (u32, u32) {
+    let days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() / 86_400);
+    let z = i64::try_from(days).unwrap_or(0) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    (
+        u32::try_from(month).unwrap_or(1),
+        u32::try_from(year).unwrap_or(2000),
+    )
+}
+
 /// A card is valid through the last day of its expiry month.
 pub fn is_expired((month, year): (u32, u32), (now_month, now_year): (u32, u32)) -> bool {
     (year, month) < (now_year, now_month)
