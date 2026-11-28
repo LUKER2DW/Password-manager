@@ -414,7 +414,6 @@ export global Messages {
         if (code == 92) { return @tr("The Secret Key kept on this computer couldn't be read just now ({}). Try again, or type it from your emergency kit.", detail); }
         if (code == 93) { return @tr("Tags are separated by commas: at most 32, each up to 40 characters."); }
         if (code == 144) { return @tr("The vault command can't reach this app: {}", detail); }
-        if (code == 143) { return detail == "2" ? @tr("Type a domain of yours, such as example.com, whose every address reaches you.") : @tr("Type your email address, such as you@example.com."); }
         if (code == 142) { return @tr("Type your master password: it's asked once each time the app starts. Windows Hello works after that."); }
         if (code == 94) { return @tr("Type the expiry date as year-month-day, for example 2027-03-31."); }
         if (code == 95) { return @tr("The secure desktop couldn't be shown ({}). Type the master password in the field instead.", detail); }

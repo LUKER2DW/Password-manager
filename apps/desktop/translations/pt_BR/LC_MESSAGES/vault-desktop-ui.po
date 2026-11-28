@@ -5959,6 +5959,7 @@ msgstr "A extensão do navegador preencheu um cartão"
 msgctxt "Messages"
 msgid "The browser extension filled an address"
 msgstr "A extensão do navegador preencheu um endereço"
+
 msgctxt "AppWindow"
 msgid "Auto-type into the window behind"
 msgstr "Digitar na janela de trás"
@@ -6100,6 +6101,7 @@ msgstr "Uma chave SSH assinou para um programa"
 msgctxt "Messages"
 msgid "Auto-type typed a login into “{}”"
 msgstr "A digitação automática digitou um login em “{}”"
+
 msgctxt "LargeTypeDialog"
 msgid "Password in large type"
 msgstr "Senha em letras grandes"
@@ -6367,3 +6369,31 @@ msgstr "vault run coloca segredos no ambiente de um programa (variáveis com o v
 msgctxt "SettingsPage"
 msgid "Let the vault command ask this app"
 msgstr "Deixar o comando vault pedir a este app"
+
+msgctxt "CliAskDialog"
+msgid "Allowing asks for Windows Hello first."
+msgstr "Permitir pede o Windows Hello antes."
+
+msgctxt "CliAskDialog"
+msgid "Item lock PIN"
+msgstr "PIN da trava de itens"
+
+msgctxt "CliAskDialog"
+msgid "Item lock password"
+msgstr "Senha da trava de itens"
+
+msgctxt "CliAskDialog"
+msgid "Master password"
+msgstr "Senha mestra"
+
+msgctxt "CliAskDialog"
+msgid "To allow it, confirm it's you:"
+msgstr "Para permitir, confirme que é você:"
+
+msgctxt "DetailPage"
+msgid "Enlarge password"
+msgstr "Ampliar senha"
+
+msgctxt "SettingsPage"
+msgid "Remove"
+msgstr "Remover"

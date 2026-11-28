@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: vault-desktop-ui VERSION\n"
-"POT-Creation-Date: 2026-11-28 07:25+0000\n"
+"POT-Creation-Date: 2026-11-28 08:01+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -136,12 +136,12 @@ msgctxt "AppWindow"
 msgid "Vault"
 msgstr ""
 
-#: ui/app.slint:1178
+#: ui/app.slint:1189
 msgctxt "AppWindow"
 msgid "Passwords found in a data breach"
 msgstr ""
 
-#: ui/app.slint:1181
+#: ui/app.slint:1192
 msgctxt "AppWindow"
 msgid ""
 "One of your passwords turned up in a data breach. Open Vault: the bell in "
@@ -152,154 +152,154 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/app.slint:1986
+#: ui/app.slint:2043
 msgctxt "AppWindow"
 msgid "Light"
 msgstr ""
 
-#: ui/app.slint:1986
+#: ui/app.slint:2043
 msgctxt "AppWindow"
 msgid "Standard"
 msgstr ""
 
-#: ui/app.slint:1986
+#: ui/app.slint:2043
 msgctxt "AppWindow"
 msgid "Strong"
 msgstr ""
 
-#: ui/app.slint:1986
+#: ui/app.slint:2043
 msgctxt "AppWindow"
 msgid "Maximum"
 msgstr ""
 
-#: ui/app.slint:1993
+#: ui/app.slint:2069
 msgctxt "AppWindow"
 msgid "Show your emergency kit?"
 msgstr ""
 
-#: ui/app.slint:1994
+#: ui/app.slint:2070
 msgctxt "AppWindow"
 msgid ""
 "It shows your Secret Key (and the recovery parts, right after they are "
 "issued). Make sure no one can see your screen."
 msgstr ""
 
-#: ui/app.slint:1995
+#: ui/app.slint:2071
 msgctxt "AppWindow"
 msgid "Show my kit"
 msgstr ""
 
-#: ui/app.slint:2022
+#: ui/app.slint:2098
 msgctxt "AppWindow"
 msgid "Replace the password of “{}”?"
 msgstr ""
 
-#: ui/app.slint:2023
+#: ui/app.slint:2099
 msgctxt "AppWindow"
 msgid "Remove this passkey?"
 msgstr ""
 
-#: ui/app.slint:2024
+#: ui/app.slint:2100
 msgctxt "AppWindow"
 msgid "Clear the password history?"
 msgstr ""
 
-#: ui/app.slint:2025
+#: ui/app.slint:2101
 msgctxt "AppWindow"
 msgid "Remove “{}”?"
 msgstr ""
 
-#: ui/app.slint:2026
+#: ui/app.slint:2102
 msgctxt "AppWindow"
 msgid "Remove the hidden field “{}”?"
 msgstr ""
 
-#: ui/app.slint:2027
+#: ui/app.slint:2103
 msgctxt "AppWindow"
 msgid "Clear the history of generated passwords?"
 msgstr ""
 
-#: ui/app.slint:2028
+#: ui/app.slint:2104
 msgctxt "AppWindow"
 msgid ""
 "The new password is saved in its place. The old one stays in the item's "
 "password history, in case the site didn't take the change."
 msgstr ""
 
-#: ui/app.slint:2029
+#: ui/app.slint:2105
 msgctxt "AppWindow"
 msgid ""
 "The passkey for {} is gone once you save the item. The site still expects it "
 "until you remove it in the site's security settings too."
 msgstr ""
 
-#: ui/app.slint:2030
+#: ui/app.slint:2106
 msgctxt "AppWindow"
 msgid ""
 "The site says it no longer knows the passkey for {}. It is removed from this "
 "vault now, and from your other devices at their next sync."
 msgstr ""
 
-#: ui/app.slint:2031
+#: ui/app.slint:2107
 msgctxt "AppWindow"
 msgid "Every earlier password of this item is deleted. You can't get them back."
 msgstr ""
 
-#: ui/app.slint:2032
+#: ui/app.slint:2108
 msgctxt "AppWindow"
 msgid "The file is gone once you save the item."
 msgstr ""
 
-#: ui/app.slint:2033
+#: ui/app.slint:2109
 msgctxt "AppWindow"
 msgid "Its value is gone once you save the item."
 msgstr ""
 
-#: ui/app.slint:2034
+#: ui/app.slint:2110
 msgctxt "AppWindow"
 msgid ""
 "Every password the generator made and you used is deleted from this list. "
 "The logins keep theirs."
 msgstr ""
 
-#: ui/app.slint:2035
+#: ui/app.slint:2111
 msgctxt "AppWindow"
 msgid "Replace"
 msgstr ""
 
-#: ui/app.slint:2035
+#: ui/app.slint:2111
 msgctxt "AppWindow"
 msgid "Clear"
 msgstr ""
 
-#: ui/app.slint:2035 ui/app.slint:2141
+#: ui/app.slint:2111 ui/app.slint:2217
 msgctxt "AppWindow"
 msgid "Remove"
 msgstr ""
 
-#: ui/app.slint:2044
+#: ui/app.slint:2120
 msgctxt "AppWindow"
 msgid "Issue new recovery parts?"
 msgstr ""
 
-#: ui/app.slint:2045
+#: ui/app.slint:2121
 msgctxt "AppWindow"
 msgid ""
 "The recovery parts (or Recovery Key) of your old kits will stop working. "
 "Print the new kit right after, and keep each part in a different place."
 msgstr ""
 
-#: ui/app.slint:2046
+#: ui/app.slint:2122
 msgctxt "AppWindow"
 msgid "Issue new parts"
 msgstr ""
 
-#: ui/app.slint:2059
+#: ui/app.slint:2135
 msgctxt "AppWindow"
 msgid "Renew the vault key?"
 msgstr ""
 
-#: ui/app.slint:2060
+#: ui/app.slint:2136
 msgctxt "AppWindow"
 msgid ""
 "The vault gets a new key, a new Secret Key and a new kit; the master "
@@ -309,17 +309,17 @@ msgid ""
 "Secret Key. Print the new kit right after."
 msgstr ""
 
-#: ui/app.slint:2061
+#: ui/app.slint:2137
 msgctxt "AppWindow"
 msgid "Renew the key"
 msgstr ""
 
-#: ui/app.slint:2083
+#: ui/app.slint:2159
 msgctxt "AppWindow"
 msgid "Change the unlock protection?"
 msgstr ""
 
-#: ui/app.slint:2084
+#: ui/app.slint:2160
 msgctxt "AppWindow"
 msgid ""
 "The vault's password lock is written again with {}. Your items stay as they "
@@ -327,27 +327,27 @@ msgid ""
 "per unlock. Windows Hello turns off until you turn it on again."
 msgstr ""
 
-#: ui/app.slint:2085
+#: ui/app.slint:2161
 msgctxt "AppWindow"
 msgid "Apply"
 msgstr ""
 
-#: ui/app.slint:2109
+#: ui/app.slint:2185
 msgctxt "AppWindow"
 msgid "Make a keyfile?"
 msgstr ""
 
-#: ui/app.slint:2110
+#: ui/app.slint:2186
 msgctxt "AppWindow"
 msgid "Use another file as the keyfile?"
 msgstr ""
 
-#: ui/app.slint:2111
+#: ui/app.slint:2187
 msgctxt "AppWindow"
 msgid "Remove the keyfile?"
 msgstr ""
 
-#: ui/app.slint:2112
+#: ui/app.slint:2188
 msgctxt "AppWindow"
 msgid ""
 "A new file with a random key is written where you choose, and from then on "
@@ -356,7 +356,7 @@ msgid ""
 "you turn it on again."
 msgstr ""
 
-#: ui/app.slint:2113
+#: ui/app.slint:2189
 msgctxt "AppWindow"
 msgid ""
 "Any file that never changes, not even by one byte, can be the keyfile: from "
@@ -364,54 +364,54 @@ msgid ""
 "copy apart from it. Windows Hello turns off until you turn it on again."
 msgstr ""
 
-#: ui/app.slint:2114
+#: ui/app.slint:2190
 msgctxt "AppWindow"
 msgid ""
 "The vault opens with your master password alone again. The file itself is "
 "left where it is. Windows Hello turns off until you turn it on again."
 msgstr ""
 
-#: ui/app.slint:2115
+#: ui/app.slint:2191
 msgctxt "AppWindow"
 msgid "Choose where to save it…"
 msgstr ""
 
-#: ui/app.slint:2116
+#: ui/app.slint:2192
 msgctxt "AppWindow"
 msgid "Choose the file…"
 msgstr ""
 
-#: ui/app.slint:2117
+#: ui/app.slint:2193
 msgctxt "AppWindow"
 msgid "Remove the keyfile"
 msgstr ""
 
-#: ui/app.slint:2130
+#: ui/app.slint:2206
 msgctxt "AppWindow"
 msgid "Stop syncing this vault here?"
 msgstr ""
 
-#: ui/app.slint:2131
+#: ui/app.slint:2207
 msgctxt "AppWindow"
 msgid "Remove {}?"
 msgstr ""
 
-#: ui/app.slint:2132
+#: ui/app.slint:2208
 msgctxt "AppWindow"
 msgid "Add a device?"
 msgstr ""
 
-#: ui/app.slint:2133
+#: ui/app.slint:2209
 msgctxt "AppWindow"
 msgid "Remove the backup server?"
 msgstr ""
 
-#: ui/app.slint:2134
+#: ui/app.slint:2210
 msgctxt "AppWindow"
 msgid "Disconnect the browser extension?"
 msgstr ""
 
-#: ui/app.slint:2135
+#: ui/app.slint:2211
 msgctxt "AppWindow"
 msgid ""
 "This computer stops syncing and forgets its key for the server (or the "
@@ -419,7 +419,7 @@ msgid ""
 "syncing. You can join again later."
 msgstr ""
 
-#: ui/app.slint:2136
+#: ui/app.slint:2212
 msgctxt "AppWindow"
 msgid ""
 "It leaves the vault's list of devices: every device refuses its copies from "
@@ -428,7 +428,7 @@ msgid ""
 "can join again later as a new device, with a new invite."
 msgstr ""
 
-#: ui/app.slint:2137
+#: ui/app.slint:2213
 msgctxt "AppWindow"
 msgid ""
 "The server makes an invite that works once, for an hour: a QR code to scan "
@@ -437,260 +437,260 @@ msgid ""
 "password and Secret Key."
 msgstr ""
 
-#: ui/app.slint:2138
+#: ui/app.slint:2214
 msgctxt "AppWindow"
 msgid ""
 "This computer stops syncing through it and forgets its key there. Its copy "
 "there is left, and the main place goes on as before."
 msgstr ""
 
-#: ui/app.slint:2139
+#: ui/app.slint:2215
 msgctxt "AppWindow"
 msgid ""
 "It can't ask for logins any more until it is connected again, which asks for "
 "the master password and the code its window shows."
 msgstr ""
 
-#: ui/app.slint:2140
+#: ui/app.slint:2216
 msgctxt "AppWindow"
 msgid "Stop syncing"
 msgstr ""
 
-#: ui/app.slint:2142
+#: ui/app.slint:2218
 msgctxt "AppWindow"
 msgid "Make an invite"
 msgstr ""
 
-#: ui/app.slint:2143
+#: ui/app.slint:2219
 msgctxt "AppWindow"
 msgid "Remove the backup"
 msgstr ""
 
-#: ui/app.slint:2144
+#: ui/app.slint:2220
 msgctxt "AppWindow"
 msgid "Disconnect"
 msgstr ""
 
-#: ui/app.slint:2234
+#: ui/app.slint:2310
 msgctxt "AppWindow"
 msgid "Open"
 msgstr ""
 
-#: ui/app.slint:2239
+#: ui/app.slint:2315
 msgctxt "AppWindow"
 msgid "Folder settings…"
 msgstr ""
 
-#: ui/app.slint:2245
+#: ui/app.slint:2321
 msgctxt "AppWindow"
 msgid "Move up"
 msgstr ""
 
-#: ui/app.slint:2251
+#: ui/app.slint:2327
 msgctxt "AppWindow"
 msgid "Move down"
 msgstr ""
 
-#: ui/app.slint:2258
+#: ui/app.slint:2334
 msgctxt "AppWindow"
 msgid "Delete folder…"
 msgstr ""
 
-#: ui/app.slint:2274
+#: ui/app.slint:2350
 msgctxt "AppWindow"
 msgid "Copy name on card"
 msgstr ""
 
-#: ui/app.slint:2274
+#: ui/app.slint:2350
 msgctxt "AppWindow"
 msgid "Copy username"
 msgstr ""
 
-#: ui/app.slint:2280
+#: ui/app.slint:2356
 msgctxt "AppWindow"
 msgid "Copy PIN"
 msgstr ""
 
-#: ui/app.slint:2280
+#: ui/app.slint:2356
 msgctxt "AppWindow"
 msgid "Copy password"
 msgstr ""
 
-#: ui/app.slint:2286
+#: ui/app.slint:2362
 msgctxt "AppWindow"
 msgid "Auto-type into the window behind"
 msgstr ""
 
-#: ui/app.slint:2292
+#: ui/app.slint:2368
 msgctxt "AppWindow"
 msgid "Copy one-time code"
 msgstr ""
 
-#: ui/app.slint:2298
+#: ui/app.slint:2374
 msgctxt "AppWindow"
 msgid "Open website"
 msgstr ""
 
-#: ui/app.slint:2305
+#: ui/app.slint:2381
 msgctxt "AppWindow"
 msgid "Edit"
 msgstr ""
 
-#: ui/app.slint:2311
+#: ui/app.slint:2387
 msgctxt "AppWindow"
 msgid "Remove from favorites"
 msgstr ""
 
-#: ui/app.slint:2311
+#: ui/app.slint:2387
 msgctxt "AppWindow"
 msgid "Add to favorites"
 msgstr ""
 
-#: ui/app.slint:2317
+#: ui/app.slint:2393
 msgctxt "AppWindow"
 msgid "Delete…"
 msgstr ""
 
-#: ui/app.slint:2329
+#: ui/app.slint:2405
 msgctxt "AppWindow"
 msgid "Version {} is installed. Restart now?"
 msgstr ""
 
-#: ui/app.slint:2331
+#: ui/app.slint:2407
 msgctxt "AppWindow"
 msgid ""
 "Vault locks first, exactly as Lock now does, and opens again in the new "
 "version. Later, nothing changes until the next start."
 msgstr ""
 
-#: ui/app.slint:2332
+#: ui/app.slint:2408
 msgctxt "AppWindow"
 msgid ""
 "Vault opens again in the new version. Later, nothing changes until the next "
 "start."
 msgstr ""
 
-#: ui/app.slint:2333
+#: ui/app.slint:2409
 msgctxt "AppWindow"
 msgid "Restart"
 msgstr ""
 
-#: ui/app.slint:2334
+#: ui/app.slint:2410
 msgctxt "AppWindow"
 msgid "Later"
 msgstr ""
 
-#: ui/app.slint:2412
+#: ui/app.slint:2488
 msgctxt "AppWindow"
 msgid "Vaults on this computer"
 msgstr ""
 
-#: ui/app.slint:2452
+#: ui/app.slint:2528
 msgctxt "AppWindow"
 msgid "Not found: {}"
 msgstr ""
 
-#: ui/app.slint:2485
+#: ui/app.slint:2561
 msgctxt "AppWindow"
 msgid "Open a vault file…"
 msgstr ""
 
-#: ui/app.slint:2493
+#: ui/app.slint:2569
 msgctxt "AppWindow"
 msgid "New vault…"
 msgstr ""
 
-#: ui/app.slint:2502
+#: ui/app.slint:2578
 msgctxt "AppWindow"
 msgid "Icon on this computer…"
 msgstr ""
 
-#: ui/app.slint:2532
+#: ui/app.slint:2608
 msgctxt "AppWindow"
 msgid "Alerts"
 msgstr ""
 
-#: ui/app.slint:2546
+#: ui/app.slint:2622
 msgctxt "AppWindow"
 msgid "Mark as read"
 msgstr ""
 
-#: ui/app.slint:2562
+#: ui/app.slint:2638
 msgctxt "AppWindow"
 msgid "{n} password found in leaks"
 msgid_plural "{n} passwords found in leaks"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/app.slint:2563
+#: ui/app.slint:2639
 msgctxt "AppWindow"
 msgid "Change it on its site first, then here."
 msgstr ""
 
-#: ui/app.slint:2569
+#: ui/app.slint:2645
 msgctxt "AppWindow"
 msgid "Sync failed"
 msgstr ""
 
-#: ui/app.slint:2570
+#: ui/app.slint:2646
 msgctxt "AppWindow"
 msgid "Settings → Sync says why."
 msgstr ""
 
-#: ui/app.slint:2576
+#: ui/app.slint:2652
 msgctxt "AppWindow"
 msgid "The vault key was renewed on another device"
 msgstr ""
 
-#: ui/app.slint:2577
+#: ui/app.slint:2653
 msgctxt "AppWindow"
 msgid "Settings → Sync takes the new one."
 msgstr ""
 
-#: ui/app.slint:2583
+#: ui/app.slint:2659
 msgctxt "AppWindow"
 msgid "{n} weak password"
 msgid_plural "{n} weak passwords"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/app.slint:2584
+#: ui/app.slint:2660
 msgctxt "AppWindow"
 msgid "Easy to guess: the generator makes strong ones."
 msgstr ""
 
-#: ui/app.slint:2590
+#: ui/app.slint:2666
 msgctxt "AppWindow"
 msgid "{n} password used more than once"
 msgid_plural "{n} passwords used more than once"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/app.slint:2591
+#: ui/app.slint:2667
 msgctxt "AppWindow"
 msgid "One leak opens every site that shares it."
 msgstr ""
 
-#: ui/app.slint:2597
+#: ui/app.slint:2673
 msgctxt "AppWindow"
 msgid "{n} card expired"
 msgid_plural "{n} cards expired"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/app.slint:2598
+#: ui/app.slint:2674
 msgctxt "AppWindow"
 msgid "Put in its new date, or delete it."
 msgstr ""
 
-#: ui/app.slint:2604
+#: ui/app.slint:2680
 msgctxt "AppWindow"
 msgid "{n} change waits for the item lock"
 msgid_plural "{n} changes wait for the item lock"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/app.slint:2605
+#: ui/app.slint:2681
 msgctxt "AppWindow"
 msgid "Settings → Sync: open the item lock to let them in."
 msgstr ""
@@ -1019,100 +1019,125 @@ msgctxt "DialogButtons"
 msgid "Cancel"
 msgstr ""
 
-#: ui/dialogs.slint:511
+#: ui/dialogs.slint:614
 msgctxt "LargeTypeDialog"
 msgid "Password in large type"
 msgstr ""
 
-#: ui/dialogs.slint:517
+#: ui/dialogs.slint:620
 msgctxt "LargeTypeDialog"
 msgid "hides in {} s"
 msgstr ""
 
-#: ui/dialogs.slint:537
+#: ui/dialogs.slint:640
 msgctxt "LargeTypeDialog"
 msgid "Character {}"
 msgstr ""
 
-#: ui/dialogs.slint:561
+#: ui/dialogs.slint:664
 msgctxt "LargeTypeDialog"
 msgid "letters"
 msgstr ""
 
-#: ui/dialogs.slint:566
+#: ui/dialogs.slint:669
 msgctxt "LargeTypeDialog"
 msgid "digits"
 msgstr ""
 
-#: ui/dialogs.slint:571
+#: ui/dialogs.slint:674
 msgctxt "LargeTypeDialog"
 msgid "symbols"
 msgstr ""
 
-#: ui/dialogs.slint:576
+#: ui/dialogs.slint:679
 msgctxt "LargeTypeDialog"
 msgid "space"
 msgstr ""
 
-#: ui/dialogs.slint:582
+#: ui/dialogs.slint:685
 msgctxt "LargeTypeDialog"
 msgid "Close"
 msgstr ""
 
-#: ui/dialogs.slint:599
+#: ui/dialogs.slint:709
 msgctxt "CliAskDialog"
 msgid "A program asks for secrets"
 msgstr ""
 
-#: ui/dialogs.slint:605
+#: ui/dialogs.slint:715
 msgctxt "CliAskDialog"
 msgid "The vault command, to {}:"
 msgstr ""
 
-#: ui/dialogs.slint:621
+#: ui/dialogs.slint:731
 msgctxt "CliAskDialog"
 msgid "Program: {}"
 msgstr ""
 
-#: ui/dialogs.slint:627
+#: ui/dialogs.slint:737
 msgctxt "CliAskDialog"
 msgid ""
 "Allow it only if you just ran it. What you allow is handed to that program, "
 "which may keep it."
 msgstr ""
 
-#: ui/dialogs.slint:636
+#: ui/dialogs.slint:743
+msgctxt "CliAskDialog"
+msgid "Allowing asks for Windows Hello first."
+msgstr ""
+
+#: ui/dialogs.slint:743
+msgctxt "CliAskDialog"
+msgid "To allow it, confirm it's you:"
+msgstr ""
+
+#: ui/dialogs.slint:750
+msgctxt "CliAskDialog"
+msgid "Item lock PIN"
+msgstr ""
+
+#: ui/dialogs.slint:750
+msgctxt "CliAskDialog"
+msgid "Item lock password"
+msgstr ""
+
+#: ui/dialogs.slint:750
+msgctxt "CliAskDialog"
+msgid "Master password"
+msgstr ""
+
+#: ui/dialogs.slint:766
 msgctxt "CliAskDialog"
 msgid "Deny"
 msgstr ""
 
-#: ui/dialogs.slint:641
+#: ui/dialogs.slint:771
 msgctxt "CliAskDialog"
 msgid "Allow for 10 minutes"
 msgstr ""
 
-#: ui/dialogs.slint:646
+#: ui/dialogs.slint:777
 msgctxt "CliAskDialog"
 msgid "Allow once"
 msgstr ""
 
 #. The button that leaves it as it is.
-#: ui/dialogs.slint:602
+#: ui/dialogs.slint:789
 msgctxt "ConfirmDialog"
 msgid "Cancel"
 msgstr ""
 
-#: ui/dialogs.slint:629
+#: ui/dialogs.slint:816
 msgctxt "ConfirmDialog"
 msgid "Master password"
 msgstr ""
 
-#: ui/dialogs.slint:659
+#: ui/dialogs.slint:846
 msgctxt "TakeKeyDialog"
 msgid "Use the renewed vault key"
 msgstr ""
 
-#: ui/dialogs.slint:664
+#: ui/dialogs.slint:851
 msgctxt "TakeKeyDialog"
 msgid ""
 "Another device renewed the vault key and printed a new kit. Type the Secret "
@@ -1120,32 +1145,32 @@ msgid ""
 "new key and syncs again. Windows Hello turns off until you turn it on again."
 msgstr ""
 
-#: ui/dialogs.slint:671
+#: ui/dialogs.slint:858
 msgctxt "TakeKeyDialog"
 msgid "New Secret Key"
 msgstr ""
 
-#: ui/dialogs.slint:682
+#: ui/dialogs.slint:869
 msgctxt "TakeKeyDialog"
 msgid "Master password"
 msgstr ""
 
-#: ui/dialogs.slint:690
+#: ui/dialogs.slint:877
 msgctxt "TakeKeyDialog"
 msgid "Use the new key"
 msgstr ""
 
-#: ui/dialogs.slint:691
+#: ui/dialogs.slint:878
 msgctxt "TakeKeyDialog"
 msgid "Working…"
 msgstr ""
 
-#: ui/dialogs.slint:709
+#: ui/dialogs.slint:896
 msgctxt "MasterPasswordDialog"
 msgid "Change the master password"
 msgstr ""
 
-#: ui/dialogs.slint:714
+#: ui/dialogs.slint:901
 msgctxt "MasterPasswordDialog"
 msgid ""
 "Your items, Secret Key and recovery parts stay the same. Your other devices "
@@ -1153,51 +1178,51 @@ msgid ""
 "Hello turns off until you turn it on again."
 msgstr ""
 
-#: ui/dialogs.slint:722
+#: ui/dialogs.slint:909
 msgctxt "MasterPasswordDialog"
 msgid "Current master password"
 msgstr ""
 
-#: ui/dialogs.slint:731
+#: ui/dialogs.slint:918
 msgctxt "MasterPasswordDialog"
 msgid "New master password"
 msgstr ""
 
-#: ui/dialogs.slint:738
+#: ui/dialogs.slint:925
 msgctxt "MasterPasswordDialog"
 msgid "Type it again"
 msgstr ""
 
-#: ui/dialogs.slint:747
+#: ui/dialogs.slint:934
 msgctxt "MasterPasswordDialog"
 msgid "Change master password"
 msgstr ""
 
-#: ui/dialogs.slint:748
+#: ui/dialogs.slint:935
 msgctxt "MasterPasswordDialog"
 msgid "Working…"
 msgstr ""
 
-#: ui/dialogs.slint:771
+#: ui/dialogs.slint:958
 msgctxt "ItemLockDialog"
 msgid "Save the item lock?"
 msgstr ""
 
-#: ui/dialogs.slint:776
+#: ui/dialogs.slint:963
 msgctxt "ItemLockDialog"
 msgid ""
 "The master password is asked before a locked item's secrets show. Nothing "
 "extra is encrypted."
 msgstr ""
 
-#: ui/dialogs.slint:777
+#: ui/dialogs.slint:964
 msgctxt "ItemLockDialog"
 msgid ""
 "A PIN opens locked items, and their secrets are encrypted with a key only it "
 "opens. Forget both it and your master password, and they can't be recovered."
 msgstr ""
 
-#: ui/dialogs.slint:778
+#: ui/dialogs.slint:965
 msgctxt "ItemLockDialog"
 msgid ""
 "A password of its own opens locked items, and their secrets are encrypted "
@@ -1205,57 +1230,57 @@ msgid ""
 "can't be recovered."
 msgstr ""
 
-#: ui/dialogs.slint:779
+#: ui/dialogs.slint:966
 msgctxt "ItemLockDialog"
 msgid "Every item is locked."
 msgstr ""
 
-#: ui/dialogs.slint:779
+#: ui/dialogs.slint:966
 msgctxt "ItemLockDialog"
 msgid "Only items marked “Lock this item's secrets” are locked."
 msgstr ""
 
-#: ui/dialogs.slint:788
+#: ui/dialogs.slint:975
 msgctxt "ItemLockDialog"
 msgid "New PIN (leave empty to keep the current one)"
 msgstr ""
 
-#: ui/dialogs.slint:788
+#: ui/dialogs.slint:975
 msgctxt "ItemLockDialog"
 msgid "PIN: 4 to 8 digits"
 msgstr ""
 
-#: ui/dialogs.slint:789
+#: ui/dialogs.slint:976
 msgctxt "ItemLockDialog"
 msgid "New item password (leave empty to keep the current one)"
 msgstr ""
 
-#: ui/dialogs.slint:789
+#: ui/dialogs.slint:976
 msgctxt "ItemLockDialog"
 msgid "Item password: at least 6 characters"
 msgstr ""
 
-#: ui/dialogs.slint:799
+#: ui/dialogs.slint:986
 msgctxt "ItemLockDialog"
 msgid "Current master password"
 msgstr ""
 
-#: ui/dialogs.slint:807
+#: ui/dialogs.slint:994
 msgctxt "ItemLockDialog"
 msgid "Save item lock"
 msgstr ""
 
-#: ui/dialogs.slint:808
+#: ui/dialogs.slint:995
 msgctxt "ItemLockDialog"
 msgid "Working…"
 msgstr ""
 
-#: ui/dialogs.slint:834
+#: ui/dialogs.slint:1021
 msgctxt "ServerJoinDialog"
 msgid "Sync through your vault server"
 msgstr ""
 
-#: ui/dialogs.slint:839
+#: ui/dialogs.slint:1026
 msgctxt "ServerJoinDialog"
 msgid ""
 "The server gets only sealed copies of the vault and this computer's public "
@@ -1264,68 +1289,68 @@ msgid ""
 "and the invite. Or type them apart."
 msgstr ""
 
-#: ui/dialogs.slint:845
+#: ui/dialogs.slint:1032
 msgctxt "ServerJoinDialog"
 msgid "Server address, or the whole vaultsync: line"
 msgstr ""
 
-#: ui/dialogs.slint:849
+#: ui/dialogs.slint:1036
 msgctxt "ServerJoinDialog"
 msgid ""
 "Where your vault-server answers: https://, or http:// with a Tailscale "
 "address (100.x.y.z)."
 msgstr ""
 
-#: ui/dialogs.slint:853
+#: ui/dialogs.slint:1040
 msgctxt "ServerJoinDialog"
 msgid "Certificate pin (only for the server's own HTTPS)"
 msgstr ""
 
-#: ui/dialogs.slint:856
+#: ui/dialogs.slint:1043
 msgctxt "ServerJoinDialog"
 msgid "Leave empty behind Tailscale or a domain"
 msgstr ""
 
-#: ui/dialogs.slint:858
+#: ui/dialogs.slint:1045
 msgctxt "ServerJoinDialog"
 msgid ""
 "vault-server serve --tls prints it after pin=: 64 letters and digits. With "
 "it this computer trusts that server's certificate and no other."
 msgstr ""
 
-#: ui/dialogs.slint:861
+#: ui/dialogs.slint:1048
 msgctxt "ServerJoinDialog"
 msgid "Invite"
 msgstr ""
 
-#: ui/dialogs.slint:865
+#: ui/dialogs.slint:1052
 msgctxt "ServerJoinDialog"
 msgid ""
 "The 32 letters and digits from vault-server invite, or a whole vaultsync: "
 "line. It works once, and it doesn't open the vault."
 msgstr ""
 
-#: ui/dialogs.slint:870
+#: ui/dialogs.slint:1057
 msgctxt "ServerJoinDialog"
 msgid "Join"
 msgstr ""
 
-#: ui/dialogs.slint:871
+#: ui/dialogs.slint:1058
 msgctxt "ServerJoinDialog"
 msgid "Joining…"
 msgstr ""
 
-#: ui/dialogs.slint:892
+#: ui/dialogs.slint:1079
 msgctxt "ServerAddressDialog"
 msgid "The backup server's address"
 msgstr ""
 
-#: ui/dialogs.slint:892
+#: ui/dialogs.slint:1079
 msgctxt "ServerAddressDialog"
 msgid "The server's address"
 msgstr ""
 
-#: ui/dialogs.slint:897
+#: ui/dialogs.slint:1084
 msgctxt "ServerAddressDialog"
 msgid ""
 "For the same server reached another way: it moved to another computer with "
@@ -1335,22 +1360,22 @@ msgid ""
 "an invite."
 msgstr ""
 
-#: ui/dialogs.slint:903
+#: ui/dialogs.slint:1090
 msgctxt "ServerAddressDialog"
 msgid "Server address"
 msgstr ""
 
-#: ui/dialogs.slint:910
+#: ui/dialogs.slint:1097
 msgctxt "ServerAddressDialog"
 msgid "Certificate pin (only for the server's own HTTPS)"
 msgstr ""
 
-#: ui/dialogs.slint:913
+#: ui/dialogs.slint:1100
 msgctxt "ServerAddressDialog"
 msgid "Leave empty behind Tailscale or a domain"
 msgstr ""
 
-#: ui/dialogs.slint:915
+#: ui/dialogs.slint:1102
 msgctxt "ServerAddressDialog"
 msgid ""
 "vault-server serve --tls prints it after pin=: 64 letters and digits. Keep "
@@ -1358,34 +1383,34 @@ msgid ""
 "server is now reached through Tailscale or a domain."
 msgstr ""
 
-#: ui/dialogs.slint:920
+#: ui/dialogs.slint:1107
 msgctxt "ServerAddressDialog"
 msgid "Save the address"
 msgstr ""
 
-#: ui/dialogs.slint:921
+#: ui/dialogs.slint:1108
 msgctxt "ServerAddressDialog"
 msgid "Checking…"
 msgstr ""
 
 JSON and CSV alike hold every item's password (a note's, a card's PIN, an 
 SSH key).
-#: ui/dialogs.slint:956
+#: ui/dialogs.slint:1143
 msgctxt "ExportDialog"
 msgid "Save a protected export?"
 msgstr ""
 
-#: ui/dialogs.slint:957
+#: ui/dialogs.slint:1144
 msgctxt "ExportDialog"
 msgid "Save a KeePass database?"
 msgstr ""
 
-#: ui/dialogs.slint:958
+#: ui/dialogs.slint:1145
 msgctxt "ExportDialog"
 msgid "Export every password unencrypted?"
 msgstr ""
 
-#: ui/dialogs.slint:965
+#: ui/dialogs.slint:1152
 msgctxt "ExportDialog"
 msgid ""
 "Every item in one file, attached files and passkeys included, encrypted with "
@@ -1394,7 +1419,7 @@ msgid ""
 "another computer; without that password nobody can, you included."
 msgstr ""
 
-#: ui/dialogs.slint:967
+#: ui/dialogs.slint:1154
 msgctxt "ExportDialog"
 msgid ""
 "Every item in a KeePass database (KDBX 4), attached files and passkeys "
@@ -1403,7 +1428,7 @@ msgid ""
 "make the password long."
 msgstr ""
 
-#: ui/dialogs.slint:969
+#: ui/dialogs.slint:1156
 msgctxt "ExportDialog"
 msgid ""
 "The file holds the passwords and your passkeys' private keys in plain text: "
@@ -1411,7 +1436,7 @@ msgid ""
 "other password manager right away, then delete it."
 msgstr ""
 
-#: ui/dialogs.slint:970
+#: ui/dialogs.slint:1157
 msgctxt "ExportDialog"
 msgid ""
 "The file holds the passwords in plain text: anyone or any program that gets "
@@ -1419,24 +1444,24 @@ msgid ""
 "move to another password manager, then delete it."
 msgstr ""
 
-#: ui/dialogs.slint:984
+#: ui/dialogs.slint:1171
 msgctxt "ExportDialog"
 msgid ""
 "This was counted again: locked items could be opened, or the vault changed. "
 "Choose Export… again to make the file."
 msgstr ""
 
-#: ui/dialogs.slint:993
+#: ui/dialogs.slint:1180
 msgctxt "ExportDialog"
 msgid "Master password"
 msgstr ""
 
-#: ui/dialogs.slint:1005
+#: ui/dialogs.slint:1192
 msgctxt "ExportDialog"
 msgid "Password for this file"
 msgstr ""
 
-#: ui/dialogs.slint:1006
+#: ui/dialogs.slint:1193
 msgctxt "ExportDialog"
 msgid ""
 "It alone guards the file: whoever gets the file can try guesses for as long "
@@ -1444,86 +1469,86 @@ msgid ""
 "are not."
 msgstr ""
 
-#: ui/dialogs.slint:1013
+#: ui/dialogs.slint:1200
 msgctxt "ExportDialog"
 msgid "Type it again"
 msgstr ""
 
-#: ui/dialogs.slint:1023
+#: ui/dialogs.slint:1210
 msgctxt "ExportDialog"
 msgid "Use a generated passphrase"
 msgstr ""
 
-#: ui/dialogs.slint:1034
+#: ui/dialogs.slint:1221
 msgctxt "ExportDialog"
 msgid "Add a keyfile…"
 msgstr ""
 
-#: ui/dialogs.slint:1034
+#: ui/dialogs.slint:1221
 msgctxt "ExportDialog"
 msgid "Keyfile: {}"
 msgstr ""
 
-#: ui/dialogs.slint:1038
+#: ui/dialogs.slint:1225
 msgctxt "ExportDialog"
 msgid "No keyfile"
 msgstr ""
 
-#: ui/dialogs.slint:1044
+#: ui/dialogs.slint:1231
 msgctxt "ExportDialog"
 msgid "Export…"
 msgstr ""
 
-#: ui/dialogs.slint:1064
+#: ui/dialogs.slint:1251
 msgctxt "WebDavDialog"
 msgid "Sync through WebDAV"
 msgstr ""
 
-#: ui/dialogs.slint:1069
+#: ui/dialogs.slint:1256
 msgctxt "WebDavDialog"
 msgid ""
 "A folder on your WebDAV host (Nextcloud, a NAS). The vault's sealed copies "
 "go in a folder of their own inside it."
 msgstr ""
 
-#: ui/dialogs.slint:1075
+#: ui/dialogs.slint:1262
 msgctxt "WebDavDialog"
 msgid "WebDAV address"
 msgstr ""
 
-#: ui/dialogs.slint:1082
+#: ui/dialogs.slint:1269
 msgctxt "WebDavDialog"
 msgid "User name"
 msgstr ""
 
-#: ui/dialogs.slint:1089
+#: ui/dialogs.slint:1276
 msgctxt "WebDavDialog"
 msgid "Password"
 msgstr ""
 
-#: ui/dialogs.slint:1090
+#: ui/dialogs.slint:1277
 msgctxt "WebDavDialog"
 msgid ""
 "Kept in Windows Credential Manager on this computer, never in the vault. An "
 "app password from your host is better than your account's own."
 msgstr ""
 
-#: ui/dialogs.slint:1095
+#: ui/dialogs.slint:1282
 msgctxt "WebDavDialog"
 msgid "Connect"
 msgstr ""
 
-#: ui/dialogs.slint:1096
+#: ui/dialogs.slint:1283
 msgctxt "WebDavDialog"
 msgid "Connecting…"
 msgstr ""
 
-#: ui/dialogs.slint:1115
+#: ui/dialogs.slint:1302
 msgctxt "BackupServerDialog"
 msgid "Add a backup server"
 msgstr ""
 
-#: ui/dialogs.slint:1120
+#: ui/dialogs.slint:1307
 msgctxt "BackupServerDialog"
 msgid ""
 "A second server keeps a copy too. While the main one is down the vault syncs "
@@ -1531,12 +1556,12 @@ msgid ""
 "server run vault-server invite, then give its address and the invite here."
 msgstr ""
 
-#: ui/dialogs.slint:1126
+#: ui/dialogs.slint:1313
 msgctxt "BackupServerDialog"
 msgid "Backup server address"
 msgstr ""
 
-#: ui/dialogs.slint:1130
+#: ui/dialogs.slint:1317
 msgctxt "BackupServerDialog"
 msgid ""
 "Where the second vault-server answers: https://, http:// with a Tailscale "
@@ -1544,90 +1569,90 @@ msgid ""
 "its #pin= part."
 msgstr ""
 
-#: ui/dialogs.slint:1134
+#: ui/dialogs.slint:1321
 msgctxt "BackupServerDialog"
 msgid "Invite"
 msgstr ""
 
-#: ui/dialogs.slint:1138
+#: ui/dialogs.slint:1325
 msgctxt "BackupServerDialog"
 msgid ""
 "The 32 letters and digits from vault-server invite on the backup server, or "
 "a vaultsync: line from it. It works once, and it doesn't open the vault."
 msgstr ""
 
-#: ui/dialogs.slint:1143
+#: ui/dialogs.slint:1330
 msgctxt "BackupServerDialog"
 msgid "Join the backup server"
 msgstr ""
 
-#: ui/dialogs.slint:1144
+#: ui/dialogs.slint:1331
 msgctxt "BackupServerDialog"
 msgid "Joining…"
 msgstr ""
 
-#: ui/dialogs.slint:1192
+#: ui/dialogs.slint:1379
 msgctxt "ExtensionStepsDialog"
 msgid "Add the extension to {}"
 msgstr ""
 
-#: ui/dialogs.slint:1198
+#: ui/dialogs.slint:1385
 msgctxt "ExtensionStepsDialog"
 msgid "{} opened on its extensions page, {}, and the folder's path is copied."
 msgstr ""
 
-#: ui/dialogs.slint:1199
+#: ui/dialogs.slint:1386
 msgctxt "ExtensionStepsDialog"
 msgid "{} opened on its extensions page, {}."
 msgstr ""
 
-#: ui/dialogs.slint:1200
+#: ui/dialogs.slint:1387
 msgctxt "ExtensionStepsDialog"
 msgid "Open {} in {}. The folder's path is copied."
 msgstr ""
 
-#: ui/dialogs.slint:1201
+#: ui/dialogs.slint:1388
 msgctxt "ExtensionStepsDialog"
 msgid "Open {} in {}."
 msgstr ""
 
-#: ui/dialogs.slint:1208
+#: ui/dialogs.slint:1395
 msgctxt "ExtensionStepsDialog"
 msgid "Choose “Load Temporary Add-on…”."
 msgstr ""
 
-#: ui/dialogs.slint:1208
+#: ui/dialogs.slint:1395
 msgctxt "ExtensionStepsDialog"
 msgid "Turn on “Developer mode”, a switch at the top of the page."
 msgstr ""
 
-#: ui/dialogs.slint:1212
+#: ui/dialogs.slint:1399
 msgctxt "ExtensionStepsDialog"
 msgid ""
 "Paste the folder's path into the file box (Ctrl+V), press Enter, then pick "
 "manifest.json."
 msgstr ""
 
-#: ui/dialogs.slint:1213
+#: ui/dialogs.slint:1400
 msgctxt "ExtensionStepsDialog"
 msgid ""
 "Choose “Load unpacked”, paste the folder's path into the folder box "
 "(Ctrl+V) and choose “Select Folder”."
 msgstr ""
 
-#: ui/dialogs.slint:1217
+#: ui/dialogs.slint:1404
 msgctxt "ExtensionStepsDialog"
 msgid "Pin the extension to the toolbar, open it and choose Connect."
 msgstr ""
 
-#: ui/dialogs.slint:1218
+#: ui/dialogs.slint:1405
 msgctxt "ExtensionStepsDialog"
 msgid ""
 "Turn on “Let the browser extension connect to this app” on this page, "
 "then pin the extension to the toolbar, open it and choose Connect."
 msgstr ""
 
-#: ui/dialogs.slint:1238
+#: ui/dialogs.slint:1425
 msgctxt "ExtensionStepsDialog"
 msgid ""
 "Firefox keeps an add-on loaded this way only until it closes: one that stays "
@@ -1635,29 +1660,29 @@ msgid ""
 "Firefox restarts."
 msgstr ""
 
-#: ui/dialogs.slint:1239
+#: ui/dialogs.slint:1426
 msgctxt "ExtensionStepsDialog"
 msgid ""
 "Leave the folder where it is: Vault writes each new version of the extension "
 "into it, and the extension reloads itself to take it."
 msgstr ""
 
-#: ui/dialogs.slint:1251
+#: ui/dialogs.slint:1438
 msgctxt "ExtensionStepsDialog"
 msgid "Open the folder"
 msgstr ""
 
-#: ui/dialogs.slint:1256
+#: ui/dialogs.slint:1443
 msgctxt "ExtensionStepsDialog"
 msgid "Done"
 msgstr ""
 
-#: ui/dialogs.slint:1270
+#: ui/dialogs.slint:1457
 msgctxt "InviteDialog"
 msgid "Add a device"
 msgstr ""
 
-#: ui/dialogs.slint:1292
+#: ui/dialogs.slint:1479
 msgctxt "InviteDialog"
 msgid ""
 "Scan this on the phone, or paste the line below into Invite on the other "
@@ -1665,7 +1690,7 @@ msgid ""
 "takes your master password and Secret Key."
 msgstr ""
 
-#: ui/dialogs.slint:1309
+#: ui/dialogs.slint:1496
 msgctxt "InviteDialog"
 msgid "Done"
 msgstr ""
@@ -1780,12 +1805,12 @@ msgid ""
 "or opens it while you're away from the computer, sees nothing without it."
 msgstr ""
 
-#: ui/model.slint:239
+#: ui/model.slint:256
 msgctxt "Messages"
 msgid "Master password"
 msgstr ""
 
-#: ui/model.slint:240
+#: ui/model.slint:257
 msgctxt "Messages"
 msgid ""
 "Vault switched to a desktop of its own, where other programs can't see the "
@@ -1793,351 +1818,351 @@ msgid ""
 "back right after."
 msgstr ""
 
-#: ui/model.slint:241
+#: ui/model.slint:258
 msgctxt "Messages"
 msgid ""
 "Enter unlocks · Esc goes back without unlocking · after 2 minutes it goes "
 "back by itself"
 msgstr ""
 
-#: ui/model.slint:247
+#: ui/model.slint:264
 msgctxt "Messages"
 msgid ""
 "An entry that couldn't be read: it was altered, or written with another key"
 msgstr ""
 
-#: ui/model.slint:248
+#: ui/model.slint:265
 msgctxt "Messages"
 msgid "Unlocked without the master password (Windows Hello or fingerprint)"
 msgstr ""
 
-#: ui/model.slint:249
+#: ui/model.slint:266
 msgctxt "Messages"
 msgid ""
 "Unlocked with the emergency kit's recovery parts, and a new master password "
 "set"
 msgstr ""
 
-#: ui/model.slint:250
+#: ui/model.slint:267
 msgctxt "Messages"
 msgid "Unlocked with the master password"
 msgstr ""
 
-#: ui/model.slint:251
+#: ui/model.slint:268
 msgctxt "Messages"
 msgid "An unlock without the master password failed"
 msgstr ""
 
-#: ui/model.slint:252
+#: ui/model.slint:269
 msgctxt "Messages"
 msgid "Recovery with the emergency kit failed: wrong parts"
 msgstr ""
 
-#: ui/model.slint:253
+#: ui/model.slint:270
 msgctxt "Messages"
 msgid "A wrong master password was typed"
 msgstr ""
 
-#: ui/model.slint:254
+#: ui/model.slint:271
 msgctxt "Messages"
 msgid "The browser extension filled a login"
 msgstr ""
 
-#: ui/model.slint:255
+#: ui/model.slint:272
 msgctxt "Messages"
 msgid "The browser extension had a password copied"
 msgstr ""
 
-#: ui/model.slint:256
+#: ui/model.slint:273
 msgctxt "Messages"
 msgid "The browser extension had a username copied"
 msgstr ""
 
-#: ui/model.slint:257
+#: ui/model.slint:274
 msgctxt "Messages"
 msgid "The browser extension was given a one-time code"
 msgstr ""
 
-#: ui/model.slint:258
+#: ui/model.slint:275
 msgctxt "Messages"
 msgid "The browser extension signed in with a passkey"
 msgstr ""
 
-#: ui/model.slint:259
+#: ui/model.slint:276
 msgctxt "Messages"
 msgid "The browser extension filled a card"
 msgstr ""
 
-#: ui/model.slint:260
+#: ui/model.slint:277
 msgctxt "Messages"
 msgid "The browser extension filled an address"
 msgstr ""
 
-#: ui/model.slint:261
+#: ui/model.slint:278
 msgctxt "Messages"
 msgid "The browser extension showed a password in its window"
 msgstr ""
 
-#: ui/model.slint:262
+#: ui/model.slint:279
 msgctxt "Messages"
 msgid "The browser extension was given an item's details"
 msgstr ""
 
-#: ui/model.slint:263
+#: ui/model.slint:280
 msgctxt "Messages"
 msgid "The browser extension changed a login's password"
 msgstr ""
 
-#: ui/model.slint:264
+#: ui/model.slint:281
 msgctxt "Messages"
 msgid "The browser extension saved a passkey"
 msgstr ""
 
-#: ui/model.slint:265
+#: ui/model.slint:282
 msgctxt "Messages"
 msgid "The browser extension saved a login"
 msgstr ""
 
-#: ui/model.slint:266
+#: ui/model.slint:283
 msgctxt "Messages"
 msgid ""
 "The browser extension was given a one-time code while the vault was locked"
 msgstr ""
 
-#: ui/model.slint:267
+#: ui/model.slint:284
 msgctxt "Messages"
 msgid "The browser extension had a password copied while the vault was locked"
 msgstr ""
 
-#: ui/model.slint:268
+#: ui/model.slint:285
 msgctxt "Messages"
 msgid "The browser extension filled a login while the vault was locked"
 msgstr ""
 
-#: ui/model.slint:269
+#: ui/model.slint:286
 msgctxt "Messages"
 msgid "The vault was exported ({})"
 msgstr ""
 
-#: ui/model.slint:270
+#: ui/model.slint:287
 msgctxt "Messages"
 msgid "The emergency kit was shown"
 msgstr ""
 
-#: ui/model.slint:271
+#: ui/model.slint:288
 msgctxt "Messages"
 msgid "The emergency kit was saved as a file"
 msgstr ""
 
-#: ui/model.slint:272
+#: ui/model.slint:289
 msgctxt "Messages"
 msgid "The emergency kit was printed"
 msgstr ""
 
-#: ui/model.slint:273
+#: ui/model.slint:290
 msgctxt "Messages"
 msgid "A device joined the sync: {}"
 msgstr ""
 
-#: ui/model.slint:274
+#: ui/model.slint:291
 msgctxt "Messages"
 msgid "A device was removed from the sync: {}"
 msgstr ""
 
-#: ui/model.slint:275
+#: ui/model.slint:292
 msgctxt "Messages"
 msgid "The vault key renewed on another device was taken here"
 msgstr ""
 
-#: ui/model.slint:276
+#: ui/model.slint:293
 msgctxt "Messages"
 msgid "The vault key was renewed"
 msgstr ""
 
-#: ui/model.slint:277
+#: ui/model.slint:294
 msgctxt "Messages"
 msgid "The log was cleared: what came before is gone"
 msgstr ""
 
-#: ui/model.slint:278
+#: ui/model.slint:295
 msgctxt "Messages"
 msgid ""
 "The log started again: its key had been replaced, so what was written to it "
 "since couldn't be read"
 msgstr ""
 
-#: ui/model.slint:279
+#: ui/model.slint:296
 msgctxt "Messages"
 msgid "The log started again: the one before couldn't be read"
 msgstr ""
 
-#: ui/model.slint:280
+#: ui/model.slint:297
 msgctxt "Messages"
 msgid "The master password was changed"
 msgstr ""
 
-#: ui/model.slint:281
+#: ui/model.slint:298
 msgctxt "Messages"
 msgid "Autofill filled a password"
 msgstr ""
 
-#: ui/model.slint:282
+#: ui/model.slint:299
 msgctxt "Messages"
 msgid "Autofill filled a login"
 msgstr ""
 
-#: ui/model.slint:283
+#: ui/model.slint:300
 msgctxt "Messages"
 msgid "A passkey signed in"
 msgstr ""
 
-#: ui/model.slint:284
+#: ui/model.slint:301
 msgctxt "Messages"
 msgid "An SSH key signed for {}"
 msgstr ""
 
-#: ui/model.slint:285
+#: ui/model.slint:302
 msgctxt "Messages"
 msgid "An SSH key signed for a program"
 msgstr ""
 
-#: ui/model.slint:286
+#: ui/model.slint:303
 msgctxt "Messages"
 msgid "Auto-type typed a login into “{}”"
 msgstr ""
 
-#: ui/model.slint:287
+#: ui/model.slint:304
 msgctxt "Messages"
 msgid "Something this version of the app doesn't know"
 msgstr ""
 
-#: ui/model.slint:292
+#: ui/model.slint:309
 msgctxt "Messages"
 msgid "{} on {}"
 msgstr ""
 
 #. The notification area icon and its menu.
-#: ui/model.slint:298
+#: ui/model.slint:315
 msgctxt "Messages"
 msgid "Vault"
 msgstr ""
 
 #. What Explorer calls a .vault file (its "Type" column).
-#: ui/model.slint:300
+#: ui/model.slint:317
 msgctxt "Messages"
 msgid "Password vault"
 msgstr ""
 
-#: ui/model.slint:304
+#: ui/model.slint:321
 msgctxt "Messages"
 msgid "title"
 msgstr ""
 
-#: ui/model.slint:305
+#: ui/model.slint:322
 msgctxt "Messages"
 msgid "username"
 msgstr ""
 
-#: ui/model.slint:306
+#: ui/model.slint:323
 msgctxt "Messages"
 msgid "password"
 msgstr ""
 
-#: ui/model.slint:307
+#: ui/model.slint:324
 msgctxt "Messages"
 msgid "websites"
 msgstr ""
 
-#: ui/model.slint:308
+#: ui/model.slint:325
 msgctxt "Messages"
 msgid "notes"
 msgstr ""
 
-#: ui/model.slint:309
+#: ui/model.slint:326
 msgctxt "Messages"
 msgid "one-time code"
 msgstr ""
 
-#: ui/model.slint:310
+#: ui/model.slint:327
 msgctxt "Messages"
 msgid "fields"
 msgstr ""
 
-#: ui/model.slint:311
+#: ui/model.slint:328
 msgctxt "Messages"
 msgid "recovery codes"
 msgstr ""
 
-#: ui/model.slint:312
+#: ui/model.slint:329
 msgctxt "Messages"
 msgid "other details"
 msgstr ""
 
-#: ui/model.slint:316
+#: ui/model.slint:333
 msgctxt "Messages"
 msgid "Card"
 msgstr ""
 
-#: ui/model.slint:317
+#: ui/model.slint:334
 msgctxt "Messages"
 msgid "Secure note"
 msgstr ""
 
-#: ui/model.slint:318
+#: ui/model.slint:335
 msgctxt "Messages"
 msgid "Passkey"
 msgstr ""
 
-#: ui/model.slint:319
+#: ui/model.slint:336
 msgctxt "Messages"
 msgid "SSH key"
 msgstr ""
 
-#: ui/model.slint:320
+#: ui/model.slint:337
 msgctxt "Messages"
 msgid "Identity"
 msgstr ""
 
-#: ui/model.slint:321
+#: ui/model.slint:338
 msgctxt "Messages"
 msgid "Login"
 msgstr ""
 
-#: ui/model.slint:326
+#: ui/model.slint:343
 msgctxt "Messages"
 msgid "That isn't a site: type its address, such as example.com."
 msgstr ""
 
-#: ui/model.slint:327
+#: ui/model.slint:344
 msgctxt "Messages"
 msgid ""
 "That master password doesn't open this vault. Check Caps Lock and try again."
 msgstr ""
 
-#: ui/model.slint:328
+#: ui/model.slint:345
 msgctxt "Messages"
 msgid ""
 "That Secret Key has a typo. Compare it with your emergency kit, group by "
 "group."
 msgstr ""
 
-#: ui/model.slint:329
+#: ui/model.slint:346
 msgctxt "Messages"
 msgid ""
 "A Secret Key starts with S0- followed by four groups of seven characters."
 msgstr ""
 
-#: ui/model.slint:330
+#: ui/model.slint:347
 msgctxt "Messages"
 msgid "The two passwords are different. Type them again."
 msgstr ""
 
-#: ui/model.slint:331
+#: ui/model.slint:348
 msgctxt "Messages"
 msgid "Use at least 12 characters. A passphrase of random words is easiest."
 msgstr ""
 
-#: ui/model.slint:332
+#: ui/model.slint:349
 msgctxt "Messages"
 msgid ""
 "That password is too easy to guess to guard this file on its own: whoever "
@@ -2146,14 +2171,14 @@ msgid ""
 "of common words."
 msgstr ""
 
-#: ui/model.slint:333
+#: ui/model.slint:350
 msgctxt "Messages"
 msgid ""
 "Too many failed tries in a row: wait until the countdown ends, then try "
 "again."
 msgstr ""
 
-#: ui/model.slint:334
+#: ui/model.slint:351
 msgctxt "Messages"
 msgid ""
 "This vault file is older than one this computer has already opened ({}). "
@@ -2161,83 +2186,83 @@ msgid ""
 "continuing."
 msgstr ""
 
-#: ui/model.slint:335
+#: ui/model.slint:352
 msgctxt "Messages"
 msgid "The vault file couldn't be read or written: {}"
 msgstr ""
 
-#: ui/model.slint:336
+#: ui/model.slint:353
 msgctxt "Messages"
 msgid ""
 "That Recovery Key doesn't open this vault. It starts with R0- and has nine "
 "groups."
 msgstr ""
 
-#: ui/model.slint:337
+#: ui/model.slint:354
 msgctxt "Messages"
 msgid ""
 "These parts don't open this vault. Check each one, and that they all come "
 "from your latest kit."
 msgstr ""
 
-#: ui/model.slint:338
+#: ui/model.slint:355
 msgctxt "Messages"
 msgid ""
 "One part has a typo, or isn't a recovery part: each starts with A0-, B0- or "
 "C0- followed by four groups of seven characters."
 msgstr ""
 
-#: ui/model.slint:339
+#: ui/model.slint:356
 msgctxt "Messages"
 msgid "Two of these are the same part. Use different ones: A, B or C."
 msgstr ""
 
-#: ui/model.slint:340
+#: ui/model.slint:357
 msgctxt "Messages"
 msgid "That picture doesn't give a recovery part: {}"
 msgstr ""
 
-#: ui/model.slint:341
+#: ui/model.slint:358
 msgctxt "Messages"
 msgid ""
 "This vault has no recovery parts: its kit has a Secret Key to type, or the "
 "Recovery Key of an older kit."
 msgstr ""
 
-#: ui/model.slint:342
+#: ui/model.slint:359
 msgctxt "Messages"
 msgid "Part C couldn't be hidden in that picture: {}"
 msgstr ""
 
-#: ui/model.slint:343
+#: ui/model.slint:360
 msgctxt "Messages"
 msgid ""
 "The backup didn't pass its check, so it was deleted ({}). Try another place: "
 "a full or failing drive may be the cause."
 msgstr ""
 
-#: ui/model.slint:344
+#: ui/model.slint:361
 msgctxt "Messages"
 msgid ""
 "That file is too large: an item keeps files of up to 5 MB, and up to 10 of "
 "them."
 msgstr ""
 
-#: ui/model.slint:345
+#: ui/model.slint:362
 msgctxt "Messages"
 msgid ""
 "That isn't an SSH private key. Choose the key file itself (often id_ed25519 "
 "or id_rsa), not the .pub one."
 msgstr ""
 
-#: ui/model.slint:346
+#: ui/model.slint:363
 msgctxt "Messages"
 msgid ""
 "That is the public key. The private one is the file of the same name "
 "without .pub (often id_ed25519 or id_rsa)."
 msgstr ""
 
-#: ui/model.slint:347
+#: ui/model.slint:364
 msgctxt "Messages"
 msgid ""
 "This form of key isn't read here (PuTTY's .ppk, or an older encrypted form). "
@@ -2245,12 +2270,12 @@ msgid ""
 "that."
 msgstr ""
 
-#: ui/model.slint:348
+#: ui/model.slint:365
 msgctxt "Messages"
 msgid "That passphrase doesn't open the key. Try again."
 msgstr ""
 
-#: ui/model.slint:349
+#: ui/model.slint:366
 msgctxt "Messages"
 msgid ""
 "That opened the new item lock, set on another device. Now type the PIN or "
@@ -2258,20 +2283,20 @@ msgid ""
 "the new lock."
 msgstr ""
 
-#: ui/model.slint:350
+#: ui/model.slint:367
 msgctxt "Messages"
 msgid ""
 "That Secret Key and master password open none of the renewed copies. Use the "
 "Secret Key of the kit made when the vault key was renewed."
 msgstr ""
 
-#: ui/model.slint:351
+#: ui/model.slint:368
 msgctxt "Messages"
 msgid ""
 "This computer couldn't keep the new Secret Key ({}), so nothing was changed."
 msgstr ""
 
-#: ui/model.slint:352
+#: ui/model.slint:369
 msgctxt "Messages"
 msgid ""
 "This computer couldn't keep the new Secret Key ({}), and the vault file now "
@@ -2279,14 +2304,14 @@ msgid ""
 "next unlock."
 msgstr ""
 
-#: ui/model.slint:353
+#: ui/model.slint:370
 msgctxt "Messages"
 msgid ""
 "Windows didn't take the change to starting at sign-in ({}). The check shows "
 "what Windows will do."
 msgstr ""
 
-#: ui/model.slint:354
+#: ui/model.slint:371
 msgctxt "Messages"
 msgid ""
 "That folder is copied to the cloud by {}: the kit's keys would leave this "
@@ -2294,7 +2319,7 @@ msgid ""
 "Nothing was saved."
 msgstr ""
 
-#: ui/model.slint:355
+#: ui/model.slint:372
 msgctxt "Messages"
 msgid ""
 "That folder already holds part {}. Keep each recovery part in a different "
@@ -2302,7 +2327,7 @@ msgid ""
 "was saved."
 msgstr ""
 
-#: ui/model.slint:356
+#: ui/model.slint:373
 msgctxt "Messages"
 msgid ""
 "Another request to connect came while this one waited, so this is a new "
@@ -2310,149 +2335,149 @@ msgid ""
 "refuse."
 msgstr ""
 
-#: ui/model.slint:357
+#: ui/model.slint:374
 msgctxt "Messages"
 msgid "Give the item a title."
 msgstr ""
 
-#: ui/model.slint:358
+#: ui/model.slint:375
 msgctxt "Messages"
 msgid ""
 "The one-time code secret isn't valid. Paste the otpauth:// link or the key "
 "shown by the website."
 msgstr ""
 
-#: ui/model.slint:359
+#: ui/model.slint:376
 msgctxt "Messages"
 msgid "The current master password is wrong."
 msgstr ""
 
-#: ui/model.slint:360
+#: ui/model.slint:377
 msgctxt "Messages"
 msgid ""
 "No QR code with a one-time code key was found in that picture. Use a sharp "
 "screenshot of the whole code, or paste the setup key instead."
 msgstr ""
 
-#: ui/model.slint:361
+#: ui/model.slint:378
 msgctxt "Messages"
 msgid "That picture couldn't be read: {}"
 msgstr ""
 
-#: ui/model.slint:362
+#: ui/model.slint:379
 msgctxt "Messages"
 msgid "The clipboard isn't available right now. Try again."
 msgstr ""
 
-#: ui/model.slint:363
+#: ui/model.slint:380
 msgctxt "Messages"
 msgid "That file couldn't be imported: {}"
 msgstr ""
 
-#: ui/model.slint:364
+#: ui/model.slint:381
 msgctxt "Messages"
 msgid ""
 "That card number has a typo: check the digits (12 to 19, as printed on the "
 "card)."
 msgstr ""
 
-#: ui/model.slint:365
+#: ui/model.slint:382
 msgctxt "Messages"
 msgid "Write the expiry date as MM/YY, for example 08/29."
 msgstr ""
 
-#: ui/model.slint:366
+#: ui/model.slint:383
 msgctxt "Messages"
 msgid ""
 "The security code is the 3 digits on the back (4 on the front for American "
 "Express)."
 msgstr ""
 
-#: ui/model.slint:367
+#: ui/model.slint:384
 msgctxt "Messages"
 msgid "A PIN is 4 to 12 digits, the one your bank gave you."
 msgstr ""
 
-#: ui/model.slint:368
+#: ui/model.slint:385
 msgctxt "Messages"
 msgid ""
 "That word list couldn't be used: it needs at least 500 different words, one "
 "per line. {}"
 msgstr ""
 
-#: ui/model.slint:369
+#: ui/model.slint:386
 msgctxt "Messages"
 msgid ""
 "The leak check couldn't reach the service: {}. Nothing was sent except the "
 "first five characters of each password's fingerprint."
 msgstr ""
 
-#: ui/model.slint:370
+#: ui/model.slint:387
 msgctxt "Messages"
 msgid "A vault name has at most 60 characters."
 msgstr ""
 
-#: ui/model.slint:371
+#: ui/model.slint:388
 msgctxt "Messages"
 msgid ""
 "Type a website (example.com) or a link to a picture (https://example.com/"
 "logo.png)."
 msgstr ""
 
-#: ui/model.slint:372
+#: ui/model.slint:389
 msgctxt "Messages"
 msgid "Type a folder name."
 msgstr ""
 
-#: ui/model.slint:373
+#: ui/model.slint:390
 msgctxt "Messages"
 msgid ""
 "This vault also needs its keyfile. Choose the file (plug in the drive it is "
 "on first)."
 msgstr ""
 
-#: ui/model.slint:374
+#: ui/model.slint:391
 msgctxt "Messages"
 msgid "That file can't be used as a keyfile: {}"
 msgstr ""
 
-#: ui/model.slint:375
+#: ui/model.slint:392
 msgctxt "Messages"
 msgid ""
 "That master password and keyfile don't open this vault. Check Caps Lock, and "
 "that it is the right file."
 msgstr ""
 
-#: ui/model.slint:376
+#: ui/model.slint:393
 msgctxt "Messages"
 msgid "That isn't it. One more wrong try locks the vault."
 msgstr ""
 
-#: ui/model.slint:376
+#: ui/model.slint:393
 msgctxt "Messages"
 msgid "That isn't it. {} tries left before the vault locks."
 msgstr ""
 
-#: ui/model.slint:377
+#: ui/model.slint:394
 msgctxt "Messages"
 msgid "A PIN has 4 to 8 digits; an item password at least 6 characters."
 msgstr ""
 
-#: ui/model.slint:378
+#: ui/model.slint:395
 msgctxt "Messages"
 msgid ""
 "Paste the setup key the site shows for its authenticator app (often under "
 "“Can't scan it?”), or an otpauth:// link."
 msgstr ""
 
-#: ui/model.slint:379
+#: ui/model.slint:396
 msgctxt "Messages"
 msgid ""
 "Filling while the vault is locked uses Windows Hello: turn it on in Settings "
 "→ Item lock first (with a PIN or another password)."
 msgstr ""
 
-#: ui/model.slint:380
+#: ui/model.slint:397
 msgctxt "Messages"
 msgid ""
 "Windows Hello no longer opens the item lock on this computer (its PIN or "
@@ -2460,14 +2485,14 @@ msgid ""
 "Settings → Item lock."
 msgstr ""
 
-#: ui/model.slint:381
+#: ui/model.slint:398
 msgctxt "Messages"
 msgid ""
 "Vault couldn't find its own program file, which the browsers start for the "
 "extension, so the extension can't be connected."
 msgstr ""
 
-#: ui/model.slint:382
+#: ui/model.slint:399
 msgctxt "Messages"
 msgid ""
 "The browser extension can't reach this window: its channel is already in "
@@ -2475,21 +2500,21 @@ msgid ""
 "window, then turn the extension setting off and on again."
 msgstr ""
 
-#: ui/model.slint:383
+#: ui/model.slint:400
 msgctxt "Messages"
 msgid ""
 "There's no window behind Vault to type into. Click into the program's field "
 "first, then come back here and choose Auto-type."
 msgstr ""
 
-#: ui/model.slint:384
+#: ui/model.slint:401
 msgctxt "Messages"
 msgid ""
 "Locked secrets are in the way. Open the item lock first: type its PIN or "
 "password on a locked item or on the Authenticator page, then try again."
 msgstr ""
 
-#: ui/model.slint:386
+#: ui/model.slint:403
 msgctxt "Messages"
 msgid ""
 "The vault file was changed outside this window (another window or program). "
@@ -2497,26 +2522,26 @@ msgid ""
 "then make it again."
 msgstr ""
 
-#: ui/model.slint:387
+#: ui/model.slint:404
 msgctxt "Messages"
 msgid "Windows Hello couldn't open the vault ({}). Use your master password."
 msgstr ""
 
-#: ui/model.slint:388
+#: ui/model.slint:405
 msgctxt "Messages"
 msgid ""
 "The master password changed, so Windows Hello was turned off on this "
 "computer. Unlock with the master password, then turn it on again in Settings."
 msgstr ""
 
-#: ui/model.slint:389
+#: ui/model.slint:406
 msgctxt "Messages"
 msgid ""
 "It's been {} days: type your master password this time, so you keep "
 "remembering it. Windows Hello works again right after."
 msgstr ""
 
-#: ui/model.slint:390
+#: ui/model.slint:407
 msgctxt "Messages"
 msgid ""
 "Windows Hello was reset on this computer, so this vault's key is gone. "
@@ -2524,33 +2549,33 @@ msgid ""
 "Settings."
 msgstr ""
 
-#: ui/model.slint:391
+#: ui/model.slint:408
 msgctxt "Messages"
 msgid ""
 "Windows Hello isn't set up on this computer. Set it up in Windows Settings → "
 "Accounts → Sign-in options, or use your master password."
 msgstr ""
 
-#: ui/model.slint:392
+#: ui/model.slint:409
 msgctxt "Messages"
 msgid ""
 "The browser extension's folder couldn't be written ({}). Try again; if it "
 "keeps failing, close the browser first."
 msgstr ""
 
-#: ui/model.slint:393
+#: ui/model.slint:410
 msgctxt "Messages"
 msgid "The browser extension's folder couldn't be opened ({})."
 msgstr ""
 
-#: ui/model.slint:394
+#: ui/model.slint:411
 msgctxt "Messages"
 msgid ""
 "That folder can't be used as the browser extension ({}). It needs a "
 "manifest.json at its top and no links."
 msgstr ""
 
-#: ui/model.slint:395
+#: ui/model.slint:412
 msgctxt "Messages"
 msgid ""
 "This computer's security chip (TPM) no longer opens the Secret Key it kept "
@@ -2558,7 +2583,7 @@ msgid ""
 "Secret Key from your emergency kit. Once the vault opens, it's kept again."
 msgstr ""
 
-#: ui/model.slint:396
+#: ui/model.slint:413
 msgctxt "Messages"
 msgid ""
 "Two different Secret Keys are kept for this vault on this computer: an older "
@@ -2566,535 +2591,547 @@ msgid ""
 "kit."
 msgstr ""
 
-#: ui/model.slint:397
+#: ui/model.slint:414
 msgctxt "Messages"
 msgid ""
 "The Secret Key kept on this computer couldn't be read just now ({}). Try "
 "again, or type it from your emergency kit."
 msgstr ""
 
-#: ui/model.slint:398
+#: ui/model.slint:415
 msgctxt "Messages"
 msgid "Tags are separated by commas: at most 32, each up to 40 characters."
 msgstr ""
 
-#: ui/model.slint:399
+#: ui/model.slint:416
+msgctxt "Messages"
+msgid "The vault command can't reach this app: {}"
+msgstr ""
+
+#: ui/model.slint:417
+msgctxt "Messages"
+msgid ""
+"Type your master password: it's asked once each time the app starts. Windows "
+"Hello works after that."
+msgstr ""
+
+#: ui/model.slint:418
 msgctxt "Messages"
 msgid "Type the expiry date as year-month-day, for example 2027-03-31."
 msgstr ""
 
-#: ui/model.slint:400
+#: ui/model.slint:419
 msgctxt "Messages"
 msgid ""
 "The secure desktop couldn't be shown ({}). Type the master password in the "
 "field instead."
 msgstr ""
 
-#: ui/model.slint:401
+#: ui/model.slint:420
 msgctxt "Messages"
 msgid "Something went wrong: {}"
 msgstr ""
 
-#: ui/model.slint:406
+#: ui/model.slint:425
 msgctxt "Messages"
 msgid "Cracked almost instantly"
 msgstr ""
 
-#: ui/model.slint:407
+#: ui/model.slint:426
 msgctxt "Messages"
 msgid "About {n} second to crack"
 msgid_plural "About {n} seconds to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:408
+#: ui/model.slint:427
 msgctxt "Messages"
 msgid "About {n} minute to crack"
 msgid_plural "About {n} minutes to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:409
+#: ui/model.slint:428
 msgctxt "Messages"
 msgid "About {n} hour to crack"
 msgid_plural "About {n} hours to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:410
+#: ui/model.slint:429
 msgctxt "Messages"
 msgid "About {n} day to crack"
 msgid_plural "About {n} days to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:411
+#: ui/model.slint:430
 msgctxt "Messages"
 msgid "About {n} year to crack"
 msgid_plural "About {n} years to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:412
+#: ui/model.slint:431
 msgctxt "Messages"
 msgid "About {n} thousand years to crack"
 msgid_plural "About {n} thousand years to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:413
+#: ui/model.slint:432
 msgctxt "Messages"
 msgid "About {n} million years to crack"
 msgid_plural "About {n} million years to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:414
+#: ui/model.slint:433
 msgctxt "Messages"
 msgid "About {n} billion years to crack"
 msgid_plural "About {n} billion years to crack"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:416
+#: ui/model.slint:435
 msgctxt "Messages"
 msgid "About as long to crack as the universe has existed"
 msgstr ""
 
-#: ui/model.slint:417
+#: ui/model.slint:436
 msgctxt "Messages"
 msgid "About {} times the age of the universe to crack"
 msgstr ""
 
-#: ui/model.slint:418
+#: ui/model.slint:437
 msgctxt "Messages"
 msgid "About {} thousand times the age of the universe to crack"
 msgstr ""
 
-#: ui/model.slint:419
+#: ui/model.slint:438
 msgctxt "Messages"
 msgid "About {} million times the age of the universe to crack"
 msgstr ""
 
-#: ui/model.slint:420
+#: ui/model.slint:439
 msgctxt "Messages"
 msgid "About {} billion times the age of the universe to crack"
 msgstr ""
 
-#: ui/model.slint:421
+#: ui/model.slint:440
 msgctxt "Messages"
 msgid "About {} trillion times the age of the universe to crack"
 msgstr ""
 
-#: ui/model.slint:422
+#: ui/model.slint:441
 msgctxt "Messages"
 msgid "About a 1 followed by {} zeros times the age of the universe to crack"
 msgstr ""
 
-#: ui/model.slint:427
+#: ui/model.slint:446
 msgctxt "Messages"
 msgid "Faster than you can read this."
 msgstr ""
 
-#: ui/model.slint:428
+#: ui/model.slint:447
 msgctxt "Messages"
 msgid "Gone before you finish this sentence."
 msgstr ""
 
-#: ui/model.slint:429
+#: ui/model.slint:448
 msgctxt "Messages"
 msgid "About one coffee break."
 msgstr ""
 
-#: ui/model.slint:430
+#: ui/model.slint:449
 msgctxt "Messages"
 msgid "Done before the end of a workday."
 msgstr ""
 
-#: ui/model.slint:431
+#: ui/model.slint:450
 msgctxt "Messages"
 msgid "About as long as a holiday. Not great."
 msgstr ""
 
-#: ui/model.slint:432
+#: ui/model.slint:451
 msgctxt "Messages"
 msgid "Years of guessing — but a determined attacker can wait."
 msgstr ""
 
-#: ui/model.slint:433
+#: ui/model.slint:452
 msgctxt "Messages"
 msgid "If they'd started when the first iPhone came out, they'd still be at it."
 msgstr ""
 
-#: ui/model.slint:434
+#: ui/model.slint:453
 msgctxt "Messages"
 msgid "If they'd started when the Web went public, they'd still be at it."
 msgstr ""
 
-#: ui/model.slint:435
+#: ui/model.slint:454
 msgctxt "Messages"
 msgid "If they'd started at the first Moon landing, they'd still be at it."
 msgstr ""
 
-#: ui/model.slint:436
+#: ui/model.slint:455
 msgctxt "Messages"
 msgid "If they'd started with the first steam engines, they'd still be at it."
 msgstr ""
 
-#: ui/model.slint:437
+#: ui/model.slint:456
 msgctxt "Messages"
 msgid ""
 "If they'd started when Gutenberg printed his first page, they'd still be at "
 "it."
 msgstr ""
 
-#: ui/model.slint:438
+#: ui/model.slint:457
 msgctxt "Messages"
 msgid ""
 "If they'd started when the Vikings reached America, they'd still be at it."
 msgstr ""
 
-#: ui/model.slint:439
+#: ui/model.slint:458
 msgctxt "Messages"
 msgid "If they'd started while Julius Caesar ruled Rome, they'd still be at it."
 msgstr ""
 
-#: ui/model.slint:440
+#: ui/model.slint:459
 msgctxt "Messages"
 msgid ""
 "If they'd started while the pyramids were being built, they'd still be at it."
 msgstr ""
 
-#: ui/model.slint:441
+#: ui/model.slint:460
 msgctxt "Messages"
 msgid "If they'd started with the very first farmers, they'd still be at it."
 msgstr ""
 
-#: ui/model.slint:442
+#: ui/model.slint:461
 msgctxt "Messages"
 msgid "If they'd started with the first humans, they'd still be at it."
 msgstr ""
 
-#: ui/model.slint:443
+#: ui/model.slint:462
 msgctxt "Messages"
 msgid "If they'd started when the dinosaurs died out, they'd still be at it."
 msgstr ""
 
-#: ui/model.slint:444
+#: ui/model.slint:463
 msgctxt "Messages"
 msgid "If they'd started when the Earth formed, they'd still be at it."
 msgstr ""
 
-#: ui/model.slint:445
+#: ui/model.slint:464
 msgctxt "Messages"
 msgid "The universe is only 13.8 billion years old."
 msgstr ""
 
-#: ui/model.slint:446
+#: ui/model.slint:465
 msgctxt "Messages"
 msgid "The last stars in the sky would burn out before it's found."
 msgstr ""
 
-#: ui/model.slint:447
+#: ui/model.slint:466
 msgctxt "Messages"
 msgid ""
 "Even with computers a billion times faster, it would outlast the universe."
 msgstr ""
 
-#: ui/model.slint:448
+#: ui/model.slint:467
 msgctxt "Messages"
 msgid "There are more possible passwords like it than atoms in the whole Earth."
 msgstr ""
 
-#: ui/model.slint:449
+#: ui/model.slint:468
 msgctxt "Messages"
 msgid ""
 "There are more possible passwords like it than atoms in the observable "
 "universe."
 msgstr ""
 
-#: ui/model.slint:456
+#: ui/model.slint:475
 msgctxt "Messages"
 msgid ""
 "One failed try to unlock this vault on this computer since {}. If it wasn't "
 "you, someone may be guessing your master password."
 msgstr ""
 
-#: ui/model.slint:457
+#: ui/model.slint:476
 msgctxt "Messages"
 msgid ""
 "{} failed tries to unlock this vault on this computer since {}. If they "
 "weren't yours, someone may be guessing your master password."
 msgstr ""
 
-#: ui/model.slint:461
+#: ui/model.slint:480
 msgctxt "Messages"
 msgid "Password copied. The clipboard clears in {} seconds."
 msgstr ""
 
-#: ui/model.slint:462
+#: ui/model.slint:481
 msgctxt "Messages"
 msgid "Username copied."
 msgstr ""
 
-#: ui/model.slint:463
+#: ui/model.slint:482
 msgctxt "Messages"
 msgid "Code copied. The clipboard clears in {} seconds."
 msgstr ""
 
-#: ui/model.slint:464
+#: ui/model.slint:483
 msgctxt "Messages"
 msgid "Clipboard cleared."
 msgstr ""
 
-#: ui/model.slint:465
+#: ui/model.slint:484
 msgctxt "Messages"
 msgid "Saved."
 msgstr ""
 
-#: ui/model.slint:466
+#: ui/model.slint:485
 msgctxt "Messages"
 msgid "Deleted {}."
 msgstr ""
 
-#: ui/model.slint:467
+#: ui/model.slint:486
 msgctxt "Messages"
 msgid "Master password changed."
 msgstr ""
 
-#: ui/model.slint:468
+#: ui/model.slint:487
 msgctxt "Messages"
 msgid ""
 "New recovery parts issued. The old ones no longer work: print the new kit "
 "now."
 msgstr ""
 
-#: ui/model.slint:469
+#: ui/model.slint:488
 msgctxt "Messages"
 msgid ""
 "Part C is hidden in {}. It was read back to check. Keep that file as it is: "
 "a resized or converted copy loses the part."
 msgstr ""
 
-#: ui/model.slint:470
+#: ui/model.slint:489
 msgctxt "Messages"
 msgid "Part {} read from the picture."
 msgstr ""
 
-#: ui/model.slint:471
+#: ui/model.slint:490
 msgctxt "Messages"
 msgid ""
 "The main sync server isn't answering ({}). The vault keeps syncing through "
 "the backup server."
 msgstr ""
 
-#: ui/model.slint:472
+#: ui/model.slint:491
 msgctxt "Messages"
 msgid "The main sync server answers again and has caught up."
 msgstr ""
 
-#: ui/model.slint:473
+#: ui/model.slint:492
 msgctxt "Messages"
 msgid ""
 "The backup sync server isn't answering ({}). The vault keeps syncing through "
 "the main one."
 msgstr ""
 
-#: ui/model.slint:474
+#: ui/model.slint:493
 msgctxt "Messages"
 msgid "The backup sync server answers again and has caught up."
 msgstr ""
 
-#: ui/model.slint:475
+#: ui/model.slint:494
 msgctxt "Messages"
 msgid ""
 "This computer joined the backup server. The vault syncs through both from "
 "now on."
 msgstr ""
 
-#: ui/model.slint:476
+#: ui/model.slint:495
 msgctxt "Messages"
 msgid "The new address answers with this vault: it is the one used from now on."
 msgstr ""
 
-#: ui/model.slint:477
+#: ui/model.slint:496
 msgctxt "Messages"
 msgid "A passkey for “{}” was saved from the browser."
 msgstr ""
 
-#: ui/model.slint:478
+#: ui/model.slint:497
 msgctxt "Messages"
 msgid "Signed in with the passkey of “{}” in the browser."
 msgstr ""
 
-#: ui/model.slint:479
+#: ui/model.slint:498
 msgctxt "Messages"
 msgid ""
 "{} of your passwords turned up in a data breach since the last check. See "
 "Password health and change them where you use them."
 msgstr ""
 
-#: ui/model.slint:480
+#: ui/model.slint:499
 msgctxt "Messages"
 msgid "Settings saved."
 msgstr ""
 
-#: ui/model.slint:481
+#: ui/model.slint:500
 msgctxt "Messages"
 msgid "Copied. The clipboard clears in {} seconds."
 msgstr ""
 
-#: ui/model.slint:482
+#: ui/model.slint:501
 msgctxt "Messages"
 msgid "Generated password copied. The clipboard clears in {} seconds."
 msgstr ""
 
-#: ui/model.slint:483
+#: ui/model.slint:502
 msgctxt "Messages"
 msgid ""
 "Windows Hello is on. Next time, unlock with your face, fingerprint or PIN."
 msgstr ""
 
-#: ui/model.slint:484
+#: ui/model.slint:503
 msgctxt "Messages"
 msgid "Windows Hello is off for this vault."
 msgstr ""
 
-#: ui/model.slint:485
+#: ui/model.slint:504
 msgctxt "Messages"
 msgid "Windows Hello wasn't turned on: {}."
 msgstr ""
 
-#: ui/model.slint:486
+#: ui/model.slint:505
 msgctxt "Messages"
 msgid ""
 "Master password changed. Windows Hello was turned off; turn it on again "
 "below."
 msgstr ""
 
-#: ui/model.slint:487
+#: ui/model.slint:506
 msgctxt "Messages"
 msgid ""
 "Kit opened for printing: type the PDF password to open it. The file is wiped "
 "when the vault locks."
 msgstr ""
 
-#: ui/model.slint:487
+#: ui/model.slint:506
 msgctxt "Messages"
 msgid "Kit opened for printing. The file is wiped when the vault locks."
 msgstr ""
 
-#: ui/model.slint:488
+#: ui/model.slint:507
 msgctxt "Messages"
 msgid "Imported {} items."
 msgstr ""
 
-#: ui/model.slint:489
+#: ui/model.slint:508
 msgctxt "Messages"
 msgid ""
 "Backup confirmed: {}. It was read back, matches the vault file and opens "
 "with this vault's key."
 msgstr ""
 
-#: ui/model.slint:490
+#: ui/model.slint:509
 msgctxt "Messages"
 msgid ""
 "Exported to {}. It isn't encrypted: delete it once it's imported elsewhere."
 msgstr ""
 
-#: ui/model.slint:491
+#: ui/model.slint:510
 msgctxt "Messages"
 msgid "The export file was overwritten and deleted."
 msgstr ""
 
-#: ui/model.slint:492
+#: ui/model.slint:511
 msgctxt "Messages"
 msgid ""
 "Not saved: the vault file was changed outside this window. Lock and unlock "
 "to load the newest version."
 msgstr ""
 
-#: ui/model.slint:492
+#: ui/model.slint:511
 msgctxt "Messages"
 msgid "Not saved: {}"
 msgstr ""
 
-#: ui/model.slint:493
+#: ui/model.slint:512
 msgctxt "Messages"
 msgid ""
 "Recovery code copied. Mark it as used once you've signed in. The clipboard "
 "clears in {} seconds."
 msgstr ""
 
-#: ui/model.slint:494
+#: ui/model.slint:513
 msgctxt "Messages"
 msgid "Kit saved to {}. Keep the file private, or delete it once printed."
 msgstr ""
 
-#: ui/model.slint:495
+#: ui/model.slint:514
 msgctxt "Messages"
 msgid "Password history cleared."
 msgstr ""
 
-#: ui/model.slint:496
+#: ui/model.slint:515
 msgctxt "Messages"
 msgid "Old password copied. The clipboard clears in {} seconds."
 msgstr ""
 
-#: ui/model.slint:497
+#: ui/model.slint:516
 msgctxt "Messages"
 msgid "Vault settings saved."
 msgstr ""
 
-#: ui/model.slint:498
+#: ui/model.slint:517
 msgctxt "Messages"
 msgid "Word list added: {}."
 msgstr ""
 
-#: ui/model.slint:499
+#: ui/model.slint:518
 msgctxt "Messages"
 msgid "Leak check done: none of your passwords is in a known breach."
 msgstr ""
 
-#: ui/model.slint:499
+#: ui/model.slint:518
 msgctxt "Messages"
 msgid "Leak check done: {} found in known breaches. Change them first."
 msgstr ""
 
-#: ui/model.slint:500
+#: ui/model.slint:519
 msgctxt "Messages"
 msgid "Opened {}. Export the passwords as CSV there, then choose the file here."
 msgstr ""
 
-#: ui/model.slint:501
+#: ui/model.slint:520
 msgctxt "Messages"
 msgid ""
 "Unlock protection changed. Unlocking now takes about {} s on this computer."
 msgstr ""
 
-#: ui/model.slint:502
+#: ui/model.slint:521
 msgctxt "Messages"
 msgid ""
 "Unlock protection changed (about {} s per unlock here). Windows Hello was "
 "turned off: turn it on again in Settings."
 msgstr ""
 
-#: ui/model.slint:503
+#: ui/model.slint:522
 msgctxt "Messages"
 msgid "Folder deleted. Its items are still in All items."
 msgstr ""
 
-#: ui/model.slint:504
+#: ui/model.slint:523
 msgctxt "Messages"
 msgid "Website copied."
 msgstr ""
 
-#: ui/model.slint:505
+#: ui/model.slint:524
 msgctxt "Messages"
 msgid "Couldn't open {} in a browser."
 msgstr ""
 
-#: ui/model.slint:506
+#: ui/model.slint:525
 msgctxt "Messages"
 msgid ""
 "Keyfile set: the vault now needs {} together with your master password. Keep "
@@ -3102,77 +3139,77 @@ msgid ""
 "on again."
 msgstr ""
 
-#: ui/model.slint:507
+#: ui/model.slint:526
 msgctxt "Messages"
 msgid ""
 "The vault no longer needs a keyfile. Windows Hello, if it was on, is off "
 "until you turn it on again."
 msgstr ""
 
-#: ui/model.slint:508
+#: ui/model.slint:527
 msgctxt "Messages"
 msgid "Item lock saved."
 msgstr ""
 
-#: ui/model.slint:509
+#: ui/model.slint:528
 msgctxt "Messages"
 msgid ""
 "Too many wrong tries: the vault locked itself. Unlock it with your master "
 "password."
 msgstr ""
 
-#: ui/model.slint:510
+#: ui/model.slint:529
 msgctxt "Messages"
 msgid "Secrets locked again."
 msgstr ""
 
-#: ui/model.slint:511
+#: ui/model.slint:530
 msgctxt "Messages"
 msgid "“{}” was handed to the browser extension."
 msgstr ""
 
-#: ui/model.slint:512
+#: ui/model.slint:531
 msgctxt "Messages"
 msgid "Browser extension connected."
 msgstr ""
 
-#: ui/model.slint:513
+#: ui/model.slint:532
 msgctxt "Messages"
 msgid "Browser extension disconnected. It has to ask again to connect."
 msgstr ""
 
-#: ui/model.slint:514
+#: ui/model.slint:533
 msgctxt "Messages"
 msgid "Saved “{}” from the browser."
 msgstr ""
 
-#: ui/model.slint:515
+#: ui/model.slint:534
 msgctxt "Messages"
 msgid "History of generated passwords cleared."
 msgstr ""
 
-#: ui/model.slint:516
+#: ui/model.slint:535
 msgctxt "Messages"
 msgid ""
 "A login saved from the browser while the vault was locked is in your vault "
 "now."
 msgstr ""
 
-#: ui/model.slint:516
+#: ui/model.slint:535
 msgctxt "Messages"
 msgid ""
 "{} logins saved from the browser while the vault was locked are in your "
 "vault now."
 msgstr ""
 
-#: ui/model.slint:517
+#: ui/model.slint:536
 msgctxt "Messages"
 msgid ""
 "The browser extension can now fill with Windows Hello while the vault is "
 "locked."
 msgstr ""
 
-#: ui/model.slint:518
+#: ui/model.slint:537
 msgctxt "Messages"
 msgid ""
 "This computer's record of the newest version of each vault couldn't be read, "
@@ -3181,7 +3218,7 @@ msgid ""
 "opened here."
 msgstr ""
 
-#: ui/model.slint:519
+#: ui/model.slint:538
 msgctxt "Messages"
 msgid ""
 "Leak check: one locked login wasn't checked, because the item lock keeps its "
@@ -3189,7 +3226,7 @@ msgid ""
 "lock, then check again."
 msgstr ""
 
-#: ui/model.slint:519
+#: ui/model.slint:538
 msgctxt "Messages"
 msgid ""
 "Leak check: {} locked logins weren't checked, because the item lock keeps "
@@ -3197,26 +3234,26 @@ msgid ""
 "item lock, then check again."
 msgstr ""
 
-#: ui/model.slint:520
+#: ui/model.slint:539
 msgctxt "Messages"
 msgid ""
 "Leak check done: {} found in known breaches. Change them first. Locked "
 "logins weren't checked: open the item lock, then check again."
 msgstr ""
 
-#: ui/model.slint:521
+#: ui/model.slint:540
 msgctxt "Messages"
 msgid "Synced: {} changes came from your other devices."
 msgstr ""
 
-#: ui/model.slint:522
+#: ui/model.slint:541
 msgctxt "Messages"
 msgid ""
 "{} items were changed here and on another device. The newer version was "
 "kept, and the other password is in each item's history."
 msgstr ""
 
-#: ui/model.slint:523
+#: ui/model.slint:542
 msgctxt "Messages"
 msgid ""
 "{} items were changed here and on another device, behind the item lock. Open "
@@ -3224,43 +3261,43 @@ msgid ""
 "version."
 msgstr ""
 
-#: ui/model.slint:524
+#: ui/model.slint:543
 msgctxt "Messages"
 msgid ""
 "The master password, keyfile or Recovery Key was changed on another device. "
 "Use that one the next time you unlock."
 msgstr ""
 
-#: ui/model.slint:525
+#: ui/model.slint:544
 msgctxt "Messages"
 msgid ""
 "A copy from a device not in this vault's list was not used. It may be an "
 "older copy put back, or come from a device that was removed."
 msgstr ""
 
-#: ui/model.slint:526
+#: ui/model.slint:545
 msgctxt "Messages"
 msgid ""
 "The copy from {} was not used. It may be an older copy put back, or come "
 "from a device that was removed. Settings → Sync says why."
 msgstr ""
 
-#: ui/model.slint:527
+#: ui/model.slint:546
 msgctxt "Messages"
 msgid "A copy from a device not in this vault's list couldn't be read."
 msgstr ""
 
-#: ui/model.slint:528
+#: ui/model.slint:547
 msgctxt "Messages"
 msgid "The copy from {} couldn't be read. Settings → Sync says why."
 msgstr ""
 
-#: ui/model.slint:529
+#: ui/model.slint:548
 msgctxt "Messages"
 msgid "This computer joined the server. The vault syncs through it from now on."
 msgstr ""
 
-#: ui/model.slint:530
+#: ui/model.slint:549
 msgctxt "Messages"
 msgid ""
 "{} was removed. Every device refuses its copies from its next sync; it keeps "
@@ -3268,28 +3305,28 @@ msgid ""
 "Secret Key."
 msgstr ""
 
-#: ui/model.slint:531
+#: ui/model.slint:550
 msgctxt "Messages"
 msgid ""
 "This computer was removed from the vault on another device, so it no longer "
 "syncs."
 msgstr ""
 
-#: ui/model.slint:532
+#: ui/model.slint:551
 msgctxt "Messages"
 msgid ""
 "Updated the password of “{}” from the browser. The old one is in its "
 "history."
 msgstr ""
 
-#: ui/model.slint:533
+#: ui/model.slint:552
 msgctxt "Messages"
 msgid ""
 "This computer couldn't record the vault's newest version ({}), so an older "
 "copy put in its place may not be noticed."
 msgstr ""
 
-#: ui/model.slint:534
+#: ui/model.slint:553
 msgctxt "Messages"
 msgid ""
 "The item lock was changed on another device. A locked item, or Settings → "
@@ -3297,14 +3334,14 @@ msgid ""
 "lock, and some changes from that device wait."
 msgstr ""
 
-#: ui/model.slint:535
+#: ui/model.slint:554
 msgctxt "Messages"
 msgid ""
 "The item lock changed on another device is in use here now. Locked items "
 "closed again: they open with its PIN or password."
 msgstr ""
 
-#: ui/model.slint:536
+#: ui/model.slint:555
 msgctxt "Messages"
 msgid ""
 "The vault locked before the item lock was saved, so it was not changed. "
@@ -3312,7 +3349,7 @@ msgid ""
 "item lock is saved again."
 msgstr ""
 
-#: ui/model.slint:537
+#: ui/model.slint:556
 msgctxt "Messages"
 msgid ""
 "Filling while the vault is locked needs setting up again after this update: "
@@ -3320,7 +3357,7 @@ msgid ""
 "Settings → Browser extension."
 msgstr ""
 
-#: ui/model.slint:538
+#: ui/model.slint:557
 msgctxt "Messages"
 msgid ""
 "A login saved from the browser while the vault was locked waits for the item "
@@ -3328,7 +3365,7 @@ msgid ""
 "to add its new password."
 msgstr ""
 
-#: ui/model.slint:538
+#: ui/model.slint:557
 msgctxt "Messages"
 msgid ""
 "{} logins saved from the browser while the vault was locked wait for the "
@@ -3336,7 +3373,7 @@ msgid ""
 "item lock to add their new passwords."
 msgstr ""
 
-#: ui/model.slint:539
+#: ui/model.slint:558
 msgctxt "Messages"
 msgid ""
 "The vault key was renewed: the old kit, the old Secret Key and older copies "
@@ -3344,40 +3381,40 @@ msgid ""
 "until you turn it on again."
 msgstr ""
 
-#: ui/model.slint:539
+#: ui/model.slint:558
 msgctxt "Messages"
 msgid ""
 "The vault key was renewed: the old kit, the old Secret Key and older copies "
 "of the file no longer open it. Print the new kit now."
 msgstr ""
 
-#: ui/model.slint:540
+#: ui/model.slint:559
 msgctxt "Messages"
 msgid ""
 "This computer uses the renewed vault key now and syncs again. Windows Hello "
 "is off until you turn it on again."
 msgstr ""
 
-#: ui/model.slint:540
+#: ui/model.slint:559
 msgctxt "Messages"
 msgid "This computer uses the renewed vault key now and syncs again."
 msgstr ""
 
-#: ui/model.slint:541
+#: ui/model.slint:560
 msgctxt "Messages"
 msgid ""
 "The vault key was renewed on another device. Settings → Sync asks once for "
 "the new Secret Key, from the new emergency kit."
 msgstr ""
 
-#: ui/model.slint:542
+#: ui/model.slint:561
 msgctxt "Messages"
 msgid ""
 "Version {} of Vault is out: the download button in the title bar, or "
 "Settings → About, installs it."
 msgstr ""
 
-#: ui/model.slint:543
+#: ui/model.slint:562
 msgctxt "Messages"
 msgid ""
 "Vault can't replace itself in {}: that folder can't be written. Download the "
@@ -3385,25 +3422,25 @@ msgid ""
 "it)."
 msgstr ""
 
-#: ui/model.slint:544
+#: ui/model.slint:563
 msgctxt "Messages"
 msgid ""
 "The new version is in place but couldn't be started ({}). Start Vault again."
 msgstr ""
 
-#: ui/model.slint:545
+#: ui/model.slint:564
 msgctxt "Messages"
 msgid "Windows now starts this copy of Vault when you sign in, instead of {}."
 msgstr ""
 
-#: ui/model.slint:546
+#: ui/model.slint:565
 msgctxt "Messages"
 msgid ""
 "{} recovery parts saved, each in a file of its own. Keep them in different "
 "places."
 msgstr ""
 
-#: ui/model.slint:547
+#: ui/model.slint:566
 msgctxt "Messages"
 msgid ""
 "Another program changed how the browser reaches Vault. Vault put it back and "
@@ -3411,7 +3448,7 @@ msgid ""
 "computer."
 msgstr ""
 
-#: ui/model.slint:548
+#: ui/model.slint:567
 msgctxt "Messages"
 msgid ""
 "Another program changed the browser extension's files. Vault put them back: "
@@ -3419,21 +3456,21 @@ msgid ""
 "install something like that, check this computer."
 msgstr ""
 
-#: ui/model.slint:549
+#: ui/model.slint:568
 msgctxt "Messages"
 msgid ""
 "Vault didn't take the browser extension of GitHub's release {}. It keeps the "
 "one it has."
 msgstr ""
 
-#: ui/model.slint:550
+#: ui/model.slint:569
 msgctxt "Messages"
 msgid ""
 "Vault couldn't check the browser extension's files ({}). It tries again in a "
 "few minutes; if this keeps coming back, restart the browser, then Vault."
 msgstr ""
 
-#: ui/model.slint:551
+#: ui/model.slint:570
 msgctxt "Messages"
 msgid ""
 "The vault key was renewed, but the vault locked before the new kit showed. "
@@ -3441,7 +3478,7 @@ msgid ""
 "shown again."
 msgstr ""
 
-#: ui/model.slint:552
+#: ui/model.slint:571
 msgctxt "Messages"
 msgid ""
 "A strong password for “{}” is ready, and the site's page for changing it "
@@ -3449,7 +3486,7 @@ msgid ""
 "password; after you send the form, it offers to update the login here."
 msgstr ""
 
-#: ui/model.slint:553
+#: ui/model.slint:572
 msgctxt "Messages"
 msgid ""
 "The site's page for changing the password of “{}” is open. Turn on the "
@@ -3458,131 +3495,131 @@ msgid ""
 "change it."
 msgstr ""
 
-#: ui/model.slint:554
+#: ui/model.slint:573
 msgctxt "Messages"
 msgid ""
 "A site said something about a passkey of “{}”: its page shows what, and "
 "lets you decide."
 msgstr ""
 
-#: ui/model.slint:555
+#: ui/model.slint:574
 msgctxt "Messages"
 msgid "Open the item's secrets first (the item lock), then decide."
 msgstr ""
 
-#: ui/model.slint:556
+#: ui/model.slint:575
 msgctxt "Messages"
 msgid ""
 "The browser extension changed the rules for {}. Settings → Browser "
 "extension → Site rules shows them."
 msgstr ""
 
-#: ui/model.slint:557
+#: ui/model.slint:576
 msgctxt "Messages"
 msgid "Rules for {} added: choose what the extension doesn't do there."
 msgstr ""
 
-#: ui/model.slint:558
+#: ui/model.slint:577
 msgctxt "Messages"
 msgid "PDF password copied. The clipboard clears in {} seconds."
 msgstr ""
 
-#: ui/model.slint:559
+#: ui/model.slint:578
 msgctxt "Messages"
 msgid ""
 "“{}” is in the trash. It is deleted for good after 30 days; until then, "
 "Trash brings it back."
 msgstr ""
 
-#: ui/model.slint:560
+#: ui/model.slint:579
 msgctxt "Messages"
 msgid "“{}” is back from the trash."
 msgstr ""
 
-#: ui/model.slint:561
+#: ui/model.slint:580
 msgctxt "Messages"
 msgid ""
 "“{}” is archived: kept, out of search, filling and health. Archive lists "
 "it."
 msgstr ""
 
-#: ui/model.slint:562
+#: ui/model.slint:581
 msgctxt "Messages"
 msgid "“{}” is out of the archive."
 msgstr ""
 
-#: ui/model.slint:563
+#: ui/model.slint:582
 msgctxt "Messages"
 msgid ""
 "The earlier version of “{}” is back; the one it replaced is kept among "
 "its earlier versions."
 msgstr ""
 
-#: ui/model.slint:564
+#: ui/model.slint:583
 msgctxt "Messages"
 msgid ""
 "{} syncs with a newer version of Vault, so its copy can't be used here. "
 "Update this app: Settings → About → Check for updates."
 msgstr ""
 
-#: ui/model.slint:564
+#: ui/model.slint:583
 msgctxt "Messages"
 msgid ""
 "A device syncs with a newer version of Vault, so its copy can't be used "
 "here. Update this app: Settings → About → Check for updates."
 msgstr ""
 
-#: ui/model.slint:565
+#: ui/model.slint:584
 msgctxt "Messages"
 msgid ""
 "{} still runs an older version of Vault, so its copy can't be used here. "
 "Update Vault on that device; it syncs again once it is updated."
 msgstr ""
 
-#: ui/model.slint:565
+#: ui/model.slint:584
 msgctxt "Messages"
 msgid ""
 "A device still runs an older version of Vault, so its copy can't be used "
 "here. Update Vault on that device; it syncs again once it is updated."
 msgstr ""
 
-#: ui/model.slint:566
+#: ui/model.slint:585
 msgctxt "Messages"
 msgid "The SSH key “{}” signed for a program."
 msgstr ""
 
-#: ui/model.slint:567
+#: ui/model.slint:586
 msgctxt "Messages"
 msgid "Typed into “{}”."
 msgstr ""
 
-#: ui/model.slint:568
+#: ui/model.slint:587
 msgctxt "Messages"
 msgid ""
 "Auto-type stopped: “{}” changed or another window took the keyboard. "
 "Nothing more was typed."
 msgstr ""
 
-#: ui/model.slint:569
+#: ui/model.slint:588
 msgctxt "Messages"
 msgid ""
 "Auto-type stopped: Ctrl, Alt, Shift or the Windows key was held. Let go and "
 "try again."
 msgstr ""
 
-#: ui/model.slint:570
+#: ui/model.slint:589
 msgctxt "Messages"
 msgid "Windows refused the typed keys for “{}”."
 msgstr ""
 
-#: ui/model.slint:571
+#: ui/model.slint:590
 msgctxt "Messages"
 msgid ""
 "SSH_AUTH_SOCK copied: set it as an environment variable for your user, then "
 "open a new terminal."
 msgstr ""
 
-#: ui/model.slint:572
+#: ui/model.slint:591
 msgctxt "Messages"
 msgid ""
 "The Secret Key couldn't be kept on this computer just now ({}). The vault is "
@@ -3590,7 +3627,7 @@ msgid ""
 "emergency kit."
 msgstr ""
 
-#: ui/model.slint:573
+#: ui/model.slint:592
 msgctxt "Messages"
 msgid ""
 "Vault {} has already opened this vault on this computer, and this copy is "
@@ -3599,7 +3636,7 @@ msgid ""
 "→ Check for updates."
 msgstr ""
 
-#: ui/model.slint:574
+#: ui/model.slint:593
 msgctxt "Messages"
 msgid ""
 "The browser extension is older than this Vault accepts (it needs {} or "
@@ -3608,96 +3645,96 @@ msgid ""
 "browser's extensions page."
 msgstr ""
 
-#: ui/model.slint:584
+#: ui/model.slint:603
 msgctxt "Messages"
 msgid "{n} attached file"
 msgid_plural "{n} attached files"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:585
+#: ui/model.slint:604
 msgctxt "Messages"
 msgid "{n} passkey"
 msgid_plural "{n} passkeys"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:586
+#: ui/model.slint:605
 msgctxt "Messages"
 msgid "{n} earlier password"
 msgid_plural "{n} earlier passwords"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:587
+#: ui/model.slint:606
 msgctxt "Messages"
 msgid "{n} website after an item's first"
 msgid_plural "{n} websites after an item's first"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:588
+#: ui/model.slint:607
 msgctxt "Messages"
 msgid "the dates of the items"
 msgstr ""
 
-#: ui/model.slint:592
+#: ui/model.slint:611
 msgctxt "Messages"
 msgid "{n} hidden field not marked hidden"
 msgid_plural "{n} hidden fields not marked hidden"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:593
+#: ui/model.slint:612
 msgctxt "Messages"
 msgid "{n} list of recovery codes as text"
 msgid_plural "{n} lists of recovery codes as text"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:594
+#: ui/model.slint:613
 msgctxt "Messages"
 msgid "{n} item as another kind"
 msgid_plural "{n} items as another kind"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:598
+#: ui/model.slint:617
 msgctxt "Messages"
 msgid "{n} password"
 msgid_plural "{n} passwords"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:599
+#: ui/model.slint:618
 msgctxt "Messages"
 msgid "{n} one-time code secret"
 msgid_plural "{n} one-time code secrets"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:600
+#: ui/model.slint:619
 msgctxt "Messages"
 msgid "{n} hidden field"
 msgid_plural "{n} hidden fields"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:601
+#: ui/model.slint:620
 msgctxt "Messages"
 msgid "{n} recovery code"
 msgid_plural "{n} recovery codes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:602
+#: ui/model.slint:621
 msgctxt "Messages"
 msgid "the notes of {n} item"
 msgid_plural "the notes of {n} items"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:603
+#: ui/model.slint:622
 msgctxt "Messages"
 msgid "{n} passkey with its private key, which signs in without a password"
 msgid_plural ""
@@ -3705,22 +3742,22 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:610
+#: ui/model.slint:629
 msgctxt "Messages"
 msgid "Not in this file: {}."
 msgstr ""
 
-#: ui/model.slint:611
+#: ui/model.slint:630
 msgctxt "Messages"
 msgid "In another form: {}."
 msgstr ""
 
-#: ui/model.slint:612
+#: ui/model.slint:631
 msgctxt "Messages"
 msgid "Readable by anyone with this file: {}."
 msgstr ""
 
-#: ui/model.slint:614
+#: ui/model.slint:633
 msgctxt "Messages"
 msgid ""
 "Don't open this file in a spreadsheet: {n} password or code secret starts "
@@ -3731,7 +3768,7 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:619
+#: ui/model.slint:638
 msgctxt "Messages"
 msgid ""
 "The item lock was changed on another device. To move the locked items to it, "
@@ -3739,7 +3776,7 @@ msgid ""
 "now (either one first)."
 msgstr ""
 
-#: ui/model.slint:620
+#: ui/model.slint:639
 msgctxt "Messages"
 msgid ""
 "The item lock was changed on another device. To move the locked items to it, "
@@ -3747,80 +3784,80 @@ msgid ""
 "until now (either one first)."
 msgstr ""
 
-#: ui/model.slint:621
+#: ui/model.slint:640
 msgctxt "Messages"
 msgid ""
 "The item lock was turned off, or changed to the master password, on another "
 "device. Open the item lock here once and the locked items follow it."
 msgstr ""
 
-#: ui/model.slint:627
+#: ui/model.slint:646
 msgctxt "Messages"
 msgid "today"
 msgstr ""
 
-#: ui/model.slint:628
+#: ui/model.slint:647
 msgctxt "Messages"
 msgid "{n} day ago"
 msgid_plural "{n} days ago"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:629
+#: ui/model.slint:648
 msgctxt "Messages"
 msgid "{n} month ago"
 msgid_plural "{n} months ago"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:630
+#: ui/model.slint:649
 msgctxt "Messages"
 msgid "{n} year ago"
 msgid_plural "{n} years ago"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/model.slint:635
+#: ui/model.slint:654
 msgctxt "Messages"
 msgid "Keyboard patterns like qwerty are among the first guesses."
 msgstr ""
 
-#: ui/model.slint:636
+#: ui/model.slint:655
 msgctxt "Messages"
 msgid "Repeats like aaa or abcabc are easy to guess."
 msgstr ""
 
-#: ui/model.slint:637
+#: ui/model.slint:656
 msgctxt "Messages"
 msgid "This is one of the most used passwords."
 msgstr ""
 
-#: ui/model.slint:638
+#: ui/model.slint:657
 msgctxt "Messages"
 msgid "This is a common password with small changes."
 msgstr ""
 
-#: ui/model.slint:639
+#: ui/model.slint:658
 msgctxt "Messages"
 msgid "Sequences like abc or 1234 are easy to guess."
 msgstr ""
 
-#: ui/model.slint:640
+#: ui/model.slint:659
 msgctxt "Messages"
 msgid "Dates and years are easy to guess."
 msgstr ""
 
-#: ui/model.slint:641
+#: ui/model.slint:660
 msgctxt "Messages"
 msgid "A single word is easy to guess."
 msgstr ""
 
-#: ui/model.slint:642
+#: ui/model.slint:661
 msgctxt "Messages"
 msgid "Names and surnames are easy to guess."
 msgstr ""
 
-#: ui/model.slint:643
+#: ui/model.slint:662
 msgctxt "Messages"
 msgid "Too short and predictable."
 msgstr ""
@@ -3865,639 +3902,644 @@ msgctxt "LockBox"
 msgid "Use Windows Hello"
 msgstr ""
 
-#: ui/pages.slint:342
+#: ui/pages.slint:345
 msgctxt "DetailPage"
 msgid "Pick an item on the left, or add a new one."
 msgstr ""
 
-#: ui/pages.slint:383
+#: ui/pages.slint:386
 msgctxt "DetailPage"
 msgid "{} · in {}"
 msgstr ""
 
-#: ui/pages.slint:389
+#: ui/pages.slint:392
 msgctxt "DetailPage"
 msgid "In the trash: deleted for good 30 days after it was put there."
 msgstr ""
 
-#: ui/pages.slint:390
+#: ui/pages.slint:393
 msgctxt "DetailPage"
 msgid "Archived: kept, but out of search, filling and health."
 msgstr ""
 
-#: ui/pages.slint:391
+#: ui/pages.slint:394
 msgctxt "DetailPage"
 msgid "A template: new items can start from it."
 msgstr ""
 
-#: ui/pages.slint:392
+#: ui/pages.slint:395
 msgctxt "DetailPage"
 msgid "Kept out of the browser."
 msgstr ""
 
-#: ui/pages.slint:406
+#: ui/pages.slint:409
 msgctxt "DetailPage"
 msgid "Remove from favorites"
 msgstr ""
 
-#: ui/pages.slint:406
+#: ui/pages.slint:409
 msgctxt "DetailPage"
 msgid "Add to favorites"
 msgstr ""
 
-#: ui/pages.slint:427
+#: ui/pages.slint:430
 msgctxt "DetailPage"
 msgid "Name on card"
 msgstr ""
 
-#: ui/pages.slint:427
+#: ui/pages.slint:430
 msgctxt "DetailPage"
 msgid "Email"
 msgstr ""
 
-#: ui/pages.slint:427
+#: ui/pages.slint:430
 msgctxt "DetailPage"
 msgid "Username"
 msgstr ""
 
-#: ui/pages.slint:431 ui/pages.slint:476 ui/pages.slint:588 ui/pages.slint:619
-#: ui/pages.slint:431 ui/pages.slint:476 ui/pages.slint:588 ui/pages.slint:619 ui/pages.slint:659 ui/pages.slint:723
+#: ui/pages.slint:434 ui/pages.slint:479 ui/pages.slint:591 ui/pages.slint:626
+#: ui/pages.slint:434 ui/pages.slint:479 ui/pages.slint:591 ui/pages.slint:626 ui/pages.slint:666 ui/pages.slint:730
 msgctxt "DetailPage"
 msgid "Copy"
 msgstr ""
 
-#: ui/pages.slint:441
+#: ui/pages.slint:444
 msgctxt "DetailPage"
 msgid ""
 "The password, codes and hidden fields of this item open with your PIN. One "
 "right PIN opens every locked item for 5 minutes."
 msgstr ""
 
-#: ui/pages.slint:442
+#: ui/pages.slint:445
 msgctxt "DetailPage"
 msgid ""
 "The password, codes and hidden fields of this item open with your item "
 "password. It opens every locked item for 5 minutes."
 msgstr ""
 
-#: ui/pages.slint:443
+#: ui/pages.slint:446
 msgctxt "DetailPage"
 msgid ""
 "The password, codes and hidden fields of this item open with your master "
 "password. It opens every locked item for 5 minutes."
 msgstr ""
 
-#: ui/pages.slint:454
+#: ui/pages.slint:457
 msgctxt "DetailPage"
 msgid "PIN"
 msgstr ""
 
-#: ui/pages.slint:454
+#: ui/pages.slint:457
 msgctxt "DetailPage"
 msgid "Private key"
 msgstr ""
 
-#: ui/pages.slint:454
+#: ui/pages.slint:457
 msgctxt "DetailPage"
 msgid "Password"
 msgstr ""
 
-#: ui/pages.slint:460 ui/pages.slint:649
+#: ui/pages.slint:463 ui/pages.slint:656
 msgctxt "DetailPage"
 msgid "hides in {} s"
 msgstr ""
 
-#: ui/pages.slint:472
+#: ui/pages.slint:475
 msgctxt "DetailPage"
 msgid "Auto-type"
 msgstr ""
 
-#: ui/pages.slint:507
+#: ui/pages.slint:510
 msgctxt "DetailPage"
 msgid "Strong"
 msgstr ""
 
-#: ui/pages.slint:508
+#: ui/pages.slint:511
 msgctxt "DetailPage"
 msgid "Good"
 msgstr ""
 
-#: ui/pages.slint:509
+#: ui/pages.slint:512
 msgctxt "DetailPage"
 msgid "Weak"
 msgstr ""
 
-#: ui/pages.slint:510
+#: ui/pages.slint:513
 msgctxt "DetailPage"
 msgid "Very weak"
 msgstr ""
 
-#: ui/pages.slint:522
+#: ui/pages.slint:525
 msgctxt "DetailPage"
 msgid "changed {}"
 msgstr ""
 
-#: ui/pages.slint:535
+#: ui/pages.slint:538
 msgctxt "DetailPage"
 msgid "Also used by {n} other item: a leak at one site opens both."
 msgid_plural "Also used by {n} other items: a leak at one site opens them all."
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/pages.slint:543
+#: ui/pages.slint:546
 msgctxt "DetailPage"
 msgid "Password history"
 msgstr ""
 
-#: ui/pages.slint:545
+#: ui/pages.slint:548
 msgctxt "DetailPage"
 msgid "{n} earlier password"
 msgid_plural "{n} earlier passwords"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/pages.slint:597
+#: ui/pages.slint:600
 msgctxt "DetailPage"
 msgid "Clear history"
 msgstr ""
 
-#: ui/pages.slint:605
+#: ui/pages.slint:608
 msgctxt "DetailPage"
 msgid "One-time code"
 msgstr ""
 
-#: ui/pages.slint:607
+#: ui/pages.slint:610
 msgctxt "DetailPage"
 msgid ""
 "The code for two-step sign-in, made from the secret saved in this item. It "
 "changes every 30 seconds."
 msgstr ""
 
-#: ui/pages.slint:613
+#: ui/pages.slint:620
 msgctxt "DetailPage"
 msgid "{} s"
 msgstr ""
 
-#: ui/pages.slint:625
+#: ui/pages.slint:632
 msgctxt "DetailPage"
 msgid "Website"
 msgstr ""
 
-#: ui/pages.slint:631
+#: ui/pages.slint:638
 msgctxt "DetailPage"
 msgid "Open"
 msgstr ""
 
-#: ui/pages.slint:665
+#: ui/pages.slint:672
 msgctxt "DetailPage"
 msgid "Recovery codes"
 msgstr ""
 
-#: ui/pages.slint:668
+#: ui/pages.slint:675
 msgctxt "DetailPage"
 msgid "All {} used — get new ones from the site"
 msgstr ""
 
-#: ui/pages.slint:669
+#: ui/pages.slint:676
 msgctxt "DetailPage"
 msgid "{} of {} left"
 msgstr ""
 
-#: ui/pages.slint:702
+#: ui/pages.slint:709
 msgctxt "DetailPage"
 msgid "Recovery code {}: shown on screen, not read aloud"
 msgstr ""
 
-#: ui/pages.slint:718
+#: ui/pages.slint:725
 msgctxt "DetailPage"
 msgid "Mark unused"
 msgstr ""
 
-#: ui/pages.slint:718
+#: ui/pages.slint:725
 msgctxt "DetailPage"
 msgid "Mark used"
 msgstr ""
 
-#: ui/pages.slint:733
+#: ui/pages.slint:740
 msgctxt "DetailPage"
 msgid "Files"
 msgstr ""
 
-#: ui/pages.slint:750
+#: ui/pages.slint:757
 msgctxt "DetailPage"
 msgid "Save…"
 msgstr ""
 
-#: ui/pages.slint:758
+#: ui/pages.slint:765
 msgctxt "DetailPage"
 msgid "Passkeys"
 msgstr ""
 
-#: ui/pages.slint:771
+#: ui/pages.slint:778
 msgctxt "DetailPage"
 msgid "No account name"
 msgstr ""
 
-#: ui/pages.slint:786
+#: ui/pages.slint:793
 msgctxt "DetailPage"
 msgid "Saved {}"
 msgstr ""
 
-#: ui/pages.slint:799
+#: ui/pages.slint:806
 msgctxt "DetailPage"
 msgid "The site says it no longer knows this passkey."
 msgstr ""
 
-#: ui/pages.slint:806
+#: ui/pages.slint:807
 msgctxt "DetailPage"
 msgid "The site says this account is now {}."
 msgstr ""
 
-#: ui/pages.slint:813
+#: ui/pages.slint:814
 msgctxt "DetailPage"
 msgid "Remove it"
 msgstr ""
 
-#: ui/pages.slint:807
+#: ui/pages.slint:814
 msgctxt "DetailPage"
 msgid "Use this name"
 msgstr ""
 
-#: ui/pages.slint:811
+#: ui/pages.slint:818
 msgctxt "DetailPage"
 msgid "Keep as it is"
 msgstr ""
 
-#: ui/pages.slint:821
+#: ui/pages.slint:828
 msgctxt "DetailPage"
 msgid "Notes"
 msgstr ""
 
-#: ui/pages.slint:823
+#: ui/pages.slint:830
 msgctxt "DetailPage"
 msgid "Hidden"
 msgstr ""
 
-#: ui/pages.slint:834
+#: ui/pages.slint:841
 msgctxt "DetailPage"
 msgid "Notes: shown on screen, not read aloud"
 msgstr ""
 
-#: ui/pages.slint:842
+#: ui/pages.slint:849
 msgctxt "DetailPage"
 msgid "Tags"
 msgstr ""
 
-#: ui/pages.slint:847
+#: ui/pages.slint:854
 msgctxt "DetailPage"
 msgid "Expires"
 msgstr ""
 
-#: ui/pages.slint:849
+#: ui/pages.slint:856
 msgctxt "DetailPage"
 msgid "{} (expired)"
 msgstr ""
 
-#: ui/pages.slint:855
+#: ui/pages.slint:862
 msgctxt "DetailPage"
 msgid "Earlier versions"
 msgstr ""
 
-#: ui/pages.slint:857
+#: ui/pages.slint:864
 msgctxt "DetailPage"
 msgid "{n} earlier version"
 msgid_plural "{n} earlier versions"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/pages.slint:890
+#: ui/pages.slint:897
 msgctxt "DetailPage"
 msgid "then changed:"
 msgstr ""
 
-#: ui/pages.slint:903 ui/pages.slint:955
+#: ui/pages.slint:910 ui/pages.slint:967
 msgctxt "DetailPage"
 msgid "Restore"
 msgstr ""
 
-#: ui/pages.slint:918
+#: ui/pages.slint:925
 msgctxt "DetailPage"
 msgid "Lock"
 msgstr ""
 
-#: ui/pages.slint:923
+#: ui/pages.slint:930
 msgctxt "DetailPage"
 msgid "Edit"
 msgstr ""
 
-#: ui/pages.slint:929
+#: ui/pages.slint:936
 msgctxt "DetailPage"
 msgid "New item from it"
 msgstr ""
 
-#: ui/pages.slint:934
+#: ui/pages.slint:941
 msgctxt "DetailPage"
 msgid "Change password"
 msgstr ""
 
-#: ui/pages.slint:939
+#: ui/pages.slint:946
+msgctxt "DetailPage"
+msgid "Enlarge password"
+msgstr ""
+
+#: ui/pages.slint:951
 msgctxt "DetailPage"
 msgid "Take out of the archive"
 msgstr ""
 
-#: ui/pages.slint:939
+#: ui/pages.slint:951
 msgctxt "DetailPage"
 msgid "Archive"
 msgstr ""
 
-#: ui/pages.slint:944
+#: ui/pages.slint:956
 msgctxt "DetailPage"
 msgid "Move to the trash"
 msgstr ""
 
-#: ui/pages.slint:960 ui/pages.slint:978
+#: ui/pages.slint:972 ui/pages.slint:990
 msgctxt "DetailPage"
 msgid "Delete for good"
 msgstr ""
 
-#: ui/pages.slint:969
+#: ui/pages.slint:981
 msgctxt "DetailPage"
 msgid "Delete “{}” for good? This can't be undone."
 msgstr ""
 
-#: ui/pages.slint:985
+#: ui/pages.slint:997
 msgctxt "DetailPage"
 msgid "Keep it"
 msgstr ""
 
-#: ui/pages.slint:1016
+#: ui/pages.slint:1028
 msgctxt "SeparatorPicker"
 msgid "Between the words"
 msgstr ""
 
-#: ui/pages.slint:1023
+#: ui/pages.slint:1035
 msgctxt "SeparatorPicker"
 msgid "space"
 msgstr ""
 
-#: ui/pages.slint:1023
+#: ui/pages.slint:1035
 msgctxt "SeparatorPicker"
 msgid "nothing"
 msgstr ""
 
-#: ui/pages.slint:1037
+#: ui/pages.slint:1049
 msgctxt "SeparatorPicker"
 msgid "Other…"
 msgstr ""
 
-#: ui/pages.slint:1076
+#: ui/pages.slint:1088
 msgctxt "QuickGenerator"
 msgid "Random characters"
 msgstr ""
 
-#: ui/pages.slint:1076
+#: ui/pages.slint:1088
 msgctxt "QuickGenerator"
 msgid "Words (passphrase)"
 msgstr ""
 
-#: ui/pages.slint:1084
+#: ui/pages.slint:1096
 msgctxt "QuickGenerator"
 msgid "Hide options"
 msgstr ""
 
-#: ui/pages.slint:1093 ui/pages.slint:1100
+#: ui/pages.slint:1105 ui/pages.slint:1112
 msgctxt "QuickGenerator"
 msgid "Length"
 msgstr ""
 
-#: ui/pages.slint:1093 ui/pages.slint:1107
+#: ui/pages.slint:1105 ui/pages.slint:1119
 msgctxt "QuickGenerator"
 msgid "Words"
 msgstr ""
 
-#: ui/pages.slint:1126
+#: ui/pages.slint:1138
 msgctxt "QuickGenerator"
 msgid "A–Z"
 msgstr ""
 
-#: ui/pages.slint:1127
+#: ui/pages.slint:1139
 msgctxt "QuickGenerator"
 msgid "a–z"
 msgstr ""
 
-#: ui/pages.slint:1128
+#: ui/pages.slint:1140
 msgctxt "QuickGenerator"
 msgid "0–9"
 msgstr ""
 
-#: ui/pages.slint:1129
+#: ui/pages.slint:1141
 msgctxt "QuickGenerator"
 msgid "!@#$ symbols"
 msgstr ""
 
-#: ui/pages.slint:1130
+#: ui/pages.slint:1142
 msgctxt "QuickGenerator"
 msgid "No look-alikes"
 msgstr ""
 
-#: ui/pages.slint:1138
+#: ui/pages.slint:1150
 msgctxt "QuickGenerator"
 msgid "Word case"
 msgstr ""
 
-#: ui/pages.slint:1139
+#: ui/pages.slint:1151
 msgctxt "QuickGenerator"
 msgid "lower case"
 msgstr ""
 
-#: ui/pages.slint:1139
+#: ui/pages.slint:1151
 msgctxt "QuickGenerator"
 msgid "UPPER CASE"
 msgstr ""
 
-#: ui/pages.slint:1139
+#: ui/pages.slint:1151
 msgctxt "QuickGenerator"
 msgid "Title Case"
 msgstr ""
 
-#: ui/pages.slint:1139
+#: ui/pages.slint:1151
 msgctxt "QuickGenerator"
 msgid "MIXED case"
 msgstr ""
 
-#: ui/pages.slint:1148
+#: ui/pages.slint:1160
 msgctxt "QuickGenerator"
 msgid "Add a digit to one word"
 msgstr ""
 
-#: ui/pages.slint:1158
+#: ui/pages.slint:1170
 msgctxt "QuickGenerator"
 msgid ""
 "More options (extra characters, characters to leave out, your own word "
 "lists) are on the Password generator page."
 msgstr ""
 
-#: ui/pages.slint:1272
+#: ui/pages.slint:1284
 msgctxt "EditorPage"
 msgid "New item"
 msgstr ""
 
-#: ui/pages.slint:1272
+#: ui/pages.slint:1284
 msgctxt "EditorPage"
 msgid "Edit item"
 msgstr ""
 
-#: ui/pages.slint:1276
+#: ui/pages.slint:1288
 msgctxt "EditorPage"
 msgid "Login"
 msgstr ""
 
-#: ui/pages.slint:1276
+#: ui/pages.slint:1288
 msgctxt "EditorPage"
 msgid "Card"
 msgstr ""
 
-#: ui/pages.slint:1276
+#: ui/pages.slint:1288
 msgctxt "EditorPage"
 msgid "Secure note"
 msgstr ""
 
-#: ui/pages.slint:1276
+#: ui/pages.slint:1288
 msgctxt "EditorPage"
 msgid "Authenticator"
 msgstr ""
 
-#: ui/pages.slint:1276
+#: ui/pages.slint:1288
 msgctxt "EditorPage"
 msgid "SSH key"
 msgstr ""
 
-#: ui/pages.slint:1276
+#: ui/pages.slint:1288
 msgctxt "EditorPage"
 msgid "Identity"
 msgstr ""
 
-#: ui/pages.slint:1284
+#: ui/pages.slint:1296
 msgctxt "EditorPage"
 msgid "Title"
 msgstr ""
 
-#: ui/pages.slint:1288
+#: ui/pages.slint:1300
 msgctxt "EditorPage"
 msgid "Visa ending 4242"
 msgstr ""
 
-#: ui/pages.slint:1288
+#: ui/pages.slint:1300
 msgctxt "EditorPage"
 msgid "Home Wi-Fi"
 msgstr ""
 
-#: ui/pages.slint:1288
+#: ui/pages.slint:1300
 msgctxt "EditorPage"
 msgid "Taken from the setup key"
 msgstr ""
 
-#: ui/pages.slint:1288
+#: ui/pages.slint:1300
 msgctxt "EditorPage"
 msgid "GitHub"
 msgstr ""
 
-#: ui/pages.slint:1294
+#: ui/pages.slint:1306
 msgctxt "EditorPage"
 msgid "Folder"
 msgstr ""
 
-#: ui/pages.slint:1296
+#: ui/pages.slint:1308
 msgctxt "EditorPage"
 msgid "No folder"
 msgstr ""
 
-#: ui/pages.slint:1319
+#: ui/pages.slint:1331
 msgctxt "EditorPage"
 msgid "Icon: automatic (the site's icon, or the first letter)"
 msgstr ""
 
-#: ui/pages.slint:1319
+#: ui/pages.slint:1331
 msgctxt "EditorPage"
 msgid "Icon: a line icon"
 msgstr ""
 
-#: ui/pages.slint:1325
+#: ui/pages.slint:1337
 msgctxt "EditorPage"
 msgid "Done"
 msgstr ""
 
-#: ui/pages.slint:1325
+#: ui/pages.slint:1337
 msgctxt "EditorPage"
 msgid "Choose…"
 msgstr ""
 
-#: ui/pages.slint:1331
+#: ui/pages.slint:1343
 msgctxt "EditorPage"
 msgid "Back to automatic"
 msgstr ""
 
-#: ui/pages.slint:1368
+#: ui/pages.slint:1380
 msgctxt "EditorPage"
 msgid "Icon colour"
 msgstr ""
 
-#: ui/pages.slint:1368
+#: ui/pages.slint:1380
 msgctxt "EditorPage"
 msgid "Tile colour"
 msgstr ""
 
-#: ui/pages.slint:1406
+#: ui/pages.slint:1418
 msgctxt "EditorPage"
 msgid "Name on card"
 msgstr ""
 
-#: ui/pages.slint:1406
+#: ui/pages.slint:1418
 msgctxt "EditorPage"
 msgid "Account"
 msgstr ""
 
-#: ui/pages.slint:1406
+#: ui/pages.slint:1418
 msgctxt "EditorPage"
 msgid "User or comment"
 msgstr ""
 
-#: ui/pages.slint:1406
+#: ui/pages.slint:1418
 msgctxt "EditorPage"
 msgid "Full name"
 msgstr ""
 
-#: ui/pages.slint:1406
+#: ui/pages.slint:1418
 msgctxt "EditorPage"
 msgid "Username or email"
 msgstr ""
 
-#: ui/pages.slint:1408
+#: ui/pages.slint:1420
 msgctxt "EditorPage"
 msgid "you@example.com"
 msgstr ""
 
-#: ui/pages.slint:1415
+#: ui/pages.slint:1427
 msgctxt "EditorPage"
 msgid "Website"
 msgstr ""
 
-#: ui/pages.slint:1417
+#: ui/pages.slint:1429
 msgctxt "EditorPage"
 msgid "The bank's site, for its icon"
 msgstr ""
 
-#: ui/pages.slint:1430
+#: ui/pages.slint:1442
 msgctxt "EditorPage"
 msgid "The site's icon"
 msgstr ""
 
-#: ui/pages.slint:1441
+#: ui/pages.slint:1453
 msgctxt "EditorPage"
 msgid "Setup key"
 msgstr ""
 
-#: ui/pages.slint:1444
+#: ui/pages.slint:1456
 msgctxt "EditorPage"
 msgid ""
 "When you turn on two-step sign-in, the site shows a QR code and a text key, "
@@ -4506,62 +4548,62 @@ msgid ""
 "Authenticator page."
 msgstr ""
 
-#: ui/pages.slint:1445
+#: ui/pages.slint:1457
 msgctxt "EditorPage"
 msgid "otpauth:// link or key, e.g. JBSW Y3DP EHPK 3PXP"
 msgstr ""
 
-#: ui/pages.slint:1459
+#: ui/pages.slint:1471
 msgctxt "EditorPage"
 msgid "Card number"
 msgstr ""
 
-#: ui/pages.slint:1493 ui/pages.slint:1806
+#: ui/pages.slint:1505 ui/pages.slint:1818
 msgctxt "EditorPage"
 msgid "Expires"
 msgstr ""
 
-#: ui/pages.slint:1495
+#: ui/pages.slint:1507
 msgctxt "EditorPage"
 msgid "MM/YY"
 msgstr ""
 
-#: ui/pages.slint:1510
+#: ui/pages.slint:1522
 msgctxt "EditorPage"
 msgid "PIN"
 msgstr ""
 
-#: ui/pages.slint:1510
+#: ui/pages.slint:1522
 msgctxt "EditorPage"
 msgid "Password"
 msgstr ""
 
-#: ui/pages.slint:1512
+#: ui/pages.slint:1524
 msgctxt "EditorPage"
 msgid "Digits only, as the bank gave it"
 msgstr ""
 
-#: ui/pages.slint:1528
+#: ui/pages.slint:1540
 msgctxt "EditorPage"
 msgid "Another"
 msgstr ""
 
-#: ui/pages.slint:1528
+#: ui/pages.slint:1540
 msgctxt "EditorPage"
 msgid "Generate"
 msgstr ""
 
-#: ui/pages.slint:1538
+#: ui/pages.slint:1550
 msgctxt "EditorPage"
 msgid "Security code"
 msgstr ""
 
-#: ui/pages.slint:1547
+#: ui/pages.slint:1559
 msgctxt "EditorPage"
 msgid "One-time code secret"
 msgstr ""
 
-#: ui/pages.slint:1549
+#: ui/pages.slint:1561
 msgctxt "EditorPage"
 msgid ""
 "Optional. Only for sites with two-step sign-in through an authenticator app. "
@@ -4570,17 +4612,17 @@ msgid ""
 "will then show the 6-digit codes."
 msgstr ""
 
-#: ui/pages.slint:1550
+#: ui/pages.slint:1562
 msgctxt "EditorPage"
 msgid "otpauth:// link or key"
 msgstr ""
 
-#: ui/pages.slint:1584
+#: ui/pages.slint:1596
 msgctxt "EditorPage"
 msgid "This password turned up in data breaches {} times: choose another."
 msgstr ""
 
-#: ui/pages.slint:1585
+#: ui/pages.slint:1597
 msgctxt "EditorPage"
 msgid "Same password as {n} other login: a leak of one exposes both."
 msgid_plural ""
@@ -4588,64 +4630,64 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/pages.slint:1608
+#: ui/pages.slint:1620
 msgctxt "EditorPage"
 msgid "No key yet: make one here, or bring yours from a file or the clipboard."
 msgstr ""
 
-#: ui/pages.slint:1609
+#: ui/pages.slint:1621
 msgctxt "EditorPage"
 msgid "Private key"
 msgstr ""
 
-#: ui/pages.slint:1623
+#: ui/pages.slint:1635
 msgctxt "EditorPage"
 msgid "Kept as it is; its public half couldn't be read."
 msgstr ""
 
-#: ui/pages.slint:1636
+#: ui/pages.slint:1648
 msgctxt "EditorPage"
 msgid "The key's passphrase"
 msgstr ""
 
-#: ui/pages.slint:1637
+#: ui/pages.slint:1649
 msgctxt "EditorPage"
 msgid ""
 "Asked once to open the key. The vault keeps the key without it: the vault "
 "itself protects it."
 msgstr ""
 
-#: ui/pages.slint:1645
+#: ui/pages.slint:1657
 msgctxt "EditorPage"
 msgid "Open the key"
 msgstr ""
 
-#: ui/pages.slint:1654
+#: ui/pages.slint:1666
 msgctxt "EditorPage"
 msgid "Make a new key"
 msgstr ""
 
-#: ui/pages.slint:1654
+#: ui/pages.slint:1666
 msgctxt "EditorPage"
 msgid "Make a key (Ed25519)"
 msgstr ""
 
-#: ui/pages.slint:1657
+#: ui/pages.slint:1669
 msgctxt "EditorPage"
 msgid "Load from a file…"
 msgstr ""
 
-#: ui/pages.slint:1658
+#: ui/pages.slint:1670
 msgctxt "EditorPage"
 msgid "Paste"
 msgstr ""
 
-#: ui/pages.slint:1662
+#: ui/pages.slint:1674
 msgctxt "EditorPage"
 msgid "Recovery codes"
 msgstr ""
 
-#: ui/pages.slint:1664
+#: ui/pages.slint:1676
 msgctxt "EditorPage"
 msgid ""
 "The single-use backup codes a site gives you when you turn on two-step sign-"
@@ -4654,86 +4696,86 @@ msgid ""
 "one and mark it as used."
 msgstr ""
 
-#: ui/pages.slint:1665
+#: ui/pages.slint:1677
 msgctxt "EditorPage"
 msgid "One per line, as the site shows them"
 msgstr ""
 
-#: ui/pages.slint:1671
+#: ui/pages.slint:1683
 msgctxt "EditorPage"
 msgid "Notes"
 msgstr ""
 
-#: ui/pages.slint:1678
+#: ui/pages.slint:1690
 msgctxt "EditorPage"
 msgid "Files"
 msgstr ""
 
-#: ui/pages.slint:1695 ui/pages.slint:1714 ui/pages.slint:1766
+#: ui/pages.slint:1707 ui/pages.slint:1726 ui/pages.slint:1778
 msgctxt "EditorPage"
 msgid "Remove"
 msgstr ""
 
-#: ui/pages.slint:1697
+#: ui/pages.slint:1709
 msgctxt "EditorPage"
 msgid "Passkeys"
 msgstr ""
 
-#: ui/pages.slint:1705
+#: ui/pages.slint:1717
 msgctxt "EditorPage"
 msgid "No account name"
 msgstr ""
 
-#: ui/pages.slint:1717
+#: ui/pages.slint:1729
 msgctxt "EditorPage"
 msgid ""
 "A passkey removed here is gone once you save. The site still expects it "
 "until you remove it in the site's security settings too."
 msgstr ""
 
-#: ui/pages.slint:1725
+#: ui/pages.slint:1737
 msgctxt "EditorPage"
 msgid "Attach a file…"
 msgstr ""
 
-#: ui/pages.slint:1728
+#: ui/pages.slint:1740
 msgctxt "EditorPage"
 msgid ""
 "Up to 10 files of 5 MB each. They are encrypted with the item and go "
 "wherever the vault goes, so large files make every save and sync slower."
 msgstr ""
 
-#: ui/pages.slint:1736
+#: ui/pages.slint:1748
 msgctxt "EditorPage"
 msgid "More fields"
 msgstr ""
 
-#: ui/pages.slint:1744
+#: ui/pages.slint:1756
 msgctxt "EditorPage"
 msgid "Name, e.g. Customer no."
 msgstr ""
 
-#: ui/pages.slint:1750
+#: ui/pages.slint:1762
 msgctxt "EditorPage"
 msgid "Value"
 msgstr ""
 
-#: ui/pages.slint:1758
+#: ui/pages.slint:1770
 msgctxt "EditorPage"
 msgid "Hidden"
 msgstr ""
 
-#: ui/pages.slint:1775
+#: ui/pages.slint:1787
 msgctxt "EditorPage"
 msgid "+ Add a field"
 msgstr ""
 
-#: ui/pages.slint:1785
+#: ui/pages.slint:1797
 msgctxt "EditorPage"
 msgid "Lock this item's secrets"
 msgstr ""
 
-#: ui/pages.slint:1791
+#: ui/pages.slint:1803
 msgctxt "EditorPage"
 msgid ""
 "For the accounts that matter most (bank, main email). The item still shows "
@@ -4743,27 +4785,27 @@ msgid ""
 "can also lock every item at once."
 msgstr ""
 
-#: ui/pages.slint:1799
+#: ui/pages.slint:1811
 msgctxt "EditorPage"
 msgid "Tags"
 msgstr ""
 
-#: ui/pages.slint:1801
+#: ui/pages.slint:1813
 msgctxt "EditorPage"
 msgid "work, bank"
 msgstr ""
 
-#: ui/pages.slint:1808
+#: ui/pages.slint:1820
 msgctxt "EditorPage"
 msgid "YYYY-MM-DD"
 msgstr ""
 
-#: ui/pages.slint:1816
+#: ui/pages.slint:1828
 msgctxt "EditorPage"
 msgid "Keep out of the browser"
 msgstr ""
 
-#: ui/pages.slint:1822
+#: ui/pages.slint:1834
 msgctxt "EditorPage"
 msgid ""
 "The browser extension never gets this item: not listed, not filled, not "
@@ -4771,151 +4813,151 @@ msgid ""
 "of the browser too (its settings)."
 msgstr ""
 
-#: ui/pages.slint:1827
+#: ui/pages.slint:1839
 msgctxt "EditorPage"
 msgid "Use as a template"
 msgstr ""
 
-#: ui/pages.slint:1833
+#: ui/pages.slint:1845
 msgctxt "EditorPage"
 msgid ""
 "A template is a shape for new items: its websites, tags, folder and fields, "
 "without its secrets. Templates are listed apart and never filled."
 msgstr ""
 
-#: ui/pages.slint:1840
+#: ui/pages.slint:1852
 msgctxt "EditorPage"
 msgid "Item lock PIN, to save this locked item"
 msgstr ""
 
-#: ui/pages.slint:1840
+#: ui/pages.slint:1852
 msgctxt "EditorPage"
 msgid "Item lock password, to save this locked item"
 msgstr ""
 
-#: ui/pages.slint:1851
+#: ui/pages.slint:1863
 msgctxt "EditorPage"
 msgid "Favorite"
 msgstr ""
 
-#: ui/pages.slint:1858
+#: ui/pages.slint:1870
 msgctxt "EditorPage"
 msgid "Cancel"
 msgstr ""
 
-#: ui/pages.slint:1863
+#: ui/pages.slint:1875
 msgctxt "EditorPage"
 msgid "Save"
 msgstr ""
 
-#: ui/pages.slint:1930
+#: ui/pages.slint:1942
 msgctxt "GeneratorPage"
 msgid "Password generator"
 msgstr ""
 
-#: ui/pages.slint:1942
+#: ui/pages.slint:1954
 msgctxt "GeneratorPage"
 msgid "Generated password: shown on screen, not read aloud"
 msgstr ""
 
-#: ui/pages.slint:1960 ui/pages.slint:2233
+#: ui/pages.slint:1972 ui/pages.slint:2245
 msgctxt "GeneratorPage"
 msgid "Copy"
 msgstr ""
 
-#: ui/pages.slint:1967
+#: ui/pages.slint:1979
 msgctxt "GeneratorPage"
 msgid "Generate another"
 msgstr ""
 
-#: ui/pages.slint:1974
+#: ui/pages.slint:1986
 msgctxt "GeneratorPage"
 msgid "Use for this item"
 msgstr ""
 
-#: ui/pages.slint:1983
+#: ui/pages.slint:1995
 msgctxt "GeneratorPage"
 msgid "Random characters"
 msgstr ""
 
-#: ui/pages.slint:1983
+#: ui/pages.slint:1995
 msgctxt "GeneratorPage"
 msgid "Words (passphrase)"
 msgstr ""
 
-#: ui/pages.slint:1992 ui/pages.slint:1999
+#: ui/pages.slint:2004 ui/pages.slint:2011
 msgctxt "GeneratorPage"
 msgid "Length"
 msgstr ""
 
-#: ui/pages.slint:1992 ui/pages.slint:2006
+#: ui/pages.slint:2004 ui/pages.slint:2018
 msgctxt "GeneratorPage"
 msgid "Words"
 msgstr ""
 
-#: ui/pages.slint:2029
+#: ui/pages.slint:2041
 msgctxt "GeneratorPage"
 msgid "A–Z capitals"
 msgstr ""
 
-#: ui/pages.slint:2030
+#: ui/pages.slint:2042
 msgctxt "GeneratorPage"
 msgid "a–z lowercase"
 msgstr ""
 
-#: ui/pages.slint:2033
+#: ui/pages.slint:2045
 msgctxt "GeneratorPage"
 msgid "0–9 digits"
 msgstr ""
 
-#: ui/pages.slint:2034
+#: ui/pages.slint:2046
 msgctxt "GeneratorPage"
 msgid "!@#$%^&* symbols"
 msgstr ""
 
-#: ui/pages.slint:2041
+#: ui/pages.slint:2053
 msgctxt "GeneratorPage"
 msgid "Fewer options"
 msgstr ""
 
-#: ui/pages.slint:2041
+#: ui/pages.slint:2053
 msgctxt "GeneratorPage"
 msgid "Advanced options"
 msgstr ""
 
-#: ui/pages.slint:2048
+#: ui/pages.slint:2060
 msgctxt "GeneratorPage"
 msgid ""
 "For sites with rules: at least this many of each kind. The length grows if "
 "they need more room."
 msgstr ""
 
-#: ui/pages.slint:2053
+#: ui/pages.slint:2065
 msgctxt "GeneratorPage"
 msgid "At least, capitals"
 msgstr ""
 
-#: ui/pages.slint:2054
+#: ui/pages.slint:2066
 msgctxt "GeneratorPage"
 msgid "At least, lowercase"
 msgstr ""
 
-#: ui/pages.slint:2055
+#: ui/pages.slint:2067
 msgctxt "GeneratorPage"
 msgid "At least, digits"
 msgstr ""
 
-#: ui/pages.slint:2056
+#: ui/pages.slint:2068
 msgctxt "GeneratorPage"
 msgid "At least, symbols"
 msgstr ""
 
-#: ui/pages.slint:2065
+#: ui/pages.slint:2077
 msgctxt "GeneratorPage"
 msgid "Extended ASCII (é ß ¿ µ…)"
 msgstr ""
 
-#: ui/pages.slint:2069
+#: ui/pages.slint:2081
 msgctxt "GeneratorPage"
 msgid ""
 "Adds 94 accented letters and signs (Latin-1). Stronger per character, but "
@@ -4923,98 +4965,98 @@ msgid ""
 "only where you paste the password."
 msgstr ""
 
-#: ui/pages.slint:2073
+#: ui/pages.slint:2085
 msgctxt "GeneratorPage"
 msgid "Leave out look-alikes (I l 1 O 0 o |)"
 msgstr ""
 
-#: ui/pages.slint:2080
+#: ui/pages.slint:2092
 msgctxt "GeneratorPage"
 msgid "Also use"
 msgstr ""
 
-#: ui/pages.slint:2081
+#: ui/pages.slint:2093
 msgctxt "GeneratorPage"
 msgid ""
 "Type extra characters to mix in, exactly as they should appear, for "
 "example ;:~ or ñ. At least one of them will be in the password."
 msgstr ""
 
-#: ui/pages.slint:2082
+#: ui/pages.slint:2094
 msgctxt "GeneratorPage"
 msgid "e.g. ñ€"
 msgstr ""
 
-#: ui/pages.slint:2089
+#: ui/pages.slint:2101
 msgctxt "GeneratorPage"
 msgid "Never use"
 msgstr ""
 
-#: ui/pages.slint:2090
+#: ui/pages.slint:2102
 msgctxt "GeneratorPage"
 msgid ""
 "Type characters a site does not accept, for example <>'\"\\. They are left "
 "out even when a box above includes them."
 msgstr ""
 
-#: ui/pages.slint:2091
+#: ui/pages.slint:2103
 msgctxt "GeneratorPage"
 msgid "e.g. <>'\""
 msgstr ""
 
-#: ui/pages.slint:2098
+#: ui/pages.slint:2110
 msgctxt "GeneratorPage"
 msgid "{n} different character"
 msgid_plural "{n} different characters"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/pages.slint:2110
+#: ui/pages.slint:2122
 msgctxt "GeneratorPage"
 msgid "Word case"
 msgstr ""
 
-#: ui/pages.slint:2111
+#: ui/pages.slint:2123
 msgctxt "GeneratorPage"
 msgid "lower case"
 msgstr ""
 
-#: ui/pages.slint:2111
+#: ui/pages.slint:2123
 msgctxt "GeneratorPage"
 msgid "UPPER CASE"
 msgstr ""
 
-#: ui/pages.slint:2111
+#: ui/pages.slint:2123
 msgctxt "GeneratorPage"
 msgid "Title Case"
 msgstr ""
 
-#: ui/pages.slint:2111
+#: ui/pages.slint:2123
 msgctxt "GeneratorPage"
 msgid "MIXED case"
 msgstr ""
 
-#: ui/pages.slint:2120
+#: ui/pages.slint:2132
 msgctxt "GeneratorPage"
 msgid "Add a digit to one word"
 msgstr ""
 
-#: ui/pages.slint:2132
+#: ui/pages.slint:2144
 msgctxt "GeneratorPage"
 msgid "Word list"
 msgstr ""
 
-#: ui/pages.slint:2143
+#: ui/pages.slint:2155
 msgctxt "GeneratorPage"
 msgid "Add a list…"
 msgstr ""
 
-#: ui/pages.slint:2147
+#: ui/pages.slint:2159
 msgctxt "GeneratorPage"
 msgid "Remove"
 msgstr ""
 
-#: ui/pages.slint:2155
+#: ui/pages.slint:2167
 msgctxt "GeneratorPage"
 msgid ""
 "A word list is a text file with one word per line (Diceware lists with "
@@ -5022,12 +5064,12 @@ msgid ""
 "remember; it needs at least 500 different words."
 msgstr ""
 
-#: ui/pages.slint:2167
+#: ui/pages.slint:2179
 msgctxt "GeneratorPage"
 msgid "Recently generated"
 msgstr ""
 
-#: ui/pages.slint:2174
+#: ui/pages.slint:2186
 msgctxt "GeneratorPage"
 msgid ""
 "Passwords you copied or used from here or from the browser extension, newest "
@@ -5035,102 +5077,102 @@ msgid ""
 "with this vault on this computer, at most 50."
 msgstr ""
 
-#: ui/pages.slint:2178
+#: ui/pages.slint:2190
 msgctxt "GeneratorPage"
 msgid ""
 "They may be passwords of locked items. Your PIN shows them for 5 minutes."
 msgstr ""
 
-#: ui/pages.slint:2179
+#: ui/pages.slint:2191
 msgctxt "GeneratorPage"
 msgid ""
 "They may be passwords of locked items. Your item password shows them for 5 "
 "minutes."
 msgstr ""
 
-#: ui/pages.slint:2180
+#: ui/pages.slint:2192
 msgctxt "GeneratorPage"
 msgid ""
 "They may be passwords of locked items. Your master password shows them for 5 "
 "minutes."
 msgstr ""
 
-#: ui/pages.slint:2189
+#: ui/pages.slint:2201
 msgctxt "GeneratorPage"
 msgid "Nothing yet."
 msgstr ""
 
-#: ui/pages.slint:2212
+#: ui/pages.slint:2224
 msgctxt "GeneratorPage"
 msgid "In the app"
 msgstr ""
 
-#: ui/pages.slint:2242
+#: ui/pages.slint:2254
 msgctxt "GeneratorPage"
 msgid "Clear history"
 msgstr ""
 
-#: ui/pages.slint:2260 ui/pages.slint:2271
+#: ui/pages.slint:2272 ui/pages.slint:2283
 msgctxt "BrowserPicker"
 msgid "Browser"
 msgstr ""
 
-#: ui/pages.slint:2289 ui/pages.slint:2344
+#: ui/pages.slint:2301 ui/pages.slint:2356
 msgctxt "BrowserPicker"
 msgid "your default browser"
 msgstr ""
 
-#: ui/pages.slint:2547
+#: ui/pages.slint:2559
 msgctxt "UpdateCard"
 msgid "Version {} is installed."
 msgstr ""
 
-#: ui/pages.slint:2548
+#: ui/pages.slint:2560
 msgctxt "UpdateCard"
 msgid "Version {} wasn't installed."
 msgstr ""
 
-#: ui/pages.slint:2549
+#: ui/pages.slint:2561
 msgctxt "UpdateCard"
 msgid "Installing version {}…"
 msgstr ""
 
-#: ui/pages.slint:2550
+#: ui/pages.slint:2562
 msgctxt "UpdateCard"
 msgid "Version {} is out."
 msgstr ""
 
-#: ui/pages.slint:2551
+#: ui/pages.slint:2563
 msgctxt "UpdateCard"
 msgid "No update under way."
 msgstr ""
 
-#: ui/pages.slint:2563
+#: ui/pages.slint:2575
 msgctxt "UpdateCard"
 msgid "Checking the release's signed manifest"
 msgstr ""
 
-#: ui/pages.slint:2570
+#: ui/pages.slint:2582
 msgctxt "UpdateCard"
 msgid "Downloading: {} of {} MB ({}%)"
 msgstr ""
 
-#: ui/pages.slint:2571
+#: ui/pages.slint:2583
 msgctxt "UpdateCard"
 msgid "Downloading the program"
 msgstr ""
 
-#: ui/pages.slint:2589
+#: ui/pages.slint:2601
 msgctxt "UpdateCard"
 msgid "Checking its SHA-256 against the manifest"
 msgstr ""
 
-#: ui/pages.slint:2595
+#: ui/pages.slint:2607
 msgctxt "UpdateCard"
 msgid "Putting it in this program's place"
 msgstr ""
 
-#: ui/pages.slint:2599
+#: ui/pages.slint:2611
 msgctxt "UpdateCard"
 msgid ""
 "This program's folder ({}) can't be written, so Vault can't replace itself "
@@ -5138,204 +5180,215 @@ msgid ""
 "keep Vault."
 msgstr ""
 
-#: ui/pages.slint:2600
+#: ui/pages.slint:2612
 msgctxt "UpdateCard"
 msgid ""
 "What came isn't what the release's signed manifest lists ({}), so it wasn't "
 "used. Nothing was changed."
 msgstr ""
 
-#: ui/pages.slint:2601
+#: ui/pages.slint:2613
 msgctxt "UpdateCard"
 msgid ""
 "The download didn't finish ({}). Nothing was changed; try again, or Vault "
 "does at its next look."
 msgstr ""
 
-#: ui/pages.slint:2602
+#: ui/pages.slint:2614
 msgctxt "UpdateCard"
 msgid ""
 "The new version couldn't be put in place ({}). This version was kept as it "
 "was."
 msgstr ""
 
-#: ui/pages.slint:2603
+#: ui/pages.slint:2615
 msgctxt "UpdateCard"
 msgid ""
 "Restart Vault to use it. Until then this version keeps running, and the next "
 "start runs the new one."
 msgstr ""
 
-#: ui/pages.slint:2604
+#: ui/pages.slint:2616
 msgctxt "UpdateCard"
 msgid ""
 "Install it now: Vault downloads it, checks it against the release's signed "
 "manifest and puts it in this program's place. Your vault stays where it is."
 msgstr ""
 
-#: ui/pages.slint:2616
+#: ui/pages.slint:2628
 msgctxt "UpdateCard"
 msgid "Restart now"
 msgstr ""
 
-#: ui/pages.slint:2622
+#: ui/pages.slint:2634
 msgctxt "UpdateCard"
 msgid "Try again"
 msgstr ""
 
-#: ui/pages.slint:2622
+#: ui/pages.slint:2634
 msgctxt "UpdateCard"
 msgid "Install now"
 msgstr ""
 
-#: ui/pages.slint:2628
+#: ui/pages.slint:2640
 msgctxt "UpdateCard"
 msgid "Open the release page"
 msgstr ""
 
-#: ui/pages.slint:2658
+#: ui/pages.slint:2670
 msgctxt "SettingsPage"
 msgid "scrypt · {} MiB"
 msgstr ""
 
-#: ui/pages.slint:2659
+#: ui/pages.slint:2671
 msgctxt "SettingsPage"
 msgid "PBKDF2-SHA-256 · {} rounds"
 msgstr ""
 
-#: ui/pages.slint:2660
+#: ui/pages.slint:2672
 msgctxt "SettingsPage"
 msgid "Argon2id · {} MiB · {} passes"
 msgstr ""
 
-#: ui/pages.slint:2818
+#: ui/pages.slint:2839
 msgctxt "SettingsPage"
 msgid "Settings"
 msgstr ""
 
-#: ui/pages.slint:2825 ui/pages.slint:2861
+#: ui/pages.slint:2846 ui/pages.slint:2882
 msgctxt "SettingsPage"
 msgid "Security"
 msgstr ""
 
-#: ui/pages.slint:2825
+#: ui/pages.slint:2846
 msgctxt "SettingsPage"
 msgid "Locking, master password, item lock"
 msgstr ""
 
-#: ui/pages.slint:2826 ui/pages.slint:3290
+#: ui/pages.slint:2847 ui/pages.slint:3346
 msgctxt "SettingsPage"
 msgid "This vault"
 msgstr ""
 
-#: ui/pages.slint:2826
+#: ui/pages.slint:2847
 msgctxt "SettingsPage"
 msgid "Name, password history, file"
 msgstr ""
 
-#: ui/pages.slint:2827 ui/pages.slint:3416
+#: ui/pages.slint:2848 ui/pages.slint:3472
 msgctxt "SettingsPage"
 msgid "Sync"
 msgstr ""
 
-#: ui/pages.slint:2827 ui/pages.slint:2828
+#: ui/pages.slint:2848 ui/pages.slint:2849 ui/pages.slint:4044
+#: ui/pages.slint:2848 ui/pages.slint:2849 ui/pages.slint:4044
 msgctxt "SettingsPage"
 msgid "Off"
 msgstr ""
 
-#: ui/pages.slint:2827
+#: ui/pages.slint:2848
 msgctxt "SettingsPage"
 msgid "Through a folder"
 msgstr ""
 
-#: ui/pages.slint:2827
+#: ui/pages.slint:2848
 msgctxt "SettingsPage"
 msgid "Through your server"
 msgstr ""
 
-#: ui/pages.slint:2827
+#: ui/pages.slint:2848
 msgctxt "SettingsPage"
 msgid "Through WebDAV"
 msgstr ""
 
-#: ui/pages.slint:2828 ui/pages.slint:3656
+#: ui/pages.slint:2849 ui/pages.slint:3712
 msgctxt "SettingsPage"
 msgid "Browser extension"
 msgstr ""
 
-#: ui/pages.slint:2828
+#: ui/pages.slint:2849
 msgctxt "SettingsPage"
 msgid "Connected"
 msgstr ""
 
-#: ui/pages.slint:2828
+#: ui/pages.slint:2849
 msgctxt "SettingsPage"
 msgid "On, not connected yet"
 msgstr ""
 
-#: ui/pages.slint:2829 ui/pages.slint:3951
+#: ui/pages.slint:2850 ui/pages.slint:4007
 msgctxt "SettingsPage"
 msgid "Appearance"
 msgstr ""
 
-#: ui/pages.slint:2829
+#: ui/pages.slint:2850
 msgctxt "SettingsPage"
 msgid "Theme, language, icons"
 msgstr ""
 
-#: ui/pages.slint:2830 ui/pages.slint:4028
+#: ui/pages.slint:2851 ui/pages.slint:4119
 msgctxt "SettingsPage"
 msgid "About"
 msgstr ""
 
-#: ui/pages.slint:2830
+#: ui/pages.slint:2851
 msgctxt "SettingsPage"
 msgid "Version {}"
 msgstr ""
 
-#: ui/pages.slint:2865
+#: ui/pages.slint:2886
 msgctxt "SettingsPage"
 msgid "Locking and clipboard"
 msgstr ""
 
-#: ui/pages.slint:2866
+#: ui/pages.slint:2887
 msgctxt "SettingsPage"
 msgid ""
 "When the vault closes itself, and how long copied secrets stay on the "
 "clipboard."
 msgstr ""
 
-#: ui/pages.slint:2868
+#: ui/pages.slint:2889
 msgctxt "SettingsPage"
 msgid "Lock after"
 msgstr ""
 
-#: ui/pages.slint:2869
+#: ui/pages.slint:2890
 msgctxt "SettingsPage"
 msgid "min"
 msgstr ""
 
-#: ui/pages.slint:2876
+#: ui/pages.slint:2897
 msgctxt "SettingsPage"
 msgid "Also lock when Windows locks, sleeps or switches user"
 msgstr ""
 
-#: ui/pages.slint:2881
+#: ui/pages.slint:2902
+msgctxt "SettingsPage"
+msgid "Also lock when the window goes to the notification area"
+msgstr ""
+
+#: ui/pages.slint:2907
+msgctxt "SettingsPage"
+msgid "Hide a shown password when you switch to another window"
+msgstr ""
+
+#: ui/pages.slint:2912
 msgctxt "SettingsPage"
 msgid "Clear copied secrets after"
 msgstr ""
 
-#: ui/pages.slint:2882
+#: ui/pages.slint:2913
 msgctxt "SettingsPage"
 msgid "s"
 msgstr ""
 
-#: ui/pages.slint:2892
+#: ui/pages.slint:2923
 msgctxt "SettingsPage"
 msgid "Unlock with Windows Hello"
 msgstr ""
 
-#: ui/pages.slint:2899
+#: ui/pages.slint:2930
 msgctxt "SettingsPage"
 msgid ""
 "Open this vault with your face, fingerprint or Windows PIN instead of typing "
@@ -5346,34 +5399,77 @@ msgid ""
 "Windows PIN could open the vault on this computer."
 msgstr ""
 
-#: ui/pages.slint:2907 ui/pages.slint:2941
+#: ui/pages.slint:2935
+msgctxt "SettingsPage"
+msgid "Ask for the master password every"
+msgstr ""
+
+#: ui/pages.slint:2936
+msgctxt "SettingsPage"
+msgid "days"
+msgstr ""
+
+#: ui/pages.slint:2943
+msgctxt "SettingsPage"
+msgid "Also ask for it the first time after the app starts"
+msgstr ""
+
+#: ui/pages.slint:2951
+msgctxt "SettingsPage"
+msgid "The vault command"
+msgstr ""
+
+#: ui/pages.slint:2952
+msgctxt "SettingsPage"
+msgid ""
+"Scripts get secrets through the open app: vault run, vault inject, and git's "
+"credential helper. Each use is asked here first."
+msgstr ""
+
+#: ui/pages.slint:2953
+msgctxt "SettingsPage"
+msgid ""
+"vault run puts secrets in a program's environment (variables set to vault://"
+"item/field), vault inject fills the vault://item/field references written in "
+"a file, and vault git-credential gives git the login saved for a site. The "
+"command never opens the vault itself: it asks this app, which shows the "
+"program and what it wants. Nothing is given while the vault is locked, nor "
+"from an item waiting for the item lock."
+msgstr ""
+
+#: ui/pages.slint:2955
+msgctxt "SettingsPage"
+msgid "Let the vault command ask this app"
+msgstr ""
+
+#: ui/pages.slint:2963 ui/pages.slint:2997
 msgctxt "SettingsPage"
 msgid "Master password"
 msgstr ""
 
-#: ui/pages.slint:2908
+#: ui/pages.slint:2964
 msgctxt "SettingsPage"
 msgid "Your items, Secret Key and recovery parts stay the same."
 msgstr ""
 
-#: ui/pages.slint:2909
+#: ui/pages.slint:2965
 msgctxt "SettingsPage"
 msgid ""
 "Changing it re-checks your current master password against the vault file, "
 "so someone using a computer you left unlocked can't do it."
 msgstr ""
 
-#: ui/pages.slint:2913
+#: ui/pages.slint:2969
 msgctxt "SettingsPage"
 msgid "Change master password…"
 msgstr ""
 
-#: ui/pages.slint:2922
+#: ui/pages.slint:2978
 msgctxt "SettingsPage"
 msgid "Offer to type it on a secure desktop"
 msgstr ""
 
-#: ui/pages.slint:2929
+#: ui/pages.slint:2985
 msgctxt "SettingsPage"
 msgid ""
 "The unlock screen gets a link that switches to a desktop of its own, as "
@@ -5385,12 +5481,12 @@ msgid ""
 "normal field stays. Esc, or two minutes, brings your desktop back."
 msgstr ""
 
-#: ui/pages.slint:2937
+#: ui/pages.slint:2993
 msgctxt "SettingsPage"
 msgid "Item lock"
 msgstr ""
 
-#: ui/pages.slint:2938
+#: ui/pages.slint:2994
 msgctxt "SettingsPage"
 msgid ""
 "A second check before an open vault shows passwords, codes and hidden "
@@ -5398,7 +5494,7 @@ msgid ""
 "account."
 msgstr ""
 
-#: ui/pages.slint:2939
+#: ui/pages.slint:2995
 msgctxt "SettingsPage"
 msgid ""
 "With a PIN or another password, the locked secrets are also encrypted with a "
@@ -5412,22 +5508,22 @@ msgid ""
 "vault locks. A forgotten PIN is replaced here, with your master password."
 msgstr ""
 
-#: ui/pages.slint:2941 ui/pages.slint:2970
+#: ui/pages.slint:2997 ui/pages.slint:3026
 msgctxt "SettingsPage"
 msgid "PIN"
 msgstr ""
 
-#: ui/pages.slint:2941
+#: ui/pages.slint:2997
 msgctxt "SettingsPage"
 msgid "Another password"
 msgstr ""
 
-#: ui/pages.slint:2945
+#: ui/pages.slint:3001
 msgctxt "SettingsPage"
 msgid "A check only: nothing extra is encrypted."
 msgstr ""
 
-#: ui/pages.slint:2946
+#: ui/pages.slint:3002
 msgctxt "SettingsPage"
 msgid ""
 "Locked secrets are encrypted, and only the PIN opens them. If you forget "
@@ -5435,7 +5531,7 @@ msgid ""
 "with your emergency kit."
 msgstr ""
 
-#: ui/pages.slint:2947
+#: ui/pages.slint:3003
 msgctxt "SettingsPage"
 msgid ""
 "Locked secrets are encrypted, and only this password opens them. If you "
@@ -5443,32 +5539,32 @@ msgid ""
 "with your emergency kit."
 msgstr ""
 
-#: ui/pages.slint:2970
+#: ui/pages.slint:3026
 msgctxt "SettingsPage"
 msgid "Item password"
 msgstr ""
 
-#: ui/pages.slint:2975
+#: ui/pages.slint:3031
 msgctxt "SettingsPage"
 msgid "Open"
 msgstr ""
 
-#: ui/pages.slint:2976 ui/pages.slint:4070
+#: ui/pages.slint:3032 ui/pages.slint:4161
 msgctxt "SettingsPage"
 msgid "Checking…"
 msgstr ""
 
-#: ui/pages.slint:2989
+#: ui/pages.slint:3045
 msgctxt "SettingsPage"
 msgid "Lock every item (otherwise only items marked “Lock this item's secrets”)"
 msgstr ""
 
-#: ui/pages.slint:2996
+#: ui/pages.slint:3052
 msgctxt "SettingsPage"
 msgid "Open locked items with Windows Hello too"
 msgstr ""
 
-#: ui/pages.slint:3002
+#: ui/pages.slint:3058
 msgctxt "SettingsPage"
 msgid ""
 "Your face, fingerprint or Windows PIN opens locked items on this computer, "
@@ -5479,28 +5575,28 @@ msgid ""
 "Saving asks Windows Hello once."
 msgstr ""
 
-#: ui/pages.slint:3009
+#: ui/pages.slint:3065
 msgctxt "SettingsPage"
 msgid "Save item lock…"
 msgstr ""
 
-#: ui/pages.slint:3018
+#: ui/pages.slint:3074
 msgctxt "SettingsPage"
 msgid "Keyfile"
 msgstr ""
 
-#: ui/pages.slint:3020
+#: ui/pages.slint:3076
 msgctxt "SettingsPage"
 msgid "On: the vault opens only with your master password and this file."
 msgstr ""
 
-#: ui/pages.slint:3021
+#: ui/pages.slint:3077
 msgctxt "SettingsPage"
 msgid ""
 "Off. A keyfile is a file the vault needs together with your master password."
 msgstr ""
 
-#: ui/pages.slint:3022
+#: ui/pages.slint:3078
 msgctxt "SettingsPage"
 msgid ""
 "Keep the keyfile on a USB stick or another place apart from the vault. "
@@ -5512,49 +5608,49 @@ msgid ""
 "Hello off until you turn it on again."
 msgstr ""
 
-#: ui/pages.slint:3024 ui/pages.slint:3407
+#: ui/pages.slint:3080 ui/pages.slint:3463
 msgctxt "SettingsPage"
 msgid "File"
 msgstr ""
 
-#: ui/pages.slint:3025
+#: ui/pages.slint:3081
 msgctxt "SettingsPage"
 msgid "Not found on this computer"
 msgstr ""
 
-#: ui/pages.slint:3031
+#: ui/pages.slint:3087
 msgctxt "SettingsPage"
 msgid "Create a keyfile…"
 msgstr ""
 
-#: ui/pages.slint:3038
+#: ui/pages.slint:3094
 msgctxt "SettingsPage"
 msgid "Use another file…"
 msgstr ""
 
-#: ui/pages.slint:3038
+#: ui/pages.slint:3094
 msgctxt "SettingsPage"
 msgid "Use an existing file…"
 msgstr ""
 
-#: ui/pages.slint:3046
+#: ui/pages.slint:3102
 msgctxt "SettingsPage"
 msgid "Remove the keyfile…"
 msgstr ""
 
-#: ui/pages.slint:3056
+#: ui/pages.slint:3112
 msgctxt "SettingsPage"
 msgid "Unlock protection"
 msgstr ""
 
-#: ui/pages.slint:3057
+#: ui/pages.slint:3113
 msgctxt "SettingsPage"
 msgid ""
 "How much work each guess at your master password costs, for you once per "
 "unlock and for anyone with a copy of the vault file every time they guess."
 msgstr ""
 
-#: ui/pages.slint:3058
+#: ui/pages.slint:3114
 msgctxt "SettingsPage"
 msgid ""
 "Your master password is stretched before it opens the vault. Argon2id is the "
@@ -5567,7 +5663,7 @@ msgid ""
 "items."
 msgstr ""
 
-#: ui/pages.slint:3064
+#: ui/pages.slint:3120
 msgctxt "SettingsPage"
 msgid ""
 "Weaker than Argon2id: scrypt also needs memory for every guess, but it is "
@@ -5575,7 +5671,7 @@ msgid ""
 "have a reason."
 msgstr ""
 
-#: ui/pages.slint:3065
+#: ui/pages.slint:3121
 msgctxt "SettingsPage"
 msgid ""
 "Much weaker than Argon2id: PBKDF2 needs almost no memory, so graphics cards "
@@ -5583,137 +5679,137 @@ msgid ""
 "then a long master password matters even more."
 msgstr ""
 
-#: ui/pages.slint:3071 ui/pages.slint:3957
+#: ui/pages.slint:3127 ui/pages.slint:4013
 msgctxt "SettingsPage"
 msgid "Light"
 msgstr ""
 
-#: ui/pages.slint:3071
+#: ui/pages.slint:3127
 msgctxt "SettingsPage"
 msgid "Standard"
 msgstr ""
 
-#: ui/pages.slint:3071
+#: ui/pages.slint:3127
 msgctxt "SettingsPage"
 msgid "Strong"
 msgstr ""
 
-#: ui/pages.slint:3071
+#: ui/pages.slint:3127
 msgctxt "SettingsPage"
 msgid "Maximum"
 msgstr ""
 
-#: ui/pages.slint:3075
+#: ui/pages.slint:3131
 msgctxt "SettingsPage"
 msgid ""
 "128 MiB of memory for every guess. For older computers or ones with little "
 "memory."
 msgstr ""
 
-#: ui/pages.slint:3076
+#: ui/pages.slint:3132
 msgctxt "SettingsPage"
 msgid "256 MiB of memory for every guess. A good balance on most computers."
 msgstr ""
 
-#: ui/pages.slint:3077
+#: ui/pages.slint:3133
 msgctxt "SettingsPage"
 msgid "512 MiB of memory for every guess. Slower to guess, and to unlock."
 msgstr ""
 
-#: ui/pages.slint:3078
+#: ui/pages.slint:3134
 msgctxt "SettingsPage"
 msgid ""
 "1 GiB of memory for every guess. Unlocking can take a few seconds and needs "
 "1 GiB of free memory on every device that opens the vault."
 msgstr ""
 
-#: ui/pages.slint:3079
+#: ui/pages.slint:3135
 msgctxt "SettingsPage"
 msgid "600,000 rounds, the least recommended today."
 msgstr ""
 
-#: ui/pages.slint:3080
+#: ui/pages.slint:3136
 msgctxt "SettingsPage"
 msgid "1,200,000 rounds."
 msgstr ""
 
-#: ui/pages.slint:3081
+#: ui/pages.slint:3137
 msgctxt "SettingsPage"
 msgid "2,400,000 rounds."
 msgstr ""
 
-#: ui/pages.slint:3082
+#: ui/pages.slint:3138
 msgctxt "SettingsPage"
 msgid "5,000,000 rounds. Unlocking can take a few seconds."
 msgstr ""
 
-#: ui/pages.slint:3083
+#: ui/pages.slint:3139
 msgctxt "SettingsPage"
 msgid ""
 "64 MiB of memory, 3 passes. For older computers or ones with little memory."
 msgstr ""
 
-#: ui/pages.slint:3084
+#: ui/pages.slint:3140
 msgctxt "SettingsPage"
 msgid ""
 "256 MiB of memory, 3 passes. The default, a good balance on most computers."
 msgstr ""
 
-#: ui/pages.slint:3085
+#: ui/pages.slint:3141
 msgctxt "SettingsPage"
 msgid ""
 "512 MiB of memory, 4 passes. Guessing gets about three times as slow; so "
 "does unlocking."
 msgstr ""
 
-#: ui/pages.slint:3086
+#: ui/pages.slint:3142
 msgctxt "SettingsPage"
 msgid ""
 "1 GiB of memory, 5 passes. The slowest to guess. Unlocking can take a few "
 "seconds and needs 1 GiB of free memory on every device that opens the vault."
 msgstr ""
 
-#: ui/pages.slint:3092
+#: ui/pages.slint:3148
 msgctxt "SettingsPage"
 msgid "Now"
 msgstr ""
 
-#: ui/pages.slint:3093
+#: ui/pages.slint:3149
 msgctxt "SettingsPage"
 msgid "Custom: {}"
 msgstr ""
 
-#: ui/pages.slint:3094
+#: ui/pages.slint:3150
 msgctxt "SettingsPage"
 msgid "{} · about {} s per unlock on this computer"
 msgstr ""
 
-#: ui/pages.slint:3101
+#: ui/pages.slint:3157
 msgctxt "SettingsPage"
 msgid "Apply…"
 msgstr ""
 
-#: ui/pages.slint:3107
+#: ui/pages.slint:3163
 msgctxt "SettingsPage"
 msgid "Cancel"
 msgstr ""
 
-#: ui/pages.slint:3119
+#: ui/pages.slint:3175
 msgctxt "SettingsPage"
 msgid "Privacy"
 msgstr ""
 
-#: ui/pages.slint:3120
+#: ui/pages.slint:3176
 msgctxt "SettingsPage"
 msgid "What the app may do on the network by itself."
 msgstr ""
 
-#: ui/pages.slint:3125
+#: ui/pages.slint:3181
 msgctxt "SettingsPage"
 msgid "Watch for leaked passwords every day"
 msgstr ""
 
-#: ui/pages.slint:3132
+#: ui/pages.slint:3188
 msgctxt "SettingsPage"
 msgid ""
 "Once a day while the vault is open, every login's password is checked "
@@ -5724,12 +5820,12 @@ msgid ""
 "network by itself."
 msgstr ""
 
-#: ui/pages.slint:3140
+#: ui/pages.slint:3196
 msgctxt "SettingsPage"
 msgid "Show website icons"
 msgstr ""
 
-#: ui/pages.slint:3147
+#: ui/pages.slint:3203
 msgctxt "SettingsPage"
 msgid ""
 "Downloads each site's own icon directly from that site, once, over a secure "
@@ -5739,12 +5835,12 @@ msgid ""
 "accounts. Leave it off for maximum privacy."
 msgstr ""
 
-#: ui/pages.slint:3155
+#: ui/pages.slint:3211
 msgctxt "SettingsPage"
 msgid "Security log"
 msgstr ""
 
-#: ui/pages.slint:3156
+#: ui/pages.slint:3212
 msgctxt "SettingsPage"
 msgid ""
 "What was done with this vault on this computer, newest first: unlocks and "
@@ -5752,7 +5848,7 @@ msgid ""
 "emergency kit, devices. Look here for anything you didn't do."
 msgstr ""
 
-#: ui/pages.slint:3157
+#: ui/pages.slint:3213
 msgctxt "SettingsPage"
 msgid ""
 "Kept on this computer only, encrypted so that only the open vault reads it, "
@@ -5761,42 +5857,42 @@ msgid ""
 "proves nothing."
 msgstr ""
 
-#: ui/pages.slint:3159
+#: ui/pages.slint:3215
 msgctxt "SettingsPage"
 msgid "Nothing yet."
 msgstr ""
 
-#: ui/pages.slint:3193
+#: ui/pages.slint:3249
 msgctxt "SettingsPage"
 msgid "Show older ({})"
 msgstr ""
 
-#: ui/pages.slint:3197
+#: ui/pages.slint:3253
 msgctxt "SettingsPage"
 msgid "Clear the log…"
 msgstr ""
 
-#: ui/pages.slint:3201
+#: ui/pages.slint:3257
 msgctxt "SettingsPage"
 msgid "Clear every line? One line will say when it was cleared."
 msgstr ""
 
-#: ui/pages.slint:3208
+#: ui/pages.slint:3264
 msgctxt "SettingsPage"
 msgid "Clear"
 msgstr ""
 
-#: ui/pages.slint:3215
+#: ui/pages.slint:3271
 msgctxt "SettingsPage"
 msgid "Keep it"
 msgstr ""
 
-#: ui/pages.slint:3224
+#: ui/pages.slint:3280
 msgctxt "SettingsPage"
 msgid "Secret Key on this computer"
 msgstr ""
 
-#: ui/pages.slint:3226
+#: ui/pages.slint:3282
 msgctxt "SettingsPage"
 msgid ""
 "Kept under a key in this computer's security chip (TPM), which never leaves "
@@ -5804,14 +5900,14 @@ msgid ""
 "it."
 msgstr ""
 
-#: ui/pages.slint:3227
+#: ui/pages.slint:3283
 msgctxt "SettingsPage"
 msgid ""
 "Kept by Windows alone: this computer has no security chip (TPM) the app can "
 "use."
 msgstr ""
 
-#: ui/pages.slint:3228
+#: ui/pages.slint:3284
 msgctxt "SettingsPage"
 msgid ""
 "Your Secret Key and your master password together open the vault, so this "
@@ -5822,26 +5918,26 @@ msgid ""
 "emergency kit."
 msgstr ""
 
-#: ui/pages.slint:3230
+#: ui/pages.slint:3286
 msgctxt "SettingsPage"
 msgid ""
 "Weaker than with a chip: a copy of your Windows profile, with your Windows "
 "password, opens it on another computer."
 msgstr ""
 
-#: ui/pages.slint:3238
+#: ui/pages.slint:3294
 msgctxt "SettingsPage"
 msgid "SSH agent"
 msgstr ""
 
-#: ui/pages.slint:3239
+#: ui/pages.slint:3295
 msgctxt "SettingsPage"
 msgid ""
 "ssh, scp and git sign in with the vault's SSH keys, and this app asks you "
 "before each signature. Off, programs can't reach the keys."
 msgstr ""
 
-#: ui/pages.slint:3240
+#: ui/pages.slint:3296
 msgctxt "SettingsPage"
 msgid ""
 "The keys never leave the app: a program gets one signature after you approve "
@@ -5854,19 +5950,19 @@ msgid ""
 "approve only what you just started."
 msgstr ""
 
-#: ui/pages.slint:3242
+#: ui/pages.slint:3298
 msgctxt "SettingsPage"
 msgid "Answer as the SSH agent for programs on this computer"
 msgstr ""
 
-#: ui/pages.slint:3247
+#: ui/pages.slint:3303
 msgctxt "SettingsPage"
 msgid ""
 "Listening where Windows' OpenSSH looks for its agent: ssh finds it with "
 "nothing to set."
 msgstr ""
 
-#: ui/pages.slint:3255
+#: ui/pages.slint:3311
 msgctxt "SettingsPage"
 msgid ""
 "Windows' own SSH agent (the “OpenSSH Authentication Agent” service) or "
@@ -5874,44 +5970,44 @@ msgid ""
 "point programs at this app's pipe with this environment variable:"
 msgstr ""
 
-#: ui/pages.slint:3273
+#: ui/pages.slint:3329
 msgctxt "SettingsPage"
 msgid "Copy"
 msgstr ""
 
-#: ui/pages.slint:3279
+#: ui/pages.slint:3335
 msgctxt "SettingsPage"
 msgid ""
 "The SSH agent couldn't start: no pipe name was free. Turn it off and on "
 "again, or restart the app."
 msgstr ""
 
-#: ui/pages.slint:3293
+#: ui/pages.slint:3349
 msgctxt "SettingsPage"
 msgid "Name and history"
 msgstr ""
 
-#: ui/pages.slint:3294
+#: ui/pages.slint:3350
 msgctxt "SettingsPage"
 msgid "Stored inside the vault, encrypted: they follow it to every computer."
 msgstr ""
 
-#: ui/pages.slint:3299
+#: ui/pages.slint:3355
 msgctxt "SettingsPage"
 msgid "Name"
 msgstr ""
 
-#: ui/pages.slint:3310
+#: ui/pages.slint:3366
 msgctxt "SettingsPage"
 msgid "Rename"
 msgstr ""
 
-#: ui/pages.slint:3323
+#: ui/pages.slint:3379
 msgctxt "SettingsPage"
 msgid "Old passwords kept per item"
 msgstr ""
 
-#: ui/pages.slint:3332
+#: ui/pages.slint:3388
 msgctxt "SettingsPage"
 msgid ""
 "When you change an item's password, the old one is kept in its Password "
@@ -5920,86 +6016,86 @@ msgid ""
 "time its password changes."
 msgstr ""
 
-#: ui/pages.slint:3339
+#: ui/pages.slint:3395
 msgctxt "SettingsPage"
 msgid "Icon on this computer"
 msgstr ""
 
-#: ui/pages.slint:3340
+#: ui/pages.slint:3396
 msgctxt "SettingsPage"
 msgid ""
 "Shown with the vault's name in the title bar, on this computer only: each "
 "computer picks its own, and nothing of it goes into the vault."
 msgstr ""
 
-#: ui/pages.slint:3385
+#: ui/pages.slint:3441
 msgctxt "SettingsPage"
 msgid "Use its initial"
 msgstr ""
 
-#: ui/pages.slint:3395
+#: ui/pages.slint:3451
 msgctxt "SettingsPage"
 msgid "What it holds"
 msgstr ""
 
-#: ui/pages.slint:3396
+#: ui/pages.slint:3452
 msgctxt "SettingsPage"
 msgid "Read from the open vault."
 msgstr ""
 
-#: ui/pages.slint:3399
+#: ui/pages.slint:3455
 msgctxt "SettingsPage"
 msgid "Items"
 msgstr ""
 
-#: ui/pages.slint:3399
+#: ui/pages.slint:3455
 msgctxt "SettingsPage"
 msgid "{} items in {} folders"
 msgstr ""
 
-#: ui/pages.slint:3400 ui/pages.slint:4036
+#: ui/pages.slint:3456 ui/pages.slint:4127
 msgctxt "SettingsPage"
 msgid "Encryption"
 msgstr ""
 
-#: ui/pages.slint:3402
+#: ui/pages.slint:3458
 msgctxt "SettingsPage"
 msgid "Recovery"
 msgstr ""
 
-#: ui/pages.slint:3403
+#: ui/pages.slint:3459
 msgctxt "SettingsPage"
 msgid ""
 "Three recovery parts: any two bring back the Secret Key, all three a new "
 "master password"
 msgstr ""
 
-#: ui/pages.slint:3404
+#: ui/pages.slint:3460
 msgctxt "SettingsPage"
 msgid "The Recovery Key of an older kit: make a new kit to get recovery parts"
 msgstr ""
 
-#: ui/pages.slint:3405
+#: ui/pages.slint:3461
 msgctxt "SettingsPage"
 msgid "None: a forgotten master password can't be recovered"
 msgstr ""
 
-#: ui/pages.slint:3408
+#: ui/pages.slint:3464
 msgctxt "SettingsPage"
 msgid "Vault ID"
 msgstr ""
 
-#: ui/pages.slint:3419
+#: ui/pages.slint:3475
 msgctxt "SettingsPage"
 msgid "Not syncing"
 msgstr ""
 
-#: ui/pages.slint:3419
+#: ui/pages.slint:3475
 msgctxt "SettingsPage"
 msgid "Syncing"
 msgstr ""
 
-#: ui/pages.slint:3420
+#: ui/pages.slint:3476
 msgctxt "SettingsPage"
 msgid ""
 "Keeps this vault the same on your other devices: through a folder they all "
@@ -6008,7 +6104,7 @@ msgid ""
 "server or WebDAV."
 msgstr ""
 
-#: ui/pages.slint:3421
+#: ui/pages.slint:3477
 msgctxt "SettingsPage"
 msgid ""
 "Each device writes only its own copy, encrypted like the vault file: it "
@@ -6021,96 +6117,96 @@ msgid ""
 "other password goes into its history. An older copy put back is refused."
 msgstr ""
 
-#: ui/pages.slint:3428
+#: ui/pages.slint:3484
 msgctxt "SettingsPage"
 msgid "Choose a folder…"
 msgstr ""
 
-#: ui/pages.slint:3434
+#: ui/pages.slint:3490
 msgctxt "SettingsPage"
 msgid "Use a server…"
 msgstr ""
 
-#: ui/pages.slint:3440
+#: ui/pages.slint:3496
 msgctxt "SettingsPage"
 msgid "Use WebDAV…"
 msgstr ""
 
-#: ui/pages.slint:3447
+#: ui/pages.slint:3503
 msgctxt "SettingsPage"
 msgid "Folder"
 msgstr ""
 
-#: ui/pages.slint:3447
+#: ui/pages.slint:3503
 msgctxt "SettingsPage"
 msgid "Server"
 msgstr ""
 
-#: ui/pages.slint:3447
+#: ui/pages.slint:3503
 msgctxt "SettingsPage"
 msgid "WebDAV"
 msgstr ""
 
-#: ui/pages.slint:3451 ui/pages.slint:3624
+#: ui/pages.slint:3507 ui/pages.slint:3680
 msgctxt "SettingsPage"
 msgid "Backup server"
 msgstr ""
 
-#: ui/pages.slint:3455
+#: ui/pages.slint:3511
 msgctxt "SettingsPage"
 msgid "Last synced"
 msgstr ""
 
-#: ui/pages.slint:3456 ui/pages.slint:3532
+#: ui/pages.slint:3512 ui/pages.slint:3588
 msgctxt "SettingsPage"
 msgid "Syncing…"
 msgstr ""
 
-#: ui/pages.slint:3457
+#: ui/pages.slint:3513
 msgctxt "SettingsPage"
 msgid "Failed"
 msgstr ""
 
-#: ui/pages.slint:3457
+#: ui/pages.slint:3513
 msgctxt "SettingsPage"
 msgid "Failed: {}"
 msgstr ""
 
-#: ui/pages.slint:3458
+#: ui/pages.slint:3514
 msgctxt "SettingsPage"
 msgid "Not yet"
 msgstr ""
 
-#: ui/pages.slint:3459
+#: ui/pages.slint:3515
 msgctxt "SettingsPage"
 msgid "Just now"
 msgstr ""
 
-#: ui/pages.slint:3460
+#: ui/pages.slint:3516
 msgctxt "SettingsPage"
 msgid "{n} minute ago"
 msgid_plural "{n} minutes ago"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/pages.slint:3463
+#: ui/pages.slint:3519
 msgctxt "SettingsPage"
 msgid "Waiting"
 msgstr ""
 
-#: ui/pages.slint:3464
+#: ui/pages.slint:3520
 msgctxt "SettingsPage"
 msgid "{n} item changed on two devices waits for the item lock"
 msgid_plural "{n} items changed on two devices wait for the item lock"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/pages.slint:3467
+#: ui/pages.slint:3523
 msgctxt "SettingsPage"
 msgid "Former key"
 msgstr ""
 
-#: ui/pages.slint:3468
+#: ui/pages.slint:3524
 msgctxt "SettingsPage"
 msgid ""
 "{n} device still uses the vault's former key: its changes come in once it "
@@ -6121,7 +6217,7 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/pages.slint:3480
+#: ui/pages.slint:3536
 msgctxt "SettingsPage"
 msgid ""
 "The vault key was renewed on another device: its copies open only with the "
@@ -6129,12 +6225,12 @@ msgid ""
 "keep syncing."
 msgstr ""
 
-#: ui/pages.slint:3490
+#: ui/pages.slint:3546
 msgctxt "SettingsPage"
 msgid "Type the new Secret Key…"
 msgstr ""
 
-#: ui/pages.slint:3506
+#: ui/pages.slint:3562
 msgctxt "SettingsPage"
 msgid ""
 "The main place isn't answering. The vault keeps syncing through the backup "
@@ -6142,124 +6238,124 @@ msgid ""
 "minute)."
 msgstr ""
 
-#: ui/pages.slint:3508
+#: ui/pages.slint:3564
 msgctxt "SettingsPage"
 msgid ""
 "Neither the main place nor the backup server is answering. Changes stay on "
 "this computer and go out as soon as one answers."
 msgstr ""
 
-#: ui/pages.slint:3509
+#: ui/pages.slint:3565
 msgctxt "SettingsPage"
 msgid ""
 "The backup server isn't answering. The vault keeps syncing through the main "
 "place, and the backup catches up as soon as it answers."
 msgstr ""
 
-#: ui/pages.slint:3532
+#: ui/pages.slint:3588
 msgctxt "SettingsPage"
 msgid "Sync now"
 msgstr ""
 
-#: ui/pages.slint:3542 ui/pages.slint:3634
+#: ui/pages.slint:3598 ui/pages.slint:3690
 msgctxt "SettingsPage"
 msgid "Change the address…"
 msgstr ""
 
-#: ui/pages.slint:3549
+#: ui/pages.slint:3605
 msgctxt "SettingsPage"
 msgid "Stop syncing…"
 msgstr ""
 
-#: ui/pages.slint:3559
+#: ui/pages.slint:3615
 msgctxt "SettingsPage"
 msgid "Devices"
 msgstr ""
 
-#: ui/pages.slint:3560
+#: ui/pages.slint:3616
 msgctxt "SettingsPage"
 msgid ""
 "The devices that sync this vault. Removing one isn't for good: it can join "
 "again later, as a new device, with a new invite."
 msgstr ""
 
-#: ui/pages.slint:3562
+#: ui/pages.slint:3618
 msgctxt "SettingsPage"
 msgid "This device"
 msgstr ""
 
-#: ui/pages.slint:3569
+#: ui/pages.slint:3625
 msgctxt "SettingsPage"
 msgid "Other devices"
 msgstr ""
 
-#: ui/pages.slint:3585
+#: ui/pages.slint:3641
 msgctxt "SettingsPage"
 msgid "No copy here yet: it synced somewhere else"
 msgstr ""
 
-#: ui/pages.slint:3592
+#: ui/pages.slint:3648
 msgctxt "SettingsPage"
 msgid "Its copy wasn't used (found {}): {}"
 msgstr ""
 
-#: ui/pages.slint:3593
+#: ui/pages.slint:3649
 msgctxt "SettingsPage"
 msgid "Its copy couldn't be read (found {}): {}"
 msgstr ""
 
-#: ui/pages.slint:3602
+#: ui/pages.slint:3658
 msgctxt "SettingsPage"
 msgid "Remove…"
 msgstr ""
 
-#: ui/pages.slint:3615
+#: ui/pages.slint:3671
 msgctxt "SettingsPage"
 msgid "Asking the server…"
 msgstr ""
 
-#: ui/pages.slint:3615
+#: ui/pages.slint:3671
 msgctxt "SettingsPage"
 msgid "Add a device…"
 msgstr ""
 
-#: ui/pages.slint:3626
+#: ui/pages.slint:3682
 msgctxt "SettingsPage"
 msgid ""
 "A second server keeps a copy too: while the main place is down the vault "
 "syncs through it, and the main one catches up as soon as it is back."
 msgstr ""
 
-#: ui/pages.slint:3627
+#: ui/pages.slint:3683
 msgctxt "SettingsPage"
 msgid ""
 "A second server can keep a copy too, so the vault keeps syncing while the "
 "main place is down."
 msgstr ""
 
-#: ui/pages.slint:3640
+#: ui/pages.slint:3696
 msgctxt "SettingsPage"
 msgid "Add a backup server…"
 msgstr ""
 
-#: ui/pages.slint:3645
+#: ui/pages.slint:3701
 msgctxt "SettingsPage"
 msgid "Remove the backup…"
 msgstr ""
 
-#: ui/pages.slint:3659
+#: ui/pages.slint:3715
 msgctxt "SettingsPage"
 msgid "Connection with the browser"
 msgstr ""
 
-#: ui/pages.slint:3660
+#: ui/pages.slint:3716
 msgctxt "SettingsPage"
 msgid ""
 "The extension fills and saves logins in Chrome, Edge, Firefox and the like "
 "by asking this app. Off, it can't reach the vault at all."
 msgstr ""
 
-#: ui/pages.slint:3661
+#: ui/pages.slint:3717
 msgctxt "SettingsPage"
 msgid ""
 "The extension keeps no passwords. The first time, it asks to be connected "
@@ -6274,43 +6370,43 @@ msgid ""
 "why the accounts that matter belong behind the item lock."
 msgstr ""
 
-#: ui/pages.slint:3663
+#: ui/pages.slint:3719
 msgctxt "SettingsPage"
 msgid "Let the browser extension connect to this app"
 msgstr ""
 
-#: ui/pages.slint:3671
+#: ui/pages.slint:3727
 msgctxt "SettingsPage"
 msgid "An extension is connected to this vault."
 msgstr ""
 
-#: ui/pages.slint:3678
+#: ui/pages.slint:3734
 msgctxt "SettingsPage"
 msgid "Disconnect…"
 msgstr ""
 
-#: ui/pages.slint:3683
+#: ui/pages.slint:3739
 msgctxt "SettingsPage"
 msgid "Not connected yet: open the extension in the browser and click Connect."
 msgstr ""
 
-#: ui/pages.slint:3691
+#: ui/pages.slint:3747
 msgctxt "SettingsPage"
 msgid "What the extension may do"
 msgstr ""
 
-#: ui/pages.slint:3692
+#: ui/pages.slint:3748
 msgctxt "SettingsPage"
 msgid ""
 "Kept on this computer. The extension follows them as soon as it next asks."
 msgstr ""
 
-#: ui/pages.slint:3697
+#: ui/pages.slint:3753
 msgctxt "SettingsPage"
 msgid "Ask for Windows Hello or the PIN every time the browser uses a password"
 msgstr ""
 
-#: ui/pages.slint:3704
+#: ui/pages.slint:3760
 msgctxt "SettingsPage"
 msgid ""
 "Each fill, show or copy of a password, each one-time code and each passkey "
@@ -6320,18 +6416,18 @@ msgid ""
 "behind the item lock ask."
 msgstr ""
 
-#: ui/pages.slint:3709
+#: ui/pages.slint:3765
 msgctxt "SettingsPage"
 msgid ""
 "Nothing here can ask yet: turn on Windows Hello, or give the item lock a PIN."
 msgstr ""
 
-#: ui/pages.slint:3718
+#: ui/pages.slint:3774
 msgctxt "SettingsPage"
 msgid "List every login in the extension's window"
 msgstr ""
 
-#: ui/pages.slint:3725
+#: ui/pages.slint:3781
 msgctxt "SettingsPage"
 msgid ""
 "Off, the extension's window lists only the logins of the open site: whoever "
@@ -6339,12 +6435,12 @@ msgid ""
 "it asks about. Items and folders kept out of the browser are never listed."
 msgstr ""
 
-#: ui/pages.slint:3733
+#: ui/pages.slint:3789
 msgctxt "SettingsPage"
 msgid "Offer to save logins typed into pages"
 msgstr ""
 
-#: ui/pages.slint:3740
+#: ui/pages.slint:3796
 msgctxt "SettingsPage"
 msgid ""
 "After you sign in on a page, the extension offers to save the login here, or "
@@ -6353,12 +6449,12 @@ msgid ""
 "or saved from the browser."
 msgstr ""
 
-#: ui/pages.slint:3748
+#: ui/pages.slint:3804
 msgctxt "SettingsPage"
 msgid "Warn when a page isn't the site a password belongs to"
 msgstr ""
 
-#: ui/pages.slint:3755
+#: ui/pages.slint:3811
 msgctxt "SettingsPage"
 msgid ""
 "When you paste or send the password of one of your logins on another site, "
@@ -6369,12 +6465,12 @@ msgid ""
 "compared. The emergency kit's keys are refused in every page either way."
 msgstr ""
 
-#: ui/pages.slint:3763
+#: ui/pages.slint:3819
 msgctxt "SettingsPage"
 msgid "Make and use passkeys from this vault"
 msgstr ""
 
-#: ui/pages.slint:3770
+#: ui/pages.slint:3826
 msgctxt "SettingsPage"
 msgid ""
 "When a site makes a passkey, it is saved in the login for that site, in this "
@@ -6383,12 +6479,12 @@ msgid ""
 "before."
 msgstr ""
 
-#: ui/pages.slint:3778
+#: ui/pages.slint:3834
 msgctxt "SettingsPage"
 msgid "Fill with Windows Hello while the vault is locked"
 msgstr ""
 
-#: ui/pages.slint:3785
+#: ui/pages.slint:3841
 msgctxt "SettingsPage"
 msgid ""
 "The app keeps the passwords of your logins for the extension in a file only "
@@ -6400,17 +6496,17 @@ msgid ""
 "Windows account so the extension can list them."
 msgstr ""
 
-#: ui/pages.slint:3790
+#: ui/pages.slint:3846
 msgctxt "SettingsPage"
 msgid "Show a notice here for every login the extension fills"
 msgstr ""
 
-#: ui/pages.slint:3797
+#: ui/pages.slint:3853
 msgctxt "SettingsPage"
 msgid "Site rules"
 msgstr ""
 
-#: ui/pages.slint:3798
+#: ui/pages.slint:3854
 msgctxt "SettingsPage"
 msgid ""
 "What the extension doesn't do on particular sites, and the sites under them. "
@@ -6418,62 +6514,62 @@ msgid ""
 "front too."
 msgstr ""
 
-#: ui/pages.slint:3814
+#: ui/pages.slint:3870
 msgctxt "SettingsPage"
 msgid "Remove"
 msgstr ""
 
-#: ui/pages.slint:3822
+#: ui/pages.slint:3878
 msgctxt "SettingsPage"
 msgid "Never offer to save"
 msgstr ""
 
-#: ui/pages.slint:3827
+#: ui/pages.slint:3883
 msgctxt "SettingsPage"
 msgid "No card under fields"
 msgstr ""
 
-#: ui/pages.slint:3832
+#: ui/pages.slint:3888
 msgctxt "SettingsPage"
 msgid "Never fill"
 msgstr ""
 
-#: ui/pages.slint:3837
+#: ui/pages.slint:3893
 msgctxt "SettingsPage"
 msgid "No passkeys"
 msgstr ""
 
-#: ui/pages.slint:3847
+#: ui/pages.slint:3903
 msgctxt "SettingsPage"
 msgid "Cards also go into the payment frames of {}"
 msgstr ""
 
-#: ui/pages.slint:3854
+#: ui/pages.slint:3910
 msgctxt "SettingsPage"
 msgid "Stop"
 msgstr ""
 
-#: ui/pages.slint:3860
+#: ui/pages.slint:3916
 msgctxt "SettingsPage"
 msgid "No site has rules yet."
 msgstr ""
 
-#: ui/pages.slint:3868
+#: ui/pages.slint:3924
 msgctxt "SettingsPage"
 msgid "A site, such as example.com"
 msgstr ""
 
-#: ui/pages.slint:3876
+#: ui/pages.slint:3932
 msgctxt "SettingsPage"
 msgid "Add a site"
 msgstr ""
 
-#: ui/pages.slint:3884
+#: ui/pages.slint:3940
 msgctxt "SettingsPage"
 msgid "Add to a browser"
 msgstr ""
 
-#: ui/pages.slint:3885
+#: ui/pages.slint:3941
 msgctxt "SettingsPage"
 msgid ""
 "Updated with the app: each new version of Vault brings the extension's, and "
@@ -6481,12 +6577,12 @@ msgid ""
 "page, and the steps show here."
 msgstr ""
 
-#: ui/pages.slint:3897
+#: ui/pages.slint:3953
 msgctxt "SettingsPage"
 msgid "Add to {}…"
 msgstr ""
 
-#: ui/pages.slint:3904
+#: ui/pages.slint:3960
 msgctxt "SettingsPage"
 msgid ""
 "No browser was found where browsers are usually installed. Open the folder, "
@@ -6494,88 +6590,120 @@ msgid ""
 "unpacked."
 msgstr ""
 
-#: ui/pages.slint:3913
+#: ui/pages.slint:3969
 msgctxt "SettingsPage"
 msgid ""
 "In use: version {} from your folder {}. Vault copies it into a folder of its "
 "own and follows your changes."
 msgstr ""
 
-#: ui/pages.slint:3914
+#: ui/pages.slint:3970
 msgctxt "SettingsPage"
 msgid ""
 "In use: version {} from the project's releases on GitHub, checked against "
 "the SHA-256 that GitHub lists."
 msgstr ""
 
-#: ui/pages.slint:3915
+#: ui/pages.slint:3971
 msgctxt "SettingsPage"
 msgid ""
 "In use: version {}, built into this app. Newer ones come from the project's "
 "releases on GitHub when Vault looks for its own updates."
 msgstr ""
 
-#: ui/pages.slint:3926
+#: ui/pages.slint:3982
 msgctxt "SettingsPage"
 msgid "Open the folder"
 msgstr ""
 
-#: ui/pages.slint:3931
+#: ui/pages.slint:3987
 msgctxt "SettingsPage"
 msgid "Use the extension from GitHub"
 msgstr ""
 
-#: ui/pages.slint:3931
+#: ui/pages.slint:3987
 msgctxt "SettingsPage"
 msgid "Use a folder on this computer instead…"
 msgstr ""
 
-#: ui/pages.slint:3954
+#: ui/pages.slint:4010
 msgctxt "SettingsPage"
 msgid "Look"
 msgstr ""
 
-#: ui/pages.slint:3955
+#: ui/pages.slint:4011
 msgctxt "SettingsPage"
 msgid "How the app looks on this computer."
 msgstr ""
 
-#: ui/pages.slint:3957
+#: ui/pages.slint:4013
 msgctxt "SettingsPage"
 msgid "Dark"
 msgstr ""
 
-#: ui/pages.slint:3965
+#: ui/pages.slint:4021
 msgctxt "SettingsPage"
 msgid "Language"
 msgstr ""
 
-#: ui/pages.slint:3967
+#: ui/pages.slint:4023
 msgctxt "SettingsPage"
 msgid "Same as Windows"
 msgstr ""
 
-#: ui/pages.slint:3974
+#: ui/pages.slint:4030
 msgctxt "SettingsPage"
 msgid "The drawn texture behind the vault"
 msgstr ""
 
-#: ui/pages.slint:3981
+#: ui/pages.slint:4037
+msgctxt "SettingsPage"
+msgid "Keyboard shortcuts"
+msgstr ""
+
+#: ui/pages.slint:4038
+msgctxt "SettingsPage"
+msgid "From any program: the vault's search, or its lock."
+msgstr ""
+
+#: ui/pages.slint:4043
+msgctxt "SettingsPage"
+msgid "Search the vault"
+msgstr ""
+
+#: ui/pages.slint:4050
+msgctxt "SettingsPage"
+msgid "Lock the vault"
+msgstr ""
+
+#: ui/pages.slint:4057
+msgctxt "SettingsPage"
+msgid "Another program already uses that shortcut: choose the other one."
+msgstr ""
+
+#: ui/pages.slint:4064
+msgctxt "SettingsPage"
+msgid ""
+"In the app: Ctrl+F search, Ctrl+N new item, Ctrl+L lock, Ctrl+B the sidebar, "
+"Alt+Left and Alt+Right back and forward."
+msgstr ""
+
+#: ui/pages.slint:4072
 msgctxt "SettingsPage"
 msgid "Starting and closing"
 msgstr ""
 
-#: ui/pages.slint:3982
+#: ui/pages.slint:4073
 msgctxt "SettingsPage"
 msgid "When the app starts, and what closing the window does."
 msgstr ""
 
-#: ui/pages.slint:3989
+#: ui/pages.slint:4080
 msgctxt "SettingsPage"
 msgid "Open when I sign in to Windows"
 msgstr ""
 
-#: ui/pages.slint:3996
+#: ui/pages.slint:4087
 msgctxt "SettingsPage"
 msgid ""
 "Windows starts the app when you sign in, locked: nothing opens by itself, "
@@ -6583,17 +6711,17 @@ msgid ""
 "Manager's Startup apps, where it can be turned off too."
 msgstr ""
 
-#: ui/pages.slint:4002
+#: ui/pages.slint:4093
 msgctxt "SettingsPage"
 msgid "Start in the notification area, without opening the window"
 msgstr ""
 
-#: ui/pages.slint:4010
+#: ui/pages.slint:4101
 msgctxt "SettingsPage"
 msgid "Keep running in the notification area when the window is closed"
 msgstr ""
 
-#: ui/pages.slint:4017
+#: ui/pages.slint:4108
 msgctxt "SettingsPage"
 msgid ""
 "Closing the window then hides it: nothing is drawn and the app uses very "
@@ -6602,58 +6730,58 @@ msgid ""
 "to the clock; its menu also locks the vault or quits."
 msgstr ""
 
-#: ui/pages.slint:4031
+#: ui/pages.slint:4122
 msgctxt "SettingsPage"
 msgid "Vault {}"
 msgstr ""
 
-#: ui/pages.slint:4032
+#: ui/pages.slint:4123
 msgctxt "SettingsPage"
 msgid ""
 "A password manager that keeps everything in one encrypted file on your "
 "devices. Free software under the GPL, version 3 or later."
 msgstr ""
 
-#: ui/pages.slint:4035
+#: ui/pages.slint:4126
 msgctxt "SettingsPage"
 msgid "Version"
 msgstr ""
 
-#: ui/pages.slint:4037
+#: ui/pages.slint:4128
 msgctxt "SettingsPage"
 msgid "Status"
 msgstr ""
 
-#: ui/pages.slint:4037
+#: ui/pages.slint:4128
 msgctxt "SettingsPage"
 msgid ""
 "Early development, not audited yet: keep a copy of what matters elsewhere "
 "too."
 msgstr ""
 
-#: ui/pages.slint:4042
+#: ui/pages.slint:4133
 msgctxt "SettingsPage"
 msgid "Updates"
 msgstr ""
 
-#: ui/pages.slint:4043
+#: ui/pages.slint:4134
 msgctxt "SettingsPage"
 msgid ""
 "Asks GitHub, where the project's releases are, every hour while the app runs "
 "and when you press the button. Nothing about your vault is sent."
 msgstr ""
 
-#: ui/pages.slint:4047
+#: ui/pages.slint:4138
 msgctxt "SettingsPage"
 msgid "Look for updates by itself"
 msgstr ""
 
-#: ui/pages.slint:4054
+#: ui/pages.slint:4145
 msgctxt "SettingsPage"
 msgid "Install updates by itself"
 msgstr ""
 
-#: ui/pages.slint:4061
+#: ui/pages.slint:4152
 msgctxt "SettingsPage"
 msgid ""
 "A newer version is downloaded, checked against the release's manifest "
@@ -6662,80 +6790,80 @@ msgid ""
 "Install now does the same when you choose."
 msgstr ""
 
-#: ui/pages.slint:4069
+#: ui/pages.slint:4160
 msgctxt "SettingsPage"
 msgid "Check for updates"
 msgstr ""
 
-#: ui/pages.slint:4101
+#: ui/pages.slint:4192
 msgctxt "SettingsPage"
 msgid "This is the newest version."
 msgstr ""
 
-#: ui/pages.slint:4102
+#: ui/pages.slint:4193
 msgctxt "SettingsPage"
 msgid "Couldn't look for updates: {}"
 msgstr ""
 
-#: ui/pages.slint:4155
+#: ui/pages.slint:4246
 msgctxt "AuthenticatorPage"
 msgid "Authenticator"
 msgstr ""
 
-#: ui/pages.slint:4163
+#: ui/pages.slint:4254
 msgctxt "AuthenticatorPage"
 msgid "From a QR picture…"
 msgstr ""
 
-#: ui/pages.slint:4173
+#: ui/pages.slint:4264
 msgctxt "AuthenticatorPage"
 msgid "Add a code"
 msgstr ""
 
-#: ui/pages.slint:4179
+#: ui/pages.slint:4270
 msgctxt "AuthenticatorPage"
 msgid ""
 "Every two-step sign-in code in your vault, always current. Click Copy, then "
 "paste the code where the site asks for it."
 msgstr ""
 
-#: ui/pages.slint:4183
+#: ui/pages.slint:4274
 msgctxt "AuthenticatorPage"
 msgid ""
 "The codes of locked items are hidden and can't be copied. Your PIN opens all "
 "of them for 5 minutes."
 msgstr ""
 
-#: ui/pages.slint:4184
+#: ui/pages.slint:4275
 msgctxt "AuthenticatorPage"
 msgid ""
 "The codes of locked items are hidden and can't be copied. Your item password "
 "opens all of them for 5 minutes."
 msgstr ""
 
-#: ui/pages.slint:4185
+#: ui/pages.slint:4276
 msgctxt "AuthenticatorPage"
 msgid ""
 "The codes of locked items are hidden and can't be copied. Your master "
 "password opens all of them for 5 minutes."
 msgstr ""
 
-#: ui/pages.slint:4197
+#: ui/pages.slint:4288
 msgctxt "AuthenticatorPage"
 msgid "Lock the codes again"
 msgstr ""
 
-#: ui/pages.slint:4202
+#: ui/pages.slint:4293
 msgctxt "AuthenticatorPage"
 msgid "Search codes"
 msgstr ""
 
-#: ui/pages.slint:4215
+#: ui/pages.slint:4306
 msgctxt "AuthenticatorPage"
 msgid "No codes yet"
 msgstr ""
 
-#: ui/pages.slint:4221
+#: ui/pages.slint:4312
 msgctxt "AuthenticatorPage"
 msgid ""
 "When a site offers two-step sign-in with an authenticator app, it shows a QR "
@@ -6745,27 +6873,27 @@ msgid ""
 "authenticator app."
 msgstr ""
 
-#: ui/pages.slint:4226
+#: ui/pages.slint:4317
 msgctxt "AuthenticatorPage"
 msgid "Nothing matches “{}”."
 msgstr ""
 
-#: ui/pages.slint:4278
+#: ui/pages.slint:4369
 msgctxt "AuthenticatorPage"
 msgid "One-time code: shown on screen, not read aloud"
 msgstr ""
 
-#: ui/pages.slint:4286
+#: ui/pages.slint:4381
 msgctxt "AuthenticatorPage"
 msgid "{} s"
 msgstr ""
 
-#: ui/pages.slint:4295
+#: ui/pages.slint:4390
 msgctxt "AuthenticatorPage"
 msgid "Copy"
 msgstr ""
 
-#: ui/pages.slint:4369
+#: ui/pages.slint:4455
 msgctxt "TransferPage"
 msgid ""
 "In Chrome open Google Password Manager (button below), then Settings → "
@@ -6773,42 +6901,42 @@ msgid ""
 "saves a .csv file."
 msgstr ""
 
-#: ui/pages.slint:4370
+#: ui/pages.slint:4456
 msgctxt "TransferPage"
 msgid ""
 "In Edge open Passwords (button below), click … (More actions) → Export "
 "passwords, confirm with your Windows PIN and save the .csv file."
 msgstr ""
 
-#: ui/pages.slint:4371
+#: ui/pages.slint:4457
 msgctxt "TransferPage"
 msgid ""
 "In Firefox open Passwords (button below), click … (menu) → Export "
 "passwords…, confirm, and save the .csv file."
 msgstr ""
 
-#: ui/pages.slint:4372
+#: ui/pages.slint:4458
 msgctxt "TransferPage"
 msgid ""
 "In Brave open the Password Manager (button below), then Settings → Export "
 "passwords → Download file."
 msgstr ""
 
-#: ui/pages.slint:4373
+#: ui/pages.slint:4459
 msgctxt "TransferPage"
 msgid ""
 "In Opera open the passwords settings (button below), click ⋮ next to "
 "“Saved passwords” → Export passwords, and save the .csv file."
 msgstr ""
 
-#: ui/pages.slint:4374
+#: ui/pages.slint:4460
 msgctxt "TransferPage"
 msgid ""
 "In Vivaldi open the Password Manager (button below), then Settings → Export "
 "passwords, and save the .csv file."
 msgstr ""
 
-#: ui/pages.slint:4375
+#: ui/pages.slint:4461
 msgctxt "TransferPage"
 msgid ""
 "On the Mac: in Safari choose File → Export → Passwords…, or in the "
@@ -6816,125 +6944,125 @@ msgid ""
 "computer."
 msgstr ""
 
-#: ui/pages.slint:4376
+#: ui/pages.slint:4462
 msgctxt "TransferPage"
 msgid ""
 "In Bitwarden: Tools (or Settings) → Export vault, format “.json” (not the "
 "encrypted one), confirm with your master password."
 msgstr ""
 
-#: ui/pages.slint:4377
+#: ui/pages.slint:4463
 msgctxt "TransferPage"
 msgid ""
 "In 1Password 8: File → Export → pick the account → format CSV, and "
 "confirm with your password."
 msgstr ""
 
-#: ui/pages.slint:4378
+#: ui/pages.slint:4464
 msgctxt "TransferPage"
 msgid ""
 "In LastPass: Advanced options → Export → confirm with your master "
 "password. A .csv file is downloaded."
 msgstr ""
 
-#: ui/pages.slint:4379
+#: ui/pages.slint:4465
 msgctxt "TransferPage"
 msgid ""
 "Choose the .kdbx database itself (you'll type its password next), or a CSV "
 "from KeePassXC: Database → Export → CSV file."
 msgstr ""
 
-#: ui/pages.slint:4380
+#: ui/pages.slint:4466
 msgctxt "TransferPage"
 msgid ""
 "In Dashlane (web app): My account → Settings → Export data → CSV. Unzip "
 "it and choose credentials.csv."
 msgstr ""
 
-#: ui/pages.slint:4381
+#: ui/pages.slint:4467
 msgctxt "TransferPage"
 msgid ""
 "In Proton Pass: Settings → Export → format CSV, confirm with your "
 "password."
 msgstr ""
 
-#: ui/pages.slint:4382
+#: ui/pages.slint:4468
 msgctxt "TransferPage"
 msgid ""
 "In NordPass: Settings → Export items → confirm with your master "
 "password. A .csv file is saved."
 msgstr ""
 
-#: ui/pages.slint:4383
+#: ui/pages.slint:4469
 msgctxt "TransferPage"
 msgid ""
 "Any CSV with a header row (name, url, username, password…) or an "
 "unencrypted .json export from another manager."
 msgstr ""
 
-#: ui/pages.slint:4395
+#: ui/pages.slint:4481
 msgctxt "TransferPage"
 msgid "Import & export"
 msgstr ""
 
-#: ui/pages.slint:4397
+#: ui/pages.slint:4483
 msgctxt "TransferPage"
 msgid "Import"
 msgstr ""
 
-#: ui/pages.slint:4402
+#: ui/pages.slint:4488
 msgctxt "TransferPage"
 msgid ""
 "Bring in passwords from a browser or another password manager. You see every "
 "entry, with passwords hidden, before anything is added to this vault."
 msgstr ""
 
-#: ui/pages.slint:4405
+#: ui/pages.slint:4491
 msgctxt "TransferPage"
 msgid "From a browser"
 msgstr ""
 
-#: ui/pages.slint:4405
+#: ui/pages.slint:4491
 msgctxt "TransferPage"
 msgid "From a password manager or file"
 msgstr ""
 
-#: ui/pages.slint:4416
+#: ui/pages.slint:4502
 msgctxt "TransferPage"
 msgid "Browser"
 msgstr ""
 
-#: ui/pages.slint:4416
+#: ui/pages.slint:4502
 msgctxt "TransferPage"
 msgid "Password manager or file"
 msgstr ""
 
-#: ui/pages.slint:4428
+#: ui/pages.slint:4514
 msgctxt "TransferPage"
 msgid "Installed on this computer"
 msgstr ""
 
-#: ui/pages.slint:4428
+#: ui/pages.slint:4514
 msgctxt "TransferPage"
 msgid "Not found on this computer"
 msgstr ""
 
-#: ui/pages.slint:4435
+#: ui/pages.slint:4521
 msgctxt "TransferPage"
 msgid "Read it directly"
 msgstr ""
 
-#: ui/pages.slint:4435
+#: ui/pages.slint:4521
 msgctxt "TransferPage"
 msgid "From an exported CSV file"
 msgstr ""
 
-#: ui/pages.slint:4442
+#: ui/pages.slint:4528
 msgctxt "TransferPage"
 msgid "No saved passwords found for {} on this computer."
 msgstr ""
 
-#: ui/pages.slint:4443
+#: ui/pages.slint:4529
 msgctxt "TransferPage"
 msgid ""
 "Reads the passwords {} saved for your Windows account, here on this "
@@ -6942,42 +7070,42 @@ msgid ""
 "added. Close {} first."
 msgstr ""
 
-#: ui/pages.slint:4450
+#: ui/pages.slint:4536
 msgctxt "TransferPage"
 msgid "Profile"
 msgstr ""
 
-#: ui/pages.slint:4460
+#: ui/pages.slint:4546
 msgctxt "TransferPage"
 msgid "Firefox primary password"
 msgstr ""
 
-#: ui/pages.slint:4462
+#: ui/pages.slint:4548
 msgctxt "TransferPage"
 msgid "Leave empty if you never set one"
 msgstr ""
 
-#: ui/pages.slint:4479
+#: ui/pages.slint:4565
 msgctxt "TransferPage"
 msgid "Read passwords from {}"
 msgstr ""
 
-#: ui/pages.slint:4480 ui/pages.slint:4495
+#: ui/pages.slint:4566 ui/pages.slint:4581
 msgctxt "TransferPage"
 msgid "Reading…"
 msgstr ""
 
-#: ui/pages.slint:4490
+#: ui/pages.slint:4576
 msgctxt "TransferPage"
 msgid "Open {} passwords"
 msgstr ""
 
-#: ui/pages.slint:4494
+#: ui/pages.slint:4580
 msgctxt "TransferPage"
 msgid "Choose the exported file…"
 msgstr ""
 
-#: ui/pages.slint:4506
+#: ui/pages.slint:4592
 msgctxt "TransferPage"
 msgid ""
 "“{}” is protected by a password (a KeePass-format database, or an export "
@@ -6985,138 +7113,138 @@ msgid ""
 "is only used to read it."
 msgstr ""
 
-#: ui/pages.slint:4511
+#: ui/pages.slint:4597
 msgctxt "TransferPage"
 msgid "Password of the file"
 msgstr ""
 
-#: ui/pages.slint:4524
+#: ui/pages.slint:4610
 msgctxt "TransferPage"
 msgid "Open"
 msgstr ""
 
-#: ui/pages.slint:4525
+#: ui/pages.slint:4611
 msgctxt "TransferPage"
 msgid "Opening…"
 msgstr ""
 
-#: ui/pages.slint:4532 ui/pages.slint:4757
+#: ui/pages.slint:4618 ui/pages.slint:4843
 msgctxt "TransferPage"
 msgid "Cancel"
 msgstr ""
 
-#: ui/pages.slint:4548
+#: ui/pages.slint:4634
 msgctxt "TransferPage"
 msgid "Review “{}”"
 msgstr ""
 
-#: ui/pages.slint:4556
+#: ui/pages.slint:4642
 msgctxt "TransferPage"
 msgid "{} entries · {} already in your vault (unticked)"
 msgstr ""
 
-#: ui/pages.slint:4557
+#: ui/pages.slint:4643
 msgctxt "TransferPage"
 msgid "{n} entry"
 msgid_plural "{n} entries"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/pages.slint:4567
+#: ui/pages.slint:4653
 msgctxt "TransferPage"
 msgid "Select all"
 msgstr ""
 
-#: ui/pages.slint:4571
+#: ui/pages.slint:4657
 msgctxt "TransferPage"
 msgid "Select none"
 msgstr ""
 
-#: ui/pages.slint:4595
+#: ui/pages.slint:4681
 msgctxt "TransferPage"
 msgid "Title"
 msgstr ""
 
-#: ui/pages.slint:4595
+#: ui/pages.slint:4681
 msgctxt "TransferPage"
 msgid "Username"
 msgstr ""
 
-#: ui/pages.slint:4595
+#: ui/pages.slint:4681
 msgctxt "TransferPage"
 msgid "Password"
 msgstr ""
 
-#: ui/pages.slint:4595 ui/pages.slint:4721
+#: ui/pages.slint:4681 ui/pages.slint:4807
 msgctxt "TransferPage"
 msgid "Folder"
 msgstr ""
 
-#: ui/pages.slint:4656
+#: ui/pages.slint:4742
 msgctxt "TransferPage"
 msgid "Already in your vault"
 msgstr ""
 
-#: ui/pages.slint:4680
+#: ui/pages.slint:4766
 msgctxt "TransferPage"
 msgid "none"
 msgstr ""
 
-#: ui/pages.slint:4713
+#: ui/pages.slint:4799
 msgctxt "TransferPage"
 msgid "Keep the file's folders"
 msgstr ""
 
-#: ui/pages.slint:4713
+#: ui/pages.slint:4799
 msgctxt "TransferPage"
 msgid "No folder"
 msgstr ""
 
-#: ui/pages.slint:4713
+#: ui/pages.slint:4799
 msgctxt "TransferPage"
 msgid "All in one folder"
 msgstr ""
 
-#: ui/pages.slint:4722
+#: ui/pages.slint:4808
 msgctxt "TransferPage"
 msgid "A new folder…"
 msgstr ""
 
-#: ui/pages.slint:4728
+#: ui/pages.slint:4814
 msgctxt "TransferPage"
 msgid "New folder name"
 msgstr ""
 
-#: ui/pages.slint:4729
+#: ui/pages.slint:4815
 msgctxt "TransferPage"
 msgid "e.g. From Chrome"
 msgstr ""
 
-#: ui/pages.slint:4749
+#: ui/pages.slint:4835
 msgctxt "TransferPage"
 msgid "Nothing selected"
 msgstr ""
 
-#: ui/pages.slint:4749
+#: ui/pages.slint:4835
 msgctxt "TransferPage"
 msgid "Import {n} item"
 msgid_plural "Import {n} items"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/pages.slint:4750
+#: ui/pages.slint:4836
 msgctxt "TransferPage"
 msgid "Importing…"
 msgstr ""
 
-#: ui/pages.slint:4768
+#: ui/pages.slint:4854
 msgctxt "TransferPage"
 msgid "Imported {n} item."
 msgid_plural "Imported {n} items."
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/pages.slint:4781
+#: ui/pages.slint:4867
 msgctxt "TransferPage"
 msgid ""
 "“{}” holds your passwords in plain text. Delete it now: it is "
@@ -7124,27 +7252,27 @@ msgid ""
 "you copied it elsewhere."
 msgstr ""
 
-#: ui/pages.slint:4788
+#: ui/pages.slint:4874
 msgctxt "TransferPage"
 msgid "Delete the file"
 msgstr ""
 
-#: ui/pages.slint:4795
+#: ui/pages.slint:4881
 msgctxt "TransferPage"
 msgid "Keep it"
 msgstr ""
 
-#: ui/pages.slint:4805
+#: ui/pages.slint:4891
 msgctxt "TransferPage"
 msgid "Import another file"
 msgstr ""
 
-#: ui/pages.slint:4813
+#: ui/pages.slint:4899
 msgctxt "TransferPage"
 msgid "Export"
 msgstr ""
 
-#: ui/pages.slint:4814
+#: ui/pages.slint:4900
 msgctxt "TransferPage"
 msgid ""
 "An encrypted backup is a copy of your vault file: it opens only with your "
@@ -7161,47 +7289,47 @@ msgid ""
 "file."
 msgstr ""
 
-#: ui/pages.slint:4820
+#: ui/pages.slint:4906
 msgctxt "TransferPage"
 msgid "Format"
 msgstr ""
 
-#: ui/pages.slint:4822
+#: ui/pages.slint:4908
 msgctxt "TransferPage"
 msgid "Encrypted backup (.vault)"
 msgstr ""
 
-#: ui/pages.slint:4822
+#: ui/pages.slint:4908
 msgctxt "TransferPage"
 msgid "JSON, not encrypted"
 msgstr ""
 
-#: ui/pages.slint:4822
+#: ui/pages.slint:4908
 msgctxt "TransferPage"
 msgid "CSV, not encrypted"
 msgstr ""
 
-#: ui/pages.slint:4822
+#: ui/pages.slint:4908
 msgctxt "TransferPage"
 msgid "Protected by a password (.vaultx)"
 msgstr ""
 
-#: ui/pages.slint:4822
+#: ui/pages.slint:4908
 msgctxt "TransferPage"
 msgid "KeePass database (.kdbx)"
 msgstr ""
 
-#: ui/pages.slint:4822
+#: ui/pages.slint:4908
 msgctxt "TransferPage"
 msgid "Credential Exchange (CXF), not encrypted"
 msgstr ""
 
-#: ui/pages.slint:4828
+#: ui/pages.slint:4914
 msgctxt "TransferPage"
 msgid "Keep a copy on a USB drive or another disk. It stays encrypted."
 msgstr ""
 
-#: ui/pages.slint:4830
+#: ui/pages.slint:4916
 msgctxt "TransferPage"
 msgid ""
 "Every item in one file, attached files and passkeys included, encrypted with "
@@ -7209,7 +7337,7 @@ msgid ""
 "computer. Without that password nobody can, you included."
 msgstr ""
 
-#: ui/pages.slint:4832
+#: ui/pages.slint:4918
 msgctxt "TransferPage"
 msgid ""
 "Every item in a KeePass database, encrypted with a password you choose (and "
@@ -7217,7 +7345,7 @@ msgid ""
 "and attached files included."
 msgstr ""
 
-#: ui/pages.slint:4834
+#: ui/pages.slint:4920
 msgctxt "TransferPage"
 msgid ""
 "The format password managers exchange items in, passkeys included with their "
@@ -7225,38 +7353,81 @@ msgid ""
 "delete it."
 msgstr ""
 
-#: ui/pages.slint:4836
+#: ui/pages.slint:4922
 msgctxt "TransferPage"
 msgid ""
 "Keeps folders, cards and extra fields. Most password managers can read it."
 msgstr ""
 
-#: ui/pages.slint:4837
+#: ui/pages.slint:4923
 msgctxt "TransferPage"
 msgid "Logins and notes only, one per row. Any program can read it."
 msgstr ""
 
-#: ui/pages.slint:4842
+#: ui/pages.slint:4928
 msgctxt "TransferPage"
 msgid "Save a backup copy…"
 msgstr ""
 
-#: ui/pages.slint:4842
+#: ui/pages.slint:4928
 msgctxt "TransferPage"
 msgid "Export…"
 msgstr ""
 
-#: ui/pages.slint:4935
+#: ui/pages.slint:5005
+msgctxt "HealthPage"
+msgid "The vault locks only after {} minutes without use."
+msgstr ""
+
+#: ui/pages.slint:5006
+msgctxt "HealthPage"
+msgid "The vault stays open when Windows locks, sleeps or switches user."
+msgstr ""
+
+#: ui/pages.slint:5007
+msgctxt "HealthPage"
+msgid "Copied secrets stay on the clipboard for {} seconds."
+msgstr ""
+
+#: ui/pages.slint:5008
+msgctxt "HealthPage"
+msgid "No item lock: an open vault shows every password without a second check."
+msgstr ""
+
+#: ui/pages.slint:5009
+msgctxt "HealthPage"
+msgid ""
+"Updates aren't looked for: fixes don't reach this computer by themselves."
+msgstr ""
+
+#: ui/pages.slint:5010
+msgctxt "HealthPage"
+msgid "The browser extension fills without asking first."
+msgstr ""
+
+#: ui/pages.slint:5011
+msgctxt "HealthPage"
+msgid "The extension's window lists every login of the vault."
+msgstr ""
+
+#: ui/pages.slint:5012
+msgctxt "HealthPage"
+msgid ""
+"Windows Hello opens the vault for {} days before the master password is "
+"asked."
+msgstr ""
+
+#: ui/pages.slint:5042
 msgctxt "HealthPage"
 msgid "Password health"
 msgstr ""
 
-#: ui/pages.slint:4938
+#: ui/pages.slint:5045
 msgctxt "HealthPage"
 msgid "Add some logins and their passwords are checked here."
 msgstr ""
 
-#: ui/pages.slint:4939
+#: ui/pages.slint:5046
 msgctxt "HealthPage"
 msgid ""
 "{n} login checked on this computer. Fix the red ones first: a leaked or "
@@ -7267,47 +7438,70 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/pages.slint:4961
+#: ui/pages.slint:5068
 msgctxt "HealthPage"
 msgid "score"
 msgstr ""
 
-#: ui/pages.slint:4974
+#: ui/pages.slint:5081
 msgctxt "HealthPage"
 msgid "Leaked"
 msgstr ""
 
-#: ui/pages.slint:4982
+#: ui/pages.slint:5089
 msgctxt "HealthPage"
 msgid "Weak"
 msgstr ""
 
-#: ui/pages.slint:4989
+#: ui/pages.slint:5096
 msgctxt "HealthPage"
 msgid "Reused"
 msgstr ""
 
-#: ui/pages.slint:4996
+#: ui/pages.slint:5103
 msgctxt "HealthPage"
 msgid "Over a year old"
 msgstr ""
 
-#: ui/pages.slint:5003
+#: ui/pages.slint:5110
 msgctxt "HealthPage"
 msgid "Expiring"
 msgstr ""
 
-#: ui/pages.slint:5030
+#: ui/pages.slint:5122
+msgctxt "HealthPage"
+msgid "Without HTTPS"
+msgstr ""
+
+#: ui/pages.slint:5129
+msgctxt "HealthPage"
+msgid "One-time codes available"
+msgstr ""
+
+#: ui/pages.slint:5136
+msgctxt "HealthPage"
+msgid "Passkeys available"
+msgstr ""
+
+#: ui/pages.slint:5144
+msgctxt "HealthPage"
+msgid ""
+"Which sites offer them: data sourced from 2FA Directory and Passkeys "
+"Directory by 2factorauth, bundled with the app and compared here, offline. "
+"Turning one on makes a stolen password alone useless there."
+msgstr ""
+
+#: ui/pages.slint:5167
 msgctxt "HealthPage"
 msgid "Leak check done"
 msgstr ""
 
-#: ui/pages.slint:5030
+#: ui/pages.slint:5167
 msgctxt "HealthPage"
 msgid "Check for leaked passwords"
 msgstr ""
 
-#: ui/pages.slint:5039
+#: ui/pages.slint:5176
 msgctxt "HealthPage"
 msgid ""
 "Asks the Have I Been Pwned service (haveibeenpwned.com) whether each "
@@ -7317,129 +7511,169 @@ msgid ""
 "same way. The match is made here. Runs only when you click."
 msgstr ""
 
-#: ui/pages.slint:5044
+#: ui/pages.slint:5181
 msgctxt "HealthPage"
 msgid ""
 "Compares your passwords with 900+ million leaked ones without sending them. "
 "Takes a few seconds."
 msgstr ""
 
-#: ui/pages.slint:5055
+#: ui/pages.slint:5192
 msgctxt "HealthPage"
 msgid "Check again"
 msgstr ""
 
-#: ui/pages.slint:5055
+#: ui/pages.slint:5192
 msgctxt "HealthPage"
 msgid "Check now"
 msgstr ""
 
-#: ui/pages.slint:5056
+#: ui/pages.slint:5193
 msgctxt "HealthPage"
 msgid "Checking…"
 msgstr ""
 
-#: ui/pages.slint:5065
+#: ui/pages.slint:5214
+msgctxt "HealthPage"
+msgid "Settings to look at"
+msgstr ""
+
+#: ui/pages.slint:5232
+msgctxt "HealthPage"
+msgid "Change"
+msgstr ""
+
+#: ui/pages.slint:5236 ui/pages.slint:5318
+msgctxt "HealthPage"
+msgid "Ignore"
+msgstr ""
+
+#: ui/pages.slint:5245
 msgctxt "HealthPage"
 msgid "Nothing to fix. Well kept!"
 msgstr ""
 
-#: ui/pages.slint:5065
+#: ui/pages.slint:5245
 msgctxt "HealthPage"
 msgid "Nothing here."
 msgstr ""
 
-#: ui/pages.slint:5106
+#: ui/pages.slint:5286
 msgctxt "HealthPage"
 msgid "Found in data breaches {} times"
 msgstr ""
 
-#: ui/pages.slint:5107
+#: ui/pages.slint:5287
 msgctxt "HealthPage"
 msgid "Easy to guess"
 msgstr ""
 
-#: ui/pages.slint:5108
+#: ui/pages.slint:5288
 msgctxt "HealthPage"
 msgid "Same password as {n} other login"
 msgid_plural "Same password as {n} other logins"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ui/pages.slint:5109
+#: ui/pages.slint:5289
 msgctxt "HealthPage"
 msgid "Last changed {}"
 msgstr ""
 
-#: ui/pages.slint:5110
+#: ui/pages.slint:5290
+msgctxt "HealthPage"
+msgid "Saved as {}: what you type there travels unencrypted"
+msgstr ""
+
+#: ui/pages.slint:5291
+msgctxt "HealthPage"
+msgid "The site offers two-step sign-in with one-time codes"
+msgstr ""
+
+#: ui/pages.slint:5292
+msgctxt "HealthPage"
+msgid "The site takes passkeys: nothing to steal or reuse"
+msgstr ""
+
+#: ui/pages.slint:5293
 msgctxt "HealthPage"
 msgid "Expiry date {}"
 msgstr ""
 
-#: ui/pages.slint:5111
+#: ui/pages.slint:5294
 msgctxt "HealthPage"
 msgid "Expired in {}"
 msgstr ""
 
-#: ui/pages.slint:5120
+#: ui/pages.slint:5303
 msgctxt "HealthPage"
 msgid "Change on the site"
 msgstr ""
 
-#: ui/pages.slint:5302
+#: ui/pages.slint:5311
+msgctxt "HealthPage"
+msgid "How to turn it on"
+msgstr ""
+
+#: ui/pages.slint:5318
+msgctxt "HealthPage"
+msgid "Don't ignore"
+msgstr ""
+
+#: ui/pages.slint:5503
 msgctxt "KitPage"
 msgid "Emergency kit"
 msgstr ""
 
-#: ui/pages.slint:5304
+#: ui/pages.slint:5505
 msgctxt "KitPage"
 msgid ""
 "Your way back in if you lose this computer or forget the master password. "
 "Print it and keep the paper somewhere safe, away from the computer."
 msgstr ""
 
-#: ui/pages.slint:5311
+#: ui/pages.slint:5512
 msgctxt "KitPage"
 msgid "Show my kit…"
 msgstr ""
 
-#: ui/pages.slint:5322
+#: ui/pages.slint:5523
 msgctxt "KitPage"
 msgid ""
 "The kit's keys and its PDF password are behind the item lock. Your PIN shows "
 "them for 5 minutes."
 msgstr ""
 
-#: ui/pages.slint:5323
+#: ui/pages.slint:5524
 msgctxt "KitPage"
 msgid ""
 "The kit's keys and its PDF password are behind the item lock. Your item "
 "password shows them for 5 minutes."
 msgstr ""
 
-#: ui/pages.slint:5324
+#: ui/pages.slint:5525
 msgctxt "KitPage"
 msgid ""
 "The kit's keys and its PDF password are behind the item lock. Your master "
 "password shows them for 5 minutes."
 msgstr ""
 
-#: ui/pages.slint:5338
+#: ui/pages.slint:5539
 msgctxt "KitPage"
 msgid "Hide the keys"
 msgstr ""
 
-#: ui/pages.slint:5338
+#: ui/pages.slint:5539
 msgctxt "KitPage"
 msgid "Show the keys for 15 seconds"
 msgstr ""
 
-#: ui/pages.slint:5344
+#: ui/pages.slint:5545
 msgctxt "KitPage"
 msgid "Printing and saving use the keys as they are."
 msgstr ""
 
-#: ui/pages.slint:5364
+#: ui/pages.slint:5565
 msgctxt "KitPage"
 msgid ""
 "The recovery parts aren't stored anywhere, so they can't be shown again: use "
@@ -7447,7 +7681,7 @@ msgid ""
 "old ones stop working."
 msgstr ""
 
-#: ui/pages.slint:5365
+#: ui/pages.slint:5566
 msgctxt "KitPage"
 msgid ""
 "This vault still uses the Recovery Key of an older kit, which opens it on "
@@ -7455,116 +7689,116 @@ msgid ""
 "any two bring back the Secret Key and all three a new master password."
 msgstr ""
 
-#: ui/pages.slint:5366
+#: ui/pages.slint:5567
 msgctxt "KitPage"
 msgid ""
 "This vault has no way to recover a forgotten master password. Issue recovery "
 "parts to add one."
 msgstr ""
 
-#: ui/pages.slint:5382
+#: ui/pages.slint:5583
 msgctxt "KitPage"
 msgid "Print the keys"
 msgstr ""
 
-#: ui/pages.slint:5382
+#: ui/pages.slint:5583
 msgctxt "KitPage"
 msgid "Print empty boxes to fill in by hand"
 msgstr ""
 
-#: ui/pages.slint:5390
+#: ui/pages.slint:5591
 msgctxt "KitPage"
 msgid "Print"
 msgstr ""
 
-#: ui/pages.slint:5398
+#: ui/pages.slint:5599
 msgctxt "KitPage"
 msgid ""
 "Opens a temporary PDF that asks for the PDF password, wiped from this "
 "computer when the vault locks."
 msgstr ""
 
-#: ui/pages.slint:5399
+#: ui/pages.slint:5600
 msgctxt "KitPage"
 msgid "Makes a temporary PDF, wiped from this computer when the vault locks."
 msgstr ""
 
-#: ui/pages.slint:5419
+#: ui/pages.slint:5620
 msgctxt "KitPage"
 msgid "Leave part C out of the printed kit: it is in the picture"
 msgstr ""
 
-#: ui/pages.slint:5426
+#: ui/pages.slint:5627
 msgctxt "KitPage"
 msgid "Keep a copy in a file"
 msgstr ""
 
-#: ui/pages.slint:5429
+#: ui/pages.slint:5630
 msgctxt "KitPage"
 msgid "Save as PDF…"
 msgstr ""
 
-#: ui/pages.slint:5430
+#: ui/pages.slint:5631
 msgctxt "KitPage"
 msgid "The Secret Key only. The recovery parts stay out."
 msgstr ""
 
-#: ui/pages.slint:5435
+#: ui/pages.slint:5636
 msgctxt "KitPage"
 msgid "Save each part apart…"
 msgstr ""
 
-#: ui/pages.slint:5436
+#: ui/pages.slint:5637
 msgctxt "KitPage"
 msgid "Each recovery part in a PDF of its own."
 msgstr ""
 
-#: ui/pages.slint:5441
+#: ui/pages.slint:5642
 msgctxt "KitPage"
 msgid "Save part C in a picture…"
 msgstr ""
 
-#: ui/pages.slint:5442
+#: ui/pages.slint:5643
 msgctxt "KitPage"
 msgid "Part C hidden in a copy of a photo of yours."
 msgstr ""
 
-#: ui/pages.slint:5448
+#: ui/pages.slint:5649
 msgctxt "KitPage"
 msgid "Change the keys"
 msgstr ""
 
-#: ui/pages.slint:5451
+#: ui/pages.slint:5652
 msgctxt "KitPage"
 msgid "New recovery parts"
 msgstr ""
 
-#: ui/pages.slint:5451
+#: ui/pages.slint:5652
 msgctxt "KitPage"
 msgid "Issue recovery parts"
 msgstr ""
 
-#: ui/pages.slint:5452
+#: ui/pages.slint:5653
 msgctxt "KitPage"
 msgid "The old parts stop working. Print the new kit."
 msgstr ""
 
-#: ui/pages.slint:5452
+#: ui/pages.slint:5653
 msgctxt "KitPage"
 msgid "Three parts, kept apart: two bring back the Secret Key."
 msgstr ""
 
-#: ui/pages.slint:5457
+#: ui/pages.slint:5658
 msgctxt "KitPage"
 msgid "New Secret Key…"
 msgstr ""
 
-#: ui/pages.slint:5458
+#: ui/pages.slint:5659
 msgctxt "KitPage"
 msgid "If it may have leaked. The master password stays."
 msgstr ""
 
-#: ui/pages.slint:5464
+#: ui/pages.slint:5665
 msgctxt "KitPage"
 msgid ""
 "Files go to a folder on this computer or a USB drive, never to one a cloud "
@@ -7572,7 +7806,7 @@ msgid ""
 "together they open the vault without the master password."
 msgstr ""
 
-#: ui/pages.slint:5473
+#: ui/pages.slint:5674
 msgctxt "KitPage"
 msgid "Hide the kit"
 msgstr ""
@@ -8236,323 +8470,330 @@ msgctxt "OnboardingScreen"
 msgid "You can import later from Import & export in the menu."
 msgstr ""
 
-#: ui/welcome.slint:963
+#: ui/welcome.slint:965
 msgctxt "UnlockScreen"
 msgid "Locked"
 msgstr ""
 
-#: ui/welcome.slint:970
+#: ui/welcome.slint:972
 msgctxt "UnlockScreen"
 msgid "Everything inside is encrypted on this computer."
 msgstr ""
 
-#: ui/welcome.slint:1020
+#: ui/welcome.slint:1022
 msgctxt "UnlockScreen"
 msgid "This computer needs your Secret Key once"
 msgstr ""
 
-#: ui/welcome.slint:1021
+#: ui/welcome.slint:1023
 msgctxt "UnlockScreen"
 msgid "Secret Key saved on this computer"
 msgstr ""
 
-#: ui/welcome.slint:1027
+#: ui/welcome.slint:1029
 msgctxt "UnlockScreen"
 msgid "Windows Hello is set up"
 msgstr ""
 
-#: ui/welcome.slint:1028
+#: ui/welcome.slint:1030
 msgctxt "UnlockScreen"
 msgid "Windows Hello is off (Settings → Locking)"
 msgstr ""
 
-#: ui/welcome.slint:1033
+#: ui/welcome.slint:1035
 msgctxt "UnlockScreen"
 msgid "Locks itself when you step away"
 msgstr ""
 
-#: ui/welcome.slint:1057
+#: ui/welcome.slint:1059
 msgctxt "UnlockScreen"
 msgid "Unlock your vault"
 msgstr ""
 
-#: ui/welcome.slint:1060
+#: ui/welcome.slint:1062
 msgctxt "UnlockScreen"
 msgid "Use Windows Hello, or your master password."
 msgstr ""
 
-#: ui/welcome.slint:1061
+#: ui/welcome.slint:1064
+msgctxt "UnlockScreen"
+msgid ""
+"Type your master password: it's asked once each time the app starts. Windows "
+"Hello works after that."
+msgstr ""
+
+#: ui/welcome.slint:1065
 msgctxt "UnlockScreen"
 msgid "Type your master password to open it."
 msgstr ""
 
-#: ui/welcome.slint:1068
+#: ui/welcome.slint:1072
 msgctxt "UnlockScreen"
 msgid "Unlock with Windows Hello"
 msgstr ""
 
-#: ui/welcome.slint:1069
+#: ui/welcome.slint:1073
 msgctxt "UnlockScreen"
 msgid "Waiting for Windows Hello…"
 msgstr ""
 
-#: ui/welcome.slint:1082
+#: ui/welcome.slint:1086
 msgctxt "UnlockScreen"
 msgid "or use your master password"
 msgstr ""
 
-#: ui/welcome.slint:1096
+#: ui/welcome.slint:1100
 msgctxt "UnlockScreen"
 msgid ""
 "This computer hasn't opened this vault before. Type the Secret Key from your "
 "emergency kit once; it will be remembered here."
 msgstr ""
 
-#: ui/welcome.slint:1100
+#: ui/welcome.slint:1104
 msgctxt "UnlockScreen"
 msgid "Secret Key"
 msgstr ""
 
-#: ui/welcome.slint:1104
+#: ui/welcome.slint:1108
 msgctxt "UnlockScreen"
 msgid ""
 "From your emergency kit: S0- and four groups of seven characters. Dashes, "
 "spaces and capitals don't matter."
 msgstr ""
 
-#: ui/welcome.slint:1113
+#: ui/welcome.slint:1117
 msgctxt "UnlockScreen"
 msgid "Lost the Secret Key? Use two recovery parts"
 msgstr ""
 
-#: ui/welcome.slint:1121
+#: ui/welcome.slint:1125
 msgctxt "UnlockScreen"
 msgid ""
 "Type any two of your three recovery parts. They bring back the Secret Key, "
 "which this computer then remembers. Your master password is still needed."
 msgstr ""
 
-#: ui/welcome.slint:1125
+#: ui/welcome.slint:1129
 msgctxt "UnlockScreen"
 msgid "A recovery part"
 msgstr ""
 
-#: ui/welcome.slint:1129
+#: ui/welcome.slint:1133
 msgctxt "UnlockScreen"
 msgid ""
 "A0-, B0- or C0- and four groups of seven characters. Which two, their order, "
 "dashes, spaces and capitals don't matter."
 msgstr ""
 
-#: ui/welcome.slint:1135
+#: ui/welcome.slint:1139
 msgctxt "UnlockScreen"
 msgid "Another part"
 msgstr ""
 
-#: ui/welcome.slint:1148
+#: ui/welcome.slint:1152
 msgctxt "UnlockScreen"
 msgid "Read a part from a file…"
 msgstr ""
 
-#: ui/welcome.slint:1153
+#: ui/welcome.slint:1157
 msgctxt "UnlockScreen"
 msgid "Type the Secret Key instead"
 msgstr ""
 
-#: ui/welcome.slint:1160
+#: ui/welcome.slint:1164
 msgctxt "UnlockScreen"
 msgid "Master password"
 msgstr ""
 
-#: ui/welcome.slint:1171
+#: ui/welcome.slint:1175
 msgctxt "UnlockScreen"
 msgid "Keyfile"
 msgstr ""
 
-#: ui/welcome.slint:1187
+#: ui/welcome.slint:1191
 msgctxt "UnlockScreen"
 msgid "No file chosen"
 msgstr ""
 
-#: ui/welcome.slint:1198
+#: ui/welcome.slint:1202
 msgctxt "UnlockScreen"
 msgid "Choose…"
 msgstr ""
 
-#: ui/welcome.slint:1214
+#: ui/welcome.slint:1218
 msgctxt "UnlockScreen"
 msgid ""
 "{} failed tries in a row on this computer. To slow down guessing, the next "
 "one can start in {}."
 msgstr ""
 
-#: ui/welcome.slint:1227 ui/welcome.slint:1237
+#: ui/welcome.slint:1231 ui/welcome.slint:1241
 msgctxt "UnlockScreen"
 msgid "Try again in {}"
 msgstr ""
 
-#: ui/welcome.slint:1227
+#: ui/welcome.slint:1231
 msgctxt "UnlockScreen"
 msgid "Unlock"
 msgstr ""
 
-#: ui/welcome.slint:1228 ui/welcome.slint:1236
+#: ui/welcome.slint:1232 ui/welcome.slint:1240
 msgctxt "UnlockScreen"
 msgid "Unlocking…"
 msgstr ""
 
-#: ui/welcome.slint:1238
+#: ui/welcome.slint:1242
 msgctxt "UnlockScreen"
 msgid "Unlock with password"
 msgstr ""
 
-#: ui/welcome.slint:1245
+#: ui/welcome.slint:1249
 msgctxt "UnlockScreen"
 msgid "On a secure desktop"
 msgstr ""
 
-#: ui/welcome.slint:1257
+#: ui/welcome.slint:1261
 msgctxt "UnlockScreen"
 msgid "Forgot it? Use your emergency kit"
 msgstr ""
 
-#: ui/welcome.slint:1263
+#: ui/welcome.slint:1267
 msgctxt "UnlockScreen"
 msgid "Use another vault"
 msgstr ""
 
-#: ui/welcome.slint:1292
+#: ui/welcome.slint:1296
 msgctxt "RecoverScreen"
 msgid "Recover access"
 msgstr ""
 
-#: ui/welcome.slint:1298
+#: ui/welcome.slint:1302
 msgctxt "RecoverScreen"
 msgid "Recovery parts"
 msgstr ""
 
-#: ui/welcome.slint:1298 ui/welcome.slint:1377
+#: ui/welcome.slint:1302 ui/welcome.slint:1381
 msgctxt "RecoverScreen"
 msgid "Recovery Key"
 msgstr ""
 
-#: ui/welcome.slint:1299 ui/welcome.slint:1387
+#: ui/welcome.slint:1303 ui/welcome.slint:1391
 msgctxt "RecoverScreen"
 msgid "New master password"
 msgstr ""
 
-#: ui/welcome.slint:1300
+#: ui/welcome.slint:1304
 msgctxt "RecoverScreen"
 msgid "New emergency kit"
 msgstr ""
 
-#: ui/welcome.slint:1305
+#: ui/welcome.slint:1309
 msgctxt "RecoverScreen"
 msgid "Your items stay exactly as they are."
 msgstr ""
 
-#: ui/welcome.slint:1306
+#: ui/welcome.slint:1310
 msgctxt "RecoverScreen"
 msgid "You get a new Secret Key; the old one stops working."
 msgstr ""
 
-#: ui/welcome.slint:1307
+#: ui/welcome.slint:1311
 msgctxt "RecoverScreen"
 msgid "Recovery parts work once: you make new ones at the end."
 msgstr ""
 
-#: ui/welcome.slint:1307
+#: ui/welcome.slint:1311
 msgctxt "RecoverScreen"
 msgid "Your Recovery Key keeps working."
 msgstr ""
 
-#: ui/welcome.slint:1318
+#: ui/welcome.slint:1322
 msgctxt "RecoverScreen"
 msgid "Use your emergency kit"
 msgstr ""
 
-#: ui/welcome.slint:1320
+#: ui/welcome.slint:1324
 msgctxt "RecoverScreen"
 msgid ""
 "Type the Recovery Key from your emergency kit, then choose a new master "
 "password."
 msgstr ""
 
-#: ui/welcome.slint:1321
+#: ui/welcome.slint:1325
 msgctxt "RecoverScreen"
 msgid "Type the three recovery parts from your emergency kit."
 msgstr ""
 
-#: ui/welcome.slint:1322
+#: ui/welcome.slint:1326
 msgctxt "RecoverScreen"
 msgid "The parts are right. Choose a new master password."
 msgstr ""
 
-#: ui/welcome.slint:1328
+#: ui/welcome.slint:1332
 msgctxt "RecoverScreen"
 msgid "Part A"
 msgstr ""
 
-#: ui/welcome.slint:1332
+#: ui/welcome.slint:1336
 msgctxt "RecoverScreen"
 msgid ""
 "A0-, B0- and C0- and four groups of seven characters. Their order, dashes, "
 "spaces and capitals don't matter."
 msgstr ""
 
-#: ui/welcome.slint:1338
+#: ui/welcome.slint:1342
 msgctxt "RecoverScreen"
 msgid "Part B"
 msgstr ""
 
-#: ui/welcome.slint:1347
+#: ui/welcome.slint:1351
 msgctxt "RecoverScreen"
 msgid "Part C"
 msgstr ""
 
-#: ui/welcome.slint:1359
+#: ui/welcome.slint:1363
 msgctxt "RecoverScreen"
 msgid "Read a part from a file…"
 msgstr ""
 
-#: ui/welcome.slint:1368
+#: ui/welcome.slint:1372
 msgctxt "RecoverScreen"
 msgid "Continue"
 msgstr ""
 
-#: ui/welcome.slint:1369
+#: ui/welcome.slint:1373
 msgctxt "RecoverScreen"
 msgid "Checking…"
 msgstr ""
 
-#: ui/welcome.slint:1379
+#: ui/welcome.slint:1383
 msgctxt "RecoverScreen"
 msgid ""
 "Copy it from your emergency kit: the longer key, starting with R0- and nine "
 "groups of six characters. Dashes, spaces and capitals don't matter."
 msgstr ""
 
-#: ui/welcome.slint:1394
+#: ui/welcome.slint:1398
 msgctxt "RecoverScreen"
 msgid "Type it again"
 msgstr ""
 
-#: ui/welcome.slint:1407
+#: ui/welcome.slint:1411
 msgctxt "RecoverScreen"
 msgid "Recover vault"
 msgstr ""
 
-#: ui/welcome.slint:1408
+#: ui/welcome.slint:1412
 msgctxt "RecoverScreen"
 msgid "Recovering…"
 msgstr ""
 
-#: ui/welcome.slint:1417
+#: ui/welcome.slint:1421
 msgctxt "RecoverScreen"
 msgid "Back to the parts"
 msgstr ""
 
-#: ui/welcome.slint:1422
+#: ui/welcome.slint:1426
 msgctxt "RecoverScreen"
 msgid "Back to unlock"
 msgstr ""

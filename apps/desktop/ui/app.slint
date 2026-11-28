@@ -888,6 +888,7 @@ export component AppWindow inherits Window {
     in property <[LargeChar]> large-chars;
     in property <string> totp-code;
     in property <int> totp-left;
+    in property <int> totp-period: 30;
     in property <[string]> detail-urls;
     in property <string> detail-notes;
     in property <[DetailField]> detail-fields;
@@ -1030,14 +1031,6 @@ export component AppWindow inherits Window {
     callback generate-for-item();
     // The generator's options are open under the password (closed each time the editor opens).
     in-out property <bool> ed-gen-open;
-    // The username generator (under the username): its kind (0 two words, 1 your email
-    // tagged, 2 at your domain), the address and domain it uses, the digits after two words.
-    callback generate-username();
-    in-out property <bool> ed-user-gen-open;
-    in-out property <int> user-gen-kind;
-    in-out property <string> user-gen-email;
-    in-out property <string> user-gen-domain;
-    in-out property <bool> user-gen-number: true;
 
     // ---- generator ----
     in property <string> gen-result;
@@ -1224,6 +1217,10 @@ export component AppWindow inherits Window {
     in property <string> cli-program;
     in property <string> cli-purpose;
     in property <[string]> cli-lines;
+    // What Allow asks first: Windows Hello (`cli-hello`), else what the item lock takes
+    // (0 master password, 1 PIN, 2 its password), typed in the question.
+    in property <bool> cli-hello;
+    in property <int> cli-check;
     callback cli-decide(int);
     // This start of the app waits for the master password before Windows Hello.
     in property <bool> password-at-start;
@@ -1521,6 +1518,7 @@ export component AppWindow inherits Window {
                 reveal-left: root.reveal-left;
                 totp-code: root.totp-code;
                 totp-left: root.totp-left;
+                totp-period: root.totp-period;
                 urls: root.detail-urls;
                 notes: root.detail-notes;
                 fields: root.detail-fields;
@@ -1663,12 +1661,6 @@ export component AppWindow inherits Window {
                 gen-number <=> root.gen-number;
                 gen-separator <=> root.gen-separator;
                 gen-open <=> root.ed-gen-open;
-                generate-username => { root.generate-username(); }
-                user-gen-open <=> root.ed-user-gen-open;
-                user-gen-kind <=> root.user-gen-kind;
-                user-gen-email <=> root.user-gen-email;
-                user-gen-domain <=> root.user-gen-domain;
-                user-gen-number <=> root.user-gen-number;
             }
             if root.panel == Panel.generator: GeneratorPage {
                 result: root.gen-result;
@@ -2058,6 +2050,10 @@ export component AppWindow inherits Window {
         program: root.cli-program;
         purpose: root.cli-purpose;
         lines: root.cli-lines;
+        hello: root.cli-hello;
+        check: root.cli-check;
+        error-code: root.error-code;
+        error-detail: root.error-detail;
         decide(choice) => { root.cli-decide(choice); }
     }
     if root.screen == Screen.vault && root.large-chars.length > 0: LargeTypeDialog {

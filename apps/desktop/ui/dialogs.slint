@@ -1,6 +1,6 @@
 // Dialogs that open over the whole window.
 
-import { Theme } from "theme.slint";
+import { Theme, Secrets } from "theme.slint";
 import { ExportCounts, Messages, LargeChar } from "model.slint";
 import { Button, QuietButton, LineField, Hint, SecretField, Choice, Check } from "widgets.slint";
 import { Glyph, FolderLook, FieldColors } from "icons.slint";
@@ -695,7 +695,14 @@ export component CliAskDialog inherits Modal {
     in property <string> program;
     in property <string> purpose;
     in property <[string]> lines;
+    // Allow asks Windows Hello first (`hello`), else what the item lock takes, typed here
+    // (`check`: 0 master password, 1 PIN, 2 its password).
+    in property <bool> hello;
+    in property <int> check;
+    in property <int> error-code;
+    in property <string> error-detail;
     callback decide(int);
+    property <bool> typed: Secrets.lengths[11] > 0;
     card-width: Math.min(root.width - 48px, 560px);
     dismissed => { root.decide(0); }
     Text {
@@ -732,6 +739,26 @@ export component CliAskDialog inherits Modal {
         color: Theme.graphite;
         wrap: word-wrap;
     }
+    Text {
+        text: root.hello ? @tr("Allowing asks for Windows Hello first.") : @tr("To allow it, confirm it's you:");
+        font-size: Theme.small;
+        color: Theme.ink;
+        wrap: word-wrap;
+    }
+    if !root.hello: SecretField {
+        field: 11;
+        label: root.check == 1 ? @tr("Item lock PIN") : root.check == 2 ? @tr("Item lock password") : @tr("Master password");
+        icon: root.check == 1 ? "pin" : "key";
+        error: root.error-code != 0;
+    }
+    Text {
+        text: Messages.error(root.error-code, root.error-detail);
+        visible: root.error-code != 0;
+        height: self.visible ? self.preferred-height : 0px;
+        font-size: Theme.small;
+        color: Theme.seal;
+        wrap: word-wrap;
+    }
     HorizontalLayout {
         spacing: 8px;
         alignment: end;
@@ -743,10 +770,12 @@ export component CliAskDialog inherits Modal {
         QuietButton {
             text: @tr("Allow for 10 minutes");
             outlined: true;
+            enabled: root.hello || root.typed;
             clicked => { root.decide(2); }
         }
         Button {
             text: @tr("Allow once");
+            enabled: root.hello || root.typed;
             clicked => { root.decide(1); }
         }
     }

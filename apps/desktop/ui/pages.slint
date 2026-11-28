@@ -4,7 +4,7 @@ import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
 import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, ExtensionBrowser, SiteRuleRow, Messages, ItemLock, SecurityLine, ReviewRow } from "model.slint";
 import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker, IconLook, FolderLook } from "icons.slint";
-import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
+import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown, Countdown } from "widgets.slint";
 import { KitSlip, PdfPassword } from "kit.slint";
 import { StrengthMeter } from "strength.slint";
 import { VaultMark } from "vault.slint";
@@ -241,6 +241,7 @@ export component DetailPage inherits Rectangle {
     in property <int> reveal-left;
     in property <string> totp-code;
     in property <int> totp-left;
+    in property <int> totp-period: 30;
     in property <[string]> urls;
     in property <string> notes;
     in property <[DetailField]> fields;
@@ -474,10 +475,6 @@ export component DetailPage inherits Rectangle {
                     text: @tr("Auto-type");
                     clicked => { root.auto-type(); }
                 }
-                if root.kind != 4: QuietButton {
-                    text: @tr("Large type");
-                    clicked => { root.show-large(); }
-                }
                 QuietButton {
                     text: @tr("Copy");
                     clicked => { root.copy-password(); }
@@ -615,6 +612,10 @@ export component DetailPage inherits Rectangle {
                 secret: true;
                 mono: true;
                 large: true;
+                VerticalLayout {
+                    alignment: center;
+                    Countdown { size: 20px; left: root.totp-left; period: root.totp-period; }
+                }
                 Text {
                     text: @tr("{} s", root.totp-left);
                     font-size: Theme.small;
@@ -940,6 +941,11 @@ export component DetailPage inherits Rectangle {
                     text: @tr("Change password");
                     clicked => { root.start-password-change(); }
                 }
+                if root.has-password && root.kind != 4 && !root.locked: QuietButton {
+                    outlined: true;
+                    text: @tr("Enlarge password");
+                    clicked => { root.show-large(); }
+                }
                 QuietButton {
                     outlined: true;
                     text: root.archived ? @tr("Take out of the archive") : @tr("Archive");
@@ -1169,74 +1175,6 @@ export component QuickGenerator inherits Rectangle {
     }
 }
 
-// A username for a new login, under the editor's username: two words, the person's own email
-// with a tag after a `+`, or a random name at a domain of theirs that takes every address.
-export component UsernameGenerator inherits Rectangle {
-    in-out property <int> kind;
-    in-out property <string> email;
-    in-out property <string> domain;
-    in-out property <bool> number;
-    in property <bool> error;
-    callback changed();
-    callback close();
-
-    border-radius: Theme.radius;
-    border-width: 1px;
-    border-color: Theme.rule;
-    background: Theme.panel;
-    VerticalLayout {
-        padding: 14px;
-        spacing: 12px;
-        HorizontalLayout {
-            spacing: 8px;
-            Choice {
-                options: [@tr("Two words"), @tr("Your email, tagged"), @tr("At your domain")];
-                selected <=> root.kind;
-                changed => { root.changed(); }
-            }
-            Rectangle { horizontal-stretch: 1; }
-            VerticalLayout {
-                alignment: center;
-                QuietButton {
-                    text: @tr("Hide options");
-                    tint: Theme.graphite;
-                    clicked => { root.close(); }
-                }
-            }
-        }
-        if root.kind == 0: HorizontalLayout {
-            alignment: start;
-            Check { text: @tr("Four digits after the words"); checked <=> root.number; toggled => { root.changed(); } }
-        }
-        if root.kind == 1: LineField {
-            label: @tr("Your email address");
-            icon: "mail";
-            placeholder: @tr("you@example.com");
-            error: root.error;
-            text <=> root.email;
-            accepted => { root.changed(); }
-        }
-        if root.kind == 2: LineField {
-            label: @tr("Your domain");
-            icon: "globe";
-            placeholder: "example.com";
-            error: root.error;
-            text <=> root.domain;
-            accepted => { root.changed(); }
-        }
-        Text {
-            text: root.kind == 1
-                ? @tr("Mail to you+tag@ reaches you@ with most mail services, and each site gets an address of its own: mail from a leaked or sold address shows which site it came from.")
-                : root.kind == 2
-                ? @tr("For a domain of yours set to take mail to any name (a catch-all): each site gets an address of its own.")
-                : @tr("A name that says nothing about you, for sites where the username is public.");
-            font-size: Theme.small;
-            color: Theme.faint;
-            wrap: word-wrap;
-        }
-    }
-}
-
 export component EditorPage inherits Rectangle {
     in property <bool> is-new;
     // Saving seals this item's secrets and the item lock is closed: its PIN or password is
@@ -1329,13 +1267,6 @@ export component EditorPage inherits Rectangle {
     in-out property <bool> gen-number;
     in-out property <string> gen-separator;
     in-out property <bool> gen-open;
-    // The username generator, opened under the username by its Generate.
-    callback generate-username();
-    in-out property <bool> user-gen-open;
-    in-out property <int> user-gen-kind;
-    in-out property <string> user-gen-email;
-    in-out property <string> user-gen-domain;
-    in-out property <bool> user-gen-number;
 
     ScrollView {
         // No sideways scrolling: the page is as wide as the window, and what it holds wraps.
@@ -1487,20 +1418,7 @@ export component EditorPage inherits Rectangle {
                     label: root.kind == 1 ? @tr("Name on card") : root.kind == 3 ? @tr("Account") : root.kind == 4 ? @tr("User or comment") : root.kind == 5 ? @tr("Full name") : @tr("Username or email");
                     icon: "user";
                     placeholder: root.kind == 1 || root.kind == 5 ? "" : @tr("you@example.com");
-                    error: root.error-code == 143;
                     text <=> root.username;
-                }
-                if root.kind == 0: VerticalLayout {
-                    alignment: end;
-                    horizontal-stretch: 0;
-                    QuietButton {
-                        icon: root.user-gen-open ? "refresh" : "sparkle";
-                        text: root.user-gen-open ? @tr("Another") : @tr("Generate");
-                        clicked => {
-                            root.user-gen-open = true;
-                            root.generate-username();
-                        }
-                    }
                 }
                 // The item's icon comes from its website: a card's is its bank's site. Next to
                 // the address, the site's icon, to see at once which site it is.
@@ -1530,15 +1448,6 @@ export component EditorPage inherits Rectangle {
                         }
                     }
                 }
-            }
-            if root.kind == 0 && root.user-gen-open: UsernameGenerator {
-                kind <=> root.user-gen-kind;
-                email <=> root.user-gen-email;
-                domain <=> root.user-gen-domain;
-                number <=> root.user-gen-number;
-                error: root.error-code == 143;
-                changed => { root.generate-username(); }
-                close => { root.user-gen-open = false; }
             }
             if root.kind == 3: LineField {
                 label: @tr("Setup key");
@@ -4463,6 +4372,10 @@ export component AuthenticatorPage inherits Rectangle {
                         color: row.locked ? Theme.faint : row.left <= 5 ? Theme.seal : Theme.ink;
                         vertical-alignment: center;
                     }
+                    if !row.locked: VerticalLayout {
+                        alignment: center;
+                        Countdown { size: 22px; left: row.left; period: row.period; }
+                    }
                     Text {
                         width: 34px;
                         text: row.locked ? "" : @tr("{} s", row.left);
@@ -4479,15 +4392,6 @@ export component AuthenticatorPage inherits Rectangle {
                             clicked => { root.copy-code(index); }
                         }
                     }
-                }
-                // Time left on this code.
-                Rectangle {
-                    x: 0;
-                    y: parent.height - 3px;
-                    height: 3px;
-                    width: row.locked ? 0px : parent.width * row.left / Math.max(1, row.period);
-                    background: row.left <= 5 ? Theme.seal : Theme.marker;
-                    opacity: 0.8;
                 }
             }
         }
@@ -5415,7 +5319,6 @@ export component HealthPage inherits Rectangle {
                                 tint: Theme.graphite;
                                 clicked => {
                                     if (row.ignored) { root.unignore-row(index); } else { root.ignore-row(index); }
-                                }
                                 }
                             }
                         }

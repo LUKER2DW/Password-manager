@@ -1381,3 +1381,38 @@ export component Rule inherits Rectangle {
     height: 1px;
     background: Theme.rule;
 }
+
+// How much of a one-time code's time is left: a disc that empties like a clock hand sweeping
+// back to twelve, going from green through yellow to red.
+export component Countdown inherits Rectangle {
+    in property <int> left;
+    in property <int> period: 30;
+    in property <length> size: 24px;
+    property <float> share: Math.clamp(root.left / Math.max(1, root.period), 0, 1);
+    // Green while there is time, yellow half way, red at the end.
+    out property <color> tone: root.share > 0.5
+        ? Theme.good.mix(Theme.marker, (root.share - 0.5) * 2)
+        : Theme.marker.mix(Theme.seal, root.share * 2);
+    width: root.size;
+    height: root.size;
+    accessible-role: progress-indicator;
+    accessible-value: root.left;
+    Rectangle {
+        border-radius: self.width / 2;
+        border-width: 1.5px;
+        border-color: root.tone.transparentize(0.55);
+    }
+    Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        fill: root.tone;
+        stroke: transparent;
+        commands: root.share >= 0.995
+            ? "M 3 12 A 9 9 0 1 0 21 12 A 9 9 0 1 0 3 12 Z"
+            : "M 12 12 L 12 3 A 9 9 0 " + (root.share > 0.5 ? "1" : "0") + " 1 "
+                + (12 + 9 * Math.sin(root.share * 360deg)) + " "
+                + (12 - 9 * Math.cos(root.share * 360deg)) + " Z";
+    }
+}

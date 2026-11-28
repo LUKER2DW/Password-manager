@@ -240,37 +240,6 @@ fn whole_app_flow_headless() {
     yes_if_asked(&app);
     assert_eq!(app.get_error_code(), 9, "title required");
 
-    // F4: a username made in the editor: two words, the person's email tagged, or a name at
-    // their domain; an address that isn't one is told, and the field keeps what it had.
-    assert!(!app.get_ed_user_gen_open());
-    app.set_ed_user_gen_open(true);
-    app.set_user_gen_kind(0);
-    app.invoke_generate_username();
-    let words = app.get_ed_username().to_string();
-    assert!(
-        words.contains('_') && words.chars().rev().take(4).all(|c| c.is_ascii_digit()),
-        "{words}"
-    );
-    app.set_user_gen_kind(1);
-    app.set_user_gen_email("not an address".into());
-    app.invoke_generate_username();
-    assert_eq!(app.get_error_code(), 143);
-    assert_eq!(app.get_error_detail(), "1");
-    assert_eq!(app.get_ed_username(), words.as_str(), "kept");
-    app.set_user_gen_email("test.person@example.com".into());
-    app.invoke_generate_username();
-    assert_eq!(app.get_error_code(), 0);
-    let tagged = app.get_ed_username().to_string();
-    assert!(
-        tagged.starts_with("test.person+") && tagged.ends_with("@example.com"),
-        "{tagged}"
-    );
-    app.set_user_gen_kind(2);
-    app.set_user_gen_domain("example.org".into());
-    app.invoke_generate_username();
-    assert!(app.get_ed_username().ends_with("@example.org"));
-    app.set_user_gen_kind(0);
-    app.set_ed_user_gen_open(false);
     app.set_ed_title("GitHub".into());
     app.set_ed_username("octocat".into());
     app.set_ed_url("https://github.com".into());
@@ -521,9 +490,20 @@ fn whole_app_flow_headless() {
         assert!(app.get_cli_asking(), "asked first");
         assert_eq!(
             app.get_cli_lines().row_data(0).unwrap(),
-            "GitHub → password"
+            "GitHub · hubot · github.com → password"
         );
         assert_eq!(app.get_cli_purpose(), "run deploy");
+        assert!(
+            !app.get_cli_hello(),
+            "no Windows Hello for this item lock here"
+        );
+        app.invoke_cli_decide(1);
+        assert!(app.get_cli_asking(), "not before the check");
+        type_into(&app, 11, "not the password");
+        app.invoke_cli_decide(1);
+        assert!(app.get_cli_asking(), "a wrong password allows nothing");
+        assert_ne!(app.get_error_code(), 0);
+        type_into(&app, 11, PASSWORD);
         app.invoke_cli_decide(1);
         assert!(!app.get_cli_asking());
         match answer.try_recv().unwrap() {
@@ -535,6 +515,7 @@ fn whole_app_flow_headless() {
         assert!(matches!(answer.try_recv().unwrap(), Answer::Denied));
         // Allowed for 10 minutes: the same program, the same things, no question.
         controller.cli_request(program.clone(), get("GitHub"), reply.clone());
+        type_into(&app, 11, PASSWORD);
         app.invoke_cli_decide(2);
         assert!(matches!(answer.try_recv().unwrap(), Answer::Values { .. }));
         controller.cli_request(program.clone(), get("GitHub"), reply.clone());
@@ -566,6 +547,7 @@ fn whole_app_flow_headless() {
             Answer::NotFound { .. }
         ));
         controller.cli_request(program.clone(), login(None), reply.clone());
+        type_into(&app, 11, PASSWORD);
         app.invoke_cli_decide(1);
         match answer.try_recv().unwrap() {
             Answer::Login { username, password } => {

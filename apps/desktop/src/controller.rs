@@ -50,8 +50,8 @@ mod attempts;
 mod autotype;
 mod browser;
 mod change;
-mod confirm;
 mod cli_link;
+mod confirm;
 mod drop_box;
 mod extension;
 mod features;
@@ -148,8 +148,6 @@ mod error {
     /// Windows Hello waits for the master password typed once since the app started
     /// (Settings → Security).
     pub const PASSWORD_AT_START: i32 = 142;
-    /// The username generator's email address (detail "1") or domain ("2") isn't one.
-    pub const USERNAME_FROM: i32 = 143;
     /// The vault command's pipe couldn't be made (detail: why).
     pub const CLI_LINK: i32 = 144;
     pub const HELLO_UNAVAILABLE: i32 = 17;
@@ -1238,7 +1236,8 @@ impl Controller {
         on!(on_choose_keyfile, |c| c.choose_keyfile());
         on!(on_keyfile_action, |c, what| c.keyfile_action(what));
         on!(on_unlock_item, |c| c.unlock_secrets(AfterUnlock::Show));
-        on!(on_unlock_item_hello, |c| c.unlock_secrets_hello());
+        on!(on_unlock_item_hello, |c| c
+            .unlock_secrets_hello(AfterUnlock::Show));
         on!(on_pairing_decided, |c, allow| c.pairing_decided(allow));
         on!(on_forget_pairing, |c| c.forget_pairing());
         on!(on_agent_decided, |c, approve, for_a_while| c
@@ -1382,7 +1381,6 @@ impl Controller {
         on!(on_cancel_edit, |c| c.close_editor());
         on!(on_toggle_show_password, |c| c.toggle_show_password());
         on!(on_generate_for_item, |c| c.generate_for_item());
-        on!(on_generate_username, |c| c.generate_username());
         on!(on_cli_decide, |c, choice| c.cli_decide(choice));
 
         on!(on_regenerate, |c| c.regenerate());
@@ -1842,6 +1840,7 @@ impl Controller {
                         self.sync_guard_state();
                         self.save_item();
                     }
+                    AfterUnlock::CliAllow(choice) => self.cli_allowed(choice),
                 }
                 // Last: the round may take a newer item lock, which closes this one again.
                 self.sync_after_unlocking_items();
@@ -3705,6 +3704,8 @@ impl Controller {
             Some((code, left)) => {
                 app.set_totp_code(SharedString::from(view::group_code(&code)));
                 app.set_totp_left(i32::try_from(left).unwrap_or(0));
+                let period = self.state.borrow().totp.as_ref().map_or(30, Totp::period);
+                app.set_totp_period(i32::try_from(period).unwrap_or(30));
             }
             None => app.set_totp_code(SharedString::new()),
         }
@@ -4854,7 +4855,6 @@ impl Controller {
         });
         self.state.borrow_mut().editing = Some(id);
         app.set_ed_gen_open(false);
-        app.set_ed_user_gen_open(false);
         app.set_editor_is_new(id.is_none());
         app.set_editing_item(true);
         self.editor_site_icon();
@@ -6802,6 +6802,9 @@ enum AfterUnlock {
     Show,
     /// Save the item in the editor, which needed the lock open.
     SaveItem,
+    /// Answer the vault command's question as allowed (1 once, 2 for 10 minutes): the
+    /// person was checked for it.
+    CliAllow(i32),
 }
 
 #[derive(Debug, Clone, Copy)]

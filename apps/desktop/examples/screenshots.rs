@@ -629,21 +629,6 @@ fn main() {
     );
     app.set_gen_mode(0);
     app.set_ed_gen_open(false);
-    app.set_ed_user_gen_open(true);
-    app.invoke_generate_username();
-    camera.shot(
-        "editor-username-words",
-        "Generate a username: two words and four digits",
-    );
-    app.set_user_gen_kind(1);
-    app.set_user_gen_email("you@example.com".into());
-    app.invoke_generate_username();
-    camera.shot(
-        "editor-username-tagged",
-        "Generate a username: your email with a tag after a +",
-    );
-    app.set_user_gen_kind(0);
-    app.set_ed_user_gen_open(false);
     app.set_ed_kind(3);
     app.set_ed_title("".into());
     camera.shot(

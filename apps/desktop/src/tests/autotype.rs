@@ -19,8 +19,8 @@ use crate::{
 
 const MASTER: i32 = 0;
 const REPROMPT: i32 = 11;
-const AUTOTYPE_DONE: i32 = 145;
-const AUTOTYPE_CHANGED: i32 = 146;
+const AUTOTYPE_DONE: i32 = 152;
+const AUTOTYPE_CHANGED: i32 = 153;
 const SECRETS_LOCKED: i32 = 37;
 
 /// A window called "Remote Desktop" behind the app; what reached it.

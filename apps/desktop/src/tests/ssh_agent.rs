@@ -22,7 +22,7 @@ use crate::{
 /// Field numbers (controller.rs `field`) and the notice (`notice`).
 const MASTER: i32 = 0;
 const REPROMPT: i32 = 11;
-const SSH_KEY_USED: i32 = 140;
+const SSH_KEY_USED: i32 = 150;
 
 const DATA: &[u8] = b"a session id and a userauth request";
 

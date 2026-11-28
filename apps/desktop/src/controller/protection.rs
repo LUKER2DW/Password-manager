@@ -262,7 +262,7 @@ impl Controller {
 
     /// Opens the locked items with Windows Hello, where the item lock was set up for it:
     /// the security chip's key unwraps the key their secrets are encrypted under.
-    pub(super) fn unlock_secrets_hello(&self) {
+    pub(super) fn unlock_secrets_hello(&self, then: AfterUnlock) {
         let Some(verifier) = self.state.borrow().verifier.clone() else {
             return;
         };
@@ -302,7 +302,7 @@ impl Controller {
                     JobResult::ItemUnlocked {
                         session,
                         upgraded: false,
-                        then: AfterUnlock::Show,
+                        then,
                     }
                 }
                 _ => {

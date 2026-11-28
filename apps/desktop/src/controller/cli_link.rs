@@ -24,7 +24,7 @@ use vault_platform::{
 };
 use zeroize::Zeroizing;
 
-use super::{Controller, Runner, error};
+use super::{AfterUnlock, Controller, Runner, error, field, protection};
 
 /// How long "Allow for 10 minutes" lasts.
 const ALLOWED_FOR: Duration = Duration::from_secs(600);
@@ -130,6 +130,19 @@ fn field_value(item: &ItemData, field: &str) -> Option<Zeroizing<String>> {
     (!value.is_empty()).then_some(value)
 }
 
+/// How the question names an item: its title, its login and its site
+/// ("GitHub · octocat · github.com").
+fn described(item: &ItemData) -> String {
+    let mut parts = vec![item.title.clone()];
+    if !item.username.is_empty() {
+        parts.push(item.username.clone());
+    }
+    if let Some(host) = item.urls.first().and_then(|url| site_lists::host_of(url)) {
+        parts.push(host);
+    }
+    parts.join(" · ")
+}
+
 impl Controller {
     /// Settings → Security → "The vault command": the pipe listens while it is on. Not in
     /// tests (they hand requests to [`Controller::cli_request`] themselves).
@@ -219,7 +232,7 @@ impl Controller {
                             what: format!("{}/{}", reference.item, reference.field),
                         });
                     }
-                    let line = format!("{} → {}", item.title, reference.field);
+                    let line = format!("{} → {}", described(&item), reference.field);
                     if !lines.contains(&line) {
                         lines.push(line);
                     }
@@ -273,7 +286,7 @@ impl Controller {
                 }
                 Ok((
                     Asked::Login(id),
-                    vec![format!("{} → username and password", item.title)],
+                    vec![format!("{} → username and password", described(&item))],
                     purpose.clone(),
                 ))
             }
@@ -354,6 +367,23 @@ impl Controller {
                 .map(SharedString::from)
                 .collect::<Vec<_>>(),
         )));
+        // What Allow asks first: Windows Hello where the item lock has it, else what the
+        // item lock takes (the master password when there is none).
+        let (hello, check) = {
+            let state = self.state.borrow();
+            let session = state.session.as_ref();
+            let hello = state.quick_available
+                && state.verifier.is_some()
+                && session.is_some_and(|s| {
+                    vault_platform::quick_unlock::item_lock_enrolled(&s.vault.id_hex())
+                });
+            let check = session.map_or(0, |s| protection::check_code(s.vault.item_guard().check));
+            (hello, check)
+        };
+        self.clear_secret(field::REPROMPT);
+        self.set_error(error::NONE, "");
+        app.set_cli_hello(hello);
+        app.set_cli_check(check);
         app.set_cli_asking(true);
         let at = Instant::now();
         self.state.borrow_mut().cli_pending = Some(Pending {
@@ -376,17 +406,41 @@ impl Controller {
                     .as_ref()
                     .is_some_and(|pending| pending.at == at);
                 if late {
-                    controller.cli_decide(0);
+                    controller.cli_answer_pending(0);
                 }
             }
         });
     }
 
-    /// The person's answer to the vault command: 0 no, 1 yes this once, 2 yes for 10 minutes.
+    /// The person's answer to the vault command: 0 no; 1 yes this once, 2 yes for 10 minutes,
+    /// each only after the check (Windows Hello, else what the item lock takes, typed in the
+    /// question), which answers through [`Controller::cli_allowed`].
     pub(super) fn cli_decide(&self, choice: i32) {
+        if self.state.borrow().cli_pending.is_none() {
+            return;
+        }
+        if choice == 0 {
+            self.cli_answer_pending(0);
+            return;
+        }
+        if self.app().get_cli_hello() {
+            self.unlock_secrets_hello(AfterUnlock::CliAllow(choice));
+        } else {
+            self.unlock_secrets(AfterUnlock::CliAllow(choice));
+        }
+    }
+
+    /// The check passed: the question is answered as allowed.
+    pub(super) fn cli_allowed(&self, choice: i32) {
+        self.clear_secret(field::REPROMPT);
+        self.cli_answer_pending(choice);
+    }
+
+    fn cli_answer_pending(&self, choice: i32) {
         let Some(pending) = self.state.borrow_mut().cli_pending.take() else {
             return;
         };
+        self.clear_secret(field::REPROMPT);
         let app = self.app();
         app.set_cli_asking(false);
         app.set_cli_lines(ModelRc::default());
@@ -409,7 +463,7 @@ impl Controller {
     /// is forgotten.
     pub(super) fn cli_forget(&self) {
         if self.state.borrow().cli_pending.is_some() {
-            self.cli_decide(0);
+            self.cli_answer_pending(0);
         }
         self.state.borrow_mut().cli_allowed.clear();
     }

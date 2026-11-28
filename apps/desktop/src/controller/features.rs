@@ -8,7 +8,7 @@ use vault_core::{
     GuardCheck, ItemData, ItemId, ItemKind, KdfMethod, KdfStrength, PasswordKdf, Unlock, Vault,
     VaultSettings,
     card::{self, CardDetails},
-    generator::{self, PassphraseOptions, PasswordOptions, UsernameKind, WordCase, Wordlist},
+    generator::{self, PassphraseOptions, PasswordOptions, WordCase, Wordlist},
     health::{self, BreachQuery},
 };
 use vault_import::{FolderTarget, Source};
@@ -69,10 +69,6 @@ impl Controller {
         app.set_gen_min_uppercase(minimum(prefs.min_uppercase));
         app.set_gen_min_digits(minimum(prefs.min_digits));
         app.set_gen_min_symbols(minimum(prefs.min_symbols));
-        app.set_user_gen_kind(i32::from(prefs.username_kind.min(2)));
-        app.set_user_gen_email(SharedString::from(prefs.username_email.as_str()));
-        app.set_user_gen_domain(SharedString::from(prefs.username_domain.as_str()));
-        app.set_user_gen_number(prefs.username_number);
         self.load_wordlists();
         let index = self
             .state
@@ -111,37 +107,7 @@ impl Controller {
             min_uppercase: u32::try_from(app.get_gen_min_uppercase().clamp(0, 128)).unwrap_or(0),
             min_digits: u32::try_from(app.get_gen_min_digits().clamp(0, 128)).unwrap_or(0),
             min_symbols: u32::try_from(app.get_gen_min_symbols().clamp(0, 128)).unwrap_or(0),
-            username_kind: u8::try_from(app.get_user_gen_kind().clamp(0, 2)).unwrap_or(0),
-            username_email: app.get_user_gen_email().trim().chars().take(254).collect(),
-            username_domain: app.get_user_gen_domain().trim().chars().take(253).collect(),
-            username_number: app.get_user_gen_number(),
         }
-    }
-
-    /// The editor's Generate next to the username: a username of the kind chosen goes into the
-    /// field; an address or a domain that isn't one is told instead.
-    pub(super) fn generate_username(&self) {
-        let app = self.app();
-        let prefs = self.current_generator_prefs();
-        let kind = match prefs.username_kind {
-            1 => UsernameKind::PlusAddress {
-                email: prefs.username_email.clone(),
-            },
-            2 => UsernameKind::CatchAll {
-                domain: prefs.username_domain.clone(),
-            },
-            _ => UsernameKind::Words {
-                number: prefs.username_number,
-            },
-        };
-        match generator::generate_username(&kind) {
-            Ok(username) => {
-                app.set_ed_username(SharedString::from(username));
-                self.set_error(error::NONE, "");
-            }
-            Err(_) => self.set_error(error::USERNAME_FROM, &prefs.username_kind.to_string()),
-        }
-        self.remember_generator_prefs(prefs);
     }
 
     /// Saves the generator options when they changed (the file is small; the slider calls this
