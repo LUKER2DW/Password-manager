@@ -8,6 +8,11 @@
 //! `VAULT_HOME` of its own is a copy of its own. Malware running as the same user could make
 //! that event first and so keep the app from opening; it could as well end the app, so this
 //! adds nothing it couldn't already do (THREAT_MODEL.md).
+//!
+//! A second event, made by the running copy, carries `--lock`: a copy started with it (a
+//! shortcut, a script) asks the running copy to lock its vault and ends, and starts nothing
+//! when no copy runs. Malware as the same user could lock the vault this way, which it could
+//! as well by ending the app.
 
 use std::path::Path;
 
@@ -27,6 +32,8 @@ pub enum Claim {
 pub struct Instance {
     #[cfg(windows)]
     event: Option<imp::Event>,
+    #[cfg(windows)]
+    lock: Option<imp::Event>,
 }
 
 /// The event's name for the app folder `app_dir`.
@@ -37,21 +44,42 @@ pub fn event_name(app_dir: &Path) -> String {
     format!(r"Local\PasswordVault.Running.{short}")
 }
 
+/// The name of the event that asks the running copy for the app folder `app_dir` to lock its
+/// vault (`--lock`).
+pub fn lock_event_name(app_dir: &Path) -> String {
+    event_name(app_dir).replace(".Running.", ".Lock.")
+}
+
 /// Marks this copy as the running one, or asks the copy already running to show itself.
 pub fn claim(app_dir: &Path) -> Claim {
-    imp::claim(&event_name(app_dir))
+    imp::claim(&event_name(app_dir), &lock_event_name(app_dir))
+}
+
+/// Asks the copy running for the app folder `app_dir` to lock its vault (`--lock`). Returns
+/// whether one runs; when none does, nothing is started.
+pub fn ask_to_lock(app_dir: &Path) -> bool {
+    imp::signal(&lock_event_name(app_dir))
 }
 
 impl Instance {
-    /// Calls `on_call` (on a thread of its own) each time another copy asks this one to show
-    /// itself.
-    pub fn when_called(self, on_call: impl Fn() + Send + 'static) {
+    /// Calls `on_show` (on a thread of its own) each time another copy asks this one to show
+    /// itself, and `on_lock` each time a copy started with `--lock` asks it to lock.
+    pub fn when_called(
+        self,
+        on_show: impl Fn() + Send + 'static,
+        on_lock: impl Fn() + Send + 'static,
+    ) {
         #[cfg(windows)]
-        if let Some(event) = self.event {
-            imp::listen(event, on_call);
+        {
+            if let Some(event) = self.event {
+                imp::listen(event, on_show);
+            }
+            if let Some(event) = self.lock {
+                imp::listen(event, on_lock);
+            }
         }
         #[cfg(not(windows))]
-        let _ = on_call;
+        let _ = (on_show, on_lock);
     }
 }
 
@@ -59,7 +87,9 @@ impl Instance {
 mod imp {
     use windows_sys::Win32::{
         Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, WAIT_OBJECT_0},
-        System::Threading::{CreateEventW, INFINITE, SetEvent, WaitForSingleObject},
+        System::Threading::{
+            CreateEventW, EVENT_MODIFY_STATE, INFINITE, OpenEventW, SetEvent, WaitForSingleObject,
+        },
         UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWindow},
     };
 
@@ -90,8 +120,13 @@ mod imp {
         }
     }
 
-    pub(super) fn claim(name: &str) -> Claim {
-        let name: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    fn wide(name: &str) -> Vec<u16> {
+        name.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    /// Makes the named event (or opens it, when it is there already: the `bool`).
+    fn create(name: &str) -> Option<(Event, bool)> {
+        let name = wide(name);
         // SAFETY: `name` is a NUL-terminated UTF-16 buffer that outlives the call; no security
         // attributes (the session's defaults), an auto-reset event, not signalled.
         #[allow(unsafe_code)]
@@ -99,13 +134,22 @@ mod imp {
             let handle = CreateEventW(std::ptr::null(), 0, 0, name.as_ptr());
             (handle, GetLastError())
         };
-        if handle.is_null() {
+        (!handle.is_null()).then(|| (Event(handle), error == ERROR_ALREADY_EXISTS))
+    }
+
+    pub(super) fn claim(name: &str, lock_name: &str) -> Claim {
+        let Some((event, existed)) = create(name) else {
             // The mark couldn't be made: run as before, without it.
-            return Claim::First(Instance { event: None });
-        }
-        let event = Event(handle);
-        if error != ERROR_ALREADY_EXISTS {
-            return Claim::First(Instance { event: Some(event) });
+            return Claim::First(Instance {
+                event: None,
+                lock: None,
+            });
+        };
+        if !existed {
+            return Claim::First(Instance {
+                event: Some(event),
+                lock: create(lock_name).map(|(lock, _)| lock),
+            });
         }
         // SAFETY: the handle is open (closed when `event` drops); ASFW_ANY lets the running
         // copy bring its window to the front, which Windows allows only with this copy's leave.
@@ -115,6 +159,25 @@ mod imp {
             SetEvent(event.raw());
         }
         Claim::Running
+    }
+
+    /// Sets the named event if it is there (a copy runs). Never makes it.
+    pub(super) fn signal(name: &str) -> bool {
+        let name = wide(name);
+        // SAFETY: `name` is a NUL-terminated UTF-16 buffer that outlives the call; the only
+        // right asked for is to set the event.
+        #[allow(unsafe_code)]
+        let handle = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, name.as_ptr()) };
+        if handle.is_null() {
+            return false;
+        }
+        let event = Event(handle);
+        // SAFETY: the handle is open until `event` drops, after the call.
+        #[allow(unsafe_code)]
+        unsafe {
+            SetEvent(event.raw());
+        }
+        true
     }
 
     pub(super) fn listen(event: Event, on_call: impl Fn() + Send + 'static) {
@@ -137,8 +200,13 @@ mod imp {
     use super::{Claim, Instance};
 
     /// Only the Windows app keeps to one copy for now.
-    pub(super) fn claim(_name: &str) -> Claim {
+    pub(super) fn claim(_name: &str, _lock_name: &str) -> Claim {
         Claim::First(Instance {})
+    }
+
+    /// Nor does it hear `--lock`.
+    pub(super) fn signal(_name: &str) -> bool {
+        false
     }
 }
 
@@ -160,6 +228,9 @@ mod tests {
         );
         assert_ne!(home, event_name(Path::new(r"D:\portable\vault")));
         assert!(!home[r"Local\".len()..].contains('\\'));
+        let lock = lock_event_name(Path::new(r"C:\Users\Test\AppData\Local\vault"));
+        assert!(lock.starts_with(r"Local\PasswordVault.Lock."));
+        assert_eq!(lock[lock.len() - 16..], home[home.len() - 16..]);
     }
 
     /// The second copy finds the first and asks it to show itself; the first hears it.
@@ -175,9 +246,12 @@ mod tests {
             panic!("nothing else runs with this folder");
         };
         let (calls, heard) = std::sync::mpsc::channel();
-        first.when_called(move || {
-            let _ = calls.send(());
-        });
+        first.when_called(
+            move || {
+                let _ = calls.send(());
+            },
+            || panic!("not asked to lock"),
+        );
         assert!(matches!(claim(&folder), Claim::Running));
         heard
             .recv_timeout(std::time::Duration::from_secs(10))
@@ -186,5 +260,36 @@ mod tests {
         heard
             .recv_timeout(std::time::Duration::from_secs(10))
             .expect("called again");
+    }
+
+    /// A copy started with `--lock` asks the running one to lock, and starts nothing when none
+    /// runs.
+    #[cfg(windows)]
+    #[test]
+    fn a_copy_started_with_lock_asks_the_first_to_lock() {
+        let folder = std::env::temp_dir().join(format!(
+            "vault-single-instance-lock-test-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+        ));
+        assert!(!ask_to_lock(&folder), "no copy runs");
+        let Claim::First(first) = claim(&folder) else {
+            panic!("nothing else runs with this folder");
+        };
+        let (shows, shown) = std::sync::mpsc::channel();
+        let (locks, locked) = std::sync::mpsc::channel();
+        first.when_called(
+            move || {
+                let _ = shows.send(());
+            },
+            move || {
+                let _ = locks.send(());
+            },
+        );
+        assert!(ask_to_lock(&folder));
+        locked
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("asked to lock");
+        assert!(shown.try_recv().is_err(), "not asked to show itself");
     }
 }

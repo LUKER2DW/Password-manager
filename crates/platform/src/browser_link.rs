@@ -175,6 +175,11 @@ pub fn pipe_name() -> Result<String> {
     imp::pipe_name()
 }
 
+/// The `vault` command's pipe of the signed-in user (`cli_link`).
+pub fn cli_pipe_name() -> Result<String> {
+    imp::cli_pipe_name()
+}
+
 /// The app's end of the pipe.
 #[derive(Debug)]
 pub struct Server {
@@ -187,13 +192,26 @@ impl Server {
     /// answers.
     pub fn bind(name: &str, allowed_client: &Path) -> Result<Self> {
         Ok(Self {
-            inner: imp::Server::bind(name, allowed_client)?,
+            inner: imp::Server::bind(name, Some(allowed_client))?,
+        })
+    }
+
+    /// Creates a pipe that any program of the signed-in user may call; [`Server::serve_one_from`]
+    /// says which program it is (the `vault` command's pipe, `cli_link`).
+    pub fn bind_any(name: &str) -> Result<Self> {
+        Ok(Self {
+            inner: imp::Server::bind(name, None)?,
         })
     }
 
     /// Waits for one caller, reads its message and writes back what `answer` returns. A caller
     /// that is not the allowed program is hung up on without being read (`Ok(false)`).
     pub fn serve_one(&mut self, answer: impl FnOnce(&[u8]) -> Vec<u8>) -> Result<bool> {
+        self.inner.serve_one(|_, message| answer(message))
+    }
+
+    /// [`Server::serve_one`], with `answer` told the caller's program (its full path).
+    pub fn serve_one_from(&mut self, answer: impl FnOnce(&Path, &[u8]) -> Vec<u8>) -> Result<bool> {
         self.inner.serve_one(answer)
     }
 }
@@ -207,7 +225,16 @@ pub fn wake(name: &str) {
 /// not running (or the extension link is off), or when the pipe belongs to another program
 /// than `expected_server`.
 pub fn request(name: &str, expected_server: &Path, message: &[u8]) -> Result<Vec<u8>> {
-    imp::request(name, expected_server, message)
+    imp::request(
+        name,
+        &|server: &Path| imp::same_program(server, expected_server),
+        message,
+    )
+}
+
+/// [`request`], to a pipe whose program `accept` takes (by its full path).
+pub fn request_if(name: &str, accept: impl Fn(&Path) -> bool, message: &[u8]) -> Result<Vec<u8>> {
+    imp::request(name, &accept, message)
 }
 
 /// Writes one message: a 32-bit little-endian length, then the bytes.
@@ -426,6 +453,10 @@ mod imp {
         Ok(format!(r"\\.\pipe\vault-desktop-browser-{}", user_sid()?))
     }
 
+    pub(super) fn cli_pipe_name() -> Result<String> {
+        Ok(format!(r"\\.\pipe\vault-desktop-cli-{}", user_sid()?))
+    }
+
     /// Full path of the program running as process `pid`.
     pub(crate) fn process_image(pid: u32) -> Option<PathBuf> {
         // SAFETY: plain call; a null handle (no such process, no access) is handled.
@@ -447,7 +478,7 @@ mod imp {
         (ok != 0).then(|| PathBuf::from(String::from_utf16_lossy(&buffer[..len as usize])))
     }
 
-    fn same_program(a: &Path, b: &Path) -> bool {
+    pub(super) fn same_program(a: &Path, b: &Path) -> bool {
         match (a.canonicalize(), b.canonicalize()) {
             (Ok(a), Ok(b)) => a
                 .to_string_lossy()
@@ -459,11 +490,12 @@ mod imp {
     #[derive(Debug)]
     pub(super) struct Server {
         pipe: File,
-        allowed_client: PathBuf,
+        /// Only this program gets answers; `None`: any program of the user's.
+        allowed_client: Option<PathBuf>,
     }
 
     impl Server {
-        pub(super) fn bind(name: &str, allowed_client: &Path) -> Result<Self> {
+        pub(super) fn bind(name: &str, allowed_client: Option<&Path>) -> Result<Self> {
             // Full access for the signed-in user, nobody else (not even read).
             let sddl = wide(&format!("D:P(A;;GA;;;{})", user_sid()?));
             let mut descriptor: *mut core::ffi::c_void = std::ptr::null_mut();
@@ -513,11 +545,14 @@ mod imp {
             let pipe = unsafe { File::from_raw_handle(handle.cast()) };
             Ok(Self {
                 pipe,
-                allowed_client: allowed_client.to_owned(),
+                allowed_client: allowed_client.map(Path::to_owned),
             })
         }
 
-        pub(super) fn serve_one(&mut self, answer: impl FnOnce(&[u8]) -> Vec<u8>) -> Result<bool> {
+        pub(super) fn serve_one(
+            &mut self,
+            answer: impl FnOnce(&Path, &[u8]) -> Vec<u8>,
+        ) -> Result<bool> {
             let handle: HANDLE = self.pipe.as_raw_handle().cast();
             // SAFETY: `handle` is this server's pipe; a null OVERLAPPED means a blocking wait.
             #[allow(unsafe_code)]
@@ -538,17 +573,23 @@ mod imp {
             outcome
         }
 
-        fn talk(&mut self, handle: HANDLE, answer: impl FnOnce(&[u8]) -> Vec<u8>) -> Result<bool> {
+        fn talk(
+            &mut self,
+            handle: HANDLE,
+            answer: impl FnOnce(&Path, &[u8]) -> Vec<u8>,
+        ) -> Result<bool> {
             let mut pid = 0u32;
             // SAFETY: `handle` is this server's connected pipe; `pid` is a valid output.
             #[allow(unsafe_code)]
             let known = unsafe { GetNamedPipeClientProcessId(handle, &mut pid) != 0 };
-            let allowed = known
-                && process_image(pid)
-                    .is_some_and(|image| same_program(&image, &self.allowed_client));
-            if !allowed {
+            let caller = known.then(|| process_image(pid)).flatten().filter(|image| {
+                self.allowed_client
+                    .as_deref()
+                    .is_none_or(|allowed| same_program(image, allowed))
+            });
+            let Some(caller) = caller else {
                 return Ok(false);
-            }
+            };
             // A caller that connects and then says nothing would hold the only instance of
             // the pipe: it gets a few seconds.
             let waiting = Patient {
@@ -558,7 +599,7 @@ mod imp {
             let Some(message) = read_frame(waiting)? else {
                 return Ok(false);
             };
-            let mut reply = answer(&message);
+            let mut reply = answer(&caller, &message);
             let written = write_frame(&self.pipe, &reply);
             // The answer may hold a password.
             zeroize::Zeroize::zeroize(&mut reply);
@@ -607,7 +648,11 @@ mod imp {
         }
     }
 
-    pub(super) fn request(name: &str, expected_server: &Path, message: &[u8]) -> Result<Vec<u8>> {
+    pub(super) fn request(
+        name: &str,
+        accept: &dyn Fn(&Path) -> bool,
+        message: &[u8],
+    ) -> Result<Vec<u8>> {
         let started = Instant::now();
         let pipe = loop {
             let opened = std::fs::OpenOptions::new()
@@ -632,8 +677,7 @@ mod imp {
         #[allow(unsafe_code)]
         let known =
             unsafe { GetNamedPipeServerProcessId(pipe.as_raw_handle().cast(), &mut pid) != 0 };
-        if !(known && process_image(pid).is_some_and(|image| same_program(&image, expected_server)))
-        {
+        if !(known && process_image(pid).is_some_and(|image| accept(&image))) {
             bail!("the pipe belongs to another program");
         }
         write_frame(&pipe, message)?;
@@ -673,20 +717,35 @@ mod imp {
         bail!("the browser extension link is available on Windows only for now")
     }
 
+    pub(super) fn cli_pipe_name() -> Result<String> {
+        bail!("the vault command's link to the app is available on Windows only for now")
+    }
+
+    pub(super) fn same_program(_a: &Path, _b: &Path) -> bool {
+        false
+    }
+
     #[derive(Debug)]
     pub(super) struct Server;
 
     impl Server {
-        pub(super) fn bind(_name: &str, _allowed_client: &Path) -> Result<Self> {
+        pub(super) fn bind(_name: &str, _allowed_client: Option<&Path>) -> Result<Self> {
             bail!("the browser extension link is available on Windows only for now")
         }
 
-        pub(super) fn serve_one(&mut self, _answer: impl FnOnce(&[u8]) -> Vec<u8>) -> Result<bool> {
+        pub(super) fn serve_one(
+            &mut self,
+            _answer: impl FnOnce(&Path, &[u8]) -> Vec<u8>,
+        ) -> Result<bool> {
             bail!("the browser extension link is available on Windows only for now")
         }
     }
 
-    pub(super) fn request(_name: &str, _expected: &Path, _message: &[u8]) -> Result<Vec<u8>> {
+    pub(super) fn request(
+        _name: &str,
+        _accept: &dyn Fn(&Path) -> bool,
+        _message: &[u8],
+    ) -> Result<Vec<u8>> {
         bail!("the browser extension link is available on Windows only for now")
     }
 }

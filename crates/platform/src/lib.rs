@@ -7,6 +7,7 @@ pub mod autostart;
 pub mod autotype;
 pub mod browser_link;
 pub mod browsers;
+pub mod cli_link;
 #[cfg(not(target_os = "android"))]
 pub mod clipboard;
 /// On Android the clipboard is the system's `ClipboardManager`, reached through JNI.
@@ -20,6 +21,7 @@ pub mod extension_source;
 pub mod file_types;
 pub mod files;
 pub mod hardware_key;
+pub mod hotkeys;
 pub mod keyfile;
 pub mod kit_pdf;
 pub mod leak_check;

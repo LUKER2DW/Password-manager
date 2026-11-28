@@ -248,6 +248,27 @@ pub struct Settings {
     /// file: the vault's format has no place for them yet. Not secret, but it names the sites
     /// given a rule.
     pub site_rules: Vec<SiteRule>,
+    /// The first unlock of each vault after the app starts takes the master password; Windows
+    /// Hello opens it only after that. Off by default.
+    pub master_at_start: bool,
+    /// Hiding the window in the notification area locks the vault too. Off by default.
+    pub lock_on_tray: bool,
+    /// A password or hidden field shown on screen hides again when another window takes the
+    /// focus. On by default.
+    pub conceal_on_blur: bool,
+    /// Windows Hello opens the vault for this many days before the master password is asked
+    /// once (1 to `quick_unlock::MAX_PASSWORD_INTERVAL_DAYS`).
+    pub hello_master_days: u32,
+    /// The settings Password health's review was told to stop suggesting (its codes).
+    pub review_ignored: Vec<u8>,
+    /// The shortcut from any program that opens the vault's search (0 off, then
+    /// `hotkeys::Combo::QUICK` from 1; Ctrl+Shift+Space by default), and the one that locks it
+    /// (0 off, the default, then `hotkeys::Combo::LOCK`).
+    pub quick_hotkey: u8,
+    pub lock_hotkey: u8,
+    /// The `vault` command may ask the open app for secrets (`vault run`, `vault inject`,
+    /// `vault git-credential`), each use approved in the app. Off by default.
+    pub cli_link: bool,
 }
 
 /// What the browser extension may do on one site: the host and every host under it
@@ -307,6 +328,14 @@ impl Default for Settings {
             sidebar_hidden: false,
             secure_desktop: false,
             site_rules: Vec::new(),
+            master_at_start: false,
+            lock_on_tray: false,
+            conceal_on_blur: true,
+            hello_master_days: 14,
+            review_ignored: Vec::new(),
+            quick_hotkey: 1,
+            lock_hotkey: 0,
+            cli_link: false,
         }
     }
 }
@@ -338,6 +367,14 @@ pub struct GeneratorPrefs {
     pub min_uppercase: u32,
     pub min_digits: u32,
     pub min_symbols: u32,
+    /// The editor's username generator: 0 two words, 1 the person's email with a tag after a
+    /// `+`, 2 a random name at the person's own domain.
+    pub username_kind: u8,
+    /// The email address tagged (kind 1) and the domain (kind 2), as typed here.
+    pub username_email: String,
+    pub username_domain: String,
+    /// Two words: four digits after them.
+    pub username_number: bool,
 }
 
 impl Default for GeneratorPrefs {
@@ -362,6 +399,10 @@ impl Default for GeneratorPrefs {
             min_uppercase: 0,
             min_digits: 0,
             min_symbols: 0,
+            username_kind: 0,
+            username_email: String::new(),
+            username_domain: String::new(),
+            username_number: true,
         }
     }
 }

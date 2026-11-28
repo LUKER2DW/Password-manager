@@ -10,8 +10,9 @@
 //! - Only the wrapped vault key is stored on disk (`quick-unlock-<vault id>.bin`). Copied to another
 //!   computer it is useless; on this computer it needs the user to pass Windows Hello.
 //! - It is bound to the current master password: changing the password revokes it.
-//! - Every [`PASSWORD_INTERVAL_DAYS`] days the master password is asked once, so it isn't
-//!   forgotten. That date is sealed with the vault key, so it cannot be pushed forward.
+//! - Every [`PASSWORD_INTERVAL_DAYS`] days (the person may choose 1 to
+//!   [`MAX_PASSWORD_INTERVAL_DAYS`]) the master password is asked once, so it isn't forgotten.
+//!   That date is sealed with the vault key, so it cannot be pushed forward.
 
 use std::{
     path::PathBuf,
@@ -24,8 +25,12 @@ use zeroize::Zeroizing;
 
 use crate::paths;
 
-/// How often the master password is asked even when quick unlock is on.
+/// How often the master password is asked even when quick unlock is on, unless the person
+/// chose another interval.
 pub const PASSWORD_INTERVAL_DAYS: u64 = 14;
+
+/// The longest interval that may be chosen: a month.
+pub const MAX_PASSWORD_INTERVAL_DAYS: u64 = 30;
 
 const LAST_PASSWORD_PURPOSE: &str = "last-password-unlock";
 
@@ -179,13 +184,19 @@ fn record_password_unlock_at(vault: &Vault, now: u64) -> Result<()> {
     Ok(())
 }
 
-/// Whether the master password was used recently enough for quick unlock to be allowed.
-/// Missing, unreadable or future dates count as "not recently".
-pub fn password_is_recent(vault: &Vault) -> bool {
-    password_is_recent_at(vault, now_unix())
+/// Whether the master password was used in the last `days` days (1 to
+/// [`MAX_PASSWORD_INTERVAL_DAYS`]), recently enough for quick unlock to be allowed. Missing,
+/// unreadable or future dates count as "not recently".
+pub fn password_is_recent(vault: &Vault, days: u64) -> bool {
+    password_is_recent_at(vault, now_unix(), days)
 }
 
-fn password_is_recent_at(vault: &Vault, now: u64) -> bool {
+/// `days` kept between 1 and [`MAX_PASSWORD_INTERVAL_DAYS`].
+pub fn interval_days(days: u64) -> u64 {
+    days.clamp(1, MAX_PASSWORD_INTERVAL_DAYS)
+}
+
+fn password_is_recent_at(vault: &Vault, now: u64, days: u64) -> bool {
     let Some(sealed) = last_password_path(&vault.id_hex())
         .ok()
         .and_then(|path| std::fs::read(path).ok())
@@ -199,7 +210,7 @@ fn password_is_recent_at(vault: &Vault, now: u64) -> bool {
         return false;
     };
     let then = u64::from_le_bytes(bytes);
-    then <= now && now - then < PASSWORD_INTERVAL_DAYS * 24 * 60 * 60
+    then <= now && now - then < interval_days(days) * 24 * 60 * 60
 }
 
 #[cfg(windows)]
@@ -408,24 +419,36 @@ mod tests {
         let vault = new_vault();
         let day = 24 * 60 * 60;
         let now = 1_900_000_000;
+        let every = PASSWORD_INTERVAL_DAYS;
         assert!(
-            !password_is_recent_at(&vault, now),
+            !password_is_recent_at(&vault, now, every),
             "never used: not recent"
         );
 
         record_password_unlock_at(&vault, now).unwrap();
-        assert!(password_is_recent_at(&vault, now + day));
-        assert!(!password_is_recent_at(
-            &vault,
-            now + PASSWORD_INTERVAL_DAYS * day
-        ));
-        assert!(!password_is_recent_at(&vault, now - day), "future date");
+        assert!(password_is_recent_at(&vault, now + day, every));
+        assert!(!password_is_recent_at(&vault, now + every * day, every));
+        assert!(
+            !password_is_recent_at(&vault, now - day, every),
+            "future date"
+        );
+        // Another interval chosen: a day, a month; outside those, the nearest.
+        assert!(!password_is_recent_at(&vault, now + day, 1));
+        assert!(password_is_recent_at(&vault, now + 29 * day, 30));
+        assert!(
+            !password_is_recent_at(&vault, now + day, 0),
+            "at least a day"
+        );
+        assert!(
+            !password_is_recent_at(&vault, now + 30 * day, 365),
+            "at most a month"
+        );
 
         // Another vault cannot read (or forge) this vault's date.
         let other = new_vault();
         let path = last_password_path(&vault.id_hex()).unwrap();
         std::fs::copy(&path, last_password_path(&other.id_hex()).unwrap()).unwrap();
-        assert!(!password_is_recent_at(&other, now + day));
+        assert!(!password_is_recent_at(&other, now + day, every));
 
         // Enrollment file round trip.
         let secret = [3u8; 256];
