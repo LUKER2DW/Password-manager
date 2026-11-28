@@ -214,6 +214,10 @@ mod error {
     pub const BAD_EXPIRY: i32 = 94;
     /// The secure desktop couldn't be shown (detail: what Windows said).
     pub const SECURE_DESKTOP: i32 = 95;
+    /// Authenticator → From a QR picture…: no QR code holding a key in the picture, or the
+    /// picture couldn't be read (the detail says why).
+    pub const NO_QR_KEY: i32 = 140;
+    pub const PICTURE: i32 = 141;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -586,6 +590,8 @@ struct State {
     totp: Option<Totp>,
     /// A file being imported: chosen, maybe parsed, waiting for confirmation.
     pending_import: Option<PendingImport>,
+    /// The KeePass export's keyfile (its file name and bytes), while the export dialog is open.
+    export_keyfile: Option<(String, Zeroizing<Vec<u8>>)>,
     /// SHA-256 of the vault file as this window last read or wrote it; a different file on disk
     /// means someone else changed it, and saving would silently overwrite their change.
     file_hash: Option<[u8; 32]>,
@@ -824,6 +830,7 @@ impl Controller {
                 editor_ssh: None,
                 ssh_pending: None,
                 pending_import: None,
+                export_keyfile: None,
                 settings,
                 icons: IconCache::default(),
                 icon_images: HashMap::new(),
@@ -1102,6 +1109,9 @@ impl Controller {
         on!(on_export_ask, |c| c.ask_export());
         on!(on_export_cancel, |c| c.cancel_export());
         on!(on_export_plain, |c| c.verify_then(KitAction::Export));
+        on!(on_export_choose_keyfile, |c| c.choose_export_keyfile());
+        on!(on_export_clear_keyfile, |c| c.use_export_keyfile(None));
+        on!(on_code_from_picture, |c| c.code_from_picture());
         on!(on_lock, |c| c.lock());
 
         on!(on_edit_item, |c| {
@@ -5357,6 +5367,8 @@ impl Controller {
     /// The format chosen on the page (app.slint `export-format`; 0 is the encrypted backup).
     fn export_format(&self) -> ExportFormat {
         match self.app().get_export_format() {
+            5 => ExportFormat::Cxf,
+            4 => ExportFormat::Kdbx,
             3 => ExportFormat::Sealed,
             2 => ExportFormat::Csv,
             _ => ExportFormat::Json,
@@ -5399,6 +5411,126 @@ impl Controller {
         for secret in [field::CURRENT, field::NEW, field::NEW_AGAIN] {
             self.clear_secret(secret);
         }
+        self.use_export_keyfile(None);
+    }
+
+    /// The export dialog's "Add a keyfile…": any file of the person's (KeePass hashes it).
+    fn choose_export_keyfile(&self) {
+        if self.state.borrow().runner == Runner::Inline {
+            return; // no dialogs in headless tests: they call use_export_keyfile directly
+        }
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Keyfile for the KeePass database")
+            .pick_file()
+        {
+            self.use_export_keyfile(Some(path));
+        }
+    }
+
+    /// The KeePass export's keyfile: the file at `path` (read now, at most 16 MB), or none.
+    pub fn use_export_keyfile(&self, path: Option<PathBuf>) {
+        let app = self.app();
+        let Some(path) = path else {
+            self.state.borrow_mut().export_keyfile = None;
+            app.set_export_keyfile_name(SharedString::new());
+            return;
+        };
+        let read = std::fs::metadata(&path)
+            .map_err(|err| err.to_string())
+            .and_then(|meta| {
+                if meta.len() > 16 * 1024 * 1024 {
+                    Err("a keyfile of more than 16 MB".to_owned())
+                } else {
+                    std::fs::read(&path).map_err(|err| err.to_string())
+                }
+            });
+        match read {
+            Ok(bytes) => {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                app.set_export_keyfile_name(SharedString::from(name.as_str()));
+                self.state.borrow_mut().export_keyfile = Some((name, Zeroizing::new(bytes)));
+                self.set_error(error::NONE, "");
+            }
+            Err(detail) => self.set_error(error::FILE, &detail),
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Authenticator: a QR code from a picture
+    // -----------------------------------------------------------------------------------------
+
+    fn code_from_picture(&self) {
+        if self.state.borrow().runner == Runner::Inline {
+            return; // no dialogs in headless tests: they call read_code_picture directly
+        }
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("A picture of a QR code")
+            .add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "bmp", "webp"])
+            .pick_file()
+        {
+            self.read_code_picture(path);
+        }
+    }
+
+    /// The QR code in the picture at `path`: a site's key opens the editor of a new code item
+    /// with it; another authenticator app's transfer code goes to the import review, its keys
+    /// one item each.
+    pub fn read_code_picture(&self, path: PathBuf) {
+        let app = self.app();
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => Zeroizing::new(bytes),
+            Err(err) => {
+                self.set_error(error::PICTURE, &err.to_string());
+                return;
+            }
+        };
+        let text = match crate::qr::key_in_picture(&bytes) {
+            Ok(text) => text,
+            Err(crate::qr::Problem::Unreadable(detail)) => {
+                self.set_error(error::PICTURE, &detail);
+                return;
+            }
+            Err(crate::qr::Problem::NoCode) => {
+                self.set_error(error::NO_QR_KEY, "");
+                return;
+            }
+        };
+        if text.to_ascii_lowercase().starts_with("otpauth-migration:") {
+            // The import review, as for an export file: its keys, to choose from.
+            self.open_transfer();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            app.set_import_file(SharedString::from(name));
+            app.set_import_plaintext(true);
+            self.state.borrow_mut().pending_import = Some(PendingImport {
+                path,
+                bytes: Zeroizing::new(text.as_bytes().to_vec()),
+                format: vault_import::Format::OtpLinks,
+                report: None,
+            });
+            self.parse_import();
+            return;
+        }
+        if Totp::parse(&text).is_err() {
+            self.set_error(error::NO_QR_KEY, "");
+            return;
+        }
+        let names = vault_core::totp::names(&text);
+        self.open_editor(None);
+        let title = if names.issuer.is_empty() {
+            names.account.as_str()
+        } else {
+            names.issuer.as_str()
+        };
+        app.set_ed_title(SharedString::from(title));
+        app.set_ed_username(SharedString::from(names.account.as_str()));
+        app.set_ed_totp(SharedString::from(text.as_str()));
+        self.set_error(error::NONE, "");
     }
 
     /// The session back from an export's check. The master password opened the item lock for
@@ -5423,8 +5555,8 @@ impl Controller {
         }
         let format = self.export_format();
         let csv = format == ExportFormat::Csv;
-        // The export protected by a password chosen for the file.
-        let protected = format == ExportFormat::Sealed;
+        // The exports protected by a password chosen for the file.
+        let protected = matches!(format, ExportFormat::Sealed | ExportFormat::Kdbx);
         let counted = vault_import::export_report(&session.vault, format)
             .map(|report| export_counts(&report));
         if counted.as_ref().ok() != Some(&app.get_export_counts()) {
@@ -5458,8 +5590,17 @@ impl Controller {
             .is_ok_and(|all| all.iter().any(|s| s.locked));
         let text: Result<Zeroizing<Vec<u8>>, CoreError> = if sealed {
             Err(CoreError::SecretsLocked)
+        } else if format == ExportFormat::Kdbx {
+            let keyfile = self.state.borrow_mut().export_keyfile.take();
+            vault_import::export_kdbx(
+                &session.vault,
+                &file_password,
+                keyfile.as_ref().map(|(_, bytes)| bytes.as_slice()),
+            )
         } else if protected {
             vault_import::export_sealed(&session.vault, &file_password).map(Zeroizing::new)
+        } else if format == ExportFormat::Cxf {
+            vault_import::export_cxf(&session.vault).map(|t| Zeroizing::new(t.as_bytes().to_vec()))
         } else if csv {
             vault_import::export_csv(&session.vault).map(|t| Zeroizing::new(t.as_bytes().to_vec()))
         } else {
@@ -5467,6 +5608,7 @@ impl Controller {
         };
         self.clear_secret(field::NEW);
         self.clear_secret(field::NEW_AGAIN);
+        self.use_export_keyfile(None);
         let (runner, vault_path) = {
             let state = self.state.borrow();
             (state.runner, state.path.clone())
@@ -5480,30 +5622,33 @@ impl Controller {
                 return;
             }
         };
-        let extension = if protected {
-            "vaultx"
-        } else if csv {
-            "csv"
-        } else {
-            "json"
+        let (extension, name) = match format {
+            ExportFormat::Kdbx => ("kdbx", "vault-export.kdbx"),
+            ExportFormat::Sealed => ("vaultx", "vault-export.vaultx"),
+            ExportFormat::Csv => ("csv", "vault-export.csv"),
+            ExportFormat::Cxf => ("json", "vault-export-cxf.json"),
+            ExportFormat::Json => ("json", "vault-export.json"),
         };
         let target = match runner {
             // Headless tests: next to the test vault.
-            Runner::Inline => Some(vault_path.with_extension(format!("export.{extension}"))),
+            Runner::Inline => Some(vault_path.with_extension(match format {
+                ExportFormat::Cxf => "export-cxf.json".to_owned(),
+                _ => format!("export.{extension}"),
+            })),
             Runner::Thread => rfd::FileDialog::new()
                 .set_title(if protected {
                     "Export protected by a password"
                 } else {
                     "Export without encryption"
                 })
-                .set_file_name(format!("vault-export.{extension}"))
+                .set_file_name(name)
                 .add_filter(
-                    if protected {
-                        "Protected export"
-                    } else if csv {
-                        "CSV"
-                    } else {
-                        "JSON"
+                    match format {
+                        ExportFormat::Kdbx => "KeePass database",
+                        ExportFormat::Sealed => "Protected export",
+                        ExportFormat::Csv => "CSV",
+                        ExportFormat::Cxf => "Credential Exchange (JSON)",
+                        ExportFormat::Json => "JSON",
                     },
                     &[extension],
                 )
@@ -6436,6 +6581,7 @@ fn export_counts(report: &vault_import::ExportReport) -> ExportCounts {
         recovery_codes: count(clear.recovery_codes),
         notes: count(clear.notes),
         formula_like: count(clear.formula_like),
+        readable_passkeys: count(clear.passkeys),
     }
 }
 

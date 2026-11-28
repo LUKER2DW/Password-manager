@@ -1202,6 +1202,12 @@ export component AppWindow inherits Window {
     in-out property <string> import-new-folder;
     in property <bool> import-plaintext;
     in-out property <int> export-format;
+    // The KeePass export's keyfile, by its file name ("" = none).
+    in property <string> export-keyfile-name;
+    callback export-choose-keyfile();
+    callback export-clear-keyfile();
+    // Authenticator → From a QR picture…
+    callback code-from-picture();
     // What the export being asked for leaves out and writes as plain text, and whether that
     // was counted again after it was confirmed (ExportDialog).
     in property <ExportCounts> export-counts;
@@ -1744,6 +1750,7 @@ export component AppWindow inherits Window {
                 unlock => { root.unlock-item(); }
                 lock-secrets => { root.lock-secrets(); }
                 add-code => { root.new-item(); }
+                code-from-picture => { root.code-from-picture(); }
             }
             if root.panel == Panel.transfer: TransferPage {
                 error-code: root.error-code;
@@ -1916,9 +1923,12 @@ export component AppWindow inherits Window {
         format: root.export-format;
         counts: root.export-counts;
         recounted: root.export-recounted;
+        keyfile-name: root.export-keyfile-name;
         busy: root.busy;
         error-code: root.error-code;
         error-detail: root.error-detail;
+        choose-keyfile => { root.export-choose-keyfile(); }
+        clear-keyfile => { root.export-clear-keyfile(); }
         confirmed => { root.export-plain(); }
         cancelled => { root.export-cancel(); }
     }

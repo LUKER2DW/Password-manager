@@ -2504,6 +2504,109 @@ fn whole_app_flow_headless() {
     app.set_export_format(1);
     std::fs::remove_file(protected).unwrap();
 
+    // A KeePass database: a password of its own and a keyfile; Import reads it back with both.
+    app.set_export_format(4);
+    app.invoke_export_ask();
+    let keyfile = dir.path().join("test.keyfile");
+    std::fs::write(&keyfile, b"a keyfile made for this test").unwrap();
+    controller.use_export_keyfile(Some(keyfile.clone()));
+    assert_eq!(app.get_export_keyfile_name(), "test.keyfile");
+    type_into(&app, 5, PASSWORD);
+    type_into(&app, 6, "a long password for the database");
+    type_into(&app, 7, "a long password for the database");
+    app.invoke_export_plain();
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_export_keyfile_name(), "", "forgotten once used");
+    let kdbx = path.with_extension("export.kdbx");
+    let bytes = std::fs::read(&kdbx).unwrap();
+    assert_eq!(
+        vault_import::detect_format(&bytes),
+        vault_import::Format::Kdbx
+    );
+    let keyfile_bytes = std::fs::read(&keyfile).unwrap();
+    let report = vault_import::import(
+        &bytes,
+        vault_import::Format::Kdbx,
+        "a long password for the database",
+        Some(&keyfile_bytes),
+    )
+    .unwrap();
+    assert!(report.items.iter().any(|i| i.title == "Shop"));
+    assert!(
+        vault_import::import(
+            &bytes,
+            vault_import::Format::Kdbx,
+            "a long password for the database",
+            None
+        )
+        .is_err()
+    );
+    std::fs::remove_file(kdbx).unwrap();
+
+    // Credential Exchange: unencrypted, and the dialog says the passkeys go in clear.
+    app.set_export_format(5);
+    app.invoke_export_ask();
+    assert!(app.get_export_counts().passwords > 0);
+    type_into(&app, 5, PASSWORD);
+    app.invoke_export_plain();
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    let cxf = path.with_extension("export-cxf.json");
+    let text = std::fs::read_to_string(&cxf).unwrap();
+    assert!(text.contains("\"exporterRpId\"") && text.contains("\"Shop\""));
+    controller.start_import(cxf.clone());
+    assert_eq!(
+        app.get_import_stage(),
+        2,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert!(app.get_import_rows().row_count() >= 2);
+    app.invoke_import_cancel();
+    std::fs::remove_file(cxf).unwrap();
+    app.set_export_format(1);
+
+    // A QR code read from a picture: a site's key opens a new code item with it; a picture
+    // without one says so.
+    app.set_panel(Panel::Authenticator);
+    let picture = dir.path().join("code.png");
+    std::fs::write(
+        &picture,
+        crate::qr::tests::picture_of(
+            "otpauth://totp/Example:me?secret=JBSWY3DPEHPK3PXP&issuer=Example",
+        ),
+    )
+    .unwrap();
+    controller.read_code_picture(picture.clone());
+    assert_eq!(
+        app.get_error_code(),
+        0,
+        "detail: {}",
+        app.get_error_detail()
+    );
+    assert_eq!(app.get_ed_title(), "Example");
+    assert_eq!(app.get_ed_username(), "me");
+    assert!(app.get_ed_totp().starts_with("otpauth://totp/"));
+    app.invoke_cancel_edit();
+    std::fs::write(
+        &picture,
+        crate::qr::tests::picture_of("https://example.com"),
+    )
+    .unwrap();
+    app.set_panel(Panel::Authenticator);
+    controller.read_code_picture(picture.clone());
+    assert_eq!(app.get_error_code(), 140);
+    std::fs::remove_file(picture).unwrap();
+
     // ---- a second vault, and back to the first ----
     let second = dir.path().join("second.vault");
     controller.switch_vault(second.clone());

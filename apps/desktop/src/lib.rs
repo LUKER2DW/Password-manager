@@ -5,6 +5,7 @@
 
 pub mod controller;
 pub mod i18n;
+mod qr;
 mod sketch;
 #[cfg(test)]
 mod tests;

@@ -3925,6 +3925,9 @@ export component AuthenticatorPage inherits Rectangle {
     callback lock-secrets();
     // A new item made for its codes only (the editor opens on "Authenticator").
     callback add-code();
+    // A QR code read from a picture file: one key opens the editor with it, a transfer code
+    // of another authenticator app goes to the import review.
+    callback code-from-picture();
 
     ScrollView {
         // No sideways scrolling: the page is as wide as the window, and what it holds wraps.
@@ -3940,6 +3943,15 @@ export component AuthenticatorPage inherits Rectangle {
                 PageTitle {
                     text: @tr("Authenticator");
                     horizontal-stretch: 1;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 0;
+                    QuietButton {
+                        icon: "qr";
+                        text: @tr("From a QR picture…");
+                        clicked => { root.code-from-picture(); }
+                    }
                 }
                 VerticalLayout {
                     alignment: center;
@@ -4588,7 +4600,7 @@ export component TransferPage inherits Rectangle {
             Rule { }
             SectionTitle {
                 text: @tr("Export");
-                hint: @tr("An encrypted backup is a copy of your vault file: it opens only with your master password and Secret Key, or with your emergency kit. The copy is read back and checked before the app calls it done. “Protected by a password” is one file with every item, encrypted with a password you choose for it: good for carrying your items to another computer, where Import reads it; it has that one password only, so make it long. JSON and CSV are NOT encrypted: anyone who gets the file can read every password, and malware looks for exactly these files. Use them only to move to another password manager, then delete the file.");
+                hint: @tr("An encrypted backup is a copy of your vault file: it opens only with your master password and Secret Key, or with your emergency kit. The copy is read back and checked before the app calls it done. “Protected by a password” is one file with every item, encrypted with a password you choose for it: good for carrying your items to another computer, where Import reads it; it has that one password only, so make it long. A KeePass database is encrypted with a password (and a keyfile) you choose, for KeePass and the apps that read its files. JSON, CSV and Credential Exchange are NOT encrypted: anyone who gets the file can read every password (and, from a Credential Exchange file, sign in with your passkeys), and malware looks for exactly these files. Use them only to move to another password manager, then delete the file.");
             }
             HorizontalLayout {
                 spacing: 16px;
@@ -4596,7 +4608,7 @@ export component TransferPage inherits Rectangle {
                     width: 320px;
                     label: @tr("Format");
                     icon: "download";
-                    options: [@tr("Encrypted backup (.vault)"), @tr("JSON, not encrypted"), @tr("CSV, not encrypted"), @tr("Protected by a password (.vaultx)")];
+                    options: [@tr("Encrypted backup (.vault)"), @tr("JSON, not encrypted"), @tr("CSV, not encrypted"), @tr("Protected by a password (.vaultx)"), @tr("KeePass database (.kdbx)"), @tr("Credential Exchange (CXF), not encrypted")];
                     selected <=> root.export-format;
                 }
             }
@@ -4605,6 +4617,10 @@ export component TransferPage inherits Rectangle {
                     ? @tr("Keep a copy on a USB drive or another disk. It stays encrypted.")
                     : root.export-format == 3
                         ? @tr("Every item in one file, attached files and passkeys included, encrypted with a password you choose for it. Import reads it back, here or on another computer. Without that password nobody can, you included.")
+                    : root.export-format == 4
+                        ? @tr("Every item in a KeePass database, encrypted with a password you choose (and a keyfile, if you like). KeePass, KeePassXC and KeePassDX open it, passkeys and attached files included.")
+                    : root.export-format == 5
+                        ? @tr("The format password managers exchange items in, passkeys included with their private keys. Not encrypted: import it into the other manager at once, then delete it.")
                     : root.export-format == 1
                         ? @tr("Keeps folders, cards and extra fields. Most password managers can read it.")
                         : @tr("Logins and notes only, one per row. Any program can read it.");
@@ -4613,7 +4629,7 @@ export component TransferPage inherits Rectangle {
                 alignment: start;
                 Button {
                     text: root.export-format == 0 ? @tr("Save a backup copy…") : @tr("Export…");
-                    danger: root.export-format == 1 || root.export-format == 2;
+                    danger: root.export-format == 1 || root.export-format == 2 || root.export-format == 5;
                     clicked => {
                         // The other formats say what the file leaves out and ask for the
                         // master password (and a password for the file) in a dialog first

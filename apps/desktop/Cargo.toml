@@ -43,6 +43,9 @@ postcard = { version = "1.1", default-features = false, features = ["use-std"] }
 raw-window-handle = "0.6"
 # Native open/save dialogs (kit PDF, import, export).
 rfd = "0.18"
+# QR codes read from a picture file (Authenticator → From a QR picture…); the picture is
+# decoded by `image` above and handed over as grey levels.
+rqrr = { version = "0.11", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 # What the browser extension asks is read for its kind, and answers get the settings it follows.
 serde_json = "1.0"

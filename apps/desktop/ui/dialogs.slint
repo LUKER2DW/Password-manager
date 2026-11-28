@@ -827,7 +827,8 @@ export component ServerAddressDialog inherits Modal {
 // that they aren't encrypted. Every one says what it leaves out, and a plain one what anyone
 // who gets the file reads, counted on this vault.
 export component ExportDialog inherits Modal {
-    // 1 JSON, 2 CSV, 3 protected by a password (.vaultx).
+    // 1 JSON, 2 CSV, 3 protected by a password (.vaultx), 4 KeePass database (.kdbx),
+    // 5 Credential Exchange (CXF, JSON).
     in property <int> format;
     in property <ExportCounts> counts;
     // The counts changed when it was confirmed (the master password opened locked items, or
@@ -836,14 +837,21 @@ export component ExportDialog inherits Modal {
     in property <bool> busy;
     in property <int> error-code;
     in property <string> error-detail;
+    // The KeePass database's keyfile, by its file name ("" = none).
+    in property <string> keyfile-name;
     callback confirmed();
     callback cancelled();
+    callback choose-keyfile();
+    callback clear-keyfile();
+    // Formats encrypted with a password chosen here.
+    property <bool> protected: root.format == 3 || root.format == 4;
     card-width: 520px;
     focus-on-open: false;
     dismissed => { if (!root.busy) { root.cancelled(); } }
     Text {
         // JSON and CSV alike hold every item's password (a note's, a card's PIN, an SSH key).
         text: root.format == 3 ? @tr("Save a protected export?")
+            : root.format == 4 ? @tr("Save a KeePass database?")
             : @tr("Export every password unencrypted?");
         font-size: Theme.title;
         color: Theme.ink;
@@ -852,6 +860,10 @@ export component ExportDialog inherits Modal {
     Text {
         text: root.format == 3
             ? @tr("Every item in one file, attached files and passkeys included, encrypted with a password you choose here. Whoever has the file and that password can sign in with those passkeys, so make it long. Import reads it back, here or on another computer; without that password nobody can, you included.")
+            : root.format == 4
+                ? @tr("Every item in a KeePass database (KDBX 4), attached files and passkeys included, encrypted with a password you choose here and, if you like, a keyfile. Whoever has the file and those can sign in with those passkeys, so make the password long.")
+            : root.format == 5
+                ? @tr("The file holds the passwords and your passkeys' private keys in plain text: anyone or any program that gets it can sign in as you. Import it into the other password manager right away, then delete it.")
             : @tr("The file holds the passwords in plain text: anyone or any program that gets it reads them, and malware looks for exactly these files. Use it only to move to another password manager, then delete it.");
         font-size: Theme.body;
         color: Theme.graphite;
@@ -881,10 +893,10 @@ export component ExportDialog inherits Modal {
         error: root.error-code == 11 || root.error-code == 34;
         init => { self.focus(); }
         accepted => {
-            if (root.format != 3) { root.confirmed(); }
+            if (!root.protected) { root.confirmed(); }
         }
     }
-    if root.format == 3: SecretField {
+    if root.protected: SecretField {
         field: 6;
         eye: true;
         label: @tr("Password for this file");
@@ -892,7 +904,7 @@ export component ExportDialog inherits Modal {
         icon: "key";
         error: root.error-code == 4 || root.error-code == 5 || root.error-code == 73;
     }
-    if root.format == 3: SecretField {
+    if root.protected: SecretField {
         field: 7;
         eye: true;
         label: @tr("Type it again");
@@ -900,7 +912,7 @@ export component ExportDialog inherits Modal {
         error: root.error-code == 4;
         accepted => { root.confirmed(); }
     }
-    if root.format == 3: HorizontalLayout {
+    if root.protected: HorizontalLayout {
         alignment: start;
         QuietButton {
             icon: "sparkle";
@@ -910,11 +922,25 @@ export component ExportDialog inherits Modal {
             clicked => { NewPassword.use-passphrase(6); }
         }
     }
+    if root.format == 4: HorizontalLayout {
+        spacing: 10px;
+        alignment: start;
+        QuietButton {
+            outlined: true;
+            icon: "paperclip";
+            text: root.keyfile-name == "" ? @tr("Add a keyfile…") : @tr("Keyfile: {}", root.keyfile-name);
+            clicked => { root.choose-keyfile(); }
+        }
+        if root.keyfile-name != "": QuietButton {
+            text: @tr("No keyfile");
+            clicked => { root.clear-keyfile(); }
+        }
+    }
     DialogError { code: root.error-code; detail: root.error-detail; }
     DialogButtons {
         action: @tr("Export…");
         busy: root.busy;
-        danger: root.format != 3;
+        danger: !root.protected;
         confirmed => { root.confirmed(); }
         cancelled => { root.cancelled(); }
     }

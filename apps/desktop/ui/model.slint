@@ -135,6 +135,8 @@ export struct ExportCounts {
     notes: int,
     // Passwords and code secrets a spreadsheet would read as a formula (CSV).
     formula-like: int,
+    // Passkeys with their private keys, as plain text (the Credential Exchange file).
+    readable-passkeys: int,
 }
 
 // A place to import from (browser or password manager).
@@ -332,6 +334,8 @@ export global Messages {
         if (code == 9) { return @tr("Give the item a title."); }
         if (code == 10) { return @tr("The one-time code secret isn't valid. Paste the otpauth:// link or the key shown by the website."); }
         if (code == 11) { return @tr("The current master password is wrong."); }
+        if (code == 140) { return @tr("No QR code with a one-time code key was found in that picture. Use a sharp screenshot of the whole code, or paste the setup key instead."); }
+        if (code == 141) { return @tr("That picture couldn't be read: {}", detail); }
         if (code == 12) { return @tr("The clipboard isn't available right now. Try again."); }
         if (code == 19) { return @tr("That file couldn't be imported: {}", detail); }
         if (code == 20) { return @tr("That card number has a typo: check the digits (12 to 19, as printed on the card)."); }
@@ -559,7 +563,8 @@ export global Messages {
         let secrets = root.listed(passwords, c.otp-secrets > 0 ? @tr("{n} one-time code secret" | "{n} one-time code secrets" % c.otp-secrets) : "");
         let fields = root.listed(secrets, c.hidden-fields > 0 ? @tr("{n} hidden field" | "{n} hidden fields" % c.hidden-fields) : "");
         let codes = root.listed(fields, c.recovery-codes > 0 ? @tr("{n} recovery code" | "{n} recovery codes" % c.recovery-codes) : "");
-        return root.listed(codes, c.notes > 0 ? @tr("the notes of {n} item" | "the notes of {n} items" % c.notes) : "");
+        let notes = root.listed(codes, c.notes > 0 ? @tr("the notes of {n} item" | "the notes of {n} items" % c.notes) : "");
+        return root.listed(notes, c.readable-passkeys > 0 ? @tr("{n} passkey with its private key, which signs in without a password" | "{n} passkeys with their private keys, which sign in without a password" % c.readable-passkeys) : "");
     }
     // All of it, a paragraph each, as the export dialog shows it before anything is written.
     public pure function export-notes(c: ExportCounts) -> string {

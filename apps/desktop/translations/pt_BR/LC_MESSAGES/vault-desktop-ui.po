@@ -5720,3 +5720,64 @@ msgctxt "UnlockScreen"
 msgid "On a secure desktop"
 msgstr "Numa área de trabalho segura"
 
+msgctxt "Messages"
+msgid "No QR code with a one-time code key was found in that picture. Use a sharp screenshot of the whole code, or paste the setup key instead."
+msgstr "Nenhum código QR com uma chave de código de uso único foi encontrado nessa imagem. Use uma captura nítida do código inteiro ou cole a chave de configuração."
+
+msgctxt "Messages"
+msgid "That picture couldn't be read: {}"
+msgstr "Não foi possível ler essa imagem: {}"
+
+msgctxt "Messages"
+msgid "{n} passkey with its private key, which signs in without a password"
+msgid_plural "{n} passkeys with their private keys, which sign in without a password"
+msgstr[0] "{n} chave de acesso com sua chave privada, que entra sem senha"
+msgstr[1] "{n} chaves de acesso com suas chaves privadas, que entram sem senha"
+
+msgctxt "TransferPage"
+msgid "KeePass database (.kdbx)"
+msgstr "Banco de dados do KeePass (.kdbx)"
+
+msgctxt "TransferPage"
+msgid "Credential Exchange (CXF), not encrypted"
+msgstr "Credential Exchange (CXF), sem criptografia"
+
+msgctxt "TransferPage"
+msgid "Every item in a KeePass database, encrypted with a password you choose (and a keyfile, if you like). KeePass, KeePassXC and KeePassDX open it, passkeys and attached files included."
+msgstr "Todos os itens num banco de dados do KeePass, criptografado com uma senha que você escolhe (e um arquivo-chave, se quiser). KeePass, KeePassXC e KeePassDX o abrem, com chaves de acesso e arquivos anexos."
+
+msgctxt "TransferPage"
+msgid "The format password managers exchange items in, passkeys included with their private keys. Not encrypted: import it into the other manager at once, then delete it."
+msgstr "O formato em que gerenciadores de senhas trocam itens, com as chaves de acesso e suas chaves privadas. Sem criptografia: importe-o no outro gerenciador na hora e depois apague-o."
+
+msgctxt "TransferPage"
+msgid "An encrypted backup is a copy of your vault file: it opens only with your master password and Secret Key, or with your emergency kit. The copy is read back and checked before the app calls it done. “Protected by a password” is one file with every item, encrypted with a password you choose for it: good for carrying your items to another computer, where Import reads it; it has that one password only, so make it long. A KeePass database is encrypted with a password (and a keyfile) you choose, for KeePass and the apps that read its files. JSON, CSV and Credential Exchange are NOT encrypted: anyone who gets the file can read every password (and, from a Credential Exchange file, sign in with your passkeys), and malware looks for exactly these files. Use them only to move to another password manager, then delete the file."
+msgstr "Um backup criptografado é uma cópia do arquivo do cofre: só abre com sua senha mestra e sua Chave Secreta, ou com seu kit de emergência. A cópia é lida de volta e conferida antes de o app dizer que terminou. “Protegido por senha” é um arquivo com todos os itens, criptografado com uma senha que você escolhe para ele: bom para levar seus itens a outro computador, onde Importar o lê; ele tem só essa senha, então faça-a longa. Um banco de dados do KeePass é criptografado com uma senha (e um arquivo-chave) que você escolhe, para o KeePass e os apps que leem os arquivos dele. JSON, CSV e Credential Exchange NÃO são criptografados: quem pegar o arquivo lê todas as senhas (e, num arquivo Credential Exchange, entra com suas chaves de acesso), e malwares procuram exatamente esses arquivos. Use-os só para mudar para outro gerenciador de senhas e depois apague o arquivo."
+
+msgctxt "AuthenticatorPage"
+msgid "From a QR picture…"
+msgstr "De uma imagem com QR…"
+
+msgctxt "ExportDialog"
+msgid "Save a KeePass database?"
+msgstr "Salvar um banco de dados do KeePass?"
+
+msgctxt "ExportDialog"
+msgid "Every item in a KeePass database (KDBX 4), attached files and passkeys included, encrypted with a password you choose here and, if you like, a keyfile. Whoever has the file and those can sign in with those passkeys, so make the password long."
+msgstr "Todos os itens num banco de dados do KeePass (KDBX 4), com arquivos anexos e chaves de acesso, criptografado com uma senha que você escolhe aqui e, se quiser, um arquivo-chave. Quem tiver o arquivo e esses dados pode entrar com essas chaves de acesso, então faça a senha longa."
+
+msgctxt "ExportDialog"
+msgid "The file holds the passwords and your passkeys' private keys in plain text: anyone or any program that gets it can sign in as you. Import it into the other password manager right away, then delete it."
+msgstr "O arquivo guarda as senhas e as chaves privadas das suas chaves de acesso em texto puro: qualquer pessoa ou programa que o pegue pode entrar como você. Importe-o no outro gerenciador de senhas na hora e depois apague-o."
+
+msgctxt "ExportDialog"
+msgid "Add a keyfile…"
+msgstr "Adicionar um arquivo-chave…"
+
+msgctxt "ExportDialog"
+msgid "Keyfile: {}"
+msgstr "Arquivo-chave: {}"
+
+msgctxt "ExportDialog"
+msgid "No keyfile"
+msgstr "Sem arquivo-chave"
