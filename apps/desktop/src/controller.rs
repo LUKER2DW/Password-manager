@@ -48,6 +48,8 @@ use vault_platform::website_icons::{self as favicon, IconCache};
 mod attachments;
 mod attempts;
 mod browser;
+mod change;
+mod confirm;
 mod drop_box;
 mod extension;
 mod features;
@@ -371,6 +373,10 @@ mod notice {
     pub const PASSKEY_SIGNAL: i32 = 142;
     /// Acting on it needs the item's secrets open.
     pub const PASSKEY_SIGNAL_LOCKED: i32 = 143;
+    /// "Change password": a strong password waits for the site's page (the argument: the
+    /// login's name); without the browser extension, how to use it.
+    pub const CHANGE_READY: i32 = 144;
+    pub const CHANGE_NO_EXTENSION: i32 = 145;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -650,6 +656,12 @@ struct State {
     leak_ranges: HashMap<String, Option<(Instant, String)>>,
     /// What sites said of the vault's passkeys (the Signal API), for the person to decide.
     passkey_notes: Vec<vault_browser::service::PasskeyNote>,
+    /// A question waiting for its answer (`confirm.rs`): what, and about which index.
+    confirm_pending: Option<(i32, i32)>,
+    /// The question just answered yes: the action that asked runs once without asking.
+    confirm_yes: Option<i32>,
+    /// A password made for changing one login's password on its site (`change.rs`).
+    change_pending: Option<change::PendingChange>,
     /// The newer release Check for updates found (its page on github.com).
     release_page: Option<String>,
     /// The newer version a notice already told of (once per version while the app runs).
@@ -867,6 +879,9 @@ impl Controller {
                 leaks: HashMap::new(),
                 leak_ranges: HashMap::new(),
                 passkey_notes: Vec::new(),
+                confirm_pending: None,
+                confirm_yes: None,
+                change_pending: None,
                 release_page: None,
                 update_told: None,
                 restarted: false,
@@ -1243,8 +1258,7 @@ impl Controller {
         on!(on_alerts_changed, |c| c.refresh_alerts());
         on!(on_health_open, |c, index| c.health_open(index));
         on!(on_health_change, |c, index| c.health_change(index));
-        on!(on_change_password_at, |c, index| c
-            .change_password_at(index));
+        on!(on_start_password_change, |c| c.start_password_change());
         on!(on_passkey_signal, |c, index, yes| c
             .passkey_signal(index, yes));
         on!(on_add_wordlist, |c| c.add_wordlist());
@@ -1271,15 +1285,8 @@ impl Controller {
             c.edit_field(index, |f| f.sensitive = on);
             c.show_edit_fields();
         });
-        on!(on_field_remove, |c, index| {
-            if let Ok(i) = usize::try_from(index) {
-                let mut state = c.state.borrow_mut();
-                if i < state.edit_fields.len() {
-                    state.edit_fields.remove(i);
-                }
-            }
-            c.show_edit_fields();
-        });
+        on!(on_field_remove, |c, index| c.field_remove(index));
+        on!(on_confirm_answered, |c, yes| c.confirm_answered(yes));
         on!(on_field_add, |c| {
             c.state
                 .borrow_mut()
@@ -3469,6 +3476,10 @@ impl Controller {
             .map(|u| SharedString::from(u.as_str()))
             .collect();
         app.set_detail_urls(ModelRc::from(Rc::new(VecModel::from(urls))));
+        // Not for a template: it is never filled or changed on a site.
+        app.set_detail_can_change(
+            item.kind == ItemKind::Login && !item.template && !item.urls.is_empty(),
+        );
         let fields: Vec<DetailField> = view::detail_fields(&item, view::now_month_year())
             .into_iter()
             .filter(|f| !locked || !f.hideable)
@@ -3651,17 +3662,6 @@ impl Controller {
         };
         if let Err(err) = files::open_web_link(url) {
             self.notify_long(notice::LINK_FAILED, &format!("{url} ({err:#})"));
-        }
-    }
-
-    /// The site's page for changing the password of the selected login (F19): the one the
-    /// built-in list names, else its `/.well-known/change-password`.
-    fn change_password_at(&self, index: i32) {
-        let Some((_, item)) = self.selected_item_raw() else {
-            return;
-        };
-        if let Some(url) = usize::try_from(index).ok().and_then(|i| item.urls.get(i)) {
-            self.open_change_page(url);
         }
     }
 
@@ -4739,6 +4739,33 @@ impl Controller {
         self.show_detail();
     }
 
+    /// Takes an extra field out of the editor; a hidden one with a value asks first.
+    fn field_remove(&self, index: i32) {
+        let Ok(i) = usize::try_from(index) else {
+            return;
+        };
+        let asks = {
+            let state = self.state.borrow();
+            let Some(field) = state.edit_fields.get(i) else {
+                return;
+            };
+            (field.sensitive && !field.value.is_empty()).then(|| field.name.clone())
+        };
+        if let Some(name) = asks
+            && !self.take_confirmed(confirm::kind::REMOVE_FIELD)
+        {
+            self.ask_confirm(confirm::kind::REMOVE_FIELD, index, &name);
+            return;
+        }
+        {
+            let mut state = self.state.borrow_mut();
+            if i < state.edit_fields.len() {
+                state.edit_fields.remove(i);
+            }
+        }
+        self.show_edit_fields();
+    }
+
     fn save_item(&self) {
         let app = self.app();
         let totp = app.get_ed_totp().trim().to_owned();
@@ -4805,9 +4832,20 @@ impl Controller {
         if item.username.trim().is_empty() && app.get_ed_kind() == view::EDITOR_AUTHENTICATOR {
             item.username = vault_core::totp::names(&totp).account;
         }
+        let before = Zeroizing::new(std::mem::take(&mut item.password));
         item.password = self.state.borrow().secrets[field::ITEM_PASSWORD]
             .as_str()
             .to_owned();
+        // A saved login's password replaced: asked first (the old one goes into its history).
+        if editing.is_some()
+            && kind == ItemKind::Login
+            && !before.is_empty()
+            && *before != item.password
+            && !self.take_confirmed(confirm::kind::SAVE_PASSWORD)
+        {
+            self.ask_confirm(confirm::kind::SAVE_PASSWORD, 0, &item.title);
+            return;
+        }
         let url = app.get_ed_url().trim().to_owned();
         match (url.is_empty(), item.urls.is_empty()) {
             (true, _) => item.urls.clear(),

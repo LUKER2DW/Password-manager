@@ -80,6 +80,34 @@ impl Controller {
         let Some(id) = self.state.borrow().selected else {
             return;
         };
+        // Removing a passkey asks first; taking new names doesn't.
+        if accept && !self.take_confirmed(super::confirm::kind::FORGET_PASSKEY) {
+            let gone = {
+                let state = self.state.borrow();
+                state
+                    .session
+                    .as_ref()
+                    .and_then(|s| s.vault.get_item(&id).ok())
+                    .and_then(|item| {
+                        let passkey = usize::try_from(index)
+                            .ok()
+                            .and_then(|i| item.passkeys.get(i))?;
+                        state
+                            .passkey_notes
+                            .iter()
+                            .any(|note| {
+                                note.item == id
+                                    && note.credential == passkey.credential_id
+                                    && note.said == Said::Gone
+                            })
+                            .then(|| passkey.user_name.clone())
+                    })
+            };
+            if let Some(user) = gone {
+                self.ask_confirm(super::confirm::kind::FORGET_PASSKEY, index, &user);
+                return;
+            }
+        }
         let credential = {
             let state = self.state.borrow();
             let Some(item) = state

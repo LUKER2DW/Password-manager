@@ -5881,3 +5881,71 @@ msgid "Same password as {n} other login: a leak of one exposes both."
 msgid_plural "Same password as {n} other logins: a leak of one exposes them all."
 msgstr[0] "Mesma senha de {n} outro login: o vazamento de um expõe os dois."
 msgstr[1] "Mesma senha de {n} outros logins: o vazamento de um expõe todos."
+
+msgctxt "AppWindow"
+msgid "Replace the password of “{}”?"
+msgstr "Substituir a senha de “{}”?"
+
+msgctxt "AppWindow"
+msgid "Remove this passkey?"
+msgstr "Remover esta chave de acesso?"
+
+msgctxt "AppWindow"
+msgid "Clear the password history?"
+msgstr "Limpar o histórico de senhas?"
+
+msgctxt "AppWindow"
+msgid "Remove “{}”?"
+msgstr "Remover “{}”?"
+
+msgctxt "AppWindow"
+msgid "Remove the hidden field “{}”?"
+msgstr "Remover o campo oculto “{}”?"
+
+msgctxt "AppWindow"
+msgid "Clear the history of generated passwords?"
+msgstr "Limpar o histórico de senhas geradas?"
+
+msgctxt "AppWindow"
+msgid "The new password is saved in its place. The old one stays in the item's password history, in case the site didn't take the change."
+msgstr "A nova senha é salva no lugar dela. A antiga fica no histórico de senhas do item, caso o site não tenha aceitado a troca."
+
+msgctxt "AppWindow"
+msgid "The passkey for {} is gone once you save the item. The site still expects it until you remove it in the site's security settings too."
+msgstr "A chave de acesso de {} some quando você salvar o item. O site ainda a espera até você removê-la também nas configurações de segurança do site."
+
+msgctxt "AppWindow"
+msgid "The site says it no longer knows the passkey for {}. It is removed from this vault now, and from your other devices at their next sync."
+msgstr "O site diz que não conhece mais a chave de acesso de {}. Ela é removida deste cofre agora, e dos seus outros dispositivos na próxima sincronização."
+
+msgctxt "AppWindow"
+msgid "Every earlier password of this item is deleted. You can't get them back."
+msgstr "Todas as senhas anteriores deste item são apagadas. Não dá para recuperá-las."
+
+msgctxt "AppWindow"
+msgid "The file is gone once you save the item."
+msgstr "O arquivo some quando você salvar o item."
+
+msgctxt "AppWindow"
+msgid "Its value is gone once you save the item."
+msgstr "O valor dele some quando você salvar o item."
+
+msgctxt "AppWindow"
+msgid "Every password the generator made and you used is deleted from this list. The logins keep theirs."
+msgstr "Todas as senhas que o gerador criou e você usou são apagadas desta lista. Os logins mantêm as deles."
+
+msgctxt "AppWindow"
+msgid "Replace"
+msgstr "Substituir"
+
+msgctxt "AppWindow"
+msgid "Clear"
+msgstr "Limpar"
+
+msgctxt "Messages"
+msgid "A strong password for “{}” is ready, and the site's page for changing it is open. On its new-password field the browser extension offers that password; after you send the form, it offers to update the login here."
+msgstr "Uma senha forte para “{}” está pronta, e a página do site para trocá-la está aberta. No campo de nova senha, a extensão do navegador oferece essa senha; depois que você enviar o formulário, ela oferece atualizar o login aqui."
+
+msgctxt "Messages"
+msgid "The site's page for changing the password of “{}” is open. Turn on the browser extension (Settings → Browser extension) and it offers a strong password there and updates the login; or edit the login here after you change it."
+msgstr "A página do site para trocar a senha de “{}” está aberta. Ative a extensão do navegador (Configurações → Extensão do navegador) e ela oferece uma senha forte lá e atualiza o login; ou edite o login aqui depois de trocar."

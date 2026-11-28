@@ -489,6 +489,14 @@ fn main() {
         "A site said it no longer knows a passkey: the person decides",
     );
     app.set_detail_passkeys(passkeys());
+    // The question before a saved password is replaced (no master password).
+    app.set_confirm_arg("GitHub".into());
+    app.set_confirm_kind(1);
+    camera.shot(
+        "vault-confirm-replace",
+        "Replacing a login's saved password asks first",
+    );
+    app.set_confirm_kind(0);
     app.invoke_edit_item();
     app.set_ed_passkeys(passkeys());
     camera.shot(

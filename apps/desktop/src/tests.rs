@@ -233,6 +233,7 @@ fn whole_app_flow_headless() {
     app.invoke_new_item();
     assert_eq!(app.get_panel(), Panel::Editor);
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_error_code(), 9, "title required");
     app.set_ed_title("GitHub".into());
     app.set_ed_username("octocat".into());
@@ -240,9 +241,11 @@ fn whole_app_flow_headless() {
     app.set_ed_totp("not a secret!".into());
     type_into(&app, 4, "gh-item-pass");
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_error_code(), 10, "bad TOTP rejected");
     app.set_ed_totp("JBSWY3DPEHPK3PXP".into());
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_panel(), Panel::Detail);
     assert_eq!(app.get_total_items(), 1);
     assert_eq!(app.get_detail_title(), "GitHub");
@@ -278,6 +281,7 @@ fn whole_app_flow_headless() {
     app.set_ed_title("Alarm code".into());
     app.set_ed_notes("1234 then #".into());
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_total_items(), 2);
     let counts: Vec<i32> = app.get_counts().iter().collect();
     assert_eq!(counts, [2, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0]);
@@ -430,6 +434,7 @@ fn whole_app_flow_headless() {
     );
     app.set_ed_username("hubot".into());
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_detail_username(), "hubot");
     // The version before the change is kept (format v11).
     assert_eq!(app.get_detail_versions().row_count(), 1);
@@ -502,6 +507,7 @@ fn whole_app_flow_headless() {
         "a .pub file isn't the private key"
     );
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_detail_kind(), 4);
     assert_eq!(app.get_detail_files().row_count(), 1);
     assert!(
@@ -522,8 +528,16 @@ fn whole_app_flow_headless() {
         0,
         "the public half has its own place"
     );
+    // Removing a file asks first: no keeps it, yes takes it out.
     app.invoke_file_remove(0);
+    assert_eq!(app.get_confirm_kind(), 4);
+    app.invoke_confirm_answered(false);
+    assert_eq!(app.get_confirm_kind(), 0);
+    assert_eq!(app.get_ed_files().row_count(), 1, "kept on no");
+    app.invoke_file_remove(0);
+    app.invoke_confirm_answered(true);
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_detail_files().row_count(), 0);
     app.invoke_delete_item();
     app.invoke_select_category(0);
@@ -552,6 +566,7 @@ fn whole_app_flow_headless() {
     app.set_ed_title("Gmail".into());
     app.set_ed_recovery_codes("1. aaaa-1111\n2. bbbb-2222\n3. cccc-3333".into());
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_items().row_count(), 1);
     assert_eq!(app.get_folders().row_data(0).unwrap().count, 1);
     assert_eq!(app.get_detail_folder(), "Google");
@@ -579,6 +594,7 @@ fn whole_app_flow_headless() {
     assert!(app.get_ed_recovery_codes().contains("aaaa-1111"));
     app.set_ed_recovery_codes("aaaa-1111\nbbbb-2222\ndddd-4444".into());
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(
         (app.get_detail_codes_total(), app.get_detail_codes_left()),
         (3, 2)
@@ -658,21 +674,26 @@ fn whole_app_flow_headless() {
     app.invoke_card_number_edited("4111 1111 1111 1112".into());
     assert_eq!(app.get_ed_card_brand(), "Visa");
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_error_code(), 20, "typo caught by the checksum");
     app.set_ed_card_number("4111 1111 1111 1111".into());
     app.set_ed_card_expiry("13/29".into());
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_error_code(), 21);
     app.set_ed_card_expiry("8/2029".into());
     app.set_ed_card_code("12".into());
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_error_code(), 22);
     app.set_ed_card_code("123".into());
     type_into(&app, 4, "12ab");
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_error_code(), 23, "a PIN is digits");
     type_into(&app, 4, "1234");
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(
         app.get_panel(),
         Panel::Detail,
@@ -1105,9 +1126,18 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_notice_code(), 69, "a sign-in with it is told");
     app.invoke_edit_item();
     assert_eq!(app.get_ed_passkeys().row_count(), 1);
+    // Removing a passkey asks first (no master password).
     app.invoke_passkey_remove(0);
+    assert_eq!(app.get_confirm_kind(), 2);
+    assert_eq!(
+        app.get_ed_passkeys().row_count(),
+        1,
+        "nothing removed before the answer"
+    );
+    app.invoke_confirm_answered(true);
     assert_eq!(app.get_ed_passkeys().row_count(), 0);
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_detail_passkeys().row_count(), 0, "gone once saved");
     assert!(
         ask(r#"{"type":"passkeys","url":"https://github.com/login"}"#).contains(r#""items":[]"#)
@@ -1122,6 +1152,7 @@ fn whole_app_flow_headless() {
     assert!(app.get_ed_fields().row_data(0).unwrap().hidden);
     app.invoke_field_add(); // left empty: dropped on save
     app.invoke_save_item();
+    yes_if_asked(&app);
     let fields = app.get_detail_fields();
     assert_eq!(fields.row_count(), 1);
     assert_eq!(fields.row_data(0).unwrap().label, "Customer no.");
@@ -1142,7 +1173,9 @@ fn whole_app_flow_headless() {
     app.invoke_edit_item();
     assert_eq!(app.get_ed_fields().row_data(0).unwrap().value, "C-42");
     app.invoke_field_remove(0);
+    yes_if_asked(&app);
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_detail_fields().row_count(), 0);
 
     // ---- a change made outside this window is never overwritten ----
@@ -1229,10 +1262,12 @@ fn whole_app_flow_headless() {
     app.invoke_edit_item();
     app.set_ed_icon_url("  github.example ".into());
     app.invoke_save_item();
+    yes_if_asked(&app);
     app.invoke_edit_item();
     assert_eq!(app.get_ed_icon_url(), "https://github.example");
     app.set_ed_icon_url("".into());
     app.invoke_save_item();
+    yes_if_asked(&app);
 
     // ---- password history: the old password is kept when it changes ----
     assert_eq!(app.get_detail_title(), "GitHub");
@@ -1246,6 +1281,7 @@ fn whole_app_flow_headless() {
     );
     assert_eq!(app.get_ed_weakness(), 3, "a very common password");
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_detail_history_count(), 1);
     assert_eq!(app.get_detail_strength_score(), 0);
     assert_eq!(app.get_detail_age_unit(), 0, "changed today");
@@ -1299,6 +1335,7 @@ fn whole_app_flow_headless() {
     app.set_leak_watch(false);
     app.invoke_settings_changed();
     app.invoke_clear_history();
+    yes_if_asked(&app);
     assert_eq!(app.get_detail_history_count(), 0);
     assert_eq!(app.get_notice_code(), 24);
 
@@ -1677,6 +1714,7 @@ fn whole_app_flow_headless() {
     app.invoke_edit_item();
     app.set_ed_reprompt(true);
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert!(app.get_detail_locked(), "marked: locked from now on");
     assert!(
         ask(r#"{"type":"logins","url":"https://github.com/"}"#).contains(r#""locked":true"#),
@@ -1765,6 +1803,7 @@ fn whole_app_flow_headless() {
     assert_eq!(app.get_panel(), Panel::Editor);
     app.set_ed_reprompt(false);
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert!(!app.get_detail_guarded_open());
     app.invoke_lock_secrets();
     assert!(!app.get_detail_locked(), "no longer marked");
@@ -1889,6 +1928,7 @@ fn whole_app_flow_headless() {
     app.set_ed_title("Sealed at birth".into());
     type_into(&app, 4, "born-locked");
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(
         app.get_error_code(),
         0,
@@ -1941,6 +1981,7 @@ fn whole_app_flow_headless() {
     );
     assert_eq!(controller.generated_result(), None);
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(
         app.get_error_code(),
         0,
@@ -1967,6 +2008,7 @@ fn whole_app_flow_headless() {
     app.invoke_edit_item();
     type_into(&app, 4, &typed);
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(
         app.get_error_code(),
         0,
@@ -1990,6 +2032,7 @@ fn whole_app_flow_headless() {
     app.invoke_edit_item();
     type_into(&app, 4, "password123");
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(
         app.get_error_code(),
         0,
@@ -2877,6 +2920,7 @@ fn an_export_says_first_what_it_leaves_out_and_what_anyone_could_read() {
     app.set_ed_title("New".into());
     type_into(&app, 4, "another password");
     app.invoke_save_item();
+    yes_if_asked(&app);
     assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
     type_into(&app, 5, PASSWORD);
     app.invoke_export_plain();
@@ -3609,4 +3653,11 @@ fn the_toolbar_shows_the_vault_and_keeps_its_choices_here() {
     // Locked: the file's name, and the icon still (it is this computer's, not the vault's).
     assert_eq!(app.get_vault_initial(), "F");
     assert_eq!(app.get_vault_icon(), "briefcase");
+}
+
+/// Answers yes to the question a step may now ask (controller/confirm.rs), as the person would.
+fn yes_if_asked(app: &AppWindow) {
+    if app.get_confirm_kind() != 0 {
+        app.invoke_confirm_answered(true);
+    }
 }

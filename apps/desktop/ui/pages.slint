@@ -314,7 +314,12 @@ export component DetailPage inherits Rectangle {
     callback copy-url(int);
     // The site's page for changing the password (its `/.well-known/change-password`, or the
     // page the built-in list names).
-    callback change-password-at(int);
+    // "Change password" (a login with a website): the app makes a strong password and opens
+    // the site's page for changing it (the built-in list's, else the site's
+    // /.well-known/change-password, which most large sites answer); the browser extension
+    // offers that password there.
+    callback start-password-change();
+    in property <bool> can-change;
     // The item's secrets (password, codes, hidden fields) wait for a check; `check` says which:
     // 0 the master password, 1 a PIN, 2 another password.
     in property <bool> locked;
@@ -621,10 +626,6 @@ export component DetailPage inherits Rectangle {
                     text: @tr("Open");
                     clicked => { root.open-url(index); }
                 }
-                if root.kind == 0 && root.has-password && index == 0: QuietButton {
-                    text: @tr("Change password");
-                    clicked => { root.change-password-at(index); }
-                }
                 QuietButton {
                     text: @tr("Copy");
                     clicked => { root.copy-url(index); }
@@ -922,6 +923,11 @@ export component DetailPage inherits Rectangle {
                     outlined: true;
                     text: @tr("New item from it");
                     clicked => { root.new-from-template(); }
+                }
+                if root.can-change: QuietButton {
+                    outlined: true;
+                    text: @tr("Change password");
+                    clicked => { root.start-password-change(); }
                 }
                 QuietButton {
                     outlined: true;

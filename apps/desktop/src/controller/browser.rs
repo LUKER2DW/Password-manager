@@ -615,6 +615,15 @@ impl Controller {
         request: &[u8],
         device: Option<Zeroizing<Vec<u8>>>,
     ) -> Zeroizing<Vec<u8>> {
+        // A login being changed from the app ("Change password"): its site's new-password
+        // field is offered the password the app made for it.
+        if request_type(request) == "generate"
+            && let Some(answer) = self.pending_change_answer(request, |state, password, site| {
+                hold(&mut state.browser_generated, password, site)
+            })
+        {
+            return answer;
+        }
         let changes = changes_vault(&request_type(request));
         if changes && self.changed_outside() {
             self.set_error(error::CHANGED_OUTSIDE, "");
@@ -691,6 +700,7 @@ impl Controller {
             self.save_vault();
         }
         if let Some(kept) = answer.kept {
+            self.pending_change_used(&kept.password);
             self.record_generated(&kept.password, &kept.site);
         }
         // A site's word about passkeys (the Signal API): noted for the person.

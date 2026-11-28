@@ -264,6 +264,20 @@ impl Controller {
     }
 
     pub(super) fn file_remove(&self, index: i32) {
+        let name = usize::try_from(index).ok().and_then(|i| {
+            self.state
+                .borrow()
+                .editor_files
+                .get(i)
+                .map(|f| f.name.clone())
+        });
+        let Some(name) = name else {
+            return;
+        };
+        if !self.take_confirmed(super::confirm::kind::REMOVE_FILE) {
+            self.ask_confirm(super::confirm::kind::REMOVE_FILE, index, &name);
+            return;
+        }
         {
             let mut state = self.state.borrow_mut();
             if let Some(index) = usize::try_from(index)
@@ -291,6 +305,20 @@ impl Controller {
 
     /// Takes a passkey out of the edited login (gone when it is saved).
     pub(super) fn passkey_remove(&self, index: i32) {
+        let user = usize::try_from(index).ok().and_then(|i| {
+            self.state
+                .borrow()
+                .editor_passkeys
+                .get(i)
+                .map(|(_, row)| row.user.to_string())
+        });
+        let Some(user) = user else {
+            return;
+        };
+        if !self.take_confirmed(super::confirm::kind::REMOVE_PASSKEY) {
+            self.ask_confirm(super::confirm::kind::REMOVE_PASSKEY, index, &user);
+            return;
+        }
         {
             let mut state = self.state.borrow_mut();
             if let Some(index) = usize::try_from(index)

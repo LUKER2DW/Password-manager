@@ -912,8 +912,16 @@ export component AppWindow inherits Window {
     in property <string> revealed-field-value;
     callback reveal-field(int);
     callback open-url(int);
-    callback change-password-at(int);
+    callback start-password-change();
+    in property <bool> detail-can-change;
     callback passkey-signal(int, bool);
+    // A question before what takes a secret away (controller/confirm.rs): 0 none, 1 a login's
+    // password replaced, 2 a passkey removed in the editor, 3 a password history cleared, 4 a
+    // file removed, 5 a passkey its site no longer knows removed, 6 a hidden field removed, 7
+    // the generator's history cleared. `confirm-arg` names what it is about.
+    in-out property <int> confirm-kind;
+    in property <string> confirm-arg;
+    callback confirm-answered(bool);
     callback health-change(int);
     callback copy-url(int);
     in property <int> detail-brand;
@@ -1487,7 +1495,8 @@ export component AppWindow inherits Window {
                 revealed-field-value: root.revealed-field-value;
                 reveal-field(i) => { root.reveal-field(i); }
                 open-url(i) => { root.open-url(i); }
-                change-password-at(i) => { root.change-password-at(i); }
+                start-password-change => { root.start-password-change(); }
+                can-change: root.detail-can-change;
                 passkey-signal(i, yes) => { root.passkey-signal(i, yes); }
                 copy-url(i) => { root.copy-url(i); }
                 brand: root.detail-brand;
@@ -1951,6 +1960,28 @@ export component AppWindow inherits Window {
         clear-keyfile => { root.export-clear-keyfile(); }
         confirmed => { root.export-plain(); }
         cancelled => { root.export-cancel(); }
+    }
+    if root.screen == Screen.vault && root.confirm-kind != 0: ConfirmDialog {
+        width: root.width;
+        height: root.height;
+        title: root.confirm-kind == 1 ? @tr("Replace the password of “{}”?", root.confirm-arg)
+            : root.confirm-kind == 2 || root.confirm-kind == 5 ? @tr("Remove this passkey?")
+            : root.confirm-kind == 3 ? @tr("Clear the password history?")
+            : root.confirm-kind == 4 ? @tr("Remove “{}”?", root.confirm-arg)
+            : root.confirm-kind == 6 ? @tr("Remove the hidden field “{}”?", root.confirm-arg)
+            : @tr("Clear the history of generated passwords?");
+        text: root.confirm-kind == 1 ? @tr("The new password is saved in its place. The old one stays in the item's password history, in case the site didn't take the change.")
+            : root.confirm-kind == 2 ? @tr("The passkey for {} is gone once you save the item. The site still expects it until you remove it in the site's security settings too.", root.confirm-arg)
+            : root.confirm-kind == 5 ? @tr("The site says it no longer knows the passkey for {}. It is removed from this vault now, and from your other devices at their next sync.", root.confirm-arg)
+            : root.confirm-kind == 3 ? @tr("Every earlier password of this item is deleted. You can't get them back.")
+            : root.confirm-kind == 4 ? @tr("The file is gone once you save the item.")
+            : root.confirm-kind == 6 ? @tr("Its value is gone once you save the item.")
+            : @tr("Every password the generator made and you used is deleted from this list. The logins keep theirs.");
+        action: root.confirm-kind == 1 ? @tr("Replace") : root.confirm-kind == 3 || root.confirm-kind == 7 ? @tr("Clear") : @tr("Remove");
+        danger: true;
+        asks-master: false;
+        confirmed => { root.confirm-answered(true); }
+        cancelled => { root.confirm-answered(false); }
     }
     if root.screen == Screen.vault && root.panel == Panel.kit && root.kit-confirming-new-parts: ConfirmDialog {
         width: root.width;

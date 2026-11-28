@@ -474,6 +474,10 @@ impl Controller {
         let Some((id, _)) = self.selected_item() else {
             return;
         };
+        if !self.take_confirmed(super::confirm::kind::CLEAR_HISTORY) {
+            self.ask_confirm(super::confirm::kind::CLEAR_HISTORY, 0, "");
+            return;
+        }
         let cleared = self
             .state
             .borrow_mut()

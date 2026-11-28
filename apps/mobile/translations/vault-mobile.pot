@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: vault-mobile VERSION\n"
-"POT-Creation-Date: 2026-11-28 07:03+0000\n"
+"POT-Creation-Date: 2026-11-28 07:04+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -5488,92 +5488,109 @@ msgstr ""
 #: ../desktop/ui/model.slint:546
 msgctxt "Messages"
 msgid ""
-"A site said something about a passkey of “{}”: its page shows what, and "
-"lets you decide."
+"A strong password for “{}” is ready, and the site's page for changing it "
+"is open. On its new-password field the browser extension offers that "
+"password; after you send the form, it offers to update the login here."
 msgstr ""
 
 #: ../desktop/ui/model.slint:547
 msgctxt "Messages"
-msgid "Open the item's secrets first (the item lock), then decide."
+msgid ""
+"The site's page for changing the password of “{}” is open. Turn on the "
+"browser extension (Settings → Browser extension) and it offers a strong "
+"password there and updates the login; or edit the login here after you "
+"change it."
 msgstr ""
 
 #: ../desktop/ui/model.slint:548
+msgctxt "Messages"
+msgid ""
+"A site said something about a passkey of “{}”: its page shows what, and "
+"lets you decide."
+msgstr ""
+
+#: ../desktop/ui/model.slint:549
+msgctxt "Messages"
+msgid "Open the item's secrets first (the item lock), then decide."
+msgstr ""
+
+#: ../desktop/ui/model.slint:550
 msgctxt "Messages"
 msgid ""
 "The browser extension changed the rules for {}. Settings → Browser "
 "extension → Site rules shows them."
 msgstr ""
 
-#: ../desktop/ui/model.slint:549
+#: ../desktop/ui/model.slint:551
 msgctxt "Messages"
 msgid "Rules for {} added: choose what the extension doesn't do there."
 msgstr ""
 
-#: ../desktop/ui/model.slint:550
+#: ../desktop/ui/model.slint:552
 msgctxt "Messages"
 msgid "PDF password copied. The clipboard clears in {} seconds."
 msgstr ""
 
-#: ../desktop/ui/model.slint:551
+#: ../desktop/ui/model.slint:553
 msgctxt "Messages"
 msgid ""
 "“{}” is in the trash. It is deleted for good after 30 days; until then, "
 "Trash brings it back."
 msgstr ""
 
-#: ../desktop/ui/model.slint:552
+#: ../desktop/ui/model.slint:554
 msgctxt "Messages"
 msgid "“{}” is back from the trash."
 msgstr ""
 
-#: ../desktop/ui/model.slint:553
+#: ../desktop/ui/model.slint:555
 msgctxt "Messages"
 msgid ""
 "“{}” is archived: kept, out of search, filling and health. Archive lists "
 "it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:554
+#: ../desktop/ui/model.slint:556
 msgctxt "Messages"
 msgid "“{}” is out of the archive."
 msgstr ""
 
-#: ../desktop/ui/model.slint:555
+#: ../desktop/ui/model.slint:557
 msgctxt "Messages"
 msgid ""
 "The earlier version of “{}” is back; the one it replaced is kept among "
 "its earlier versions."
 msgstr ""
 
-#: ../desktop/ui/model.slint:556
+#: ../desktop/ui/model.slint:558
 msgctxt "Messages"
 msgid ""
 "{} syncs with a newer version of Vault, so its copy can't be used here. "
 "Update this app: Settings → About → Check for updates."
 msgstr ""
 
-#: ../desktop/ui/model.slint:556
+#: ../desktop/ui/model.slint:558
 msgctxt "Messages"
 msgid ""
 "A device syncs with a newer version of Vault, so its copy can't be used "
 "here. Update this app: Settings → About → Check for updates."
 msgstr ""
 
-#: ../desktop/ui/model.slint:557
+#: ../desktop/ui/model.slint:559
 msgctxt "Messages"
 msgid ""
 "{} still runs an older version of Vault, so its copy can't be used here. "
 "Update Vault on that device; it syncs again once it is updated."
 msgstr ""
 
-#: ../desktop/ui/model.slint:557
+#: ../desktop/ui/model.slint:559
 msgctxt "Messages"
 msgid ""
 "A device still runs an older version of Vault, so its copy can't be used "
 "here. Update Vault on that device; it syncs again once it is updated."
 msgstr ""
 
-#: ../desktop/ui/model.slint:558
+#: ../desktop/ui/model.slint:560
 msgctxt "Messages"
 msgid ""
 "The Secret Key couldn't be kept on this computer just now ({}). The vault is "
@@ -5581,7 +5598,7 @@ msgid ""
 "emergency kit."
 msgstr ""
 
-#: ../desktop/ui/model.slint:559
+#: ../desktop/ui/model.slint:561
 msgctxt "Messages"
 msgid ""
 "Vault {} has already opened this vault on this computer, and this copy is "
@@ -5590,7 +5607,7 @@ msgid ""
 "→ Check for updates."
 msgstr ""
 
-#: ../desktop/ui/model.slint:560
+#: ../desktop/ui/model.slint:562
 msgctxt "Messages"
 msgid ""
 "The browser extension is older than this Vault accepts (it needs {} or "
@@ -5599,96 +5616,96 @@ msgid ""
 "browser's extensions page."
 msgstr ""
 
-#: ../desktop/ui/model.slint:570
+#: ../desktop/ui/model.slint:572
 msgctxt "Messages"
 msgid "{n} attached file"
 msgid_plural "{n} attached files"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:571
+#: ../desktop/ui/model.slint:573
 msgctxt "Messages"
 msgid "{n} passkey"
 msgid_plural "{n} passkeys"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:572
+#: ../desktop/ui/model.slint:574
 msgctxt "Messages"
 msgid "{n} earlier password"
 msgid_plural "{n} earlier passwords"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:573
+#: ../desktop/ui/model.slint:575
 msgctxt "Messages"
 msgid "{n} website after an item's first"
 msgid_plural "{n} websites after an item's first"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:574
+#: ../desktop/ui/model.slint:576
 msgctxt "Messages"
 msgid "the dates of the items"
 msgstr ""
 
-#: ../desktop/ui/model.slint:578
+#: ../desktop/ui/model.slint:580
 msgctxt "Messages"
 msgid "{n} hidden field not marked hidden"
 msgid_plural "{n} hidden fields not marked hidden"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:579
+#: ../desktop/ui/model.slint:581
 msgctxt "Messages"
 msgid "{n} list of recovery codes as text"
 msgid_plural "{n} lists of recovery codes as text"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:580
+#: ../desktop/ui/model.slint:582
 msgctxt "Messages"
 msgid "{n} item as another kind"
 msgid_plural "{n} items as another kind"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:584
+#: ../desktop/ui/model.slint:586
 msgctxt "Messages"
 msgid "{n} password"
 msgid_plural "{n} passwords"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:585
+#: ../desktop/ui/model.slint:587
 msgctxt "Messages"
 msgid "{n} one-time code secret"
 msgid_plural "{n} one-time code secrets"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:586
+#: ../desktop/ui/model.slint:588
 msgctxt "Messages"
 msgid "{n} hidden field"
 msgid_plural "{n} hidden fields"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:587
+#: ../desktop/ui/model.slint:589
 msgctxt "Messages"
 msgid "{n} recovery code"
 msgid_plural "{n} recovery codes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:588
+#: ../desktop/ui/model.slint:590
 msgctxt "Messages"
 msgid "the notes of {n} item"
 msgid_plural "the notes of {n} items"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:589
+#: ../desktop/ui/model.slint:591
 msgctxt "Messages"
 msgid "{n} passkey with its private key, which signs in without a password"
 msgid_plural ""
@@ -5696,22 +5713,22 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:596
+#: ../desktop/ui/model.slint:598
 msgctxt "Messages"
 msgid "Not in this file: {}."
 msgstr ""
 
-#: ../desktop/ui/model.slint:597
+#: ../desktop/ui/model.slint:599
 msgctxt "Messages"
 msgid "In another form: {}."
 msgstr ""
 
-#: ../desktop/ui/model.slint:598
+#: ../desktop/ui/model.slint:600
 msgctxt "Messages"
 msgid "Readable by anyone with this file: {}."
 msgstr ""
 
-#: ../desktop/ui/model.slint:600
+#: ../desktop/ui/model.slint:602
 msgctxt "Messages"
 msgid ""
 "Don't open this file in a spreadsheet: {n} password or code secret starts "
@@ -5722,7 +5739,7 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:605
+#: ../desktop/ui/model.slint:607
 msgctxt "Messages"
 msgid ""
 "The item lock was changed on another device. To move the locked items to it, "
@@ -5730,7 +5747,7 @@ msgid ""
 "now (either one first)."
 msgstr ""
 
-#: ../desktop/ui/model.slint:606
+#: ../desktop/ui/model.slint:608
 msgctxt "Messages"
 msgid ""
 "The item lock was changed on another device. To move the locked items to it, "
@@ -5738,80 +5755,80 @@ msgid ""
 "until now (either one first)."
 msgstr ""
 
-#: ../desktop/ui/model.slint:607
+#: ../desktop/ui/model.slint:609
 msgctxt "Messages"
 msgid ""
 "The item lock was turned off, or changed to the master password, on another "
 "device. Open the item lock here once and the locked items follow it."
 msgstr ""
 
-#: ../desktop/ui/model.slint:613
+#: ../desktop/ui/model.slint:615
 msgctxt "Messages"
 msgid "today"
 msgstr ""
 
-#: ../desktop/ui/model.slint:614
+#: ../desktop/ui/model.slint:616
 msgctxt "Messages"
 msgid "{n} day ago"
 msgid_plural "{n} days ago"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:615
+#: ../desktop/ui/model.slint:617
 msgctxt "Messages"
 msgid "{n} month ago"
 msgid_plural "{n} months ago"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:616
+#: ../desktop/ui/model.slint:618
 msgctxt "Messages"
 msgid "{n} year ago"
 msgid_plural "{n} years ago"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../desktop/ui/model.slint:621
+#: ../desktop/ui/model.slint:623
 msgctxt "Messages"
 msgid "Keyboard patterns like qwerty are among the first guesses."
 msgstr ""
 
-#: ../desktop/ui/model.slint:622
+#: ../desktop/ui/model.slint:624
 msgctxt "Messages"
 msgid "Repeats like aaa or abcabc are easy to guess."
 msgstr ""
 
-#: ../desktop/ui/model.slint:623
+#: ../desktop/ui/model.slint:625
 msgctxt "Messages"
 msgid "This is one of the most used passwords."
 msgstr ""
 
-#: ../desktop/ui/model.slint:624
+#: ../desktop/ui/model.slint:626
 msgctxt "Messages"
 msgid "This is a common password with small changes."
 msgstr ""
 
-#: ../desktop/ui/model.slint:625
+#: ../desktop/ui/model.slint:627
 msgctxt "Messages"
 msgid "Sequences like abc or 1234 are easy to guess."
 msgstr ""
 
-#: ../desktop/ui/model.slint:626
+#: ../desktop/ui/model.slint:628
 msgctxt "Messages"
 msgid "Dates and years are easy to guess."
 msgstr ""
 
-#: ../desktop/ui/model.slint:627
+#: ../desktop/ui/model.slint:629
 msgctxt "Messages"
 msgid "A single word is easy to guess."
 msgstr ""
 
-#: ../desktop/ui/model.slint:628
+#: ../desktop/ui/model.slint:630
 msgctxt "Messages"
 msgid "Names and surnames are easy to guess."
 msgstr ""
 
-#: ../desktop/ui/model.slint:629
+#: ../desktop/ui/model.slint:631
 msgctxt "Messages"
 msgid "Too short and predictable."
 msgstr ""

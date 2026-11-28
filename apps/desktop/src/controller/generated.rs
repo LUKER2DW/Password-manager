@@ -272,6 +272,10 @@ impl Controller {
 
     /// Clears the whole history, file included.
     pub(super) fn clear_generated_history(&self) {
+        if !self.take_confirmed(super::confirm::kind::CLEAR_GENERATED) {
+            self.ask_confirm(super::confirm::kind::CLEAR_GENERATED, 0, "");
+            return;
+        }
         let id = self
             .state
             .borrow()

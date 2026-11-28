@@ -543,6 +543,8 @@ export global Messages {
         if (code == 99) { return @tr("Vault didn't take the browser extension of GitHub's release {}. It keeps the one it has.", arg); }
         if (code == 98) { return @tr("Vault couldn't check the browser extension's files ({}). It tries again in a few minutes; if this keeps coming back, restart the browser, then Vault.", arg); }
         if (code == 88) { return @tr("The vault key was renewed, but the vault locked before the new kit showed. Open Emergency kit and issue new recovery parts: the ones made then can't be shown again."); }
+        if (code == 144) { return @tr("A strong password for “{}” is ready, and the site's page for changing it is open. On its new-password field the browser extension offers that password; after you send the form, it offers to update the login here.", arg); }
+        if (code == 145) { return @tr("The site's page for changing the password of “{}” is open. Turn on the browser extension (Settings → Browser extension) and it offers a strong password there and updates the login; or edit the login here after you change it.", arg); }
         if (code == 142) { return @tr("A site said something about a passkey of “{}”: its page shows what, and lets you decide.", arg); }
         if (code == 143) { return @tr("Open the item's secrets first (the item lock), then decide."); }
         if (code == 140) { return @tr("The browser extension changed the rules for {}. Settings → Browser extension → Site rules shows them.", arg); }
