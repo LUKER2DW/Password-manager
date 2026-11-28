@@ -54,7 +54,8 @@ async function load() {
   const tab = here.tab;
   const [site, vault, status] = await Promise.all([
     tab?.url ? ask({ type: "logins", url: tab.url }) : { type: "error", code: "not_a_website" },
-    ask({ type: "vault" }),
+    // Only this page's logins, unless the app lets the window list the whole vault (S18).
+    ask({ type: "vault", url: tab?.url }),
     // Sealed like the rest: the app tells the vault's name to the connected extension only.
     ask({ type: "status" }),
   ]);

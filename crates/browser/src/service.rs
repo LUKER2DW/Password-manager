@@ -101,6 +101,17 @@ pub trait Gate {
     fn clipboard_seconds(&self) -> u32 {
         30
     }
+    /// The id of the pairing the request came through ([`crate::pairing::PairingKey::id`]):
+    /// a folder kept to one browser reaches only that one (S18). `None`: not known, and no
+    /// such folder is reached.
+    fn pairing(&self) -> Option<[u8; 8]> {
+        None
+    }
+    /// Whether the extension's window may list the whole vault ([`Request::Vault`]), as the
+    /// person chose; by default only the open page's logins (S18).
+    fn whole_vault(&self) -> bool {
+        false
+    }
     /// Holds a generated password until the person uses it or it is replaced; returns its id.
     fn remember(&mut self, password: Zeroizing<String>, site: String) -> String;
     /// The generated password `id`, taken out of what is held.
@@ -462,11 +473,11 @@ fn with_login<R>(
     act: impl FnOnce(&mut Vault, &ItemId, ItemData, bool) -> R,
 ) -> Result<R, Response> {
     let id = ItemId::from_hex(id).ok_or_else(|| error(ErrorCode::NoMatch))?;
+    let pairing = gate.pairing();
     let read = |vault: &Vault| {
-        vault
-            .get_item(&id)
-            .ok()
-            .filter(|item| item.kind == ItemKind::Login && belongs(item))
+        vault.get_item(&id).ok().filter(|item| {
+            item.kind == ItemKind::Login && vault.reaches_browser(item, pairing) && belongs(item)
+        })
     };
     let item = read(vault).ok_or_else(|| error(ErrorCode::NoMatch))?;
     if !(item.is_locked() || gate.locked(vault, &item)) {
@@ -514,13 +525,7 @@ fn saved_elsewhere(
         return None;
     }
     let mut found: Option<(String, Vec<String>)> = None;
-    for id in vault.item_ids() {
-        let Ok(item) = vault.get_item(&id) else {
-            continue;
-        };
-        if item.kind != ItemKind::Login {
-            continue;
-        }
+    for (_, item) in browser_logins(vault, gate) {
         let pages_own = item_matches(&item.urls, origin)
             || item
                 .urls
@@ -546,6 +551,20 @@ fn saved_elsewhere(
         }
     }
     found
+}
+
+/// The logins the extension may know of at all (S18): in use, not kept out of the browser, and
+/// not in a folder kept out of it or kept to another pairing.
+fn browser_logins<'a>(
+    vault: &'a Vault,
+    gate: &dyn Gate,
+) -> impl Iterator<Item = (ItemId, ItemData)> + 'a {
+    let pairing = gate.pairing();
+    vault.item_ids().filter_map(move |id| {
+        let item = vault.get_item(&id).ok()?;
+        (item.kind == ItemKind::Login && vault.reaches_browser(&item, pairing))
+            .then_some((id, item))
+    })
 }
 
 /// Whether a login to save is of a size a sign-in form could hold: what the extension sends
@@ -597,13 +616,7 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
             let mut items: Vec<LoginEntry> = Vec::new();
             // Every login's websites (not secret, locked or not): what the page may look like.
             let mut saved: Vec<String> = Vec::new();
-            for id in vault.item_ids() {
-                let Ok(item) = vault.get_item(&id) else {
-                    continue;
-                };
-                if item.kind != ItemKind::Login {
-                    continue;
-                }
+            for (id, item) in browser_logins(vault, gate) {
                 if item_matches(&item.urls, &origin) {
                     items.push(LoginEntry {
                         id: id.to_hex(),
@@ -723,14 +736,8 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 return error(ErrorCode::KitKey).into();
             }
             // The first login of this site with that username, in the order they are listed.
-            let mut matches: Vec<(ItemId, ItemData)> = vault
-                .item_ids()
-                .filter_map(|id| Some((id, vault.get_item(&id).ok()?)))
-                .filter(|(_, item)| {
-                    item.kind == ItemKind::Login
-                        && item.username == username
-                        && item_matches(&item.urls, &origin)
-                })
+            let mut matches: Vec<(ItemId, ItemData)> = browser_logins(vault, gate)
+                .filter(|(_, item)| item.username == username && item_matches(&item.urls, &origin))
                 .collect();
             matches.sort_by_key(|(_, item)| item.title.to_lowercase());
             match matches.into_iter().next() {
@@ -774,7 +781,9 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                     return error(ErrorCode::NoMatch).into();
                 };
                 let Some(item) = vault.get_item(&item_id).ok().filter(|item| {
-                    item.kind == ItemKind::Login && item_matches(&item.urls, &origin)
+                    item.kind == ItemKind::Login
+                        && vault.reaches_browser(item, gate.pairing())
+                        && item_matches(&item.urls, &origin)
                 }) else {
                     return error(ErrorCode::NoMatch).into();
                 };
@@ -815,16 +824,26 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 Err(response) => response.into(),
             }
         }
-        (Request::Vault {}, _) => {
-            let mut items: Vec<VaultEntry> = vault
-                .item_ids()
-                .filter_map(|id| {
-                    let item = vault.get_item(&id).ok()?;
-                    if item.kind != ItemKind::Login {
-                        return None;
-                    }
+        (Request::Vault { url }, _) => {
+            // Only the open page's logins, unless the person let the window list them all: a
+            // stolen pairing learns no more than the sites it asks about (S18).
+            let page = if gate.whole_vault() {
+                None
+            } else {
+                match url.as_deref().map(Origin::of_page) {
+                    Some(Ok(origin)) => Some(Some(origin)),
+                    _ => Some(None),
+                }
+            };
+            let mut items: Vec<VaultEntry> = browser_logins(vault, gate)
+                .filter(|(_, item)| match &page {
+                    None => true,
+                    Some(Some(origin)) => item_matches(&item.urls, origin),
+                    Some(None) => false,
+                })
+                .map(|(id, item)| {
                     let sealed = item.sealed.as_ref();
-                    Some(VaultEntry {
+                    VaultEntry {
                         id: id.to_hex(),
                         title: item.title.clone(),
                         username: item.username.clone(),
@@ -833,7 +852,7 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                         has_password: sealed
                             .map_or(!item.password.is_empty(), |sealed| sealed.has_password),
                         has_code: sealed.map_or(!item.totp.is_empty(), |sealed| sealed.has_totp),
-                    })
+                    }
                 })
                 .collect();
             items.sort_by_key(|entry| (entry.title.to_lowercase(), entry.username.to_lowercase()));
@@ -907,7 +926,9 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
             // A username is shown even while locked: nothing to open.
             let item = ItemId::from_hex(&id)
                 .and_then(|id| vault.get_item(&id).ok())
-                .filter(|item| item.kind == ItemKind::Login);
+                .filter(|item| {
+                    item.kind == ItemKind::Login && vault.reaches_browser(item, gate.pairing())
+                });
             match item {
                 Some(item) => Outcome {
                     copy: Some(Copy {
@@ -964,13 +985,8 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
             if holds_kit_key(password.as_str()) || holds_kit_key(&username) {
                 return error(ErrorCode::KitKey).into();
             }
-            let existing = vault.item_ids().any(|id| {
-                vault.get_item(&id).is_ok_and(|item| {
-                    item.kind == ItemKind::Login
-                        && item.username == username
-                        && item_matches(&item.urls, &origin)
-                })
-            });
+            let existing = browser_logins(vault, gate)
+                .any(|(_, item)| item.username == username && item_matches(&item.urls, &origin));
             if existing {
                 return Response::Saved {
                     existing: true,
@@ -1015,13 +1031,7 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                 .filter_map(|id| unbase64(id))
                 .collect();
             let mut items: Vec<PasskeyEntry> = Vec::new();
-            for id in vault.item_ids() {
-                let Ok(item) = vault.get_item(&id) else {
-                    continue;
-                };
-                if item.kind != ItemKind::Login {
-                    continue;
-                }
+            for (id, item) in browser_logins(vault, gate) {
                 let locked = item.is_locked() || gate.locked(vault, &item);
                 for passkey in item.passkeys.iter().filter(|p| {
                     p.rp_id == rp_id && (list.is_empty() || allow.contains(&p.credential_id))
@@ -1244,13 +1254,8 @@ fn create_passkey(
         .filter_map(|id| unbase64(id))
         .collect();
     let mut target = None;
-    for id in vault.item_ids() {
-        let Ok(item) = vault.get_item(&id) else {
-            continue;
-        };
-        if item.kind != ItemKind::Login {
-            continue;
-        }
+    let logins: Vec<(ItemId, ItemData)> = browser_logins(vault, gate).collect();
+    for (id, item) in logins {
         if item
             .passkeys
             .iter()
@@ -1374,6 +1379,9 @@ mod tests {
         /// Every use asks (Settings → Browser extension).
         always: bool,
         held: Vec<(String, Zeroizing<String>, String)>,
+        /// The window may list the whole vault; the pairing the requests come through.
+        whole: bool,
+        pairing: Option<[u8; 8]>,
     }
 
     impl TestGate {
@@ -1386,11 +1394,19 @@ mod tests {
                 hello: false,
                 always: false,
                 held: Vec::new(),
+                whole: true,
+                pairing: None,
             }
         }
     }
 
     impl Gate for TestGate {
+        fn whole_vault(&self) -> bool {
+            self.whole
+        }
+        fn pairing(&self) -> Option<[u8; 8]> {
+            self.pairing
+        }
         fn check(&self, _vault: &Vault) -> Check {
             self.kind
         }
@@ -1447,6 +1463,79 @@ mod tests {
             serde_json::from_slice(&answer.bytes).unwrap(),
             answer.filled,
         )
+    }
+
+    #[test]
+    fn what_is_kept_out_of_the_browser_never_reaches_it() {
+        let (mut vault, github, _) = vault();
+        let gh = ItemId::from_hex(&github).unwrap();
+        let mut gate = TestGate::new(Check::Pin);
+        let titles = |reply: &Value| -> Vec<String> {
+            reply["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| item["title"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        let logins = json!({"type": "logins", "url": "https://github.com/login"});
+        let fill = json!({"type": "fill", "url": "https://github.com/login", "id": github});
+
+        // The window lists only the open page's logins unless the person chose the whole vault.
+        gate.whole = false;
+        let (listed, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "vault", "url": "https://bank.example/"}),
+        );
+        assert_eq!(titles(&listed), ["Bank"]);
+        let (listed, _) = ask_with(Some(&mut vault), &mut gate, json!({"type": "vault"}));
+        assert!(titles(&listed).is_empty(), "an old extension names no page");
+        gate.whole = true;
+
+        // An item kept out, then one in a folder kept out, then one in the trash.
+        let mut item = vault.get_item(&gh).unwrap();
+        item.no_browser = true;
+        vault.update_item(&gh, &item).unwrap();
+        let (listed, _) = ask_with(Some(&mut vault), &mut gate, logins.clone());
+        assert_eq!(titles(&listed), ["GitHub (work)"]);
+        let (filled, _) = ask_with(Some(&mut vault), &mut gate, fill.clone());
+        assert_eq!(filled["code"], "no_match");
+        let (whole, _) = ask_with(Some(&mut vault), &mut gate, json!({"type": "vault"}));
+        assert!(!titles(&whole).contains(&"GitHub".to_owned()));
+
+        let folder = vault.add_folder("Private").unwrap();
+        item.no_browser = false;
+        item.folder = Some(folder);
+        vault.update_item(&gh, &item).unwrap();
+        vault
+            .set_folder_browser(&folder, vault_core::FolderBrowser::Only(*b"one-pair"))
+            .unwrap();
+        let (filled, _) = ask_with(Some(&mut vault), &mut gate, fill.clone());
+        assert_eq!(filled["code"], "no_match", "another pairing");
+        gate.pairing = Some(*b"one-pair");
+        let (filled, _) = ask_with(Some(&mut vault), &mut gate, fill.clone());
+        assert_eq!(filled["password"], "gh-secret");
+        vault
+            .set_folder_browser(&folder, vault_core::FolderBrowser::Never)
+            .unwrap();
+        let (filled, _) = ask_with(Some(&mut vault), &mut gate, fill.clone());
+        assert_eq!(filled["code"], "no_match");
+
+        vault
+            .set_folder_browser(&folder, vault_core::FolderBrowser::Any)
+            .unwrap();
+        vault.trash_item(&gh).unwrap();
+        let (filled, _) = ask_with(Some(&mut vault), &mut gate, fill);
+        assert_eq!(filled["code"], "no_match", "in the trash");
+        // A login saved for a site whose only login is in the trash is new, not "existing".
+        let (saved, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "save", "url": "https://github.com/login",
+                   "username": "octocat", "password": "new-secret"}),
+        );
+        assert_eq!(saved["existing"], false);
     }
 
     fn ask(vault: Option<&mut Vault>, request: Value) -> (Value, Option<String>) {

@@ -101,6 +101,8 @@ const PAIRING_INFO: &[u8] = b"vault-browser/pairing";
 const COMMIT_LABEL: &[u8] = b"vault-browser/pairing-commit";
 /// What the code both sides show starts with.
 const CODE_LABEL: &[u8] = b"vault-browser/pairing-code";
+/// Names a pairing ([`PairingKey::id`]).
+const PAIRING_ID_LABEL: &[u8] = b"vault-browser/pairing-id";
 /// The code's characters: letters and digits, without the ones read for one another
 /// (I l 1, O o 0).
 const CODE_ALPHABET: &[u8; 56] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
@@ -146,6 +148,19 @@ impl PairingKey {
 
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+
+    /// A short, non-secret name for this pairing: `SHA-256("vault-browser/pairing-id" ‖ K)[..8]`.
+    /// A folder kept to one browser names it (`vault_core::FolderBrowser::Only`): a pairing
+    /// made again, here or on another computer, has another id and doesn't reach that folder.
+    pub fn id(&self) -> [u8; 8] {
+        let digest = Sha256::new()
+            .chain_update(PAIRING_ID_LABEL)
+            .chain_update(self.0.as_ref())
+            .finalize();
+        let mut id = [0u8; 8];
+        id.copy_from_slice(&digest[..8]);
+        id
     }
 
     /// The key as hex, wiped on drop.

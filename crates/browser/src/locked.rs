@@ -243,7 +243,7 @@ pub fn answer_locked(message: &[u8], logins: &[LockedLogin], gate: &mut dyn Lock
                 None => finish(needs_hello(), None, None),
             }
         }
-        Request::Vault {} => {
+        Request::Vault { .. } => {
             let mut items: Vec<VaultEntry> = logins
                 .iter()
                 .map(|login| VaultEntry {

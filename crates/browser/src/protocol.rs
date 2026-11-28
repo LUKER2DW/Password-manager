@@ -109,9 +109,13 @@ pub enum Request {
         #[serde(default)]
         hello: bool,
     },
-    /// Every login in the vault, for the extension's own window: who and where, never a
-    /// password.
-    Vault {},
+    /// The logins the extension's own window lists: who and where, never a password. Only the
+    /// logins of the open page `url` (S18), unless the person let the window list the whole
+    /// vault ([`crate::service::Gate::whole_vault`]). Never what is kept out of the browser.
+    Vault {
+        #[serde(default)]
+        url: Option<String>,
+    },
     /// The password of login `id` (or, with `what: "code"`, its current one-time code), to
     /// show in the extension's window (never in a page).
     Reveal {
