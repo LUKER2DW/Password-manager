@@ -93,7 +93,7 @@ filesystem policy** beyond atomic writes.
 | `sync.rs` | What sync needs from the vault: writers, tombstones, devices, revisions |
 | `item.rs` | `ItemData`, `ItemSummary`, folders, recovery codes, password history, attachments |
 | `card.rs` | Payment cards: Luhn, brand detection, expiry, masking |
-| `ssh.rs` | SSH keys: a new Ed25519 key, a key brought in read in any common form (OpenSSH's, a passphrase asked once; PKCS#8, PKCS#1, SEC1) and kept in OpenSSH's without a passphrase, its public half, fingerprint and type (RustCrypto `ssh-key`) |
+| `ssh.rs` | SSH keys: a new Ed25519 key, a key brought in read in any common form (OpenSSH's, a passphrase asked once; PKCS#8, PKCS#1, SEC1) and kept in OpenSSH's without a passphrase, its public half, fingerprint and type (RustCrypto `ssh-key`); the SSH agent's signatures (`agent_sign`: Ed25519, ECDSA P-256/P-384, RSA with SHA-2) and the key blob it lists |
 | `generator.rs` | Passwords and passphrases (uniform sampling, word lists) |
 | `health.rs` | Strength (zxcvbn), reuse, age, the k-anonymous breach query, and the one-factor floor (`holds_alone`, CRYPTO.md §3.3.1) |
 | `attempts.rs` | Unlock attempts on one device: the count, the growing wait, its two clocks (THREAT_MODEL.md) |
@@ -102,6 +102,7 @@ filesystem policy** beyond atomic writes.
 | `kept_key.rs` | The Secret Key as a Windows device keeps it: sealed under a random key the TPM wraps (CRYPTO.md §2.2.1) |
 | `locked_fill.rs` | Logins the extension may fill while the vault is locked (CRYPTO.md §3.4) |
 | `passkey.rs` | Passkeys in logins: ES256 keys, authenticator data, attestation, signatures (CRYPTO.md §3.7) |
+| `hardware_key.rs` | A hardware key as a factor (designed, CRYPTO.md §3.13): its slot sealing the vault's hardware factor, and the factor's key; not in the file format yet |
 | `totp.rs` | RFC 6238 one-time codes, RFC 4226 counter-based ones (`otpauth://hotp/`), five-character codes (`encoder=steam`), links made from an export's parts (`LinkParts`) |
 | `storage.rs` | Atomic file writes with a `.bak` copy |
 | `random.rs` | OS randomness |
@@ -125,7 +126,10 @@ Windows Hello quick unlock (`quick_unlock.rs`), the master password typed on a s
 of its own (`secure_desktop.rs`), the security log of each vault on this device
 (`security_log.rs`, sealed to a key only the open vault reads), DPAPI (`dpapi.rs`), keyfiles on disk
 (`keyfile.rs`), the person's language (`locale.rs`), installed browsers and the default one (`browsers.rs`), the
-extension's local pipe and host registration (`browser_link.rs`), the extension's own folder
+extension's local pipe and host registration (`browser_link.rs`), the SSH agent's protocol and
+pipe (`ssh_agent.rs`), auto-type into the window behind the app (`autotype.rs`, `SendInput`
+behind a `Desktop` trait), a hardware key asked through `webauthn.dll` behind a trait with a
+stand-in (`hardware_key.rs`; designed, only the API version read so far), the extension's own folder
 that the browser loads it from, kept as the app wrote it (`extension_folder.rs`), where its
 files come from: a GitHub release's zip read strictly, a folder of the person's, or the copy
 built into the app (`extension_source.rs`), the
@@ -234,6 +238,8 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/syncing.rs` | Sync through a folder, the server or WebDAV: Settings → Sync (join, add a device with a QR code, remove one), rounds at unlock, after saves, every 5 minutes, on the server's news and on demand (the target read and written off the UI thread) |
 | `src/controller/locked_fill.rs` | Filling from the browser while the vault is locked |
 | `src/controller/attachments.rs` | Files attached to items and SSH key items in the editor and on the item page |
+| `src/controller/ssh_agent.rs` | The SSH agent: Settings → Security, its pipe, every signature approved in a dialog ("don't ask again" 5 minutes for one key and program), the item lock respected |
+| `src/controller/autotype.rs` | Auto-type: the window behind the app, its title and a 3-second countdown, then username, Tab, password, Enter while that window has the keyboard |
 | `src/controller/watch.rs` | The leak watch: every login checked once a day while open, new leaks told and shown on Password health |
 | `src/controller/passwords.rs` | A new password's review: the one-factor floor's warnings, the breach check of a new master password, the protected export's refusal (`ui/review.slint`) |
 | `src/controller/attempts.rs` | Unlock attempts: counted in the device state, the wait enforced and counted down, told once at the next unlock |

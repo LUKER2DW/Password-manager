@@ -955,6 +955,14 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   check; never-fill rules hold for them too. ⬜ Tried in a real Chrome on a checkout with an
   embedded provider's frame, and on an address form.
 - ⬜ F6. Unlock with a hardware key (challenge-response, or FIDO2 `hmac-secret`).
+  Designed (CRYPTO.md §3.13): FIDO2 `hmac-secret` through Windows' `webauthn.dll`, each
+  enrolled key wrapping one hardware factor that joins the password slot's KEK, recovery
+  unchanged. Done without the format: the slot's sealing and the factor's key
+  (`vault_core::hardware_key`, a known-answer HKDF vector computed apart), the `HardwareKey`
+  trait with a stand-in and the API version check (`vault_platform::hardware_key`). Still to
+  do: the header's fields (a format version: slot kinds, the enrolled keys, the factor
+  sealed under the vault key), the two `webauthn.dll` calls tried with a real key, the
+  unlock and Settings screens, the CLI and the phone.
 - ✅ F7. Identity items (`ItemKind::Identity`, details as fields with fixed names,
   `vault_core::identity`, document numbers hidden; JSON import and export as the common
   layout's identities) and templates (`template`: listed apart, never filled, "New item from
@@ -962,7 +970,16 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   and archived items stay on the desktop.
 - ✅ F8. Tags (searched, `#tag` too) and an expiry date on items; Password health lists what
   expires within 30 days (`HealthReport::expiring`, under Expiring).
-- ⬜ F9. SSH agent, with approval for each use.
+- ✅ F9. SSH agent, with approval for each use: Settings → Security (off by default); OpenSSH's
+  agent protocol on `\\.\pipe\openssh-ssh-agent` or, when Windows' agent holds it, a pipe of
+  its own with the `SSH_AUTH_SOCK` line to copy (`vault_platform::ssh_agent`, its access list
+  the user's alone); the vault's SSH keys listed while open, every signature approved in a
+  dialog naming the key, the program and its parent, and what it is for (sign-in user or
+  SSHSIG namespace), "don't ask again" 5 minutes for one key and program, the item lock
+  respected, everything refused at the lock (`controller/ssh_agent.rs`); signatures by
+  `vault_core::ssh::agent_sign` (Ed25519, ECDSA P-256/P-384, RSA SHA-256/512; SHA-1 refused).
+  Tests: each signature checked by its crate's verifier, the protocol cut anywhere, the real
+  pipe with two test clients, the app's whole flow headless.
 - ✅ F10. Credential Exchange Format (CXF) import and export. CXF 1.0, the FIDO Alliance's
   Proposed Standard of 14 August 2025 (`vault_import::cxf`): basic-auth, passkeys (PKCS#8),
   TOTP, notes, cards, SSH keys (PKCS#8, `vault_core::ssh::pkcs8_der`) and custom fields onto
@@ -972,7 +989,13 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   the export dialog), leaves files and earlier passwords out (counted). Desktop: Export →
   "Credential Exchange (CXF), not encrypted"; Import detects it. Still to do: the Credential
   Exchange Protocol (app to app, HPKE), when platforms offer it to third-party apps.
-- ⬜ F11. Auto-type into programs outside the browser.
+- ✅ F11. Auto-type into programs outside the browser: the item page's Auto-type and the
+  right-click menu type username, Tab, password and Enter (`SendInput`, Unicode characters)
+  into the window behind the app after its title and a 3-second countdown, only while that
+  window (same handle, program and title) has the keyboard, never into the app's own, not
+  with Ctrl, Alt, Shift or Win held; a locked login types nothing, the lock cancels it
+  (`vault_platform::autotype`, `controller/autotype.rs`). Limits in THREAT_MODEL §3.
+
 - ⬜ F12. Distribution: the extension in the stores, an installer, the desktop updating itself.
   Done: the desktop app writes the extension into a folder of its own
   (`vault_platform::extension_folder`): by default the newest GitHub release's zip, taken with
@@ -1004,7 +1027,10 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   version is only told and Install now does the same. A folder that can't be written is told
   and the release page opens.
 - ⬜ F13. Sharing and emergency access (a written design first, `docs/spec/SHARING.md`).
-- ⬜ F14. Passkey provider for Windows 11.
+- ⬜ F14. Passkey provider for Windows 11. Designed (ARCHITECTURE.md §5.2): the plugin
+  passkey manager API, what it needs (package identity, a COM server, Windows' credential
+  list), what is reused (`vault_core::passkey`, the Android provider's flow) and the risks;
+  no code until it can be tried on Windows 11.
 - ⬜ F15. Linux, macOS, and the CLI level with the apps.
 - ✅ F16. Per-site rules: never offer to save, never show the card, never fill, no passkeys
   (`vault_browser::rules`), for a host and the hosts under it, the most specific winning.

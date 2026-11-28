@@ -724,6 +724,30 @@ On top of that:
   The extension never forgets its connection key by itself; it offers to connect again only
   when the app keeps refusing it.
 
+**Programs outside the browser: the SSH agent and auto-type (M10 F9, F11)**
+- **The SSH agent** (off by default) answers on a named pipe only the signed-in user may open,
+  remote clients refused, and never hands out a private key: a program gets one signature at
+  a time, made in the app. Any program of this user can connect and ask, so every signature
+  is approved in the app's dialog, which names the key, the program Windows says connected
+  (and the one that started it) and what the request says it is for. Those names are hints:
+  malware can start `ssh.exe` itself, or write a sign-in request for any user name. What the
+  approval buys is that nothing signs while the person isn't looking; what it doesn't is a
+  person who approves a request they didn't start. "Don't ask again" (5 minutes at most, one
+  key and one program path, gone when the vault locks) widens that: within it, any process
+  running that program signs silently. A key behind the item lock signs nothing until the
+  lock is open; a locked vault lists no keys. While the app holds `\\.\pipe\openssh-ssh-agent`
+  no other agent can take it; while it doesn't run, any program of the user could take that
+  name and receive the sign-in requests of `ssh` (not keys: it has none to answer with).
+- **Auto-type** types the username, Tab, the password and Enter into the window behind the app
+  as keystrokes (`SendInput`), after showing that window's title for 3 seconds, and only while
+  that same window has the keyboard. It can't protect what is typed: **a keylogger or any
+  program that hooks the keyboard sees every character**, exactly as if the person typed the
+  password, and a program that changes its window's title to look like another can receive it
+  if the person doesn't read the title. That is the trade-off of typing into programs that
+  have no other way in; copying (cleared from the clipboard, out of its history) and the
+  browser extension leak less. Windows silently drops keys meant for a window of a program
+  running as administrator (UIPI): nothing is typed there, and the app can't tell.
+
 **Files with secrets outside the vault** (each a deliberate, visible choice):
 - Printed emergency kit: the temporary PDF lives in `<app dir>/print` and is overwritten and
   deleted on lock, on exit and at the next start; a kit with keys in it is protected by the

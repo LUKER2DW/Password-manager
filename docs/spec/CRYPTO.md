@@ -807,6 +807,99 @@ The Credential Exchange Format export (`vault_import::export_cxf`) is not encryp
 JSON one manager hands another (CXF 1.0, FIDO Alliance Proposed Standard of 14 August 2025),
 and it carries passkeys' private keys as PKCS#8 DER, as the format requires. The export dialog
 counts them as readable by anyone with the file.
+### 3.13 Hardware key (designed, M10 F6; the format carries it from a later version)
+
+> Status: **design**. The device side (asking a key, the derivation below) is in the code
+> (`vault_platform::hardware_key`, `vault_core::keys::hardware_factor_kek`); the header's
+> fields are not written yet: they come with a format version of their own (§5.1 of
+> AGENTS.md), so nothing on disk changes until then.
+
+A hardware security key is a fourth factor, beside the master password, the Secret Key and
+the keyfile: the vault opens only when the key answers, with a touch. It answers through
+FIDO2's **`hmac-secret`** extension (CTAP 2.1 §12.5; WebAuthn's `prf` is the same thing in a
+browser): the key holds a secret of its own, per credential, that never leaves it, and returns
+HMAC-SHA-256(that secret, salt) for a salt the app hands it, only after a touch (user
+presence), with its PIN where the key asks for one (user verification).
+
+**Why `hmac-secret` and not the OTP applet's HMAC-SHA1 challenge-response.** Both give a
+fixed answer for a fixed question, which is what a key slot needs. `hmac-secret`:
+- works with any FIDO2 key (YubiKey 5, Solo, Nitrokey 3, Feitian, Token2 and others), not only
+  keys with Yubico's OTP applet;
+- always asks for a touch, and can ask for the key's PIN; the OTP slot answers without a
+  touch unless it was set up so, and a program of the person's could ask it silently;
+- is reached on Windows through Windows' own WebAuthn API (`webauthn.dll`), which needs no
+  administrator and shows Windows' own prompt. Since Windows 10 1903 a program without
+  administrator rights can't talk to a FIDO key over USB HID at all; the OTP applet is a
+  different HID interface that it can still reach, but only through a library of HID calls
+  of our own (no maintained crate covers it on Windows without libusb).
+- is what the phones offer too (Android's Credential Manager and iOS pass `prf` through), so
+  one design serves every app.
+
+The cost: the answer is bound to a credential made for this vault, so a key is *enrolled*
+(one touch, `makeCredential` with `hmac-secret: true`), and its credential id is kept in the
+header. Windows' API passes an `hmac-secret` salt to the key only from its version 3 on
+(`WebAuthNGetApiVersionNumber`, `pHmacSecretSaltValues` in the assertion's options); the app
+reads the version first and says when this Windows can't use a hardware key. (Which Windows
+releases carry version 3 is to be confirmed with a real key before this ships; a Windows 10
+22H2 computer reports version 2, so there the hardware key is refused, and the phone or a
+newer Windows is needed.)
+
+**Derivation.** Each enrolled key *i* has a credential id `cred_i` (at most 1023 bytes) and a
+random 32-byte salt `salt_i` in the header. The vault has one random 32-byte
+`hardware_factor`, the same whichever key answers:
+
+```
+answer_i         = hmac-secret(cred_i, salt = salt_i)                    32 bytes, from the key
+wrap_i           = HKDF-SHA-256(ikm = answer_i, salt = vault_id,
+                                info = "vault-v0/hardware-key/wrap")     → 32 bytes
+hardware_slot_i  = seal(wrap_i, hardware_factor,
+                        AAD = "vault-v0/hardware-key" ‖ vault_id ‖ SHA-256(cred_i))
+hardware_factor_key = HKDF-SHA-256(ikm = hardware_factor, salt = vault_id,
+                                   info = "vault-v0/hardware-key/factor") → 32 bytes
+KEK_password     = HKDF-SHA-256(ikm  = password_key ‖ secret_key [‖ keyfile_key]
+                                       ‖ hardware_factor_key,
+                                salt = vault_id,
+                                info = "vault-v0/kek/password+hardware-key"
+                                     | "vault-v0/kek/password+keyfile+hardware-key")
+```
+
+- Only the existing primitives: HKDF-SHA-256 and the key-committing AEAD (§5). The key's
+  answer is used as HKDF input keying material only.
+- **More than one key** (a spare, kept elsewhere): each wraps the same `hardware_factor`, so
+  any one of them opens the vault, and adding a spare while the vault is open needs no other
+  key (the open vault keeps `hardware_factor` sealed under `subkey("hardware-factor")` in the
+  header's body, so it is known while open and never without the vault key). Removing a key
+  deletes its slot; removing the last one, or one the person thinks was copied, draws a new
+  `hardware_factor` and rewrites the password slot and every remaining key's slot.
+- The salt is fixed per key (a slot must open the same way every time), and is not secret.
+  `answer_i` is: anyone who once has the key in hand, with its PIN if it has one, can read
+  it, as anyone who once has a keyfile can copy it. Rewriting the slots with new salts on each
+  password change limits how long such a read stays useful.
+- A different `info` and slot kind keep the derivation apart from the keyfile's (§3.0); the
+  slot's AAD binds it to this vault and to this credential.
+- **Recovery** is unchanged: the recovery parts (or the Recovery Key of an older kit) open the
+  vault without the hardware key, and recovering resets the lock to master password and (new)
+  Secret Key, as with a keyfile. A lost key is never a lost vault.
+- **Device unlock** (§3.1) stays bound to the password slot: setting or removing a hardware key
+  rewrites that slot, which revokes every Windows Hello and fingerprint unlock, as the keyfile
+  does.
+- The CLI and the phone read the same slots; a device that can't reach a key opens such a
+  vault only with the recovery parts.
+
+**What the header must carry** (the format version that brings it): a slot kind
+`PasswordHardwareKey` and `PasswordKeyfileHardwareKey` beside `Password` and
+`PasswordKeyfile`; a list of enrolled keys, each `{ credential id (≤ 1023 bytes), salt (32
+bytes), name (the person's, ≤ 64 characters), relying party id ("vault.local"), whether the
+key asked for its PIN, sealed hardware_slot }`, at most 8; and `hardware_factor` sealed under
+`subkey("hardware-factor")`. A reader that finds a hardware-key slot kind it doesn't know
+refuses the file (fail closed, §4.1 rule 9).
+
+**What it stops, and what it doesn't** (THREAT_MODEL.md §3): a keylogger with the master
+password, together with the Secret Key taken from this computer, still can't open a copy of
+the vault elsewhere without the key in hand and a touch. Malware running while the vault is
+open has the vault key all the same; malware that asks the key while the person touches it
+for something else gets one answer, which is why the app asks only when the person unlocks
+and Windows' prompt names the app.
 
 ## 4. Argon2id parameters
 

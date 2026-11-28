@@ -171,6 +171,81 @@ with HPKE and a hybrid X25519 + ML-KEM-768 KEM against "harvest now, decrypt lat
   certificate (defence against AutoSpill), and a web page's origin only from a browser known
   by its release certificate.
 
+### 5.1 Programs outside the browser (M10 F9, F11)
+
+- **SSH agent** (Settings → Security, off by default): the desktop app answers OpenSSH's
+  agent protocol (`vault_platform::ssh_agent`, `controller/ssh_agent.rs`) on
+  `\\.\pipe\openssh-ssh-agent`, where Windows' OpenSSH looks, or on a pipe of its own when
+  Windows' agent service holds that name (Settings shows the `SSH_AUTH_SOCK` line). Only the
+  signed-in user may open the pipe. It lists the vault's SSH key items while the vault is open
+  and makes each signature in the app (`vault_core::ssh::agent_sign`) after the person
+  approves it in a dialog that names the key, the program Windows says asked (and the one
+  that started it) and what the request says it is for; "don't ask again" lasts 5 minutes for
+  one key and one program and ends with the lock. A key behind the item lock signs nothing
+  until the lock is open. Keys are never added, removed or handed out through the agent.
+- **Auto-type** (item page and right-click menu, logins): the username, Tab, the password and
+  Enter typed with `SendInput` (Unicode characters) into the window right behind the app,
+  after its title is shown with a 3-second countdown, and only while that same window has
+  the keyboard (`vault_platform::autotype`, `controller/autotype.rs`). Its limits are in
+  THREAT_MODEL.md §3.
+
+### 5.2 Passkeys for every Windows program (M10 F14, design only)
+
+Windows 11 lets a password manager be a **passkey provider** for the whole system (the
+"plugin passkey manager" API in `webauthnplugin.h`, Windows 11 24H2 and later with the
+updates that bring it): every browser and app that asks Windows for a passkey
+(`webauthn.dll`) gets the vault's, not only pages the extension sees. This computer runs
+Windows 10, so nothing of it can be tried here; this is the plan, to be checked against the
+SDK's headers and a Windows 11 machine before any code.
+
+What the API needs (as documented; to be confirmed):
+- **Package identity.** The provider is registered by an app with an identity: an MSIX
+  package, or the unpackaged exe with a sparse package beside it (an installer's job, F12).
+  `WebAuthNPluginAddAuthenticator` registers it with a name, an icon, its AAGUID and the
+  CLSID of a COM class; the person then turns it on in Settings → Accounts → Passkeys →
+  Advanced options.
+- **A COM server** (`IPluginAuthenticator`: `MakeCredential`, `GetAssertion`,
+  `CancelOperation`, `GetLockStatus`), started by Windows out of process: the desktop app's
+  own executable with an argument, as the browser's native host is. Requests arrive as CTAP2
+  `authenticatorMakeCredential` / `authenticatorGetAssertion` in CBOR, signed by Windows (the
+  provider checks the signature with the key `WebAuthNPluginGetOperationSigningPublicKey`
+  gives), with the window to show its UI over; `webauthn.dll` has helpers to decode them and
+  encode answers.
+- **A list of credentials** Windows keeps to show in its own picker
+  (`WebAuthNPluginAuthenticatorAddCredentials` / `…RemoveCredentials`): the rp id, the
+  credential id, the user's name and display name. Kept in step with the vault when it is
+  unlocked and when passkeys change, and emptied when the provider is turned off.
+- **User verification** through Windows (`WebAuthNPluginPerformUserVerification`: the Windows
+  Hello prompt, shown for the provider), or the provider's own UI.
+
+What we reuse:
+- `vault_core::passkey`: the key pair, authenticator data (flags, no counter), the `none`
+  attestation, the ES256 signature: the same bytes the extension's passkeys use.
+- The Android provider's shape (`apps/mobile/src/passkeys.rs`, `apps/mobile-android`'s
+  `src/passkeys.rs`): a request → the matching passkeys by rp id → the person picks one →
+  the item lock and "every use asks" → sign → answer; and the browser link's rules for which
+  passkeys a request may see (`vault_browser::service`), minus the page origin, which Windows
+  (or the browser) has already checked.
+- The browser link's process model: the exe started by Windows talks to the running app over
+  the user's pipe, checked both ways by the program's path; the open vault answers, a locked
+  vault reports `locked` and Windows shows the unlock UI the provider asks for.
+- A CBOR reader and writer (`ciborium`, maintained) if `webauthn.dll`'s helpers don't cover
+  every field; the CBOR the core writes today is small and written by hand only for output.
+
+Risks:
+- **Any program can ask.** For an app (not a browser), Windows passes the rp id the app asks
+  for; a malicious program of the user's can ask for `google.com`'s passkey. Each use must
+  show which program asks and for which site, and ask verification every time (no grace),
+  as the SSH agent does.
+- **Distribution:** package identity means a signed package or a sparse package, which the
+  project doesn't ship yet (F12, code signing still pending).
+- **Two providers at once:** the extension's own passkeys and Windows' would both answer in a
+  browser; the extension should stand back when the system provider is on.
+- **API churn:** the API is new and versioned; a version the app doesn't know is refused, and
+  the feature stays off on Windows 10.
+- **Sync:** Windows' credential list must never show passkeys of a vault that isn't open on
+  this computer, nor keep names after the vault is removed.
+
 ## 6. Sync
 
 Full design: [spec/SYNC.md](spec/SYNC.md). In short:
