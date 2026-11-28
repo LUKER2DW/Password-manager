@@ -41,5 +41,5 @@ pub mod updates;
 pub mod website_icons;
 pub mod wiping_alloc;
 
-pub use device::{DeviceState, RollbackStatus, StateFile, SyncPlace, SyncTo};
+pub use device::{DeviceState, RollbackStatus, StateFile, SyncPlace, SyncTo, VersionStatus};
 pub use secure_buffer::SecretBuffer;

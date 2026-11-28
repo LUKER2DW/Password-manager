@@ -76,6 +76,10 @@ struct VaultState {
     /// that this device can't open, was written before by a device yet to take the new key.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     retired_unlocks: Vec<String>,
+    /// The newest version of the apps (the desktop app, the `vault` command: released together,
+    /// at one version) that opened this vault on this device, `x.y.z`. Never lowered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    highest_version: Option<String>,
 }
 
 /// How many of a vault's earlier ids on this device are remembered.
@@ -293,7 +297,44 @@ pub enum RollbackStatus {
     },
 }
 
+/// What [`DeviceState::note_version`] found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VersionStatus {
+    Ok,
+    /// A newer version of the apps opened this vault on this device before: the one running
+    /// may be an old copy put back in place of the newest, with a fault fixed since. The vault
+    /// still opens; the person is told.
+    Older {
+        running: String,
+        highest: String,
+    },
+}
+
 impl DeviceState {
+    /// Notes that version `running` of the apps (`x.y.z`, the program's own) opened vault
+    /// `vault_id`, and says whether a newer one did before. The version kept only ever goes
+    /// up: an older one leaves it as it is, and one that isn't `x.y.z` is not kept.
+    pub fn note_version(&mut self, vault_id: &str, running: &str) -> VersionStatus {
+        let Some(now) = vault_sync_wire::parse_version(running) else {
+            return VersionStatus::Ok;
+        };
+        let entry = self.vaults.entry(vault_id.to_owned()).or_default();
+        match entry.highest_version.as_deref() {
+            Some(highest)
+                if vault_sync_wire::parse_version(highest).is_some_and(|seen| seen > now) =>
+            {
+                VersionStatus::Older {
+                    running: running.to_owned(),
+                    highest: highest.to_owned(),
+                }
+            }
+            _ => {
+                entry.highest_version = Some(running.to_owned());
+                VersionStatus::Ok
+            }
+        }
+    }
+
     /// Vault files opened on this device, most recent first.
     pub fn recent_vaults(&self) -> Vec<std::path::PathBuf> {
         self.recent_vaults
@@ -629,6 +670,41 @@ mod tests {
             fs::read(dir.path().join("state.json.unreadable")).unwrap(),
             b"{ damaged"
         );
+    }
+
+    #[test]
+    fn the_newest_version_that_opened_a_vault_is_kept_and_never_lowered() {
+        let mut state = DeviceState::default();
+        assert_eq!(state.note_version("v1", "0.4.7"), VersionStatus::Ok);
+        assert_eq!(state.note_version("v1", "0.4.10"), VersionStatus::Ok);
+        // An older one is told of, every time, and leaves the newest as it was.
+        for _ in 0..2 {
+            assert_eq!(
+                state.note_version("v1", "0.4.9"),
+                VersionStatus::Older {
+                    running: "0.4.9".into(),
+                    highest: "0.4.10".into()
+                }
+            );
+        }
+        assert_eq!(state.note_version("v1", "0.4.10"), VersionStatus::Ok);
+        // Each vault on its own; a version that isn't x.y.z is neither told of nor kept.
+        assert_eq!(state.note_version("v2", "0.4.1"), VersionStatus::Ok);
+        assert_eq!(state.note_version("v1", "dev"), VersionStatus::Ok);
+        assert!(matches!(
+            state.note_version("v1", "0.4.8"),
+            VersionStatus::Older { .. }
+        ));
+        // Kept in the state file; files written before it load without it.
+        let bytes = serde_json::to_vec(&state).unwrap();
+        let mut again: DeviceState = serde_json::from_slice(&bytes).unwrap();
+        assert!(matches!(
+            again.note_version("v1", "0.4.9"),
+            VersionStatus::Older { .. }
+        ));
+        let old: DeviceState =
+            serde_json::from_str(r#"{"vaults":{"v1":{"highest_revision":3}}}"#).unwrap();
+        assert_eq!(old.vaults["v1"].highest_version, None);
     }
 
     #[test]
