@@ -645,6 +645,11 @@ An extension older than sealed requests sent `{"type":"signed","counter":c,"body
 (`mac = HMAC-SHA-256(K, c (8 bytes LE) ‖ body)`) and got plain answers: such a message is now
 answered plain `outdated_extension`, its MAC not even checked.
 
+A pairing is named by `pairing id = SHA-256("vault-browser/pairing-id" ‖ K)[..8]`: not a key,
+and nothing is derived from it. A folder kept to one browser (format v11,
+`FolderBrowser::Only`) stores it in the vault, so only the extension holding that `K` reaches
+the folder's items; a pairing made again has another id.
+
 The app keeps `K` sealed with the vault (`subkey("local/browser-pairing")`, §6) and a copy under
 DPAPI for filling while locked (§3.4); the extension keeps it as a non-extractable WebCrypto
 key. That key object is still written to the browser's profile, so a program that copies the
@@ -853,7 +858,8 @@ key or reveals one:
   seal guarded items under the same guard key;
 - record digest = `SHA-256("vault-v0/record" ‖ ItemRecord.data)[..8]`: names one stored
   version of an item (its ciphertext is new for every version and copied unchanged between
-  devices).
+  devices). From format v11 a deletion's tombstone lists the record digests it removed
+  (SYNC.md §4.2).
 
 Another device's copy is opened with this vault's own key (`subkey("body")` and the item
 keys under `subkey("item-wrap")`); nothing in it is used to derive or select a key.

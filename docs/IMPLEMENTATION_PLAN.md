@@ -780,8 +780,14 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   whatever a page sends (`vault_browser::kit`) and never saves, compares or keeps one (also
   while locked). Test keys with real checksums shared by `crates/browser/tests/kit.rs` and
   `apps/extension/test/kit.test.mjs`.
-- ⬜ S18. What a stolen pairing reaches: items or folders kept out of the browser, the
-  extension's window listing only the open site's logins, a folder kept to one browser.
+- ✅ S18. What a stolen pairing reaches (format v11, THREAT_MODEL §3): an item kept out of the
+  browser (`no_browser`, the editor's "Keep out of the browser"), a folder kept out or kept to
+  the browser connected now (`FolderBrowser`, the folder dialog; the pairing's id, CRYPTO.md
+  §3.9), the extension's window listing only the open site's logins unless the person lets it
+  list the whole vault (Settings → Browser extension, off by default; `vault` names the page).
+  `vault_browser::service` reads every login through `Vault::reaches_browser`, the
+  locked-fill file leaves them out, and items in the trash, archived or templates never reach
+  the browser.
 - ✅ S19. The one-factor floor: 10^14 guesses by zxcvbn (`vault_core::health::
   ONE_FACTOR_MIN_GUESSES_LOG10`, the arithmetic in CRYPTO.md §3.3.1). A protected export's
   password below it is refused (`sealed_export::seal`, and before the slow work in each app),
@@ -903,14 +909,23 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
 
 **Features** (F2, F7 and F8 change the file format: one format version for the three)
 - ⬜ F1. Lock options: ask for the master password at every start of the app.
-- ⬜ F2. Trash: deleted items kept 30 days and restorable, through sync.
+- ✅ F2. Trash (format v11): Delete puts an item in the trash (`trashed_at`), restorable for 30
+  days, then deleted for good on the next save; "Delete for good" from the trash. A deletion's
+  tombstone names the versions it removed (SYNC.md §4.2), so a restore or an edit elsewhere
+  survives it whatever the clocks; of a trashed and an untrashed version, the untrashed wins
+  (§4.3). Desktop: the Trash list, Restore and Delete for good; phone: the Trash filter.
 - ⬜ F3. Health without the network: two-factor available, saved without HTTPS, passkey
   available, card expiring.
 - ⬜ F4. Username generator: plus-addressed email, a domain's catch-all, random words.
 - ⬜ F5. Cards and addresses filled in the browser (payment fields in another site's frame).
 - ⬜ F6. Unlock with a hardware key (challenge-response, or FIDO2 `hmac-secret`).
-- ⬜ F7. Identity items (name, address, documents) and item templates.
-- ⬜ F8. Tags and an expiry date on items.
+- ✅ F7. Identity items (`ItemKind::Identity`, details as fields with fixed names,
+  `vault_core::identity`, document numbers hidden; JSON import and export as the common
+  layout's identities) and templates (`template`: listed apart, never filled, "New item from
+  it" with no secrets, `ItemData::from_template`). Phone: identities show as items; templates
+  and archived items stay on the desktop.
+- ✅ F8. Tags (searched, `#tag` too) and an expiry date on items; Password health lists what
+  expires within 30 days (`HealthReport::expiring`, under Expiring).
 - ⬜ F9. SSH agent, with approval for each use.
 - ⬜ F10. Credential Exchange Format (CXF) import and export.
 - ⬜ F11. Auto-type into programs outside the browser.
@@ -956,8 +971,12 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   password rules of the `password-manager-resources` lists, built in.
 - ⬜ F20. Authenticator: Steam codes, import from other authenticator apps
   (`otpauth-migration`, exports), a QR code read from a picture on the desktop.
-- ⬜ F21. The whole item's history, with restore.
-- ⬜ F22. Archived items: out of search, filling and health, not deleted.
+- ✅ F21. The whole item's history: every change to an item's contents keeps the version it
+  replaces (`ItemData::versions`, up to the history limit, sealed with its secrets under the
+  item lock), merged so that neither device's edit is lost (SYNC.md §4.3); the item page lists
+  them with Restore (`Vault::restore_version`).
+- ✅ F22. Archived items: out of search, filling, the authenticator and health, not deleted;
+  the Archive list on the desktop.
 - ⬜ F23. The WebAuthn Signal API: a site says a passkey is gone or its names changed.
 - ⬜ F24. Show a password in large type.
 - ⬜ F25. A settings review on the health page, and "ignore this warning".
@@ -967,9 +986,9 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
 - ⬜ F29. CLI automation through the open app (`vault run`, `vault inject`, a git credential
   helper), each use approved in the app.
 
-F21, F22 and S18's flag change the file format too: the same format version as F2, F7 and F8.
-Before that version, a device on the older format must say plainly that it needs updating
-(today a copy of another format version is skipped by sync without a word).
+F2, F7, F8, F21, F22 and S18 are format v11. A copy of another format version is said plainly
+on the desktop (which device, and whether this app or that one needs updating); the phone still
+says nothing about refused copies (S14's leftover).
 
 ## Engineering practices
 

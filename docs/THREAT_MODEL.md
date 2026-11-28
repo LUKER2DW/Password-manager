@@ -409,6 +409,19 @@ On top of that:
   extension and any browser. A copy loaded from anywhere else (the project's folder, the
   release's zip) is not watched. Unpacked extensions get none of the stores' review or signature
   checks; the extension in the stores (F12) will.
+- **What a stolen pairing reaches** (M10 S18): the extension's connection key lives in the
+  browser's profile, so a program that copies the profile can ask the open app what the
+  extension may ask. Three limits keep that small. The extension's window lists only the open
+  site's logins (`vault`, with the page's address), unless the person lets it list the whole
+  vault (Settings → Browser extension, off by default): the copied key learns no more than the
+  sites it asks about, by name. An item can be kept out of the browser, and so can a folder
+  (format v11, `ItemData::no_browser`, `FolderBrowser::Never`): the extension never gets it,
+  not listed, filled, compared, nor written to the file for filling while locked. A folder can
+  be kept to one browser (`FolderBrowser::Only`, the pairing's id, CRYPTO.md §3.9): a pairing
+  made again, on this computer or another, doesn't reach it, and the locked-fill file never
+  holds it. Items in the trash, archived items and templates never reach the browser either.
+  What this doesn't cover: a program running as the person while the vault is open can still
+  ask, with that key, for the logins of any site it names, and use what the person allows.
 - **An older copy of the apps put back** (M10 S25): a program running as the person could put an
   old release's `vault-desktop.exe` or `vault.exe` (genuine, signed once S15 signs them) in place
   of the newest, one with a fault fixed since. The device state (`state.json`) keeps, for each

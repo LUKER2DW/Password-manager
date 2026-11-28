@@ -1,6 +1,6 @@
-# Vault File Format — v10
+# Vault File Format — v11
 
-> Status: **draft v10**, not stable. v0–v9 files are still read and upgraded to v10 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
+> Status: **draft v11**, not stable. v0–v10 files are still read and upgraded to v11 on the next save. Cryptographic operations are defined in [CRYPTO.md](CRYPTO.md).
 > Structures are serialized with [postcard](https://postcard.jamesmunns.com/wire-format) 1.x
 > (stable wire format). Integers in the file envelope are little-endian.
 
@@ -9,7 +9,7 @@
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 8 | magic `"PMVAULT\0"` |
-| 8 | 2 | `format_version` (u16) = `9` (`0`–`8` are read and upgraded) |
+| 8 | 2 | `format_version` (u16) = `11` (`0`–`10` are read and upgraded) |
 | 10 | 4 | `header_len` (u32) |
 | 14 | `header_len` | `header` (postcard `VaultHeader`) |
 | … | 4 | `body_len` (u32) |
@@ -100,6 +100,8 @@ struct Tombstone {
     id: [u8; 16],
     kind: Gone,              // postcard enum: Item (0), Folder (1), Device (2)
     deleted_at: i64,         // kept 400 days, then dropped on save
+    versions: Vec<[u8; 8]>,  // v11, items: the deleted version's record digest and its
+                             // lineage, at most 16 (SYNC.md §4.2); empty in older tombstones
 }
 
 struct SyncDevice {
@@ -142,6 +144,14 @@ struct Folder {
     icon: String,            // v3: icon name chosen by the user, "" = plain folder
     color: u8,               // v3: colour index 0–15, 0 = default
     icon_url: String,        // v4: website or picture link whose image replaces the icon, "" = none
+    browser: FolderBrowser,  // v11: which paired browsers reach its items (THREAT_MODEL §3, S18)
+}
+
+enum FolderBrowser {         // v11, postcard enum
+    Any,                     // 0: every paired browser (the default)
+    Never,                   // 1: no browser: kept out of the browser
+    Only([u8; 8]),           // 2: only the pairing with this id (vault_browser::pairing,
+                             //    SHA-256("vault-browser/pairing-id" ‖ K)[..8])
 }
 ```
 
@@ -164,11 +174,11 @@ Items are encrypted twice on disk (item layer + body layer) on purpose: after un
 app keeps items encrypted in memory and decrypts only the one being used; the body layer hides
 the item count, sizes and ids. Item records are also the unit of sync (SYNC.md §4).
 
-## 4. Item data (v10)
+## 4. Item data (v11)
 
 ```rust
 struct ItemData {
-    kind: ItemKind,          // Login, Card, SecureNote, Passkey, SshKey (v9)
+    kind: ItemKind,          // Login, Card, SecureNote, Passkey, SshKey (v9), Identity (v11)
     title: String,
     username: String,
     password: String,
@@ -188,6 +198,20 @@ struct ItemData {
     sealed: Option<SealedSecrets>,         // v6: present while the item's secrets are encrypted
     attachments: Vec<Attachment>,          // v9: files kept with the item; empty while sealed
     passkeys: Vec<Passkey>,                // v10: the login's passkeys (keys empty while sealed)
+    tags: Vec<String>,                     // v11: at most 32, each 1–40 characters, trimmed,
+                                           //      no control characters, unique ignoring case
+    expires_at: i64,                       // v11: when it expires (Unix seconds); 0 = never
+    trashed_at: i64,                       // v11: when it was put in the trash; 0 = not in it
+    archived: bool,                        // v11: kept, but out of search, filling and health
+    template: bool,                        // v11: a shape new items start from, not an account
+    no_browser: bool,                      // v11: the browser extension never gets it
+    versions: Vec<ItemVersion>,            // v11: earlier versions, oldest first, at most
+                                           //      `history_limit`; empty while sealed
+}
+
+struct ItemVersion {         // v11: the item as it was before a change
+    saved_at: i64,           // when it stopped being the current version
+    item: ItemData,          // without versions, password history, attachments and passkeys
 }
 
 struct Passkey {             // v10, CRYPTO.md §3.7
@@ -223,6 +247,7 @@ struct ItemSecrets {         // moved out of the item; those fields are stored e
     password_history: Vec<PasswordChange>,
     attachments: Vec<Attachment>,  // v9; sealed secrets written by v6–v8 end before it
     passkey_keys: Vec<Vec<u8>>,    // v10: each passkey's `key`, in order; v9 ones end before it
+    versions: Vec<ItemVersion>,    // v11: the earlier versions; v10 ones end before it
 }
 
 struct PasswordChange {
@@ -249,7 +274,7 @@ A v0 file has no `folders` in the body and its items end after `updated_at`; a v
 items after `password_changed_at`; a v3 file's folders end after `color`; v3 and v4 items end
 after `icon_url`. When an older file is opened, every item is decrypted with its old layout and
 re-encrypted with the current layout in memory (same ids and revisions, new item keys); the next
-save writes a v10 file. v5 items end after `reprompt`; a v0–v5 header holds a bare `KdfParams`.
+save writes a v11 file. v5 items end after `reprompt`; a v0–v5 header holds a bare `KdfParams`.
 A v0–v6 body has no `sync`; it is read as never synced (no writer, no tombstones, revisions
 at 0). The item layout is unchanged in v7. A v0–v7 header ends after `slots` (no `parts`); the
 body and items are unchanged in v8. Such a vault keeps its Recovery Key until a new emergency
@@ -258,7 +283,48 @@ kit is made, which replaces the Recovery slot with `parts`. v6–v8 items end af
 sealed as they are and are read in either layout when the guard opens (a v6–v8 `ItemSecrets`
 ends after `password_history`). v9 items end after `attachments` (no `passkeys`) and are
 re-encrypted in the v10 layout on open; their sealed secrets (ending after `attachments`) are
-read as they are.
+read as they are. v10 items end after `passkeys` and are re-encrypted in the v11 layout on
+open (no tags, no expiry, out of the trash, not archived, no template, reachable by the
+browser, no versions); their sealed secrets end after `passkey_keys`. A v7–v10 body's
+tombstones end after `deleted_at`, and v4–v10 folders after `icon_url` (every browser reaches
+them).
+
+**Trash (v11).** Deleting an item puts it in the trash: `trashed_at` is set, nothing else
+changes, and it syncs like any other change. Restoring clears `trashed_at`. "Delete for good"
+(or emptying the trash) removes the record and leaves a tombstone. Items in the trash for 30
+days (`trashed_at` + 30 × 86 400 ≤ now) are removed for good on the next save
+(`Vault::to_bytes`), on every device. Items in the trash, archived items and templates are out
+of search, the browser extension, filling on the phone, the authenticator and health; the apps
+list them on their own pages.
+
+**Item history (v11).** When a change alters an item's contents (anything but `favorite`,
+`folder`, `trashed_at`, `archived`, `updated_at` and the item's own `versions`, password
+history, attachments and passkeys), `Vault::update_item` keeps the version it replaces in
+`versions`, dropping the oldest past `history_limit` (0 keeps none). A version holds the whole
+item but its files and passkeys, so a version's size is bounded by the item's, and the item
+with its versions is padded as one (§7 of CRYPTO.md). The versions are secrets: under the item
+lock they move into the sealed `ItemSecrets`, and a change made while the item is locked keeps
+no version. Restoring a version (`Vault::restore_version`) makes its contents the current ones
+(as a change, so the current version is kept in its turn); the item's folder, mark, state,
+files and passkeys stay as they are.
+
+**Identities (v11).** An `Identity` item keeps its details as custom fields with fixed names
+(`vault_core::identity`), as cards do: the person's name in `username`, the other details
+(address, phone, email, birth date, ID and passport numbers...) as fields; document numbers are
+`sensitive`, so the item lock covers them.
+
+**Templates (v11).** An item with `template` is a saved shape: "New from template" copies its
+kind, websites, tags, folder, icon and fields into a new item, with the values of hidden fields
+and every secret left empty (`ItemData::from_template`).
+
+**Tags and expiry (v11).** Tags are plain text, searched and filtered on; `expires_at` is shown
+and listed on Password health when it is past or within 30 days.
+
+**Kept out of the browser (v11).** An item with `no_browser`, or in a folder whose `browser` is
+`Never`, is never named or sent to the extension (`vault_browser::service`, the locked-fill
+file). A folder with `Only(id)` reaches only the extension paired with that id; another
+pairing, on this computer or another, doesn't get its items (THREAT_MODEL §3, S18; the
+pairing id is CRYPTO.md §3.9).
 
 **Passkeys (v10).** A login's passkeys are part of the item. Who and where (`credential_id`,
 `rp_id`, `user_handle`, the names, `created_at`) stay readable while the item is sealed, like

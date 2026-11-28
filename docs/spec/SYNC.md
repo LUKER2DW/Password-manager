@@ -123,12 +123,28 @@ every device. For each id:
 | made from theirs | item | keep ours |
 | item | neither made from the other | both changed: §4.3 |
 
-**Deleting leaves a tombstone** (`id`, `deleted_at`). A missing item never means "deleted":
-a copy that simply doesn't have an item adds nothing and removes nothing. Tombstones are
-merged by id (latest `deleted_at`). A tombstone removes an item only if the item was not
-changed after the deletion (`updated_at <= deleted_at`). An edit made on one device while
-another deleted the item keeps the item: losing an edit is worse than a login that has to be
-deleted twice. Tombstones are dropped after 400 days. A device offline for longer could bring
+**Deleting leaves a tombstone** (`id`, `deleted_at`, and from format v11 `versions`). A
+missing item never means "deleted": a copy that simply doesn't have an item adds nothing and
+removes nothing. Tombstones are merged by id (latest `deleted_at`, the union of `versions`, at
+most 16). From format v11 a deletion says which version it removed: `versions` holds that
+record's digest and its lineage, and the tombstone removes exactly those versions, whatever the
+clocks say. A version made after them (an edit, a restore from the trash) is not among them,
+so it stays. A tombstone without `versions` (written before v11) removes an item only if the
+item was not changed after the deletion (`updated_at <= deleted_at`). Either way an edit made
+on one device while another deleted the item keeps the item: losing an edit is worse than a
+login that has to be deleted twice.
+
+**The trash (v11).** Deleting an item in the apps puts it in the trash (`trashed_at`): a
+change like any other, merged by the table above and §4.3. Only "delete for good", emptying
+the trash and the 30 days running out remove the record and leave a tombstone. So:
+
+| Device A | Device B, at the same time | After both synced |
+|---|---|---|
+| puts the item in the trash | edits it | the edit, out of the trash; the trashed version is in its history (§4.3) |
+| puts it in the trash | puts it in the trash | in the trash (the newer of the two, §4.3) |
+| restores it from the trash | deletes it for good (or the 30 days run out there) | restored: the deletion removed only the trashed version it saw |
+| edits it | deletes it for good (from the trash) | kept, with the edit, out of the trash |
+| deletes it for good | (had not changed it) | gone on both | Tombstones are dropped after 400 days. A device offline for longer could bring
 an item back. Asking such a device to start again from another copy is not built yet.
 
 ### 4.3 Two devices changed the same item
@@ -136,11 +152,17 @@ an item back. Asking such a device to start again from another copy is not built
 Both versions are read in full (with the item lock open when they are sealed).
 
 - "Newer" is a total order, so every device reaches the same result in any order:
-  `(revision, updated_at, SHA-256 of the item's contents without its password history)`.
+  `(revision, updated_at, SHA-256 of the item's contents without its password history and
+  versions)`.
   The newer one wins.
+- One exception (v11): of a version in the trash and one out of it, the one out of it wins,
+  whatever their rank. Someone still using an item matters more than someone deleting it; it
+  can be deleted again.
 - Every password of the other version that the winner doesn't know (its password and its
   history) is added to the winner's `password_history`, oldest first, cut to
-  `history_limit`. The result keeps the winner's revision and change time, so it ranks as the
+  `history_limit`. From v11 the other version itself (without its files and passkeys) is kept
+  in the winner's `versions`, with the other's versions, oldest first, cut to `history_limit`:
+  nothing of an edit made on either device is lost, and it can be restored. The result keeps the winner's revision and change time, so it ranks as the
   winner did: a third device's concurrent edit compares with it exactly as with the winner.
 - Two devices that folded the same edits each made their own record with the same contents.
   When two versions have equal contents, every device keeps the one with the smaller digest.
