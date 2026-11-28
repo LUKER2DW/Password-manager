@@ -6,6 +6,7 @@ use std::{collections::BTreeMap, fs};
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use vault_core::{
+    attempts::UnlockAttempts,
     storage,
     sync::{DeviceId, SeenRevisions},
 };
@@ -80,6 +81,10 @@ struct VaultState {
     /// at one version) that opened this vault on this device, `x.y.z`. Never lowered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     highest_version: Option<String>,
+    /// The failed unlocks of this vault here since its last right one (a count and when:
+    /// nothing secret), so that a restart doesn't clear the wait they impose.
+    #[serde(default, skip_serializing_if = "UnlockAttempts::is_clear")]
+    unlock_attempts: UnlockAttempts,
 }
 
 /// How many of a vault's earlier ids on this device are remembered.
@@ -446,6 +451,45 @@ impl DeviceState {
         entry.highest_revision = entry.highest_revision.max(revision);
     }
 
+    /// The failed unlocks of vault `vault_id` on this device since its last right one.
+    pub fn unlock_attempts(&self, vault_id: &str) -> UnlockAttempts {
+        self.vaults
+            .get(vault_id)
+            .map(|v| v.unlock_attempts)
+            .unwrap_or_default()
+    }
+
+    /// One more failed unlock of vault `vault_id`, at `clock`; returns the count as it is now.
+    pub fn record_failed_unlock(&mut self, vault_id: &str, clock: Clock) -> UnlockAttempts {
+        let entry = self.vaults.entry(vault_id.to_owned()).or_default();
+        entry
+            .unlock_attempts
+            .record_failure(clock.now, clock.uptime);
+        entry.unlock_attempts
+    }
+
+    /// Seconds before the next unlock of vault `vault_id` may be tried (0: now), and whether
+    /// the state changed (a clock set back starts the wait again from now): save it then.
+    pub fn unlock_wait(&mut self, vault_id: &str, clock: Clock) -> (i64, bool) {
+        let Some(entry) = self.vaults.get_mut(vault_id) else {
+            return (0, false);
+        };
+        let changed = entry.unlock_attempts.settle_clock(clock.now);
+        (
+            entry.unlock_attempts.wait_left(clock.now, clock.uptime),
+            changed,
+        )
+    }
+
+    /// A right unlock of vault `vault_id`: the failures before it are forgotten, and returned
+    /// to be told once.
+    pub fn take_unlock_attempts(&mut self, vault_id: &str) -> UnlockAttempts {
+        self.vaults
+            .get_mut(vault_id)
+            .map(|v| std::mem::take(&mut v.unlock_attempts))
+            .unwrap_or_default()
+    }
+
     /// Where this device last found the vault's keyfile.
     pub fn keyfile_path(&self, vault_id: &str) -> Option<std::path::PathBuf> {
         self.vaults
@@ -634,6 +678,92 @@ pub fn record_revision(vault_id: &str, revision: u64) -> Result<()> {
     state.save()
 }
 
+/// The two clocks unlock attempts are timed by (`vault_core::attempts`): the wall clock, and
+/// the device's time since it started, which nobody sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Clock {
+    /// Unix seconds.
+    pub now: i64,
+    /// Seconds since the device started, where the system tells it (Windows, Android).
+    pub uptime: Option<i64>,
+}
+
+impl Clock {
+    /// Both clocks as they read now.
+    pub fn read() -> Self {
+        Self {
+            now: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX)),
+            uptime: uptime_seconds(),
+        }
+    }
+}
+
+/// Seconds since the device started, sleep included; no one can set it. `None` where the
+/// system doesn't say.
+pub fn uptime_seconds() -> Option<i64> {
+    #[cfg(windows)]
+    {
+        // SAFETY: GetTickCount64 takes nothing and only returns a number.
+        #[allow(unsafe_code)]
+        let millis = unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() };
+        i64::try_from(millis / 1000).ok()
+    }
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    {
+        let mut time = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: `time` is a valid timespec this call writes into; CLOCK_BOOTTIME (time since
+        // the device started, suspend included) exists on every kernel Android supports.
+        #[allow(unsafe_code)]
+        let read = unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut time) };
+        (read == 0).then(|| i64::from(time.tv_sec))
+    }
+    #[cfg(not(any(windows, target_os = "android", target_os = "linux")))]
+    {
+        None
+    }
+}
+
+/// Unlock attempts through the state file, for the apps: each call reads it, changes it and
+/// writes it back (unless it can't be read: nothing is written over it then).
+pub mod unlock_attempts {
+    use vault_core::attempts::UnlockAttempts;
+
+    use super::{Clock, DeviceState, StateFile};
+
+    fn with_state<T>(change: impl FnOnce(&mut DeviceState) -> (T, bool)) -> T {
+        let (mut state, file) = DeviceState::load_or_set_aside();
+        let (out, changed) = change(&mut state);
+        if changed && file != StateFile::Unreadable {
+            let _ = state.save();
+        }
+        out
+    }
+
+    /// One more failed unlock of vault `vault_id`; returns the count as it is now.
+    pub fn failed(vault_id: &str, clock: Clock) -> UnlockAttempts {
+        with_state(|state| (state.record_failed_unlock(vault_id, clock), true))
+    }
+
+    /// Seconds before the next unlock of vault `vault_id` may be tried (0: now).
+    pub fn wait(vault_id: &str, clock: Clock) -> i64 {
+        with_state(|state| state.unlock_wait(vault_id, clock))
+    }
+
+    /// A right unlock of vault `vault_id`: returns the failures since the last one (to be told
+    /// once), forgotten from now on.
+    pub fn succeeded(vault_id: &str) -> UnlockAttempts {
+        with_state(|state| {
+            let taken = state.take_unlock_attempts(vault_id);
+            (taken, !taken.is_clear())
+        })
+    }
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -748,6 +878,41 @@ mod tests {
                 .iter()
                 .any(|p| p.ends_with("V5.vault"))
         );
+    }
+
+    #[test]
+    fn failed_unlocks_are_kept_per_vault_until_a_right_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        let mut state = DeviceState::default();
+        let at = |now| Clock {
+            now,
+            uptime: Some(now - 1_000),
+        };
+        for i in 0..5 {
+            assert_eq!(state.unlock_wait("v", at(2_000 + i)), (0, false));
+            state.record_failed_unlock("v", at(2_000 + i));
+        }
+        assert_eq!(state.unlock_wait("v", at(2_004)), (30, false));
+        assert_eq!(state.unlock_wait("other", at(2_004)), (0, false));
+        // Written and read back, as by an app started again.
+        fs::write(&path, serde_json::to_vec(&state).unwrap()).unwrap();
+        let (mut read, _) = DeviceState::load_or_set_aside_at(&path);
+        assert_eq!(read.unlock_attempts("v").failed, 5);
+        assert_eq!(read.unlock_wait("v", at(2_014)), (20, false));
+        // A clock set back: the wait starts again, and that is to be saved.
+        let back = Clock {
+            now: 1_000,
+            uptime: None,
+        };
+        assert_eq!(read.unlock_wait("v", back), (30, true));
+        let taken = read.take_unlock_attempts("v");
+        assert_eq!((taken.failed, taken.first_at), (5, 1_000));
+        assert!(read.unlock_attempts("v").is_clear());
+        assert!(read.take_unlock_attempts("v").is_clear());
+        let json = String::from_utf8(serde_json::to_vec(&read).unwrap()).unwrap();
+        assert!(!json.contains("unlock_attempts"), "nothing kept once clear");
+        assert!(uptime_seconds().is_none_or(|up| up > 0));
     }
 
     #[test]
