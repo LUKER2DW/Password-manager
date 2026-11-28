@@ -96,6 +96,13 @@ pub fn extension_package_name(version: &str) -> String {
 /// The largest extension zip taken (it is a few hundred kilobytes).
 pub const MAX_EXTENSION_BYTES: usize = 16 * 1024 * 1024;
 
+/// The file name of the desktop app's program in every release (release.yml, job `windows`):
+/// one name, without the version, so a link to the newest release's file stays the same.
+pub const DESKTOP_EXE: &str = "vault-desktop.exe";
+
+/// The largest desktop program taken (it is a few tens of megabytes).
+pub const MAX_DESKTOP_BYTES: usize = 192 * 1024 * 1024;
+
 /// A release, as GitHub describes it: not taken for anything until [`Release::verify`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Release {
@@ -529,6 +536,12 @@ impl Verified {
     /// The browser extension's zip, as the manifest lists it.
     pub fn extension_package(&self) -> Result<Package, ManifestError> {
         self.package(&extension_package_name(self.version()), MAX_EXTENSION_BYTES)
+    }
+
+    /// The desktop app's program, as the manifest lists it: what the desktop app replaces
+    /// itself with.
+    pub fn desktop_exe(&self) -> Result<Package, ManifestError> {
+        self.package(DESKTOP_EXE, MAX_DESKTOP_BYTES)
     }
 }
 
@@ -1131,6 +1144,66 @@ mod tests {
             .collect();
         assert_eq!(ids, PINNED);
         assert_ne!(RELEASE_KEYS[0], RELEASE_KEYS[1], "two keys, kept apart");
+    }
+
+    /// The desktop program is taken only as the signed manifest lists it: present in the
+    /// release, listed, at the listed size, and never larger than a program could be.
+    #[test]
+    fn the_desktop_program_is_taken_only_as_listed() {
+        let key = TestKey::new();
+        let exe: &[u8] = b"MZ a test program";
+        let release = verified("2.0.0", &[(DESKTOP_EXE, exe)], &key);
+        let package = release.desktop_exe().unwrap();
+        assert_eq!(package.name, DESKTOP_EXE);
+        assert_eq!(package.size, exe.len() as u64);
+        assert_eq!(package.sha256, sha256(exe));
+        assert!(package.url.starts_with("https://github.com/"));
+
+        // Not in the release at all.
+        let other = verified("2.0.0", &[("vault.exe", exe)], &key);
+        assert_eq!(
+            other.desktop_exe(),
+            Err(ManifestError::NoFile(DESKTOP_EXE.into()))
+        );
+
+        // In the release but not in its manifest: the asset added after the signing.
+        let mut unlisted = verified("2.0.0", &[("vault.exe", exe)], &key);
+        unlisted.release.assets.push(Asset {
+            name: DESKTOP_EXE.into(),
+            size: exe.len() as u64,
+            sha256: None,
+            url: "https://github.com/o/r/releases/download/v2.0.0/vault-desktop.exe".into(),
+        });
+        assert_eq!(
+            unlisted.desktop_exe(),
+            Err(ManifestError::NotListed(DESKTOP_EXE.into()))
+        );
+
+        // Another size on GitHub than the manifest lists, or GitHub's digest of other bytes.
+        let mut resized = release.clone();
+        resized
+            .release
+            .assets
+            .iter_mut()
+            .find(|asset| asset.name == DESKTOP_EXE)
+            .unwrap()
+            .size += 1;
+        assert_eq!(
+            resized.desktop_exe(),
+            Err(ManifestError::NotListed(DESKTOP_EXE.into()))
+        );
+        let mut swapped = release.clone();
+        swapped
+            .release
+            .assets
+            .iter_mut()
+            .find(|asset| asset.name == DESKTOP_EXE)
+            .unwrap()
+            .sha256 = Some(sha256(b"MZ another program"));
+        assert_eq!(
+            swapped.desktop_exe(),
+            Err(ManifestError::NotListed(DESKTOP_EXE.into()))
+        );
     }
 
     #[test]
