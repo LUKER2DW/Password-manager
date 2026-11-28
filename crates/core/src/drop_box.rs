@@ -51,13 +51,24 @@ impl DropBoxKey {
 
     /// The private key sealed with the vault key, to keep next to the vault.
     pub fn seal_with(&self, vault: &Vault) -> Result<Vec<u8>> {
-        let bytes = Zeroizing::new(self.secret.to_bytes());
-        vault.seal_local(PURPOSE, bytes.as_ref())
+        self.seal_for(vault, PURPOSE)
     }
 
     /// The key kept by [`DropBoxKey::seal_with`].
     pub fn open_with(vault: &Vault, sealed: &[u8]) -> Result<Self> {
-        let bytes = vault.open_local(PURPOSE, sealed)?;
+        Self::open_for(vault, PURPOSE, sealed)
+    }
+
+    /// The private key of another box of the same kind (the security log's, CRYPTO.md §3.11)
+    /// sealed with the vault key under its own `purpose`, so neither key opens as the other.
+    pub fn seal_for(&self, vault: &Vault, purpose: &str) -> Result<Vec<u8>> {
+        let bytes = Zeroizing::new(self.secret.to_bytes());
+        vault.seal_local(purpose, bytes.as_ref())
+    }
+
+    /// The key kept by [`DropBoxKey::seal_for`] with the same `purpose`.
+    pub fn open_for(vault: &Vault, purpose: &str, sealed: &[u8]) -> Result<Self> {
+        let bytes = vault.open_local(purpose, sealed)?;
         let array: [u8; 32] = bytes.as_slice().try_into().map_err(|_| Error::Malformed)?;
         let array = Zeroizing::new(array);
         Ok(Self {
@@ -69,7 +80,17 @@ impl DropBoxKey {
     /// renewal), sealed again under the vault's key now; the key itself, and so the entries
     /// sealed to it, stay the same.
     pub fn reseal_with(vault: &Vault, former: &FormerKey, sealed: &[u8]) -> Result<Vec<u8>> {
-        vault.reseal_local(former, PURPOSE, sealed)
+        Self::reseal_for(vault, former, PURPOSE, sealed)
+    }
+
+    /// [`DropBoxKey::reseal_with`] for a key kept by [`DropBoxKey::seal_for`].
+    pub fn reseal_for(
+        vault: &Vault,
+        former: &FormerKey,
+        purpose: &str,
+        sealed: &[u8],
+    ) -> Result<Vec<u8>> {
+        vault.reseal_local(former, purpose, sealed)
     }
 
     /// Opens one entry written by [`seal_entry`] for this vault.
@@ -153,5 +174,18 @@ mod tests {
         *bad.last_mut().unwrap() ^= 1;
         assert!(key.open_entry(&vault, &bad).is_err());
         assert!(!format!("{key:?}").contains(&format!("{:?}", &public[..4])));
+    }
+
+    #[test]
+    fn a_key_sealed_for_one_purpose_doesnt_open_as_another() {
+        let vault = new_vault();
+        let key = DropBoxKey::generate().unwrap();
+        let sealed = key.seal_for(&vault, "security-log").unwrap();
+        assert!(DropBoxKey::open_with(&vault, &sealed).is_err());
+        let opened = DropBoxKey::open_for(&vault, "security-log", &sealed).unwrap();
+        assert_eq!(opened.public_key(), key.public_key());
+        assert!(
+            DropBoxKey::open_for(&vault, "security-log", &key.seal_with(&vault).unwrap()).is_err()
+        );
     }
 }
