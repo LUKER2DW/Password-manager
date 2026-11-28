@@ -4135,3 +4135,11 @@ msgstr "Uma senha forte para “{}” está pronta, e a página do site para tro
 msgctxt "Messages"
 msgid "The site's page for changing the password of “{}” is open. Turn on the browser extension (Settings → Browser extension) and it offers a strong password there and updates the login; or edit the login here after you change it."
 msgstr "A página do site para trocar a senha de “{}” está aberta. Ative a extensão do navegador (Configurações → Extensão do navegador) e ela oferece uma senha forte lá e atualiza o login; ou edite o login aqui depois de trocar."
+
+msgctxt "Messages"
+msgid "The browser extension filled a card"
+msgstr "A extensão do navegador preencheu um cartão"
+
+msgctxt "Messages"
+msgid "The browser extension filled an address"
+msgstr "A extensão do navegador preencheu um endereço"
