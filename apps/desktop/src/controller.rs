@@ -2193,13 +2193,13 @@ impl Controller {
                 Err(CoreError::DecryptionFailed) => {
                     security::failed(&vault_id, security_log::how::PASSWORD);
                     JobResult::UnlockFailed {
-                    code: if keyfile.is_some() {
-                        error::WRONG_WITH_KEYFILE
-                    } else {
-                        error::WRONG_PASSWORD
-                    },
-                    detail: String::new(),
-                    vault_id,
+                        code: if keyfile.is_some() {
+                            error::WRONG_WITH_KEYFILE
+                        } else {
+                            error::WRONG_PASSWORD
+                        },
+                        detail: String::new(),
+                        vault_id,
                     }
                 }
                 Err(other) => JobResult::Failed {
