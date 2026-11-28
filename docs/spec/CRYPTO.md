@@ -43,7 +43,9 @@ part in the vault's own keys.
 ### 2.1 Master password
 - Normalized with Unicode **NFKC** before use, so the same password typed on different
   keyboards/OSes yields the same bytes. No trimming, no case folding.
-- Must not be empty. Strength rules are enforced by the UI, not the format.
+- Must not be empty. Strength rules are enforced by the apps, not the format: at least 12
+  characters, and one below the one-factor floor (§3.3.1) is warned about (the person may keep
+  it), since a stolen Secret Key leaves it alone; a check against known breaches is offered.
 
 ### 2.2 Secret Key (128 bits)
 - 16 random bytes generated on vault creation. Stored on enrolled devices and in the emergency kit.
@@ -221,7 +223,9 @@ Argon2id runs.
 ### 3.3 Export protected by a password
 
 An export of every item (the JSON layout) sealed for carrying elsewhere. It has one factor
-only, the password chosen for the file, so clients ask for at least 12 characters.
+only, the password chosen for the file, so `seal` refuses one below the one-factor floor
+(§3.3.1, `Error::WeakPassword`); the apps ask before the slow work and offer six random words
+instead. `open` asks nothing: an export made before the floor still opens.
 
 ```
 file      = "PMVEXP" ‖ 0x00 ‖ 0x01 ‖ header_len (u16 LE) ‖ header ‖ sealed
@@ -239,7 +243,27 @@ The contents are every item whole (`vault_import::export_sealed`): earlier passw
 attached files (base64) and passkeys with their private keys (the 32-byte P-256 scalar,
 base64url), in keys only this app reads (`attachedFiles`, `passkeys`, `passkeyItem`). The plain
 JSON export never holds files or passkey keys. Whoever opens the file can sign in with those
-passkeys, so its password is all that guards them: the apps ask for a long one.
+passkeys, so its password is all that guards them: the floor below.
+
+### 3.3.1 The one-factor floor
+
+A password that alone guards something offline (the protected export; a KDBX export when there
+is one; what is left of a vault once its Secret Key is stolen; the item lock's password once
+the vault key is) must need at least **10^14 guesses** by zxcvbn's estimate
+(`vault_core::health::ONE_FACTOR_MIN_GUESSES_LOG10 = 14`, `health::holds_alone`; the export's
+check adds `vault`, `export`, `vaultx` and `password` as words tried first). Below it the
+export is refused; a new master password or item lock password is warned about.
+
+Why 10^14: each guess at the export costs Argon2id at the standard level (256 MiB, 3 passes,
+4 lanes). A guess moves about 3 × 256 MiB × 3 ≈ 2.3 GB through memory, so a graphics card
+with 1 TB/s does at most ~430 a second; count 10^3 per card to be generous. 10^14 guesses are
+then 10^11 card-seconds, about 3 200 card-years, or 3 years for a thousand cards, and at
+$0.30 per card-hour about $8 million (half that for an even chance). zxcvbn's score 4
+(10^10 guesses) would be about $800, and 10^12 about $80 000: not enough for a file that
+holds every password. zxcvbn counts a random character as 10 guesses (it doesn't know the
+alphabet), so a random password needs 15 characters or so to pass; six words from the EFF
+list always do (its estimate stops at ~10^19). The generator's own defaults (24 and 20
+characters, six words) pass.
 
 ### 3.1 Device unlock (Windows Hello)
 

@@ -585,6 +585,38 @@ On top of that:
   turns it off for the app; before that, the secure flag is set while the app is in the
   background), so an open vault isn't on show to someone who looks over the app switcher,
   whether or not screenshots are allowed.
+- **Unlock attempts** (A6, someone at the keyboard or with the phone in hand): every failed
+  try at a vault (a wrong master password or keyfile, Windows Hello or the phone's fingerprint
+  prompt failing in a way the app sees) is counted per vault on that device, in its device
+  state (the phone's settings), holding no secret: a count and when. From the fifth failure in
+  a row the next try waits, 30 s and doubling up to 15 min; the apps and the CLI refuse a try
+  before then in their controller, and the count survives a restart (a limit that resets on
+  restart is no limit). The next right unlock says how many failed and since when, once, and
+  the count starts again. Time is read on two clocks: the wall clock, where one set back
+  starts the wait again whole from the new time, and the time since the device started
+  (Windows' tick count, Android's `CLOCK_BOOTTIME`), which nobody sets: of the two, the one
+  that says less time has passed counts, so a clock set forward doesn't shorten a wait while
+  the device hasn't restarted. Residual risk: after a restart only the wall clock is left, and
+  someone who can set it forward (an administrator on Windows; anyone with an unlocked phone)
+  shortens the wait, though not the count, which the owner is told; on a computer, whoever
+  copies the vault file and the Secret Key (malware, A7/A8) tries passwords offline and never
+  meets this counter: the wait is for someone at the keyboard, and what holds against the
+  copy is the master password and Argon2id. The item lock keeps its own 5 tries (`guard.rs`).
+  On the phone, a vault that syncs may also choose (Settings, Security, off by default, the
+  master password asked) that the 10th failure in a row removes the phone's copy: the vault
+  file, its fingerprint unlock and the Keystore key behind it, the Secret Key kept there and
+  the phone's sync keys for it; nothing is sent to the server, whose copies stay. It is
+  offered only while the vault syncs, and done only if it still does. Residual risk: someone
+  with the phone can make it delete that copy (a nuisance: the vault is elsewhere), and changes
+  made there that never synced go with it.
+- **Passwords that guard something alone** (A1 with the protected export; A7/A8 once the Secret
+  Key or the vault key is taken): a protected export's password below the one-factor floor
+  (10^14 guesses by zxcvbn, CRYPTO.md §3.3.1) is refused, with six random words offered; a new
+  master password or item lock password below it is warned about, with the same offer, and
+  kept only if the person says so. A new master password can be checked against known
+  breaches first (a box, off by default; the CLI's `--check-leaks`), by the leak check's
+  k-anonymous query. Residual risk: zxcvbn is an estimate; a password built from personal
+  facts it doesn't know passes it.
 - **Sensitive changes on an unlocked phone** (adding or removing a device, stopping sync,
   removing the backup server, removing the vault from the phone) ask for the master password
   again, checked against the vault file: someone who picks up the phone while the vault is

@@ -95,7 +95,8 @@ filesystem policy** beyond atomic writes.
 | `card.rs` | Payment cards: Luhn, brand detection, expiry, masking |
 | `ssh.rs` | SSH keys: a new Ed25519 key, a key brought in read in any common form (OpenSSH's, a passphrase asked once; PKCS#8, PKCS#1, SEC1) and kept in OpenSSH's without a passphrase, its public half, fingerprint and type (RustCrypto `ssh-key`) |
 | `generator.rs` | Passwords and passphrases (uniform sampling, word lists) |
-| `health.rs` | Strength (zxcvbn), reuse, age, and the k-anonymous breach query |
+| `health.rs` | Strength (zxcvbn), reuse, age, the k-anonymous breach query, and the one-factor floor (`holds_alone`, CRYPTO.md §3.3.1) |
+| `attempts.rs` | Unlock attempts on one device: the count, the growing wait, its two clocks (THREAT_MODEL.md) |
 | `sealed_export.rs` | An export sealed under a password of its own (`.vaultx`) |
 | `drop_box.rs` | Logins saved from the browser while locked, sealed to a public key only the open vault reads |
 | `kept_key.rs` | The Secret Key as a Windows device keeps it: sealed under a random key the TPM wraps (CRYPTO.md §2.2.1) |
@@ -114,8 +115,8 @@ there is one (`tpm.rs`: RSA-2048 made in the chip through NCrypt's Platform Cryp
 not exportable, CRYPTO.md §2.2.1; the plain form kept only without a TPM, an older one moved
 under the chip after an unlock, checked first; the chip behind `KeyWrapper`, and the tests'
 stand-in `MemoryChip` behind the `test-chip` feature, so the apps' tests make no keys in the
-real chip), per-device state, rollback detection and the newest version of the apps that
-opened each vault here (`device.rs`), clipboard that stays out of history (`clipboard.rs`, `clipboard_android.rs`),
+real chip), per-device state, rollback detection, the newest version of the apps that
+opened each vault here and unlock attempts (`device.rs`), clipboard that stays out of history (`clipboard.rs`, `clipboard_android.rs`),
 screen-capture blocking (`screen.rs`), typed secrets (`secure_buffer.rs`) kept in one area
 locked in RAM, and the Windows key shield (`secure_memory.rs`), the global allocator that wipes
 every block it frees (`wiping_alloc.rs`),
@@ -219,6 +220,8 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/controller/locked_fill.rs` | Filling from the browser while the vault is locked |
 | `src/controller/attachments.rs` | Files attached to items and SSH key items in the editor and on the item page |
 | `src/controller/watch.rs` | The leak watch: every login checked once a day while open, new leaks told and shown on Password health |
+| `src/controller/passwords.rs` | A new password's review: the one-factor floor's warnings, the breach check of a new master password, the protected export's refusal (`ui/review.slint`) |
+| `src/controller/attempts.rs` | Unlock attempts: counted in the device state, the wait enforced and counted down, told once at the next unlock |
 | `src/controller/updates.rs` | Updates: GitHub's newest release, looked for every hour (Settings → About → Look for updates by itself) and on Check for updates; a notice tells of a newer one |
 | `src/tray.rs` | The notification area icon (tray mode) and its menu window (`ui/tray.slint`) |
 | `src/i18n.rs` | The app's language: picks a compiled-in catalogue from `translations/` |
@@ -247,7 +250,9 @@ phone's layout and imports the desktop's `theme.slint`, `widgets.slint` and `ico
 vault with the same rules as the desktop (secure fields, item lock, `changed_outside`-style
 save check, clipboard cleared). `src/tests.rs` runs it headless;
 `examples/phone_screens.rs` renders every screen to PNG. A change to a shared widget must
-look right in both apps' screenshots. The controller's submodules are `syncing.rs` (sync on
+look right in both apps' screenshots. The controller's submodules are `attempts.rs` (failed
+unlocks, the wait, removing the copy after 10 when chosen), `passwords.rs` (a new master
+password's review, the export's floor), `syncing.rs` (sync on
 the phone, updates from the server), `settings.rs` (vaults on the phone, fingerprint unlock,
 import, "Check this password"), `filling.rs` (autofill from the open vault),
 `attachments.rs` (files and SSH keys), `preview.rs` (previews of attached pictures, text and

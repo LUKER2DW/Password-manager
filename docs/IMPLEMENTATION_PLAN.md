@@ -782,10 +782,23 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   `apps/extension/test/kit.test.mjs`.
 - ⬜ S18. What a stolen pairing reaches: items or folders kept out of the browser, the
   extension's window listing only the open site's logins, a folder kept to one browser.
-- ⬜ S19. A strength floor for passwords that are the only factor (the `.vaultx` export, the
-  item lock's password) and a check of a new master password.
-- ⬜ S20. Unlock attempts: a growing delay that survives a restart, the count shown at the
-  next unlock; on the phone, optionally removing the local copy after many failures.
+- ✅ S19. The one-factor floor: 10^14 guesses by zxcvbn (`vault_core::health::
+  ONE_FACTOR_MIN_GUESSES_LOG10`, the arithmetic in CRYPTO.md §3.3.1). A protected export's
+  password below it is refused (`sealed_export::seal`, and before the slow work in each app),
+  with "Use a generated passphrase" (six EFF words, shown); a KDBX export will use the same
+  check. A new master password (onboarding, recovery, Settings; the phone's sheet and recovery;
+  `vault init`, `passwd`, `recover`) or item lock password below it is warned about and kept
+  only if the person says so; a new master password can be checked against known breaches
+  first (a box, off by default; `--check-leaks`), with the leak check's k-anonymous query.
+  Desktop `controller/passwords.rs` and `ui/review.slint`, phone `controller/passwords.rs`.
+- ✅ S20. Unlock attempts (`vault_core::attempts`): failed tries counted per vault in the device
+  state (`device.rs`; the phone's `prefs.rs`), surviving a restart; from the fifth in a row a
+  wait of 30 s doubling up to 15 min, counted down on the unlock screen and enforced in the
+  controller and the CLI; timed by the wall clock (set back: the wait starts again) and the
+  time since the device started (`device::uptime_seconds`), whichever says less time passed;
+  told once at the next right unlock ("5 failed tries … since …"). The phone may remove its
+  copy after 10 failures, only for a vault that syncs, off by default. The honest limit (an
+  offline copy never meets the counter) is in THREAT_MODEL.md.
 - ✅ S21. A warning for a domain that looks like a saved site, from the vault's own sites,
   offline (`vault_browser::lookalike`): registrable domains compared by skeleton (accents off,
   look-alike letters of other scripts, `0`/`1`, `rn`/`vv`), one or two edits for names of five
