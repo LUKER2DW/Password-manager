@@ -25,8 +25,9 @@ A local-first, zero-knowledge password manager written in Rust.
 
 ## 2. Repository layout
 
-`apps/` holds what people run, `crates/` the libraries the apps share. An app may depend on
-crates and, for tests, on another app (the server); a crate never depends on an app.
+`apps/` holds what people run, `crates/` the libraries the apps share, `tools/` what the
+maintainer and the release workflow run. An app may depend on crates and, for tests, on another
+app (the server); a crate never depends on an app.
 
 ```
 Cargo.toml              workspace (edition 2024, shared lints, release profile)
@@ -39,12 +40,17 @@ apps/
   mobile-web/           vault-mobile-web: the phone app in a browser page (WebAssembly), demo vault
   server/               vault-server: the self-hosted sync server (AGPL-3.0), Docker files
   extension/            the browser extension (Manifest V3, plain JavaScript; Chrome, Edge, Firefox)
+  windows-version-info.rs  the version information every Windows program carries (build scripts)
 crates/
   core/                 vault-core: cryptography, file format, item model (no UI, no network)
   platform/             vault-platform: OS integration (Windows first, Android)
   import/               vault-import: import from / export to other managers and browsers
   browser/              vault-browser: what the extension may ask and get, and its native host
-  sync-wire/            vault-sync-wire: what devices and the sync server say (signed requests)
+  sync-wire/            vault-sync-wire: what devices and the sync server say (signed requests),
+                        and the project's releases with their signed manifest
+tools/
+  release/              vault-release: the release manifest (write, sign, check) and
+                        make-manifest-keys.ps1, which makes its keys
 docs/
   THREAT_MODEL.md       who we defend against and the principles that follow
   ARCHITECTURE.md       overall design and decisions
@@ -53,6 +59,8 @@ docs/
   IMPLEMENTATION_PLAN.md  milestones and what is done (keep it current)
   MOBILE.md             the phone app: plan, screens, security on a phone, milestones
   SERVER.md             running your own sync server (Docker, Tailscale), what it can see
+  CODE_SIGNING.md       code signing policy: the manifest key, the APK's key, SignPath (pending)
+  PRIVACY.md            privacy policy: what each app sends, where and when
   spec/CRYPTO.md        exact cryptography (normative)
   spec/VAULT_FORMAT.md  exact file format (normative)
   spec/SYNC.md          sync: the merge, the targets, the server protocol
@@ -128,7 +136,8 @@ type for this user on Windows (icon, opens in the app; `file_types.rs`), startin
 (`session_watch.rs`: session lock, user switch, sign-out, sleep), the process's own hardening
 (`process.rs`: DLLs from System32 only), file helpers and
 secure wiping (`files.rs`), app paths (`paths.rs`), the apps' updates from GitHub's releases
-(`updates.rs`: the release list, and the phone's package checked against it), sync targets and one sync
+(`updates.rs`: the release list, taken only with its manifest signed, and the phone's package
+and the extension's zip checked against that manifest), sync targets and one sync
 round (`sync.rs`: the folder target, fetch, merge, this device joining the vault;
 `sync/server.rs` the sync server client, `sync/webdav.rs` WebDAV, `sync/http.rs` which
 addresses are allowed). The server key and the WebDAV password live in the credential store
@@ -274,12 +283,16 @@ built APK's manifest keeps its protections and opens nothing else); the release 
 ### 2.7 `crates/sync-wire` and `apps/server`
 
 `vault-sync-wire` is the request protocol shared by clients and server (signed messages,
-enrollment, invites, JSON bodies). `vault-server` (AGPL-3.0) stores sealed copies, device
+enrollment, invites, JSON bodies), and the reading of the project's releases (`releases.rs`):
+GitHub's answer, the release manifest and its minisign signature checked against the two
+embedded keys (`RELEASE_KEYS`, CRYPTO.md §9), the version binding, and the check of a sync
+server's update the phone makes itself. `vault-server` (AGPL-3.0) stores sealed copies, device
 public keys and invite digests as plain files (`store.rs`) behind the API in `api.rs`
 (signature, time and nonce checks, limits), served by `connections.rs` (open connections
 capped, header and write time limits), with an HTTPS of its own for a home network
 (`tls.rs`), and can follow the project's releases to hand new phone apps to the phones
-(`updates.rs`, `--app-updates`; the release list is read by `vault_sync_wire::releases`).
+(`updates.rs`, `--app-updates`; the release list is read by `vault_sync_wire::releases`, and
+the manifest and its signature kept and handed on unchanged).
 Released as binaries and as an image on ghcr.io (`release.Dockerfile`). Tests:
 `cargo test -p vault-server` runs a real server with two devices. Setup:
 [docs/SERVER.md](docs/SERVER.md); Docker files next to the code.
@@ -404,11 +417,14 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
    site or picture link chosen for an item or folder, sync to a place the person set up
    (sealed copies only), the apps' updates (GitHub's release list, one anonymous request:
    looked at by the desktop and the phone every hour while they run and on the **Check for
-   updates** button, a setting on by default so a fix reaches everyone; the phone may take
-   them from its sync server instead; `vault_platform::updates`), with the desktop app taking
-   the browser extension's zip of that release when it is newer than the extension it has
-   (unless the person chose a folder of theirs), checked against the SHA-256 the release list
-   gives (`vault_platform::extension_source`), and a sync server following
+   updates** button, a setting on by default so a fix reaches everyone, told on each app's
+   first screen with its switch (docs/PRIVACY.md); the phone may take them from its sync
+   server instead; `vault_platform::updates`), with the desktop app taking the browser
+   extension's zip of that release when it is newer than the extension it has (unless the
+   person chose a folder of theirs), checked against the size and SHA-256 the release's
+   signed manifest lists (`vault_platform::extension_source`). Every updater fails closed: a
+   release counts only with its manifest signed by one of `RELEASE_KEYS`
+   (`vault_sync_wire::releases`), and a sync server following
    the releases (`--app-updates`, its owner's choice; `apps/server/src/updates.rs`). Nothing is sent to a
    third-party service for icons. Links handed to the OS to open are `http(s)` only
    (`vault_platform::browsers::web_link`). The browser extension's link is local only (a
@@ -457,7 +473,13 @@ The APK and the browser build have their own scripts, `apps/mobile-android/build
   add the phone's notes for it (`apps/mobile/ui/app.slint`, with its pt_BR translation) and
   write its section in `CHANGELOG.md`; the push to `main` builds, signs and publishes
   `v<version>` (the desktop exe, the CLI, the server for Linux and Windows and its image on
-  ghcr.io, the APK, the extension).
+  ghcr.io, the APK, the extension, and `manifest.json` with its signature), once the
+  maintainer approves the run's two signing jobs (the APK's and the manifest's,
+  docs/CODE_SIGNING.md).
+- The manifest keys are in `RELEASE_KEYS` (`crates/sync-wire/src/releases.rs`) and pinned by
+  id in its test: changing them is a release of its own, signed with a key the apps already
+  take (docs/CODE_SIGNING.md, "Changing the keys"). A test never uses them: tests sign with
+  keys of their own (`releases::testing`, the `test-signing` feature).
 
 ## 5. How to do common things
 

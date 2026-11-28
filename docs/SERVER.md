@@ -153,30 +153,41 @@ GitHub themselves, and an update doesn't have to be copied to each phone by hand
 **From the releases, by itself.** With `serve --app-updates LUKER2DW/Password-manager` (or
 `VAULT_SERVER_APP_UPDATES`, which `compose.yaml` sets), the server asks GitHub for the newest
 release a minute after it starts and then every 6 hours. When that release carries a newer
-phone app than the one here, it downloads it, checks its size and SHA-256 against what GitHub
-lists for it, and keeps it; the phones offer it in **Settings → Updates**. Its log also says
-when a newer server is out. That is one anonymous request to GitHub every 6 hours, plus the
-package when there is a new one; nothing about the vaults or the devices is in them. Without
-the option it asks nothing. `vault-server fetch-app` does the same once, now.
+phone app than the one here, it downloads the release's `manifest.json` and its signature,
+checks the signature against the project's manifest keys (docs/CODE_SIGNING.md), downloads the
+package, checks its size and SHA-256 against that manifest, and keeps it with the manifest and
+the signature unchanged; the phones offer it in **Settings → Updates**. Its log also says when
+a newer server is out. That is one anonymous request to GitHub every 6 hours, two small ones
+for the manifest and its signature, and the package when there is a new one; nothing about the
+vaults or the devices is in them. Without the option it asks nothing. `vault-server fetch-app`
+does the same once, now.
 
-**By hand.** An APK you built yourself (`apps/mobile-android/build.ps1`, which takes its
-version from `apps/mobile-android/Cargo.toml`):
+**By hand.** A release's APK, with that release's `manifest.json` and `manifest.json.minisig`
+beside it (download all three from the release page):
 
 ```bash
-vault-server publish-app vault-mobile-android.apk --version 0.2.0
-# Docker: copy it in first
-docker compose -f apps/server/compose.yaml cp vault-mobile-android.apk vault-server:/data/
-docker compose -f apps/server/compose.yaml exec vault-server vault-server publish-app /data/vault-mobile-android.apk --version 0.2.0
+vault-server publish-app vault-mobile-android-0.5.0.apk --version 0.5.0 --manifest manifest.json
+# Docker: copy them in first
+docker compose -f apps/server/compose.yaml cp vault-mobile-android-0.5.0.apk vault-server:/data/
+docker compose -f apps/server/compose.yaml cp manifest.json vault-server:/data/
+docker compose -f apps/server/compose.yaml cp manifest.json.minisig vault-server:/data/
+docker compose -f apps/server/compose.yaml exec vault-server vault-server publish-app /data/vault-mobile-android-0.5.0.apk --version 0.5.0 --manifest /data/manifest.json
 ```
 
+The server checks that the manifest is signed by a project key and lists this very APK before
+it publishes anything. Without `--manifest` it still publishes, but the phones refuse such an
+update: an APK of your own build, which the release's manifest doesn't list, can't be handed
+out this way.
+
 On the phone, with updates from the server, **Settings → Updates → Check for updates** (or
-wait: it looks after syncing), then **Install**. The phone fetches
-the package with its device key, checks its size and SHA-256 against the release, checks that
-it is this app, newer, and signed with the same certificate, and hands it
-to Android, which asks you and installs it only if it is signed with the same key as the app
-already there. Someone who took the server over, or GitHub, can offer an old or a broken
-package; Android refuses one signed with another key, and the phone never installs anything
-without you. The APKs are signed with the app's release key, which only the release workflow
+wait: it looks after syncing), then **Install**. The phone checks the release's manifest and
+signature the server hands on, itself: signed by a project key, for that version, newer than
+the app, listing the package the server has. It then fetches the package with its device key,
+checks its size and SHA-256 against that, checks that it is this app, newer, and signed with
+the same certificate, and hands it to Android, which asks you and installs it only if it is
+signed with the same key as the app already there. Someone who took the server over can
+withhold an update, never make the phone take one the manifest key didn't sign; and the phone
+never installs anything without you. The APKs are signed with the app's release key, which only the release workflow
 (a secret of its `android-release` environment) and the maintainer's own computer hold: whoever
 has that key can make updates, so it never goes near the server.
 

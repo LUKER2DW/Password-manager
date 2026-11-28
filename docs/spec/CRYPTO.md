@@ -16,6 +16,7 @@
 | Constant-time comparison | — | `subtle` |
 | Sealing to a public key (browser drop box only, §3.5) | libsodium sealed box: X25519 + XSalsa20-Poly1305, nonce = BLAKE2b(eph_pk ‖ pk) | `crypto_box` |
 | The browser extension's link only (§3.9) | ECDH P-256 to agree on its key; AES-256-GCM to seal its messages (the AEAD the browser's WebCrypto offers: XChaCha20-Poly1305 isn't there, and written in JavaScript it would be home-made) | `p256`, `aes-gcm` |
+| The release manifest's signature only (§9, not part of the vault) | Ed25519 over BLAKE2b-512, in minisign's format | signed with `ed25519-dalek` and `blake2` (`tools/release`), checked with `minisign-verify` |
 | Keeping the Secret Key on Windows only (§2.2.1) | RSA-2048 OAEP with SHA-256, the private key in the TPM | Windows NCrypt, Microsoft Platform Crypto Provider |
 | The emergency kit's PDF files only (§3.10) | The PDF standard security handler, revision 6 (ISO 32000-2 §7.6.4): AES-256-CBC for the content, AES-128-CBC and SHA-256/384/512 in its password hash, AES-256 on one block for its permissions (what every PDF viewer reads; nothing else opens a PDF) | `aes`, `cbc`, `sha2` |
 
@@ -860,3 +861,43 @@ Plaintexts are padded before sealing: `u32 LE length ‖ data ‖ zeros`.
   the hash's last block held the key's bytes. Nothing of this reaches the file.
 - Every program's global allocator wipes each heap block before freeing it and never grows
   one in place (`vault_platform::wiping_alloc`).
+
+## 9. The release manifest's signature (not part of the vault)
+
+Every release holds `manifest.json`, which lists each of its files by name, size and SHA-256
+(and the commit it was built from and the SHA-256 of the APK's signing certificate), and
+`manifest.json.minisig`, its signature. The apps take a release, or a file of it, only when that
+signature checks out (`vault_sync_wire::releases`); docs/CODE_SIGNING.md says who holds the keys.
+
+The signature is minisign's, prehashed (`ED`):
+
+```
+h         = BLAKE2b-512(manifest.json)
+signature = Ed25519-Sign(sk, h)                                  (RFC 8032)
+global    = Ed25519-Sign(sk, signature ‖ trusted comment)
+file      = "untrusted comment: …" LF
+            base64("ED" ‖ key id (8 bytes) ‖ signature) LF
+            "trusted comment: " trusted comment LF
+            base64(global) LF
+public key = base64("Ed" ‖ key id ‖ Ed25519 public key)          (the second line of a .pub)
+```
+
+The trusted comment is exactly `vault-release v<version>`. A manifest is taken only when:
+`manifest.json` is at most 16 KiB and the signature 1 KiB; the signature's key id is one of the
+two keys the apps carry (`RELEASE_KEYS`: a primary and a backup) and both Ed25519 signatures
+verify under it (`minisign-verify`, which refuses an `s` not below the group order and the
+identity point; signatures made the old way, without the prehash, are refused); the manifest
+then reads strictly (schema 1, project `vault`, a version of three numbers, lowercase hex
+digests, each file named once with letters, digits, `-`, `_` and `.`); the trusted comment
+names that version; that version is the release's tag (or the version a sync server's update
+claims); and it is newer than the version installed. A file is then taken only at the size and
+SHA-256 the manifest lists (GitHub's own digest, when it gives one, must be the same). A sync
+server hands the manifest and the signature on unchanged and the phone checks them itself.
+
+Keys are made and used by `tools/release` (`vault-release`): the seed and the key id are random
+(OS CSPRNG); the secret half is kept sealed under a password of its own exactly as an export is
+(§3.3: Argon2id at the standard level, XChaCha20-Poly1305 with key commitment), its contents
+`"vault-release-key-v1\0" ‖ key id ‖ seed`. The password reaches the tool through its
+environment, never its command line. The release workflow signs with the primary in a job that
+gets the sealed key and its password only after the maintainer's approval, and checks the
+signature against `RELEASE_KEYS` with the apps' own code before anything is published.

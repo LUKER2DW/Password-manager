@@ -738,8 +738,29 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   today), the desktop and the phone naming a copy they couldn't read (only the device's last
   sync shows it), and the same reading of the release exe's memory by hand (the renderer and
   UI Automation, which the test's backend doesn't have).
-- ⬜ S15. Authenticode signing and a release manifest signed with an offline key that the
-  updaters check (owner).
+- 🚧 S15. A signed release manifest every updater checks, and the groundwork for Authenticode
+  signing through the SignPath Foundation. Done: every release holds `manifest.json` (each
+  file's name, size and SHA-256, the commit, the APK's certificate) and its signature in
+  minisign's format (CRYPTO.md §9), made in the release workflow by a job that gets the manifest
+  key only after the maintainer's approval (the `android-release` environment) and checks the
+  signature with the apps' own code and keys before anything is published (`tools/release`,
+  `vault-release`; keys made by `tools/release/make-manifest-keys.ps1`: a primary in the
+  environment, a backup that stays on the maintainer's computer). The desktop app, the phone
+  and the sync server take a release only with that signature, by one of the two keys they
+  carry (`RELEASE_KEYS`, pinned by id in a test), the manifest's version, its signed comment
+  and the release's tag all agreeing, and never a version not newer than the one installed (a
+  desktop that told of a version doesn't show an older one); the phone's package and the
+  extension's zip only at the size and SHA-256 the manifest lists. A sync server keeps the
+  manifest and its signature with the phone app (`publish-app --manifest`, `--app-updates`)
+  and the phone checks them itself, refusing an update without them. Every Windows program
+  carries the same version information (`apps/windows-version-info.rs`), checked by
+  `check-exe.ps1 -Version` in the release, which has an `-Authenticode` check ready (SignPath
+  Foundation's signature). The update check is told on each app's first screen with its switch.
+  docs/CODE_SIGNING.md (signing policy, roles, SignPath's attribution) and docs/PRIVACY.md (what
+  each app sends). Waiting for the maintainer: the real manifest keys (the stand-ins in
+  `RELEASE_KEYS` replaced, the primary put in the environment with `-SetSecrets`, the public
+  keys in CODE_SIGNING.md), immutable releases turned on, the SignPath Foundation's
+  application, then its signing step in release.yml and `-Authenticode` turned on.
 - ✅ S16. A warning when a vault password is pasted or sent on a site that isn't its own: a
   password pasted into a password field, or sent from a sign-in form, goes to the app
   (`elsewhere`) only to be compared with the other sites' logins outside the item lock, and is

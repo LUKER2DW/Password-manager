@@ -95,6 +95,7 @@ Keyfile [optional] ────────────────────�
 | Encryption | **XChaCha20-Poly1305**, made key-committing | A fresh key and commitment per message from HKDF over a random 192-bit nonce |
 | Browser drop box | libsodium sealed box (X25519) | Only for logins saved while the vault is locked |
 | Sync server requests | **Ed25519** signatures | One key per device and vault; no password reaches the server |
+| Releases | **Ed25519** in minisign's format (`minisign-verify`) | Every release's `manifest.json` (each file's size and SHA-256) signed in the release workflow after the maintainer's approval; every updater checks it against two embedded keys (CRYPTO.md §9) |
 | The Secret Key kept on Windows | **RSA-2048 OAEP-SHA-256** in the TPM (NCrypt's Platform Crypto Provider) | Wraps a random key that seals the Secret Key with the AEAD above; not exportable, no prompt (CRYPTO.md §2.2.1) |
 | Randomness | OS CSPRNG (`getrandom`) | |
 | Memory | `zeroize`; a global allocator that wipes every block it frees; typed secrets in one area locked in RAM; the vault and guard keys encrypted between uses (`CryptProtectMemory`, Windows) | A test reads the running app's memory after it locks (THREAT_MODEL §3) |
@@ -180,6 +181,22 @@ Full design: [spec/SYNC.md](spec/SYNC.md). In short:
 - The server authenticates devices by signed requests (Ed25519 keys made on each device);
   no password or password hash reaches it. New devices join with a one-time invite.
 - The browser extension does not sync: it follows the desktop app on the same computer.
+
+### Updates
+
+- The desktop app, the phone and the sync server (`--app-updates`) read GitHub's newest
+  release with `vault_sync_wire::releases`, and take it only with its `manifest.json` signed by
+  one of the two manifest keys the apps carry (`RELEASE_KEYS`): the primary, which the release
+  workflow uses after the maintainer's approval, and a backup that never leaves the maintainer's
+  computer. The manifest's version, its signed comment and the release's tag must agree, and a
+  version not newer than the one installed is never offered.
+- A file is taken only as the manifest lists it (size and SHA-256): the phone's package, the
+  browser extension's zip the desktop app keeps. A sync server keeps the manifest and its
+  signature beside the phone app it hands on, and the phone checks them itself.
+- `tools/release` (`vault-release`) writes the manifest, signs it and checks it the apps' way,
+  in the release workflow; `tools/release/make-manifest-keys.ps1` makes the keys
+  (docs/CODE_SIGNING.md). Windows Authenticode signing through the SignPath Foundation is
+  pending; every Windows program already carries the same version information.
 
 ## 7. User interface: native Rust with Slint
 
@@ -278,5 +295,8 @@ earlier passwords).
   a copy merged into an open vault, the sync protocol both ways, the extension's messages and
   release zip, imports, invite lines, `otpauth://` links and the part C picture; every target
   five minutes a day in CI (`.github/workflows/fuzz.yml`).
-- Planned: reproducible builds and signed releases, and an independent external audit before
+- Every release's manifest is signed and checked by every updater (§6, Updates; CRYPTO.md §9),
+  and every released file attested by GitHub.
+- Planned: reproducible builds, Authenticode-signed Windows programs (the SignPath
+  Foundation, pending: docs/CODE_SIGNING.md), and an independent external audit before
   any stable release.

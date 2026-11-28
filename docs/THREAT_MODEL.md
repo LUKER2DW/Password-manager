@@ -58,6 +58,7 @@ was removed. It is done on a computer (the desktop app's Emergency kit page or
 | A9 | Malware with administrator/kernel privileges | Full control of the machine | **No**, no software can defend against this |
 | A10 | Someone on the network who reaches the sync server, with no device key | Floods it, opens connections and never finishes a request, sends huge or slow requests, guesses invites, races requests, uses a leaked admin invite | **Yes**: unsigned requests and failures are rate-limited per address (an IPv6 /64 counts as one), a copy is read only once its whole signature is checked (64 KiB for any other body), open connections are capped in all and per address and closed when the headers or the reading of an answer stall, requests in flight and their time are capped, invites are 128 random bits used once under one lock, an admin invite only starts a new vault, an enrolled device's place can't be taken by another enrollment (docs/SERVER.md, "How it holds up") |
 | A11 | A website saved in the vault, with the website icons on | Its page links to, or redirects to, this computer or the local network (a router's page, a service on localhost) | **Yes**: a site on the internet makes the icon fetcher reach public addresses only, checked at each name lookup; a site saved with a local address is asked only where its name pointed when the fetch began |
+| A12 | Someone who takes a token of the project's GitHub account, pushes to it, or tampers with its releases or its CI | Swaps or adds a file in a release, publishes a release of their own making, runs a workflow, hides a release | **Partially**: the apps take a release, and any file of it, only with its manifest signed by the manifest key (CRYPTO.md §9), which only a release run on `main` gets, after the maintainer's approval for that run (admins included); the workflow checks the signature with the apps' own keys before publishing, and published releases are immutable. **Not stopped**: whoever holds the whole account, approval included, or the maintainer's signing folder with its passwords, can sign a release the apps take; anyone in control of GitHub can withhold one (docs/CODE_SIGNING.md) |
 
 ### 2.1 A hostile sync place (A2, A3), as tested
 
@@ -388,10 +389,12 @@ On top of that:
   keep it there, and a folder the app can't put right on two checks in a row (a file held open,
   say) is said too. Where the files come from: by default the newest GitHub release's
   `vault-extension-<version>.zip`, downloaded with the app's own updates (the same release list,
-  over HTTPS; nothing else is sent) and taken only when its SHA-256 is the one that list gives
-  for it, which catches a download changed on the way or a file swapped on GitHub's storage, but
-  not a release made by whoever controls the project's GitHub account (the same trust as the
-  apps' updates, until the stores sign the extension). The zip is read strictly: nothing named
+  over HTTPS; nothing else is sent) and taken only from a release whose manifest is signed by
+  the manifest key, at the size and SHA-256 that manifest lists (CRYPTO.md §9). That catches a
+  download changed on the way, a file swapped in the release and a release made without the
+  maintainer's approval, but not one signed by whoever holds the whole GitHub account, approval
+  included (A12; the same trust as the apps' updates, until the stores sign the extension). The
+  zip is read strictly: nothing named
   outside the folder, no links, no ZIP64 or encryption, every entry's size and CRC checked, a
   few megabytes at most. The copy built into the app is used when it is newer or nothing was
   downloaded. The person may choose a folder of theirs instead: it is read with the same rules,
@@ -701,8 +704,9 @@ On top of that:
 - Undetected build supply-chain compromise: reduced, not eliminated. Dependencies are
   audited (`cargo-deny`, no advisory ignored), the workflows' actions pinned, and GitHub
   attests where every released file was built; the APK is signed with a release key of its
-  own. Builds aren't reproducible yet and the Windows exes aren't Authenticode-signed
-  (M10 S15).
+  own, and every release's manifest with the manifest key, both only after the maintainer
+  approved that run (A12). Builds aren't reproducible yet, and the Windows exes aren't
+  Authenticode-signed yet (M10 S15: the SignPath Foundation, pending).
 
 ## 5. Derived principles
 
@@ -732,14 +736,20 @@ On top of that:
    Updates: the desktop app and the phone ask GitHub for the newest release every hour while
    they run, and when **Check for updates** is pressed (one anonymous request, no redirect
    followed; nothing about the vault or the device in it, only that someone runs the app at
-   that address; a switch beside the button turns the hourly look off). The desktop app
-   downloads nothing; the person replaces the program. The phone takes a package from GitHub
-   only from github.com and its file store over HTTPS, only when its size and SHA-256 match
-   what the release lists, and checks it is this app, newer and signed with the same
-   certificate before Android asks to install it; it may take its updates from its sync
-   server instead. A sync server follows the releases only when its owner turns it on
-   (`--app-updates`): it takes a phone app package only from github.com, only when its size
-   and SHA-256 match what GitHub lists, and the phone still checks the package is this app,
-   newer and signed with the same certificate before Android asks to install it. GitHub (or
-   whoever took the server over) can withhold an update or offer an old one, never one
-   signed with another key.
+   that address; a switch beside the button turns the hourly look off, and the first screen
+   of each app says all this before anything is sent, with that switch; docs/PRIVACY.md). A
+   release counts only with its manifest signed by one of the two manifest keys the apps carry
+   (CRYPTO.md §9): no newer version is told or offered without it, and none that isn't newer
+   than the one installed (a desktop app that told of a version never goes back to an older
+   one). The desktop app downloads nothing but the browser extension's zip; the person
+   replaces the program. The phone takes a package from GitHub only from github.com and its
+   file store over HTTPS, only when its size and SHA-256 match what the signed manifest lists,
+   and checks it is this app, newer and signed with the same certificate before Android asks
+   to install it; it may take its updates from its sync server instead. A sync server follows
+   the releases only when its owner turns it on (`--app-updates`): it checks the manifest's
+   signature too, takes a phone app package only from github.com at the size and SHA-256 the
+   manifest lists, and keeps the manifest and its signature unchanged beside it; the phone
+   checks them again itself (a server, or whoever took it over, is trusted with nothing here)
+   and refuses an update without them, then checks the package is this app, newer and signed
+   with the same certificate. GitHub or a server can withhold an update; neither can make the
+   apps take one the manifest key didn't sign (A12 says who could).

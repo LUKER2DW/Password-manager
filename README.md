@@ -100,6 +100,8 @@ described in [docs/MOBILE.md](docs/MOBILE.md) §7; the extension in its README; 
 ## Documentation
 
 - [Threat model](docs/THREAT_MODEL.md) and [security policy](SECURITY.md)
+- [Code signing policy](docs/CODE_SIGNING.md) (how releases are signed and checked) and
+  [privacy policy](docs/PRIVACY.md) (what each app sends, where and when)
 - [Architecture](docs/ARCHITECTURE.md) and [design](docs/DESIGN.md)
 - [Roadmap](docs/ROADMAP.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md)
 - Specifications: [cryptography](docs/spec/CRYPTO.md), [vault file format](docs/spec/VAULT_FORMAT.md),
