@@ -734,7 +734,8 @@ On top of that:
   approval buys is that nothing signs while the person isn't looking; what it doesn't is a
   person who approves a request they didn't start. "Don't ask again" (5 minutes at most, one
   key and one program path, gone when the vault locks) widens that: within it, any process
-  running that program signs silently. A key behind the item lock signs nothing until the
+  running that program signs silently, though each signature still shows a notice and is
+  written to the security log (key and program). A key behind the item lock signs nothing until the
   lock is open; a locked vault lists no keys. While the app holds `\\.\pipe\openssh-ssh-agent`
   no other agent can take it; while it doesn't run, any program of the user could take that
   name and receive the sign-in requests of `ssh` (not keys: it has none to answer with).
@@ -745,7 +746,8 @@ On top of that:
   password, and a program that changes its window's title to look like another can receive it
   if the person doesn't read the title. That is the trade-off of typing into programs that
   have no other way in; copying (cleared from the clipboard, out of its history) and the
-  browser extension leak less. Windows silently drops keys meant for a window of a program
+  browser extension leak less. Each auto-type is written to the security log (the login and
+  the window's title). Windows silently drops keys meant for a window of a program
   running as administrator (UIPI): nothing is typed there, and the app can't tell.
 
 **Files with secrets outside the vault** (each a deliberate, visible choice):

@@ -976,7 +976,8 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   the user's alone); the vault's SSH keys listed while open, every signature approved in a
   dialog naming the key, the program and its parent, and what it is for (sign-in user or
   SSHSIG namespace), "don't ask again" 5 minutes for one key and program, the item lock
-  respected, everything refused at the lock (`controller/ssh_agent.rs`); signatures by
+  respected, everything refused at the lock, each signature in the security log
+  (`controller/ssh_agent.rs`); signatures by
   `vault_core::ssh::agent_sign` (Ed25519, ECDSA P-256/P-384, RSA SHA-256/512; SHA-1 refused).
   Tests: each signature checked by its crate's verifier, the protocol cut anywhere, the real
   pipe with two test clients, the app's whole flow headless.
@@ -993,9 +994,9 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   right-click menu type username, Tab, password and Enter (`SendInput`, Unicode characters)
   into the window behind the app after its title and a 3-second countdown, only while that
   window (same handle, program and title) has the keyboard, never into the app's own, not
-  with Ctrl, Alt, Shift or Win held; a locked login types nothing, the lock cancels it
-  (`vault_platform::autotype`, `controller/autotype.rs`). Limits in THREAT_MODEL §3.
-
+  with Ctrl, Alt, Shift or Win held; a locked login types nothing, the lock cancels it; each
+  one in the security log with the window's title (`vault_platform::autotype`,
+  `controller/autotype.rs`). Limits in THREAT_MODEL §3.
 - ⬜ F12. Distribution: the extension in the stores, an installer, the desktop updating itself.
   Done: the desktop app writes the extension into a folder of its own
   (`vault_platform::extension_folder`): by default the newest GitHub release's zip, taken with
