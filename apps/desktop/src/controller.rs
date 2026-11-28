@@ -58,7 +58,11 @@ mod passwords;
 mod protection;
 mod renew;
 mod syncing;
+mod toolbar;
 mod updates;
+
+/// How long a copy started after an update waits for the one it replaced to end.
+pub const UPDATE_HANDOVER: std::time::Duration = updates::HANDOVER;
 mod watch;
 
 /// What to draw next to an item.
@@ -325,6 +329,11 @@ mod notice {
     /// Failed unlocks happened before this one (the argument: since when; `notice-count`: how
     /// many). Its words are `Messages.failed-unlocks`.
     pub const FAILED_UNLOCKS: i32 = 124;
+    /// The program's folder can't be written, so the update can't install itself (the
+    /// argument: the folder); its release page opens.
+    pub const UPDATE_NOT_WRITABLE: i32 = 130;
+    /// The new version is in place, but couldn't be started (the argument says why).
+    pub const RESTART_FAILED: i32 = 131;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -593,6 +602,10 @@ struct State {
     release_page: Option<String>,
     /// The newer version a notice already told of (once per version while the app runs).
     update_told: Option<String>,
+    /// Restart (after an update) was chosen: in tests, in place of starting the new program.
+    restarted: bool,
+    /// The install under way was asked for (Install now, Try again), not started on its own.
+    install_asked: bool,
     /// The leak watch's check of every login (the tests put a stand-in in its place).
     leak_batch: watch::Batch,
     sync: syncing::SyncStatus,
@@ -796,6 +809,8 @@ impl Controller {
                 leaks: HashMap::new(),
                 release_page: None,
                 update_told: None,
+                restarted: false,
+                install_asked: false,
                 leak_batch: watch::batch_default,
                 sync: syncing::SyncStatus::default(),
                 import_source: None,
@@ -860,6 +875,8 @@ impl Controller {
         app.set_app_version(env!("CARGO_PKG_VERSION").into());
         // Shown with its switch on the first screen, before any vault is open.
         app.set_update_checks(controller.state.borrow().settings.update_checks);
+        app.set_update_install(controller.state.borrow().settings.update_install);
+        app.set_sidebar_hidden(controller.state.borrow().settings.sidebar_hidden);
         let language = controller.state.borrow().settings.language.clone();
         crate::i18n::apply(&language);
         app.set_language(crate::i18n::choice_of(&language));
@@ -1136,6 +1153,13 @@ impl Controller {
         on!(on_choose_extension_folder, |c| c.choose_extension_folder());
         on!(on_use_extension_release, |c| c.use_extension_release());
         on!(on_open_release, |c| c.open_release());
+        on!(on_install_update, |c| c.install_update(true));
+        on!(on_restart_now, |c| c.restart_now());
+        on!(on_toggle_sidebar, |c| c.toggle_sidebar());
+        on!(on_search_now, |c| c.search_now());
+        on!(on_vault_icon_chosen, |c, icon| c.vault_icon_chosen(&icon));
+        on!(on_choose_vault_icon, |c| c.choose_vault_icon());
+        on!(on_open_alert, |c, kind| c.open_alert(kind));
         on!(on_health_open, |c, index| c.health_open(index));
         on!(on_add_wordlist, |c| c.add_wordlist());
         on!(on_remove_wordlist, |c| c.remove_wordlist());
@@ -1347,6 +1371,7 @@ impl Controller {
                 app.set_vault_id(SharedString::from(info.id_hex));
             }
             None if path.exists() => {
+                app.set_vault_id(SharedString::new());
                 self.show_screen(Screen::Unlock);
                 self.set_error(error::FILE, "not a vault file");
             }
@@ -1364,6 +1389,7 @@ impl Controller {
         self.set_error(error::NONE, "");
         self.forget_review();
         self.app().set_screen(screen);
+        self.show_vault_mark();
     }
 
     fn set_error(&self, code: i32, detail: &str) {
@@ -2712,6 +2738,12 @@ impl Controller {
         );
     }
 
+    /// Whether Restart (after an update) was chosen, in tests.
+    #[cfg(test)]
+    pub(crate) fn restarted(&self) -> bool {
+        self.state.borrow().restarted
+    }
+
     /// The generator's current result as Rust holds it (for the headless test).
     #[cfg(test)]
     pub(crate) fn generated_result(&self) -> Option<String> {
@@ -2945,6 +2977,10 @@ impl Controller {
             app.set_import_rows(ModelRc::default());
             app.set_leaks_checked(false);
             app.set_vault_name(SharedString::new());
+            app.set_vault_menu(false);
+            app.set_alerts_panel(false);
+            app.set_health_counts(ModelRc::from(Rc::new(VecModel::from(vec![0; 5]))));
+            app.set_health_total(-1);
             app.set_folder_dialog(-1);
             app.set_pairing_code(SharedString::new());
             app.set_can_go_back(false);
@@ -4752,6 +4788,7 @@ impl Controller {
         app.set_website_icons(settings.website_icons);
         app.set_leak_watch(settings.leak_watch);
         app.set_update_checks(settings.update_checks);
+        app.set_update_install(settings.update_install);
         app.set_close_to_tray(settings.close_to_tray);
         app.set_start_in_tray(settings.start_in_tray);
         app.set_start_at_sign_in(self.starts_at_sign_in());
@@ -5557,6 +5594,8 @@ impl Controller {
             browser_fill_notices: app.get_browser_fill_notices(),
             browser_always_asks: app.get_browser_always_asks(),
             backdrop: app.get_backdrop_on(),
+            update_install: app.get_update_install(),
+            sidebar_hidden: app.get_sidebar_hidden(),
         };
         app.global::<Theme>()
             .set_backdrop(i32::from(settings.backdrop));

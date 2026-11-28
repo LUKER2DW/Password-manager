@@ -3094,6 +3094,10 @@ fn check_for_updates_says_what_github_answered() {
     controller.finish_update_check(Ok(release(env!("CARGO_PKG_VERSION"))), false);
     assert_eq!(app.get_update_state(), 2, "this is the newest");
 
+    // Told only (the install by itself is tested on its own, below).
+    app.set_update_install(false);
+    app.invoke_settings_changed();
+
     // Found on its own: said once in a notice, and in About.
     controller.finish_update_check(Ok(release("99.0.0")), true);
     assert_eq!(app.get_update_state(), 3, "a newer one is out");
@@ -3123,4 +3127,229 @@ fn check_for_updates_says_what_github_answered() {
     controller.finish_update_check(Err("offline".to_owned()), false);
     assert_eq!(app.get_update_state(), 4);
     assert_eq!(app.get_update_detail(), "offline");
+}
+
+/// The update installing itself (no network: the steps are fed as the install thread tells
+/// them), the dialog that asks to restart, and the setting that turns it off.
+#[test]
+fn an_update_installs_itself_and_asks_to_restart() {
+    use vault_platform::self_update::{Step, UpdateError};
+    use vault_sync_wire::releases::{
+        DESKTOP_EXE,
+        testing::{TestKey, verified},
+    };
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let _turn = app_home(&dir.path().join("home"));
+    let app = AppWindow::new().unwrap();
+    let controller =
+        Controller::install(&app, dir.path().join("none.vault"), Runner::Inline, None).unwrap();
+    let key = TestKey::new();
+    let release = |version: &str| verified(version, &[(DESKTOP_EXE, b"MZ a test program")], &key);
+
+    // Off: only told, as before, and Install now does the rest on demand.
+    assert!(app.get_update_install(), "on by default");
+    app.set_update_install(false);
+    app.invoke_settings_changed();
+    assert!(
+        !vault_platform::DeviceState::load()
+            .unwrap()
+            .settings
+            .update_install
+    );
+    controller.finish_update_check(Ok(release("99.0.0")), true);
+    assert_eq!(app.get_update_state(), 3);
+    assert_eq!(app.get_install_step(), 0, "not installed by itself");
+    assert_eq!(app.get_notice_code(), 89);
+    app.set_notice_code(0);
+    app.invoke_install_update();
+    assert_eq!(
+        app.get_install_step(),
+        1,
+        "on demand: the manifest checked first"
+    );
+
+    // Each step as the install thread tells it.
+    controller.update_progress(Step::Download {
+        done: 1024 * 1024,
+        total: 4 * 1024 * 1024,
+    });
+    assert_eq!(
+        (
+            app.get_install_step(),
+            app.get_install_done_kb(),
+            app.get_install_total_kb()
+        ),
+        (2, 1024, 4096)
+    );
+    // Asked again while it runs: nothing more starts.
+    app.invoke_install_update();
+    assert_eq!(app.get_install_step(), 2);
+    controller.update_progress(Step::Check);
+    assert_eq!(app.get_install_step(), 3);
+    controller.update_progress(Step::Install);
+    assert_eq!(app.get_install_step(), 4);
+
+    // A download that isn't what the manifest lists: said with the step it failed at, nothing
+    // installed, no restart asked.
+    controller.finish_install(Err(UpdateError::Refused("SHA-256 differs".into())), false);
+    assert_eq!(
+        (
+            app.get_install_step(),
+            app.get_install_failure(),
+            app.get_install_failed_at()
+        ),
+        (6, 2, 4)
+    );
+    assert_eq!(app.get_install_detail(), "SHA-256 differs");
+    assert!(!app.get_restart_asking());
+
+    // A folder that can't be written: told, with the release page.
+    app.invoke_install_update();
+    controller.finish_install(
+        Err(UpdateError::NotWritable(r"C:\Program Files\Vault".into())),
+        false,
+    );
+    assert_eq!((app.get_install_step(), app.get_install_failure()), (6, 1));
+    assert_eq!(app.get_notice_code(), 130);
+    app.set_notice_code(0);
+
+    // On by itself: a folder it can't write in isn't tried again at every look.
+    app.set_update_install(true);
+    app.invoke_settings_changed();
+    controller.finish_update_check(Ok(release("99.0.0")), true);
+    assert_eq!(app.get_install_step(), 6, "not tried again by itself");
+    // Try again; the release isn't newer after all: nothing.
+    app.invoke_install_update();
+    assert_eq!(app.get_install_step(), 1);
+    controller.finish_install(Err(UpdateError::NotNewer), false);
+    assert_eq!(app.get_install_step(), 0);
+    // The next look installs it by itself.
+    controller.finish_update_check(Ok(release("99.0.0")), true);
+    assert_eq!(app.get_install_step(), 1, "installs itself");
+    assert_eq!(
+        app.get_notice_code(),
+        0,
+        "the title bar shows it, no notice"
+    );
+    controller.finish_install(Err(UpdateError::NotNewer), false);
+    assert_eq!(app.get_install_step(), 0);
+
+    // Installed: the dialog asks. Later leaves it; the same version isn't installed again.
+    app.invoke_install_update();
+    controller.finish_install(Ok("99.0.0".into()), false);
+    assert_eq!(app.get_install_step(), 5);
+    assert_eq!(app.get_install_version(), "99.0.0");
+    assert!(app.get_restart_asking());
+    app.set_restart_asking(false);
+    controller.finish_update_check(Ok(release("99.0.0")), true);
+    assert_eq!(app.get_install_step(), 5);
+    assert!(!app.get_restart_asking());
+    // Restart (here no vault is open): the new program would start and this one quit.
+    assert!(!controller.restarted());
+    app.invoke_restart_now();
+    assert!(controller.restarted());
+}
+
+/// The title bar's toolbar: the vault's name and mark (the file's while locked), its icon on
+/// this computer, the sidebar, the search, and Restart after an update locking the vault.
+#[test]
+fn the_toolbar_shows_the_vault_and_keeps_its_choices_here() {
+    use vault_sync_wire::releases::{
+        DESKTOP_EXE,
+        testing::{TestKey, verified},
+    };
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let _turn = app_home(&dir.path().join("home"));
+    let path = dir.path().join("family.vault");
+    let app = AppWindow::new().unwrap();
+    let controller = Controller::install(&app, path.clone(), Runner::Inline, None).unwrap();
+    // A new vault: the file's name, no icon yet.
+    assert_eq!(app.get_vault_stem(), "family");
+    assert_eq!(app.get_vault_initial(), "F");
+    type_into(&app, 0, PASSWORD);
+    type_into(&app, 1, PASSWORD);
+    app.invoke_create_vault();
+    app.set_onboarding_guard(3);
+    app.invoke_create_vault();
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
+    let _cleanup = ForgetOnDrop(app.get_vault_id().to_string());
+    app.set_kit_saved(true);
+    app.invoke_finish_onboarding();
+    assert_eq!(app.get_screen(), Screen::Vault);
+
+    // Named: the vault's own name, and its initial.
+    app.set_vault_name_edit("Home".into());
+    app.invoke_vault_settings_changed();
+    assert_eq!(app.get_vault_name(), "Home");
+    assert_eq!(app.get_vault_initial(), "H");
+
+    // An icon chosen on this computer: kept in device state, not in the vault file.
+    let before = std::fs::read(&path).unwrap();
+    app.invoke_vault_icon_chosen("briefcase".into());
+    assert_eq!(app.get_vault_icon(), "briefcase");
+    let id = app.get_vault_id().to_string();
+    assert_eq!(
+        vault_platform::DeviceState::load().unwrap().vault_icon(&id),
+        "briefcase"
+    );
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        before,
+        "the vault file unchanged"
+    );
+    // From the vault menu: Settings → This vault.
+    app.invoke_choose_vault_icon();
+    assert_eq!(app.get_panel(), Panel::Settings);
+    assert_eq!(app.get_settings_section(), 1);
+
+    // An alert opens where it is dealt with: a Password health group alone, or Sync.
+    app.invoke_open_alert(2);
+    assert_eq!(app.get_panel(), Panel::Health);
+    assert_eq!(app.get_health_filter(), 2);
+    app.invoke_open_alert(10);
+    assert_eq!(app.get_panel(), Panel::Settings);
+    assert_eq!(app.get_settings_section(), 2);
+    app.set_health_filter(-1);
+
+    // Search from a tool page: back to the list.
+    app.invoke_search_now();
+    assert_eq!(app.get_panel(), Panel::Detail);
+
+    // The sidebar hidden, kept on this computer.
+    assert!(!app.get_sidebar_hidden());
+    app.invoke_toggle_sidebar();
+    assert!(app.get_sidebar_hidden());
+    assert!(
+        vault_platform::DeviceState::load()
+            .unwrap()
+            .settings
+            .sidebar_hidden
+    );
+
+    // An update installed, Restart: the vault locks first, as Lock now does.
+    let key = TestKey::new();
+    controller.finish_update_check(
+        Ok(verified(
+            "99.0.0",
+            &[(DESKTOP_EXE, b"MZ a test program")],
+            &key,
+        )),
+        true,
+    );
+    controller.finish_install(Ok("99.0.0".into()), false);
+    assert!(app.get_restart_asking());
+    app.invoke_restart_now();
+    assert!(controller.restarted());
+    assert!(!app.get_restart_asking());
+    assert_eq!(app.get_screen(), Screen::Unlock);
+    assert_eq!(
+        app.get_vault_name(),
+        "",
+        "nothing of the vault shown while locked"
+    );
+    // Locked: the file's name, and the icon still (it is this computer's, not the vault's).
+    assert_eq!(app.get_vault_initial(), "F");
+    assert_eq!(app.get_vault_icon(), "briefcase");
 }

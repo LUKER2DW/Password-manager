@@ -3,14 +3,36 @@
 import { ListView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
 import { ItemRow, FolderRow, Panel, Messages } from "model.slint";
-import { Button, QuietButton, LineField, MarkStroke, ItemIcon, Logo, Backdrop } from "widgets.slint";
+import { Button, QuietButton, LineField, MarkStroke, ItemIcon, Backdrop } from "widgets.slint";
 import { BrandMark, Glyph, FolderLook, FieldColors } from "icons.slint";
+
+// The index's own colours: every entry a colour of its own, none shared with another entry
+// (the fields keep FieldColors). Folders without a colour of their own take `folder`.
+global IndexColors {
+    public pure function of(name: string) -> color {
+        if (name == "stack") { return Theme.dark ? #74A9FF : #2D6BD0; }
+        if (name == "star") { return Theme.dark ? #E7C54B : #A67C00; }
+        if (name == "key") { return Theme.dark ? #5FC8E8 : #1C7FA0; }
+        if (name == "card") { return Theme.dark ? #9DAAFF : #4C5CC2; }
+        if (name == "note") { return Theme.dark ? #72C291 : #2E7D55; }
+        if (name == "terminal") { return Theme.dark ? #B5D86A : #5E8A1A; }
+        if (name == "fingerprint") { return Theme.dark ? #4FC6B7 : #1A8A7D; }
+        if (name == "clock") { return Theme.dark ? #FF82B8 : #C03B78; }
+        if (name == "folder") { return Theme.dark ? #D9B38C : #8A6239; }
+        if (name == "heart") { return Theme.dark ? #FF7A85 : #C2333F; }
+        if (name == "sparkle") { return Theme.dark ? #B38FFF : #6D45C6; }
+        if (name == "lifebuoy") { return Theme.dark ? #FFA25E : #BF5E1A; }
+        if (name == "swap") { return Theme.dark ? #E07BE0 : #A3389F; }
+        if (name == "gear") { return Theme.dark ? #A9B8CC : #56657A; }
+        return FieldColors.of(name);
+    }
+}
 
 component IndexTab inherits Rectangle {
     in property <string> text;
     // icons.slint name; "" for none.
     in property <string> icon;
-    in property <color> icon-tint: FieldColors.of(root.icon);
+    in property <color> icon-tint: IndexColors.of(root.icon);
     // A downloaded picture shown instead of the icon (folders with a picture link).
     in property <image> image;
     in property <bool> has-image;
@@ -147,35 +169,30 @@ component IndexTab inherits Rectangle {
     }
 }
 
-// Small round button for back and forward.
-component NavButton inherits Rectangle {
-    in property <bool> enabled;
-    in property <bool> forward;
-    in property <string> label;
-    callback clicked;
-    width: 26px;
-    height: 26px;
-    border-radius: Theme.radius;
-    background: root.enabled && touch.has-hover ? Theme.hover : transparent;
-    accessible-role: button;
-    accessible-label: root.label;
-    accessible-enabled: root.enabled;
-    Path {
-        width: 14px;
-        height: 14px;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: root.forward ? "M9 5 L16 12 L9 19" : "M15 5 L8 12 L15 19";
-        stroke: root.enabled ? Theme.ink : Theme.faint;
-        stroke-width: 2px;
-        stroke-line-cap: round;
-        stroke-line-join: round;
-        fill: transparent;
+// The vault's mark (the title bar, its menu, Settings → This vault): the icon chosen for it on
+// this computer, or its name's initial, on a small rounded tile.
+export component VaultMark inherits Rectangle {
+    in property <string> icon;
+    in property <string> initial;
+    width: 22px;
+    height: 22px;
+    border-radius: Math.round(self.height / 4px) * 1px;
+    background: Theme.selected;
+    border-width: 1px;
+    border-color: Theme.rule;
+    if root.icon != "": Glyph {
+        width: root.width * 0.62;
+        height: root.height * 0.62;
+        name: root.icon;
+        tint: FolderLook.tint(root.icon, 0);
     }
-    touch := TouchArea {
-        enabled: root.enabled;
-        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
-        clicked => { root.clicked(); }
+    if root.icon == "": Text {
+        text: root.initial != "" ? root.initial : "V";
+        font-size: root.height * 0.52;
+        font-weight: 700;
+        color: Theme.ink;
+        horizontal-alignment: center;
+        vertical-alignment: center;
     }
 }
 
@@ -270,12 +287,7 @@ export component VaultIndex inherits Rectangle {
     in property <[FolderRow]> folders;
     in property <int> totp-count;
     in property <int> health-count;
-    in property <string> vault-name;
     in property <Panel> panel;
-    in property <bool> can-go-back;
-    in property <bool> can-go-forward;
-    callback go-back();
-    callback go-forward();
     callback open-health();
     callback new-folder();
     callback edit-folder(int);
@@ -287,8 +299,6 @@ export component VaultIndex inherits Rectangle {
     callback open-kit();
     callback open-transfer();
     callback open-authenticator();
-    callback lock();
-    callback switch-vault();
 
     background: Theme.panel;
     property <bool> browsing: root.panel != Panel.generator && root.panel != Panel.settings && root.panel != Panel.kit && root.panel != Panel.transfer && root.panel != Panel.authenticator && root.panel != Panel.health;
@@ -310,46 +320,6 @@ export component VaultIndex inherits Rectangle {
     VerticalLayout {
         padding: 18px;
         spacing: 2px;
-        HorizontalLayout {
-            padding-left: 8px;
-            spacing: 2px;
-            VerticalLayout {
-                alignment: center;
-                Logo {
-                    small: true;
-                    width: 26px;
-                    height: 26px;
-                }
-            }
-            Rectangle { width: 8px; }
-            Text {
-                horizontal-stretch: 1;
-                text: root.vault-name != "" ? root.vault-name : @tr("Vault");
-                font-size: Theme.title;
-                font-weight: 600;
-                color: Theme.ink;
-                overflow: elide;
-                vertical-alignment: center;
-            }
-            VerticalLayout {
-                alignment: center;
-                NavButton {
-                    label: @tr("Back (Alt+Left)");
-                    enabled: root.can-go-back;
-                    clicked => { root.go-back(); }
-                }
-            }
-            VerticalLayout {
-                alignment: center;
-                NavButton {
-                    label: @tr("Forward (Alt+Right)");
-                    forward: true;
-                    enabled: root.can-go-forward;
-                    clicked => { root.go-forward(); }
-                }
-            }
-        }
-        Rectangle { height: 16px; }
         // Categories and folders scroll together when there are many folders.
         Flickable {
             vertical-stretch: 1;
@@ -401,7 +371,7 @@ export component VaultIndex inherits Rectangle {
                 for folder[index] in root.folders: IndexTab {
                     text: folder.name;
                     icon: folder.icon != "" ? folder.icon : "folder";
-                    icon-tint: FolderLook.tint(folder.icon, folder.color);
+                    icon-tint: folder.color > 0 ? FolderLook.tint(folder.icon, folder.color) : IndexColors.of(folder.icon != "" ? folder.icon : "folder");
                     image: folder.image;
                     has-image: folder.has-image;
                     editable: true;
@@ -444,9 +414,6 @@ export component VaultIndex inherits Rectangle {
         IndexTab { text: @tr("Emergency kit"); icon: "lifebuoy"; active: root.panel == Panel.kit; clicked => { root.open-kit(); } }
         IndexTab { text: @tr("Import & export"); icon: "swap"; active: root.panel == Panel.transfer; clicked => { root.open-transfer(); } }
         IndexTab { text: @tr("Settings"); icon: "gear"; active: root.panel == Panel.settings; clicked => { root.open-settings(); } }
-        Rectangle { height: 8px; }
-        IndexTab { text: @tr("Lock now"); icon: "lock"; clicked => { root.lock(); } }
-        IndexTab { text: @tr("Switch vault"); icon: "vault"; clicked => { root.switch-vault(); } }
     }
 }
 
@@ -463,6 +430,9 @@ export component ItemList inherits Rectangle {
     callback edit-folder();
     callback delete-folder();
     in-out property <string> search-text;
+    // Counted up when the search is to take the focus (the toolbar, Ctrl+F).
+    in property <int> focus-search;
+    changed focus-search => { search-field.focus(); }
     callback search(string);
     callback select(int);
     callback item-menu(int, length, length);
@@ -484,7 +454,7 @@ export component ItemList inherits Rectangle {
             padding-left: 20px;
             padding-right: 20px;
             spacing: 10px;
-            LineField {
+            search-field := LineField {
                 horizontal-stretch: 1;
                 placeholder: @tr("Search");
                 text <=> root.search-text;

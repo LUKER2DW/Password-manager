@@ -82,6 +82,14 @@ export global Glyphs {
     out property <string> eye-off: "M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49 M14.084 14.158a3 3 0 0 1-4.242-4.242 M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143 M2 2 L22 22";
     out property <string> palette: "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z M13 6.5 A0.5 0.5 0 1 0 14 6.5 A0.5 0.5 0 1 0 13 6.5 Z M17 10.5 A0.5 0.5 0 1 0 18 10.5 A0.5 0.5 0 1 0 17 10.5 Z M6 12.5 A0.5 0.5 0 1 0 7 12.5 A0.5 0.5 0 1 0 6 12.5 Z M8 7.5 A0.5 0.5 0 1 0 9 7.5 A0.5 0.5 0 1 0 8 7.5 Z";
     out property <string> close: "M18 6 L6 18 M6 6 L18 18";
+    // Lucide "panel-left", "search" and the chevrons (the title bar's toolbar).
+    out property <string> sidebar: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M9 3v18";
+    out property <string> search: "M3 11a8 8 0 1 0 16 0a8 8 0 1 0-16 0z M21 21l-4.3-4.3";
+    out property <string> chevron-down: "M6 9l6 6 6-6";
+    out property <string> chevron-left: "M15 18l-6-6 6-6";
+    out property <string> chevron-right: "M9 18l6-6-6-6";
+    // Lucide "bell" (the title bar's alerts).
+    out property <string> bell: "M10.268 21a2 2 0 0 0 3.464 0 M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326";
 }
 
 // The colour of each kind of field.
@@ -237,6 +245,12 @@ export component Glyph inherits Path {
         : root.name == "eye-off" ? Glyphs.eye-off
         : root.name == "palette" ? Glyphs.palette
         : root.name == "close" ? Glyphs.close
+        : root.name == "sidebar" ? Glyphs.sidebar
+        : root.name == "search" ? Glyphs.search
+        : root.name == "chevron-down" ? Glyphs.chevron-down
+        : root.name == "chevron-left" ? Glyphs.chevron-left
+        : root.name == "chevron-right" ? Glyphs.chevron-right
+        : root.name == "bell" ? Glyphs.bell
         : Glyphs.tag;
 }
 

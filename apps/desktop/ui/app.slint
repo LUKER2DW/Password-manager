@@ -4,11 +4,11 @@ import "fonts/JetBrainsMono-Regular.ttf";
 import "fonts/JetBrainsMono-SemiBold.ttf";
 import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
-import { VaultIndex, ItemList } from "vault.slint";
-import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage } from "pages.slint";
+import { VaultIndex, ItemList, VaultMark } from "vault.slint";
+import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage, UpdateCard } from "pages.slint";
 import { FolderDialog, PairingDialog, PartsUsedDialog, ConfirmDialog, MasterPasswordDialog, TakeKeyDialog, ItemLockDialog, ServerJoinDialog, ServerAddressDialog, ExportDialog, WebDavDialog, BackupServerDialog, InviteDialog, ExtensionStepsDialog } from "dialogs.slint";
 import { MenuCard, MenuEntry, MenuRule, Backdrop } from "widgets.slint";
-import { Glyph } from "icons.slint";
+import { Glyph, FieldColors } from "icons.slint";
 import { NewPassword } from "review.slint";
 // A second window: the notification area icon's menu (src/tray.rs).
 export { TrayMenu } from "tray.slint";
@@ -63,19 +63,196 @@ component WindowButton inherits Rectangle {
     touch := TouchArea { clicked => { root.clicked(); } }
 }
 
-// The window's own title bar (the window has no frame of the system's): drag it to move the
-// window (the system's own move, so it snaps to the screen's edges), double-click it to
-// maximize or restore it.
+// A short label under a toolbar button: what it does, and its shortcut.
+component Tip inherits Rectangle {
+    in property <string> text;
+    width: label.preferred-width + 18px;
+    height: label.preferred-height + 10px;
+    border-radius: Theme.radius - 2px;
+    background: Theme.dark ? #2A3442 : #1F2A3D;
+    drop-shadow-blur: 10px;
+    drop-shadow-offset-y: 2px;
+    drop-shadow-color: #00000050;
+    label := Text {
+        text: root.text;
+        font-size: Theme.small;
+        color: #EEF1F5;
+    }
+}
+
+// A button of the title bar's toolbar: a line icon, and its tip a moment after the pointer
+// rests on it. `tip-end` lines the tip's right edge up with the button's (the buttons on the
+// right, so the tip stays inside the window).
+component ToolButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> tip;
+    in property <bool> enabled: true;
+    in property <bool> active;
+    in property <bool> tip-end;
+    in property <color> tint: Theme.graphite;
+    callback clicked();
+    width: 32px;
+    height: 32px;
+    border-radius: Theme.radius;
+    background: root.active ? Theme.selected : root.enabled && touch.has-hover ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.tip;
+    accessible-enabled: root.enabled;
+    property <bool> hovered: touch.has-hover;
+    property <bool> tip-shown;
+    changed hovered => {
+        if (!self.hovered) {
+            self.tip-shown = false;
+        }
+    }
+    Glyph {
+        width: 16px;
+        height: 16px;
+        name: root.icon;
+        tint: root.enabled ? root.tint : Theme.faint;
+    }
+    @children
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => {
+            root.tip-shown = false;
+            root.clicked();
+        }
+    }
+    Timer {
+        interval: 550ms;
+        running: root.hovered && !root.tip-shown;
+        triggered => { root.tip-shown = true; }
+    }
+    if root.tip-shown && root.tip != "": Tip {
+        x: root.tip-end ? root.width - self.width : 0px;
+        y: root.height + 6px;
+        text: root.tip;
+    }
+}
+
+// One alert in the title bar's panel: what, a word on what to do, and a click that goes there.
+component AlertRow inherits Rectangle {
+    in property <string> icon;
+    in property <color> tint;
+    in property <string> text;
+    in property <string> hint;
+    callback clicked();
+    height: 50px;
+    border-radius: Theme.radius - 2px;
+    background: touch.has-hover ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            Glyph {
+                width: 18px;
+                height: 18px;
+                name: root.icon;
+                tint: root.tint;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.text;
+                font-size: Theme.body;
+                font-weight: 600;
+                color: Theme.ink;
+                overflow: elide;
+            }
+            Text {
+                text: root.hint;
+                font-size: Theme.small;
+                color: Theme.graphite;
+                overflow: elide;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Glyph {
+                width: 12px;
+                height: 12px;
+                name: "chevron-right";
+                tint: Theme.faint;
+            }
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A hairline between groups of the toolbar.
+component ToolRule inherits VerticalLayout {
+    alignment: center;
+    padding-left: 5px;
+    padding-right: 5px;
+    Rectangle {
+        width: 1px;
+        height: 18px;
+        background: Theme.rule;
+    }
+}
+
+// The window's own title bar (the window has no frame of the system's), with the app's
+// toolbar in it: drag an empty part to move the window (the system's own move, so it snaps
+// to the screen's edges), double-click it to maximize or restore it.
+//
+// Left: the sidebar, back and forward, then the vault (its icon and name; the menu to switch).
+// Right: search, new item, sync, the update, lock, then the window's buttons. On the lock and
+// welcome screens only what means something there: the vault on the lock screen, the update.
+// Nothing here shows or copies a secret.
 component TitleBar inherits Rectangle {
     in property <bool> maximized;
-    in property <bool> show-title;
+    in property <Screen> screen;
+    in property <bool> sidebar-shown;
+    in property <bool> can-go-back;
+    in property <bool> can-go-forward;
+    // The vault: the file's name while locked, the vault's own once open.
+    in property <string> vault-label;
+    in property <string> vault-icon;
+    in property <string> vault-initial;
+    in property <bool> vault-menu-open;
+    in property <bool> sync-on;
+    in property <int> sync-state;
+    // The update (see AppWindow's update-…): told, installing (1–4), installed (5), failed (6).
+    in property <bool> update-out;
+    in property <int> install-step;
+    in property <float> install-progress;
+    in property <bool> update-panel-open;
+    // Alerts (only while there are some): how many, whether one is urgent (a leaked password, a
+    // sync that failed), and the panel open.
+    in property <int> alert-count;
+    in property <bool> alert-urgent;
+    in property <bool> alerts-open;
+    callback alerts();
     callback drag();
     callback toggle-maximized();
     callback minimize();
     callback close();
+    callback toggle-sidebar();
+    callback go-back();
+    callback go-forward();
+    callback vault-menu(length);
+    callback search();
+    callback new-item();
+    callback lock();
+    callback sync-now();
+    callback update-panel();
     // When the last press on the bar was, to tell a double-click (the system's move takes the
     // second click otherwise).
     property <duration> pressed-at: -1s;
+    property <bool> open: root.screen == Screen.vault;
+    property <bool> update-shown: root.update-out || root.install-step > 0;
     background: Theme.canvas;
     accessible-role: groupbox;
     TouchArea {
@@ -91,28 +268,207 @@ component TitleBar inherits Rectangle {
             }
         }
     }
-    if root.show-title: HorizontalLayout {
-        x: 12px;
-        spacing: 8px;
-        alignment: start;
-        VerticalLayout {
-            alignment: center;
-            Image {
-                width: 16px;
-                height: 16px;
-                source: @image-url("brand/icon-64.png");
+    HorizontalLayout {
+        padding-left: 6px;
+        spacing: 2px;
+        if !root.open: HorizontalLayout {
+            padding-left: 6px;
+            padding-right: 8px;
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                Image {
+                    width: 16px;
+                    height: 16px;
+                    source: @image-url("brand/icon-64.png");
+                }
+            }
+            if root.screen != Screen.unlock: Text {
+                text: @tr("Vault");
+                font-size: Theme.small;
+                color: Theme.graphite;
+                vertical-alignment: center;
             }
         }
-        Text {
-            text: @tr("Vault");
-            font-size: Theme.small;
-            color: Theme.graphite;
-            vertical-alignment: center;
+        if root.open: VerticalLayout {
+            alignment: center;
+            ToolButton {
+                icon: "sidebar";
+                tip: root.sidebar-shown ? @tr("Hide the sidebar (Ctrl+B)") : @tr("Show the sidebar (Ctrl+B)");
+                clicked => { root.toggle-sidebar(); }
+            }
         }
-    }
-    HorizontalLayout {
-        x: parent.width - self.width;
-        width: 3 * 46px;
+        if root.open: VerticalLayout {
+            alignment: center;
+            ToolButton {
+                icon: "chevron-left";
+                tip: @tr("Back (Alt+Left)");
+                enabled: root.can-go-back;
+                tint: Theme.ink;
+                clicked => { root.go-back(); }
+            }
+        }
+        if root.open: VerticalLayout {
+            alignment: center;
+            ToolButton {
+                icon: "chevron-right";
+                tip: @tr("Forward (Alt+Right)");
+                enabled: root.can-go-forward;
+                tint: Theme.ink;
+                clicked => { root.go-forward(); }
+            }
+        }
+        if root.open: ToolRule { }
+        if root.vault-label != "" && (root.open || root.screen == Screen.unlock): VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: chip.preferred-width;
+                height: 32px;
+                border-radius: Theme.radius;
+                background: root.vault-menu-open ? Theme.selected : chip-touch.has-hover ? Theme.hover : transparent;
+                accessible-role: button;
+                accessible-label: @tr("Vault: {}. Switch vault", root.vault-label);
+                chip := HorizontalLayout {
+                    padding-left: 5px;
+                    padding-right: 8px;
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        VaultMark {
+                            icon: root.vault-icon;
+                            initial: root.vault-initial;
+                        }
+                    }
+                    Text {
+                        text: root.vault-label;
+                        max-width: 280px;
+                        font-size: Theme.body;
+                        font-weight: 600;
+                        color: Theme.ink;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Glyph {
+                            width: 12px;
+                            height: 12px;
+                            name: "chevron-down";
+                            tint: Theme.graphite;
+                        }
+                    }
+                }
+                chip-touch := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { root.vault-menu(self.absolute-position.x); }
+                }
+            }
+        }
+        // The empty middle: it drags the window (the bar's own touch area is under it).
+        Rectangle { horizontal-stretch: 1; }
+        if root.open: VerticalLayout {
+            alignment: center;
+            ToolButton {
+                icon: "search";
+                tip: @tr("Search (Ctrl+F)");
+                tip-end: true;
+                clicked => { root.search(); }
+            }
+        }
+        if root.open: VerticalLayout {
+            alignment: center;
+            ToolButton {
+                icon: "plus";
+                tip: @tr("New item (Ctrl+N)");
+                tip-end: true;
+                clicked => { root.new-item(); }
+            }
+        }
+        if root.open && (root.sync-on || root.update-shown || root.alert-count > 0): ToolRule { }
+        if root.open && root.alert-count > 0: VerticalLayout {
+            alignment: center;
+            ToolButton {
+                icon: "bell";
+                tip: @tr("{n} alert" | "{n} alerts" % root.alert-count);
+                tip-end: true;
+                active: root.alerts-open;
+                tint: Theme.ink;
+                clicked => { root.alerts(); }
+                Rectangle {
+                    x: parent.width - self.width - 2px;
+                    y: 2px;
+                    width: Math.max(14px, badge.preferred-width + 8px);
+                    height: 14px;
+                    border-radius: 7px;
+                    background: root.alert-urgent ? Theme.seal : Theme.graphite;
+                    badge := Text {
+                        text: root.alert-count > 9 ? "9+" : root.alert-count;
+                        font-size: 9px;
+                        font-weight: 700;
+                        color: Theme.canvas;
+                    }
+                }
+            }
+        }
+        if root.open && root.sync-on: VerticalLayout {
+            alignment: center;
+            ToolButton {
+                icon: "refresh";
+                tip: root.sync-state == 2 ? @tr("Syncing…") : root.sync-state == 3 ? @tr("Sync failed: sync now") : @tr("Sync now");
+                tip-end: true;
+                enabled: root.sync-state != 2;
+                tint: root.sync-state == 3 ? Theme.seal : Theme.graphite;
+                clicked => { root.sync-now(); }
+            }
+        }
+        if root.update-shown: VerticalLayout {
+            alignment: center;
+            ToolButton {
+                icon: "download";
+                tip: root.install-step == 5 ? @tr("Update installed: restart to use it")
+                    : root.install-step == 6 ? @tr("The update failed")
+                    : root.install-step > 0 ? @tr("Updating…")
+                    : @tr("An update is out");
+                tip-end: true;
+                active: root.update-panel-open;
+                tint: root.install-step == 6 ? Theme.seal : Theme.ink;
+                clicked => { root.update-panel(); }
+                // Downloading: how far, a thin line under the icon. Installed: one yellow dot.
+                if root.install-step >= 1 && root.install-step <= 4: Rectangle {
+                    x: 7px;
+                    y: parent.height - 6px;
+                    width: parent.width - 14px;
+                    height: 2px;
+                    border-radius: 1px;
+                    background: Theme.rule;
+                    Rectangle {
+                        x: 0px;
+                        width: parent.width * Math.clamp(root.install-progress, 0, 1);
+                        height: parent.height;
+                        border-radius: 1px;
+                        background: Theme.ink;
+                    }
+                }
+                if root.install-step == 5 || (root.install-step == 0 && root.update-out): Rectangle {
+                    x: parent.width - 11px;
+                    y: 5px;
+                    width: 7px;
+                    height: 7px;
+                    border-radius: 3.5px;
+                    background: root.install-step == 5 ? Theme.marker : Theme.graphite;
+                }
+            }
+        }
+        if root.open: VerticalLayout {
+            alignment: center;
+            ToolButton {
+                icon: "lock";
+                tip: @tr("Lock now (Ctrl+L)");
+                tip-end: true;
+                clicked => { root.lock(); }
+            }
+        }
+        Rectangle { width: 6px; }
         WindowButton { glyph: 0; clicked => { root.minimize(); } }
         WindowButton { glyph: root.maximized ? 2 : 1; clicked => { root.toggle-maximized(); } }
         WindowButton { glyph: 3; clicked => { root.close(); } }
@@ -202,7 +558,7 @@ export component AppWindow inherits Window {
     default-font-size: Theme.body;
     // The window draws its own title bar (TitleBar): the screens start below it.
     no-frame: true;
-    property <length> title-height: 32px;
+    property <length> title-height: 40px;
     in property <bool> window-maximized;
     // The emergency kit page's "Issue new parts" and "Show my kit", asked in dialogs, and
     // Import & export's "Export…".
@@ -679,6 +1035,47 @@ export component AppWindow inherits Window {
     in-out property <bool> update-checks;
     callback check-updates();
     callback open-release();
+    // The update installing itself (controller/updates.rs): 0 nothing under way, 1 checking the
+    // release's signed manifest, 2 downloading (install-done-kb of install-total-kb), 3 checking
+    // the program's SHA-256, 4 putting it in place, 5 installed (install-version; a restart
+    // uses it), 6 failed (install-failure: 1 the folder can't be written, 2 refused, 3 the
+    // network, 4 the swap; install-detail says more).
+    in property <int> install-step;
+    in property <int> install-done-kb;
+    in property <int> install-total-kb;
+    in property <string> install-version;
+    in property <int> install-failure;
+    in property <int> install-failed-at;
+    in property <string> install-detail;
+    in-out property <bool> update-install: true;
+    in-out property <bool> update-panel;
+    in-out property <bool> restart-asking;
+    callback install-update();
+    callback restart-now();
+    // The title bar's toolbar: the sidebar hidden (kept on this computer), the vault menu (and
+    // where it opens), the vault's icon on this computer and its initial, the file's own
+    // name, and a request to focus the search (counted up).
+    in-out property <bool> sidebar-hidden;
+    callback toggle-sidebar();
+    in-out property <bool> vault-menu;
+    in-out property <length> vault-menu-x;
+    in property <string> vault-icon;
+    in property <string> vault-initial;
+    in property <string> vault-stem;
+    callback vault-icon-chosen(string);
+    callback choose-vault-icon();
+    in property <int> focus-search;
+    callback search-now();
+    // The title bar's alerts: what in the open vault asks for something (Password health's
+    // leaked, weak and reused passwords and expired cards; sync failing, waiting for the item
+    // lock, or a vault key renewed elsewhere). The bell shows only while there is one.
+    in-out property <bool> alerts-panel;
+    // 0–4 a Password health group (as its filter), 10 Settings → Sync.
+    callback open-alert(int);
+    property <int> alert-count: root.screen != Screen.vault ? 0
+        : root.health-counts[0] + root.health-counts[1] + root.health-counts[2] + root.health-counts[4]
+            + (root.sync-state == 3 ? 1 : 0) + (root.sync-waiting > 0 ? 1 : 0) + (root.sync-key-renewed ? 1 : 0);
+    property <bool> alert-urgent: root.health-counts[0] > 0 || root.sync-state == 3 || root.sync-key-renewed;
     in-out property <int> auto-lock-minutes: 5;
     in-out property <int> clipboard-seconds: 20;
     in-out property <bool> website-icons;
@@ -876,19 +1273,14 @@ export component AppWindow inherits Window {
     if root.screen == Screen.vault: HorizontalLayout {
         y: root.title-height;
         height: root.height - root.title-height;
-        VaultIndex {
+        if !root.sidebar-hidden: VaultIndex {
             width: 216px;
             category: root.category;
             counts: root.counts;
             folders: root.folders;
             totp-count: root.totp-count;
             health-count: root.health-total;
-            vault-name: root.vault-name;
             panel: root.panel;
-            can-go-back: root.can-go-back;
-            can-go-forward: root.can-go-forward;
-            go-back => { root.go-back(); }
-            go-forward => { root.go-forward(); }
             open-health => { root.open-health(); }
             new-folder => { root.new-folder(); }
             edit-folder(i) => { root.edit-folder(i); }
@@ -905,12 +1297,10 @@ export component AppWindow inherits Window {
             open-kit => { root.open-kit(); }
             open-transfer => { root.open-transfer(); }
             open-authenticator => { root.open-authenticator(); }
-            lock => { root.lock(); }
-            switch-vault => { root.switch-vault(); }
         }
         // Tool pages (generator, health, kit, import, settings, authenticator) take the whole
         // width next to the index; the item list belongs to browsing items only.
-        Rectangle { width: 1px; background: Theme.rule; }
+        if !root.sidebar-hidden: Rectangle { width: 1px; background: Theme.rule; }
         if root.panel == Panel.detail || root.panel == Panel.editor: ItemList {
             width: 320px;
             items: root.items;
@@ -930,6 +1320,7 @@ export component AppWindow inherits Window {
                 item-menu.show();
             }
             search-text <=> root.search-text;
+            focus-search: root.focus-search;
             search(text) => { root.search(text); }
             select(index) => { root.select(index); }
             new-item => { root.new-item(); }
@@ -1157,6 +1548,19 @@ export component AppWindow inherits Window {
                 update-checks <=> root.update-checks;
                 check-updates => { root.check-updates(); }
                 open-release => { root.open-release(); }
+                update-install <=> root.update-install;
+                install-step: root.install-step;
+                install-done-kb: root.install-done-kb;
+                install-total-kb: root.install-total-kb;
+                install-version: root.install-version;
+                install-failure: root.install-failure;
+                install-failed-at: root.install-failed-at;
+                install-detail: root.install-detail;
+                install-update => { root.install-update(); }
+                restart-now => { root.restart-asking = true; }
+                vault-icon: root.vault-icon;
+                vault-initial: root.vault-initial;
+                vault-icon-chosen(icon) => { root.vault-icon-chosen(icon); }
                 extension-browsers: root.extension-browsers;
                 extension-browser <=> root.extension-browser;
                 add-extension(index) => { root.add-extension(index); }
@@ -1709,6 +2113,19 @@ export component AppWindow inherits Window {
             }
         }
     }
+    // The update installed: restart into it now, or later (the next start runs it).
+    if root.restart-asking: ConfirmDialog {
+        width: root.width;
+        height: root.height;
+        title: @tr("Version {} is installed. Restart now?", root.install-version);
+        text: root.screen == Screen.vault
+            ? @tr("Vault locks first, exactly as Lock now does, and opens again in the new version. Later, nothing changes until the next start.")
+            : @tr("Vault opens again in the new version. Later, nothing changes until the next start.");
+        action: @tr("Restart");
+        cancel-text: @tr("Later");
+        confirmed => { root.restart-now(); }
+        cancelled => { root.restart-asking = false; }
+    }
     // The window's own title bar, over everything (a dialog's shade leaves it, as the
     // system's would), and its edges for resizing while it isn't maximized.
     TitleBar {
@@ -1717,11 +2134,284 @@ export component AppWindow inherits Window {
         width: root.width;
         height: root.title-height;
         maximized: root.window-maximized;
-        show-title: root.screen != Screen.vault;
+        screen: root.screen;
+        sidebar-shown: !root.sidebar-hidden;
+        can-go-back: root.can-go-back;
+        can-go-forward: root.can-go-forward;
+        vault-label: root.screen == Screen.vault && root.vault-name != "" ? root.vault-name : root.vault-stem;
+        vault-icon: root.vault-icon;
+        vault-initial: root.vault-initial;
+        vault-menu-open: root.vault-menu;
+        sync-on: root.sync-folder != "";
+        sync-state: root.sync-state;
+        update-out: root.update-state == 3;
+        install-step: root.install-step;
+        install-progress: root.install-step > 2 ? 1 : root.install-total-kb > 0 ? root.install-done-kb / root.install-total-kb : 0;
+        update-panel-open: root.update-panel;
+        alert-count: root.alert-count;
+        alert-urgent: root.alert-urgent;
+        alerts-open: root.alerts-panel;
+        alerts => {
+            root.vault-menu = false;
+            root.update-panel = false;
+            root.alerts-panel = !root.alerts-panel;
+        }
         drag => { root.window-drag(); }
         toggle-maximized => { root.window-toggle-maximized(); }
         minimize => { root.window-minimize(); }
         close => { root.window-close(); }
+        toggle-sidebar => { root.toggle-sidebar(); }
+        go-back => { root.go-back(); }
+        go-forward => { root.go-forward(); }
+        vault-menu(x) => {
+            root.update-panel = false;
+            root.alerts-panel = false;
+            root.vault-menu-x = x;
+            root.vault-menu = !root.vault-menu;
+        }
+        search => { root.search-now(); }
+        new-item => { root.new-item(); }
+        lock => { root.lock(); }
+        sync-now => { root.sync-now(); }
+        update-panel => {
+            root.vault-menu = false;
+            root.alerts-panel = false;
+            root.update-panel = !root.update-panel;
+        }
+    }
+
+    // The vault menu, under the vault's name in the title bar: the vaults this computer opened,
+    // another file, a new vault, and this vault's icon here.
+    if root.vault-menu: TouchArea {
+        y: root.title-height;
+        width: root.width;
+        height: root.height - root.title-height;
+        clicked => { root.vault-menu = false; }
+    }
+    if root.vault-menu: Rectangle {
+        x: Math.max(8px, Math.min(root.vault-menu-x, root.width - self.width - 8px));
+        y: root.title-height - 2px;
+        width: 330px;
+        height: vault-card.preferred-height;
+        TouchArea { }
+        vault-card := MenuCard {
+            width: parent.width;
+            HorizontalLayout {
+                padding-left: 10px;
+                height: 28px;
+                Text {
+                    text: @tr("Vaults on this computer");
+                    font-size: Theme.small;
+                    font-weight: 600;
+                    color: Theme.faint;
+                    vertical-alignment: center;
+                }
+            }
+            for vault[index] in root.recent-vaults: Rectangle {
+                height: 44px;
+                border-radius: Theme.radius - 2px;
+                background: !vault.missing && row-touch.has-hover ? Theme.hover : transparent;
+                accessible-role: button;
+                accessible-label: vault.name;
+                accessible-enabled: !vault.missing;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        width: 16px;
+                        Glyph {
+                            width: 15px;
+                            height: 15px;
+                            name: "vault";
+                            tint: vault.missing ? Theme.faint : Theme.graphite;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 1px;
+                        horizontal-stretch: 1;
+                        Text {
+                            text: vault.name;
+                            font-size: Theme.body;
+                            font-weight: vault.current ? 600 : 400;
+                            color: vault.missing ? Theme.faint : Theme.ink;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: vault.missing ? @tr("Not found: {}", vault.location) : vault.location;
+                            font-size: Theme.small;
+                            color: Theme.faint;
+                            overflow: elide;
+                        }
+                    }
+                    if vault.current: VerticalLayout {
+                        alignment: center;
+                        Path {
+                            width: 14px;
+                            height: 14px;
+                            viewbox-width: 24;
+                            viewbox-height: 24;
+                            commands: "M20 6 L9 17 L4 12";
+                            stroke: Theme.accent-stroke;
+                            stroke-width: 2.2px;
+                            stroke-line-cap: round;
+                            stroke-line-join: round;
+                            fill: transparent;
+                        }
+                    }
+                }
+                row-touch := TouchArea {
+                    enabled: !vault.missing;
+                    mouse-cursor: vault.missing ? MouseCursor.default : MouseCursor.pointer;
+                    clicked => {
+                        root.vault-menu = false;
+                        root.pick-vault(index);
+                    }
+                }
+            }
+            MenuRule { }
+            MenuEntry {
+                text: @tr("Open a vault file…");
+                icon: "folder";
+                clicked => {
+                    root.vault-menu = false;
+                    root.open-vault-file();
+                }
+            }
+            MenuEntry {
+                text: @tr("New vault…");
+                icon: "plus";
+                clicked => {
+                    root.vault-menu = false;
+                    root.new-vault-file();
+                }
+            }
+            if root.screen == Screen.vault: MenuRule { }
+            if root.screen == Screen.vault: MenuEntry {
+                text: @tr("Icon on this computer…");
+                icon: "palette";
+                clicked => {
+                    root.vault-menu = false;
+                    root.choose-vault-icon();
+                }
+            }
+        }
+    }
+
+    // The alerts' panel, under the bell: each one opens where it is dealt with.
+    if root.alerts-panel && root.alert-count > 0: TouchArea {
+        y: root.title-height;
+        width: root.width;
+        height: root.height - root.title-height;
+        clicked => { root.alerts-panel = false; }
+    }
+    if root.alerts-panel && root.alert-count > 0: Rectangle {
+        x: root.width - self.width - 8px;
+        y: root.title-height - 2px;
+        width: 380px;
+        height: alerts-card.preferred-height;
+        TouchArea { }
+        alerts-card := MenuCard {
+            width: parent.width;
+            HorizontalLayout {
+                padding-left: 10px;
+                height: 28px;
+                Text {
+                    text: @tr("Alerts");
+                    font-size: Theme.small;
+                    font-weight: 600;
+                    color: Theme.faint;
+                    vertical-alignment: center;
+                }
+            }
+            if root.health-counts[0] > 0: AlertRow {
+                icon: "leaked";
+                tint: Theme.seal;
+                text: @tr("{n} password found in leaks" | "{n} passwords found in leaks" % root.health-counts[0]);
+                hint: @tr("Change it on its site first, then here.");
+                clicked => { root.alerts-panel = false; root.open-alert(0); }
+            }
+            if root.sync-state == 3: AlertRow {
+                icon: "refresh";
+                tint: Theme.seal;
+                text: @tr("Sync failed");
+                hint: root.sync-detail != "" ? root.sync-detail : @tr("Settings → Sync says why.");
+                clicked => { root.alerts-panel = false; root.open-alert(10); }
+            }
+            if root.sync-key-renewed: AlertRow {
+                icon: "key";
+                tint: Theme.seal;
+                text: @tr("The vault key was renewed on another device");
+                hint: @tr("Settings → Sync takes the new one.");
+                clicked => { root.alerts-panel = false; root.open-alert(10); }
+            }
+            if root.health-counts[1] > 0: AlertRow {
+                icon: "key";
+                tint: FieldColors.of("expired");
+                text: @tr("{n} weak password" | "{n} weak passwords" % root.health-counts[1]);
+                hint: @tr("Easy to guess: the generator makes strong ones.");
+                clicked => { root.alerts-panel = false; root.open-alert(1); }
+            }
+            if root.health-counts[2] > 0: AlertRow {
+                icon: "reused";
+                tint: FieldColors.of("reused");
+                text: @tr("{n} password used more than once" | "{n} passwords used more than once" % root.health-counts[2]);
+                hint: @tr("One leak opens every site that shares it.");
+                clicked => { root.alerts-panel = false; root.open-alert(2); }
+            }
+            if root.health-counts[4] > 0: AlertRow {
+                icon: "expired";
+                tint: FieldColors.of("expired");
+                text: @tr("{n} card expired" | "{n} cards expired" % root.health-counts[4]);
+                hint: @tr("Put in its new date, or delete it.");
+                clicked => { root.alerts-panel = false; root.open-alert(4); }
+            }
+            if root.sync-waiting > 0: AlertRow {
+                icon: "lock";
+                tint: Theme.graphite;
+                text: @tr("{n} change waits for the item lock" | "{n} changes wait for the item lock" % root.sync-waiting);
+                hint: @tr("Settings → Sync: open the item lock to let them in.");
+                clicked => { root.alerts-panel = false; root.open-alert(10); }
+            }
+        }
+    }
+
+    // The update's panel, under its button in the title bar: what it is doing, step by step.
+    if root.update-panel: TouchArea {
+        y: root.title-height;
+        width: root.width;
+        height: root.height - root.title-height;
+        clicked => { root.update-panel = false; }
+    }
+    if root.update-panel: Rectangle {
+        x: root.width - self.width - 8px;
+        y: root.title-height - 2px;
+        width: 400px;
+        height: update-card.preferred-height;
+        TouchArea { }
+        update-card := MenuCard {
+            width: parent.width;
+            UpdateCard {
+                padding: 12px;
+                version: root.update-version;
+                told: root.update-state == 3;
+                step: root.install-step;
+                done-kb: root.install-done-kb;
+                total-kb: root.install-total-kb;
+                installed: root.install-version;
+                failure: root.install-failure;
+                failed-at: root.install-failed-at;
+                detail: root.install-detail;
+                install => { root.install-update(); }
+                restart => {
+                    root.update-panel = false;
+                    root.restart-asking = true;
+                }
+                open-release => { root.open-release(); }
+            }
+        }
     }
     if !root.window-maximized: ResizeEdge { direction: 7; x: 0px; y: 8px; width: 5px; height: root.height - 16px; resize(d) => { root.window-resize(d); } }
     if !root.window-maximized: ResizeEdge { direction: 0; x: root.width - 5px; y: 8px; width: 5px; height: root.height - 16px; resize(d) => { root.window-resize(d); } }

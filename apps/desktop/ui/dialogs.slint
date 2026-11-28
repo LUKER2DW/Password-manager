@@ -435,6 +435,7 @@ component DialogError inherits Text {
 component DialogButtons inherits HorizontalLayout {
     in property <string> action;
     in property <string> busy-text: @tr("Checking…");
+    in property <string> cancel-text: @tr("Cancel");
     in property <bool> busy;
     in property <bool> danger;
     in property <bool> enabled: true;
@@ -445,7 +446,7 @@ component DialogButtons inherits HorizontalLayout {
     VerticalLayout {
         alignment: center;
         QuietButton {
-            text: @tr("Cancel");
+            text: root.cancel-text;
             enabled: !root.busy;
             clicked => { root.cancelled(); }
         }
@@ -467,6 +468,8 @@ export component ConfirmDialog inherits Modal {
     in property <string> title;
     in property <string> text;
     in property <string> action;
+    // The button that leaves it as it is.
+    in property <string> cancel-text: @tr("Cancel");
     in property <bool> danger;
     in property <bool> asks-master;
     in property <int> field: 20;
@@ -503,6 +506,7 @@ export component ConfirmDialog inherits Modal {
     DialogError { code: root.error-code; detail: root.error-detail; }
     DialogButtons {
         action: root.action;
+        cancel-text: root.cancel-text;
         busy: root.busy;
         danger: root.danger;
         confirmed => { root.confirmed(); }

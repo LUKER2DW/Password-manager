@@ -2,7 +2,9 @@
 //!
 //! A `.vault` file given as the first argument (a double-click in Explorer, "Open with") is
 //! the vault the app opens. `--at-sign-in` is Windows starting it at sign-in (Settings →
-//! Appearance): it then waits in the notification area when the person chose so. Started
+//! Appearance): it then waits in the notification area when the person chose so.
+//! `--after-update <pid>` is the copy an update replaced starting this one (Restart): it waits
+//! for that copy to end first. Started
 //! again without a file while it runs, it brings the running copy's window to the front.
 //! Set `VAULT_ALLOW_CAPTURE=1` to allow screenshots of the window (design reviews only).
 
@@ -17,7 +19,7 @@ use vault_desktop::{
     ui::{AppWindow, Messages},
 };
 use vault_platform::{
-    autostart, file_types,
+    autostart, file_types, self_update,
     single_instance::{self, Claim},
 };
 
@@ -54,6 +56,16 @@ fn main() -> anyhow::Result<()> {
         .filter(|path| file_types::is_vault_file(path) && path.is_file())
         .and_then(|path| std::path::absolute(path).ok());
     let at_sign_in = autostart::is_sign_in_start(std::env::args_os().skip(1));
+    // Started by the copy it replaced (an update, Restart): that copy is closing; wait for it
+    // to end, so this one is the running copy and not sent back to it.
+    if let Some(old) = self_update::after_update(std::env::args_os().skip(1)) {
+        self_update::wait_for_exit(old, vault_desktop::controller::UPDATE_HANDOVER);
+    }
+    // What an earlier update left next to the program (the old copy renamed aside, a download
+    // that didn't finish), now that nothing runs from it.
+    if let Ok(exe) = std::env::current_exe() {
+        std::thread::spawn(move || self_update::clean_leftovers(&exe));
+    }
     // One copy of the app: started again, it shows the running copy's window and ends. A file
     // to open, or a test vault in VAULT_FILE, still gets a window of its own.
     let alone = opened.is_none() && std::env::var_os("VAULT_FILE").is_none();

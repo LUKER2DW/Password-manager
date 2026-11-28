@@ -413,7 +413,9 @@ export global Messages {
         if (code == 85) { return arg == "1" ? @tr("The vault key was renewed: the old kit, the old Secret Key and older copies of the file no longer open it. Print the new kit now. Windows Hello is off until you turn it on again.") : @tr("The vault key was renewed: the old kit, the old Secret Key and older copies of the file no longer open it. Print the new kit now."); }
         if (code == 86) { return arg == "1" ? @tr("This computer uses the renewed vault key now and syncs again. Windows Hello is off until you turn it on again.") : @tr("This computer uses the renewed vault key now and syncs again."); }
         if (code == 87) { return @tr("The vault key was renewed on another device. Settings → Sync asks once for the new Secret Key, from the new emergency kit."); }
-        if (code == 89) { return @tr("Version {} of Vault is out: Settings → About → Updates opens its page.", arg); }
+        if (code == 89) { return @tr("Version {} of Vault is out: the download button in the title bar, or Settings → About, installs it.", arg); }
+        if (code == 130) { return @tr("Vault can't replace itself in {}: that folder can't be written. Download the new version from its release page (the download button in the title bar has it).", arg); }
+        if (code == 131) { return @tr("The new version is in place but couldn't be started ({}). Start Vault again.", arg); }
         if (code == 90) { return @tr("Windows now starts this copy of Vault when you sign in, instead of {}.", arg); }
         if (code == 91) { return @tr("{} recovery parts saved, each in a file of its own. Keep them in different places.", arg); }
         if (code == 92) { return @tr("Another program changed how the browser reaches Vault. Vault put it back and ignored that request. If you didn't install something like that, check this computer."); }

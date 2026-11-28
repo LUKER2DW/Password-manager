@@ -768,7 +768,69 @@ fn main() {
     app.set_update_version("0.5.0".into());
     app.set_update_state(3);
     camera.shot("settings-about", "Settings → About: a newer version is out");
+    // The update installing itself: its steps in About and in the title bar's panel.
+    app.set_install_step(2);
+    app.set_install_done_kb(14 * 1024 + 300);
+    app.set_install_total_kb(38 * 1024);
+    camera.shot(
+        "settings-about-installing",
+        "Settings → About: the update downloading, step by step",
+    );
+    app.set_update_panel(true);
+    camera.shot(
+        "toolbar-update-downloading",
+        "Title bar: the update's panel while it downloads",
+    );
+    app.set_install_step(6);
+    app.set_install_failed_at(3);
+    app.set_install_failure(2);
+    app.set_install_detail(
+        "the program downloaded isn't the one the release's manifest lists (SHA-256 differs)"
+            .into(),
+    );
+    camera.shot(
+        "toolbar-update-refused",
+        "Title bar: a download that isn't what the signed manifest lists, refused",
+    );
+    app.set_update_panel(false);
+    app.set_install_step(5);
+    app.set_install_version("0.5.0".into());
+    app.set_restart_asking(true);
+    camera.shot(
+        "toolbar-restart-dialog",
+        "The update installed: restart now, or later",
+    );
+    app.set_restart_asking(false);
+    app.set_update_panel(true);
+    camera.shot(
+        "toolbar-update-installed",
+        "Title bar: the update installed",
+    );
+    app.set_update_panel(false);
+    app.set_install_step(0);
     app.set_update_state(0);
+    // The vault's icon on this computer, and the vault menu from the title bar.
+    app.set_settings_section(1);
+    app.invoke_vault_icon_chosen("briefcase".into());
+    camera.shot(
+        "settings-vault-icon",
+        "Settings → This vault: its icon on this computer",
+    );
+    app.set_vault_menu_x(122.0);
+    app.set_vault_menu(true);
+    camera.shot(
+        "toolbar-vault-menu",
+        "Title bar: the vault menu (switch, open, new, its icon)",
+    );
+    app.set_vault_menu(false);
+    app.invoke_vault_icon_chosen("".into());
+    app.invoke_toggle_sidebar();
+    camera.shot(
+        "toolbar-sidebar-hidden",
+        "The sidebar hidden from the title bar",
+    );
+    app.invoke_toggle_sidebar();
+    app.set_settings_section(5);
     // Sync, off: the three places to choose from, then each one's dialog.
     app.set_settings_section(2);
     camera.shot("settings-sync-off", "Settings → Sync: off, three places");
@@ -945,6 +1007,13 @@ fn main() {
     );
     app.invoke_open_health();
     camera.shot("health", "Password health: weak, reused, old, expired");
+    // The bell in the title bar, shown while something asks for attention, and its panel.
+    app.set_alerts_panel(true);
+    camera.shot(
+        "toolbar-alerts",
+        "Title bar: the alerts (shown only while there are some), each opening its page",
+    );
+    app.set_alerts_panel(false);
     app.set_health_filter(2);
     app.invoke_health_filter_changed(2);
     camera.shot("health-reused", "Password health: reused only");
@@ -1172,6 +1241,14 @@ fn main() {
     // ---- locked ----
     app.invoke_lock();
     camera.shot("unlock", "Locked, with Windows Hello set up");
+    app.set_update_state(3);
+    app.set_install_step(5);
+    camera.shot(
+        "unlock-update-installed",
+        "Locked: the title bar shows the file's name and an update waiting for a restart",
+    );
+    app.set_install_step(0);
+    app.set_update_state(0);
     // Where the vault wall goes (side panel and behind the form is the default), for review.
     for (value, name, caption) in [
         (0, "unlock-plain", "Lock screen background: none"),

@@ -470,6 +470,7 @@ export component OnboardingScreen inherits Rectangle {
 
     HorizontalLayout {
         SidePanel {
+            scene: Theme.lock-backdrop == 2 || Theme.lock-backdrop == 3;
             Rectangle { height: 56px; }
             Text {
                 text: root.recovered ? @tr("Recovered") : @tr("New vault");
@@ -545,6 +546,7 @@ export component OnboardingScreen inherits Rectangle {
         Rectangle { width: 1px; background: Theme.rule; }
 
         if root.step == 1: FormArea {
+            scene: Theme.lock-backdrop == 1 || Theme.lock-backdrop == 3;
             form-width: 460px;
             if root.choosing: VaultChooser {
                 vaults: root.vaults;
@@ -676,6 +678,7 @@ export component OnboardingScreen inherits Rectangle {
         }
 
         if root.step == 2: FormArea {
+            scene: Theme.lock-backdrop == 1 || Theme.lock-backdrop == 3;
             form-width: 500px;
             VerticalLayout {
                 spacing: 18px;
@@ -763,6 +766,7 @@ export component OnboardingScreen inherits Rectangle {
         }
 
         if root.step == 3: FormArea {
+            scene: Theme.lock-backdrop == 1 || Theme.lock-backdrop == 3;
             form-width: 560px;
             VerticalLayout {
                 spacing: 18px;
@@ -839,6 +843,7 @@ export component OnboardingScreen inherits Rectangle {
         }
 
         if root.step == 4: FormArea {
+            scene: Theme.lock-backdrop == 1 || Theme.lock-backdrop == 3;
             form-width: 500px;
             VerticalLayout {
                 spacing: 18px;

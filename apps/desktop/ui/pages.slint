@@ -7,6 +7,7 @@ import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker, Ico
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip, PdfPassword } from "kit.slint";
 import { StrengthMeter } from "strength.slint";
+import { VaultMark } from "vault.slint";
 
 component PageTitle inherits Text {
     font-size: Theme.headline;
@@ -2254,6 +2255,152 @@ component SettingsTab inherits Rectangle {
     touch := TouchArea { clicked => { root.clicked(); } }
 }
 
+// One step of the update: done (a tick), under way (a dot), failed (a cross) or still to come.
+component StepLine inherits HorizontalLayout {
+    in property <int> n;
+    in property <int> step;
+    in property <int> failed-at;
+    in property <string> text;
+    property <bool> done: root.step == 5 || (root.step >= 1 && root.step <= 4 && root.step > root.n) || (root.step == 6 && root.failed-at > root.n);
+    property <bool> doing: root.step == root.n;
+    property <bool> failed: root.step == 6 && root.failed-at == root.n;
+    spacing: 8px;
+    VerticalLayout {
+        alignment: center;
+        Path {
+            width: 12px;
+            height: 12px;
+            viewbox-width: 24;
+            viewbox-height: 24;
+            commands: root.done ? "M20 6 L9 17 L4 12" : root.failed ? "M18 6 L6 18 M6 6 L18 18" : "M12 7a5 5 0 1 0 0 10a5 5 0 1 0 0-10z";
+            stroke: root.failed ? Theme.seal : root.done || root.doing ? Theme.ink : Theme.faint;
+            stroke-width: 2.6px;
+            stroke-line-cap: round;
+            stroke-line-join: round;
+            fill: root.doing ? Theme.ink : transparent;
+        }
+    }
+    Text {
+        horizontal-stretch: 1;
+        text: root.text;
+        font-size: Theme.small;
+        font-weight: root.doing ? 600 : 400;
+        color: root.failed ? Theme.seal : root.doing ? Theme.ink : root.done ? Theme.graphite : Theme.faint;
+        overflow: elide;
+    }
+}
+
+// The update, step by step (Settings → About, and the title bar's panel): the newer version
+// told, its steps while it installs itself, what failed, and what to do next.
+export component UpdateCard inherits VerticalLayout {
+    // The newer version told, and whether one is (update-state 3).
+    in property <string> version;
+    in property <bool> told;
+    // As AppWindow's install-… properties.
+    in property <int> step;
+    in property <int> done-kb;
+    in property <int> total-kb;
+    in property <string> installed;
+    in property <int> failure;
+    in property <int> failed-at;
+    in property <string> detail;
+    callback install();
+    callback restart();
+    callback open-release();
+    property <float> done-mb: Math.round(root.done-kb / 102.4) / 10;
+    property <float> total-mb: Math.round(root.total-kb / 102.4) / 10;
+    property <int> percent: root.total-kb > 0 ? Math.round(root.done-kb * 100 / root.total-kb) : 0;
+    spacing: 10px;
+    Text {
+        text: root.step == 5 ? @tr("Version {} is installed.", root.installed)
+            : root.step == 6 ? @tr("Version {} wasn't installed.", root.version)
+            : root.step > 0 ? @tr("Installing version {}…", root.version)
+            : root.told ? @tr("Version {} is out.", root.version)
+            : @tr("No update under way.");
+        font-size: Theme.body;
+        font-weight: 600;
+        color: Theme.ink;
+        wrap: word-wrap;
+    }
+    if root.step > 0: VerticalLayout {
+        spacing: 6px;
+        StepLine {
+            n: 1;
+            step: root.step;
+            failed-at: root.failed-at;
+            text: @tr("Checking the release's signed manifest");
+        }
+        StepLine {
+            n: 2;
+            step: root.step;
+            failed-at: root.failed-at;
+            text: root.step == 2 && root.total-kb > 0
+                ? @tr("Downloading: {} of {} MB ({}%)", root.done-mb, root.total-mb, root.percent)
+                : @tr("Downloading the program");
+        }
+        if root.step == 2: Rectangle {
+            height: 3px;
+            border-radius: 1.5px;
+            background: Theme.rule;
+            Rectangle {
+                x: 0px;
+                width: parent.width * (root.total-kb > 0 ? root.done-kb / root.total-kb : 0);
+                height: parent.height;
+                border-radius: 1.5px;
+                background: Theme.ink;
+            }
+        }
+        StepLine {
+            n: 3;
+            step: root.step;
+            failed-at: root.failed-at;
+            text: @tr("Checking its SHA-256 against the manifest");
+        }
+        StepLine {
+            n: 4;
+            step: root.step;
+            failed-at: root.failed-at;
+            text: @tr("Putting it in this program's place");
+        }
+    }
+    Text {
+        text: root.step == 6 && root.failure == 1 ? @tr("This program's folder ({}) can't be written, so Vault can't replace itself there. Download the new version from the release page and put it where you keep Vault.", root.detail)
+            : root.step == 6 && root.failure == 2 ? @tr("What came isn't what the release's signed manifest lists ({}), so it wasn't used. Nothing was changed.", root.detail)
+            : root.step == 6 && root.failure == 3 ? @tr("The download didn't finish ({}). Nothing was changed; try again, or Vault does at its next look.", root.detail)
+            : root.step == 6 ? @tr("The new version couldn't be put in place ({}). This version was kept as it was.", root.detail)
+            : root.step == 5 ? @tr("Restart Vault to use it. Until then this version keeps running, and the next start runs the new one.")
+            : root.step == 0 && root.told ? @tr("Install it now: Vault downloads it, checks it against the release's signed manifest and puts it in this program's place. Your vault stays where it is.")
+            : "";
+        height: self.text == "" ? 0px : self.preferred-height;
+        font-size: Theme.small;
+        color: root.step == 6 ? Theme.seal : Theme.graphite;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        height: root.step == 5 || root.step == 6 || (root.step == 0 && root.told) ? self.preferred-height : 0px;
+        if root.step == 5: QuietButton {
+            text: @tr("Restart now");
+            icon: "refresh";
+            outlined: true;
+            clicked => { root.restart(); }
+        }
+        if (root.step == 0 && root.told) || (root.step == 6 && root.failure != 1): QuietButton {
+            text: root.step == 6 ? @tr("Try again") : @tr("Install now");
+            icon: "download";
+            outlined: true;
+            clicked => { root.install(); }
+        }
+        if (root.step == 0 && root.told) || root.step == 6: QuietButton {
+            text: @tr("Open the release page");
+            icon: "external";
+            outlined: true;
+            clicked => { root.open-release(); }
+        }
+    }
+}
+
 // Settings: categories on the left, the one chosen on the right. What changes something
 // sensitive (the master password, the item lock, a keyfile, the unlock protection, sync and
 // its devices, the extension's connection) opens a dialog that asks first, with the master
@@ -2312,6 +2459,21 @@ export component SettingsPage inherits Rectangle {
     // Updates are looked for by themselves, every hour while the app runs.
     in-out property <bool> update-checks;
     callback check-updates();
+    // The update installing itself (AppWindow's install-…), and the setting that lets it.
+    in-out property <bool> update-install;
+    in property <int> install-step;
+    in property <int> install-done-kb;
+    in property <int> install-total-kb;
+    in property <string> install-version;
+    in property <int> install-failure;
+    in property <int> install-failed-at;
+    in property <string> install-detail;
+    callback install-update();
+    callback restart-now();
+    // This vault's icon on this computer ("" its initial), and the initial.
+    in property <string> vault-icon;
+    in property <string> vault-initial;
+    callback vault-icon-chosen(string);
     callback open-release();
     callback quick-unlock-toggled(bool);
     callback settings-changed();
@@ -2784,6 +2946,62 @@ export component SettingsPage inherits Rectangle {
                                 alignment: center;
                                 Hint {
                                     text: @tr("When you change an item's password, the old one is kept in its Password history, newest last, so you can go back if the change didn't take on the site. 0 keeps none. Lowering the number trims each item's history the next time its password changes.");
+                                }
+                            }
+                        }
+                    }
+                    SettingsCard {
+                        icon: "palette";
+                        title: @tr("Icon on this computer");
+                        summary: @tr("Shown with the vault's name in the title bar, on this computer only: each computer picks its own, and nothing of it goes into the vault.");
+                        HorizontalLayout {
+                            spacing: 16px;
+                            alignment: start;
+                            VerticalLayout {
+                                alignment: start;
+                                VaultMark {
+                                    width: 44px;
+                                    height: 44px;
+                                    icon: root.vault-icon;
+                                    initial: root.vault-initial;
+                                }
+                            }
+                            VerticalLayout {
+                                spacing: 4px;
+                                for row in 4: HorizontalLayout {
+                                    spacing: 4px;
+                                    alignment: start;
+                                    for k in 8: Rectangle {
+                                        property <string> glyph: FolderLook.icons[row * 8 + k];
+                                        property <bool> chosen: root.vault-icon == self.glyph;
+                                        width: 34px;
+                                        height: 34px;
+                                        border-radius: Theme.radius;
+                                        background: self.chosen ? Theme.selected : vault-icon-touch.has-hover ? Theme.hover : transparent;
+                                        border-width: self.chosen ? 1px : 0px;
+                                        border-color: Theme.marker;
+                                        accessible-role: button;
+                                        accessible-label: self.glyph;
+                                        Glyph {
+                                            width: 17px;
+                                            height: 17px;
+                                            name: parent.glyph;
+                                            tint: FolderLook.tint(parent.glyph, 0);
+                                        }
+                                        vault-icon-touch := TouchArea {
+                                            mouse-cursor: MouseCursor.pointer;
+                                            clicked => { root.vault-icon-chosen(parent.glyph); }
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    padding-top: 6px;
+                                    QuietButton {
+                                        text: @tr("Use its initial");
+                                        outlined: true;
+                                        clicked => { root.vault-icon-chosen(""); }
+                                    }
                                 }
                             }
                         }
@@ -3337,24 +3555,56 @@ export component SettingsPage inherits Rectangle {
                                 toggled => { root.settings-changed(); }
                             }
                             HorizontalLayout {
+                                spacing: 8px;
+                                Check {
+                                    text: @tr("Install updates by itself");
+                                    checked <=> root.update-install;
+                                    toggled => { root.settings-changed(); }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    Hint {
+                                        text: @tr("A newer version is downloaded, checked against the release's manifest (signed by the project's key, which the app carries) and put in this program's place. Vault then asks when to restart. Off, it is only told, and Install now does the same when you choose.");
+                                    }
+                                }
+                            }
+                            HorizontalLayout {
                                 spacing: 10px;
                                 alignment: start;
                                 Button {
                                     text: @tr("Check for updates");
                                     busy-text: @tr("Checking…");
                                     busy: root.update-state == 1;
+                                    enabled: root.install-step == 0 || root.install-step >= 5;
                                     clicked => { root.check-updates(); }
                                 }
-                                if root.update-state == 3: QuietButton {
-                                    text: @tr("Open the release page");
-                                    icon: "external";
-                                    outlined: true;
-                                    clicked => { root.open-release(); }
+                            }
+                            Rectangle {
+                                height: root.update-state == 3 || root.install-step > 0 ? about-update.preferred-height : 0px;
+                                visible: root.update-state == 3 || root.install-step > 0;
+                                border-radius: Theme.radius;
+                                border-width: 1px;
+                                border-color: Theme.rule;
+                                about-update := VerticalLayout {
+                                padding: 14px;
+                                UpdateCard {
+                                    version: root.update-version;
+                                    told: root.update-state == 3;
+                                    step: root.install-step;
+                                    done-kb: root.install-done-kb;
+                                    total-kb: root.install-total-kb;
+                                    installed: root.install-version;
+                                    failure: root.install-failure;
+                                    failed-at: root.install-failed-at;
+                                    detail: root.install-detail;
+                                    install => { root.install-update(); }
+                                    restart => { root.restart-now(); }
+                                    open-release => { root.open-release(); }
+                                }
                                 }
                             }
                             Text {
                                 text: root.update-state == 2 ? @tr("This is the newest version.")
-                                    : root.update-state == 3 ? @tr("Version {} is out. Download it from the release page and replace this program with it; your vault stays where it is.", root.update-version)
                                     : root.update-state == 4 ? @tr("Couldn't look for updates: {}", root.update-detail)
                                     : "";
                                 height: self.text == "" ? 0px : self.preferred-height;
@@ -3370,7 +3620,7 @@ export component SettingsPage inherits Rectangle {
     }
 }
 
-// Every one-time code in the vault, live.
+/// Every one-time code in the vault, live.
 export component AuthenticatorPage inherits Rectangle {
     in property <[AuthRow]> rows;
     in property <int> total;

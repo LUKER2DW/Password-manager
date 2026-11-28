@@ -4457,16 +4457,8 @@ msgid "This is the newest version."
 msgstr "Esta é a versão mais nova."
 
 msgctxt "SettingsPage"
-msgid "Version {} is out. Download it from the release page and replace this program with it; your vault stays where it is."
-msgstr "A versão {} saiu. Baixe-a na página da versão e troque este programa por ela; seu cofre fica onde está."
-
-msgctxt "SettingsPage"
 msgid "Couldn't look for updates: {}"
 msgstr "Não foi possível procurar atualizações: {}"
-
-msgctxt "Messages"
-msgid "Version {} of Vault is out: Settings → About → Updates opens its page."
-msgstr "Saiu a versão {} do Vault: Configurações → Sobre → Atualizações abre a página dela."
 
 msgctxt "Messages"
 msgid "Windows now starts this copy of Vault when you sign in, instead of {}."
@@ -4931,3 +4923,295 @@ msgstr "Usar esta"
 msgctxt "OnboardingScreen"
 msgid "Show the options"
 msgstr "Mostrar as opções"
+
+msgctxt "TitleBar"
+msgid "Hide the sidebar (Ctrl+B)"
+msgstr "Ocultar a barra lateral (Ctrl+B)"
+
+msgctxt "TitleBar"
+msgid "Show the sidebar (Ctrl+B)"
+msgstr "Mostrar a barra lateral (Ctrl+B)"
+
+msgctxt "TitleBar"
+msgid "Back (Alt+Left)"
+msgstr "Voltar (Alt+Esquerda)"
+
+msgctxt "TitleBar"
+msgid "Forward (Alt+Right)"
+msgstr "Avançar (Alt+Direita)"
+
+msgctxt "TitleBar"
+msgid "Vault: {}. Switch vault"
+msgstr "Cofre: {}. Trocar de cofre"
+
+msgctxt "TitleBar"
+msgid "Search (Ctrl+F)"
+msgstr "Pesquisar (Ctrl+F)"
+
+msgctxt "TitleBar"
+msgid "New item (Ctrl+N)"
+msgstr "Novo item (Ctrl+N)"
+
+msgctxt "TitleBar"
+msgid "Syncing…"
+msgstr "Sincronizando…"
+
+msgctxt "TitleBar"
+msgid "Sync failed: sync now"
+msgstr "A sincronização falhou: sincronizar agora"
+
+msgctxt "TitleBar"
+msgid "Sync now"
+msgstr "Sincronizar agora"
+
+msgctxt "TitleBar"
+msgid "Update installed: restart to use it"
+msgstr "Atualização instalada: reinicie para usá-la"
+
+msgctxt "TitleBar"
+msgid "The update failed"
+msgstr "A atualização falhou"
+
+msgctxt "TitleBar"
+msgid "Updating…"
+msgstr "Atualizando…"
+
+msgctxt "TitleBar"
+msgid "An update is out"
+msgstr "Há uma atualização"
+
+msgctxt "TitleBar"
+msgid "Lock now (Ctrl+L)"
+msgstr "Trancar agora (Ctrl+L)"
+
+msgctxt "AppWindow"
+msgid "Version {} is installed. Restart now?"
+msgstr "A versão {} está instalada. Reiniciar agora?"
+
+msgctxt "AppWindow"
+msgid "Vault locks first, exactly as Lock now does, and opens again in the new version. Later, nothing changes until the next start."
+msgstr "O Vault tranca primeiro, exatamente como Trancar agora, e abre de novo na nova versão. Mais tarde: nada muda até a próxima vez que ele abrir."
+
+msgctxt "AppWindow"
+msgid "Vault opens again in the new version. Later, nothing changes until the next start."
+msgstr "O Vault abre de novo na nova versão. Mais tarde: nada muda até a próxima vez que ele abrir."
+
+msgctxt "AppWindow"
+msgid "Restart"
+msgstr "Reiniciar"
+
+msgctxt "AppWindow"
+msgid "Later"
+msgstr "Mais tarde"
+
+msgctxt "AppWindow"
+msgid "Vaults on this computer"
+msgstr "Cofres neste computador"
+
+msgctxt "AppWindow"
+msgid "Not found: {}"
+msgstr "Não encontrado: {}"
+
+msgctxt "AppWindow"
+msgid "Open a vault file…"
+msgstr "Abrir um arquivo de cofre…"
+
+msgctxt "AppWindow"
+msgid "New vault…"
+msgstr "Novo cofre…"
+
+msgctxt "AppWindow"
+msgid "Icon on this computer…"
+msgstr "Ícone neste computador…"
+
+msgctxt "ConfirmDialog"
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgctxt "Messages"
+msgid "Version {} of Vault is out: the download button in the title bar, or Settings → About, installs it."
+msgstr "A versão {} do Vault saiu: o botão de download na barra de título, ou Configurações → Sobre, a instala."
+
+msgctxt "Messages"
+msgid "Vault can't replace itself in {}: that folder can't be written. Download the new version from its release page (the download button in the title bar has it)."
+msgstr "O Vault não consegue se substituir em {}: essa pasta não pode ser gravada. Baixe a nova versão na página da versão (o botão de download na barra de título leva até ela)."
+
+msgctxt "Messages"
+msgid "The new version is in place but couldn't be started ({}). Start Vault again."
+msgstr "A nova versão está no lugar, mas não pôde ser iniciada ({}). Abra o Vault de novo."
+
+msgctxt "UpdateCard"
+msgid "Version {} is installed."
+msgstr "A versão {} está instalada."
+
+msgctxt "UpdateCard"
+msgid "Version {} wasn't installed."
+msgstr "A versão {} não foi instalada."
+
+msgctxt "UpdateCard"
+msgid "Installing version {}…"
+msgstr "Instalando a versão {}…"
+
+msgctxt "UpdateCard"
+msgid "Version {} is out."
+msgstr "A versão {} saiu."
+
+msgctxt "UpdateCard"
+msgid "No update under way."
+msgstr "Nenhuma atualização em andamento."
+
+msgctxt "UpdateCard"
+msgid "Checking the release's signed manifest"
+msgstr "Verificando o manifesto assinado da versão"
+
+msgctxt "UpdateCard"
+msgid "Downloading: {} of {} MB ({}%)"
+msgstr "Baixando: {} de {} MB ({}%)"
+
+msgctxt "UpdateCard"
+msgid "Downloading the program"
+msgstr "Baixando o programa"
+
+msgctxt "UpdateCard"
+msgid "Checking its SHA-256 against the manifest"
+msgstr "Conferindo o SHA-256 dele com o manifesto"
+
+msgctxt "UpdateCard"
+msgid "Putting it in this program's place"
+msgstr "Colocando-o no lugar deste programa"
+
+msgctxt "UpdateCard"
+msgid "This program's folder ({}) can't be written, so Vault can't replace itself there. Download the new version from the release page and put it where you keep Vault."
+msgstr "A pasta deste programa ({}) não pode ser gravada, então o Vault não consegue se substituir ali. Baixe a nova versão na página da versão e coloque-a onde você guarda o Vault."
+
+msgctxt "UpdateCard"
+msgid "What came isn't what the release's signed manifest lists ({}), so it wasn't used. Nothing was changed."
+msgstr "O que chegou não é o que o manifesto assinado da versão lista ({}), então não foi usado. Nada foi alterado."
+
+msgctxt "UpdateCard"
+msgid "The download didn't finish ({}). Nothing was changed; try again, or Vault does at its next look."
+msgstr "O download não terminou ({}). Nada foi alterado; tente de novo, ou o Vault tenta na próxima verificação."
+
+msgctxt "UpdateCard"
+msgid "The new version couldn't be put in place ({}). This version was kept as it was."
+msgstr "A nova versão não pôde ser colocada no lugar ({}). Esta versão foi mantida como estava."
+
+msgctxt "UpdateCard"
+msgid "Restart Vault to use it. Until then this version keeps running, and the next start runs the new one."
+msgstr "Reinicie o Vault para usá-la. Até lá esta versão continua rodando, e a próxima abertura já usa a nova."
+
+msgctxt "UpdateCard"
+msgid "Install it now: Vault downloads it, checks it against the release's signed manifest and puts it in this program's place. Your vault stays where it is."
+msgstr "Instale agora: o Vault a baixa, confere com o manifesto assinado da versão e a coloca no lugar deste programa. Seu cofre fica onde está."
+
+msgctxt "UpdateCard"
+msgid "Restart now"
+msgstr "Reiniciar agora"
+
+msgctxt "UpdateCard"
+msgid "Try again"
+msgstr "Tentar de novo"
+
+msgctxt "UpdateCard"
+msgid "Install now"
+msgstr "Instalar agora"
+
+msgctxt "UpdateCard"
+msgid "Open the release page"
+msgstr "Abrir a página da versão"
+
+msgctxt "SettingsPage"
+msgid "Icon on this computer"
+msgstr "Ícone neste computador"
+
+msgctxt "SettingsPage"
+msgid "Shown with the vault's name in the title bar, on this computer only: each computer picks its own, and nothing of it goes into the vault."
+msgstr "Mostrado com o nome do cofre na barra de título, só neste computador: cada computador escolhe o seu, e nada disso vai para o cofre."
+
+msgctxt "SettingsPage"
+msgid "Use its initial"
+msgstr "Usar a inicial"
+
+msgctxt "SettingsPage"
+msgid "Install updates by itself"
+msgstr "Instalar atualizações sozinho"
+
+msgctxt "SettingsPage"
+msgid "A newer version is downloaded, checked against the release's manifest (signed by the project's key, which the app carries) and put in this program's place. Vault then asks when to restart. Off, it is only told, and Install now does the same when you choose."
+msgstr "Uma versão mais nova é baixada, conferida com o manifesto da versão (assinado pela chave do projeto, que o app traz consigo) e colocada no lugar deste programa. Depois o Vault pergunta quando reiniciar. Desligado, ela só é avisada, e Instalar agora faz o mesmo quando você quiser."
+
+msgctxt "TitleBar"
+msgid "{n} alert"
+msgid_plural "{n} alerts"
+msgstr[0] "{n} alerta"
+msgstr[1] "{n} alertas"
+
+msgctxt "AppWindow"
+msgid "Alerts"
+msgstr "Alertas"
+
+msgctxt "AppWindow"
+msgid "{n} password found in leaks"
+msgid_plural "{n} passwords found in leaks"
+msgstr[0] "{n} senha encontrada em vazamentos"
+msgstr[1] "{n} senhas encontradas em vazamentos"
+
+msgctxt "AppWindow"
+msgid "Change it on its site first, then here."
+msgstr "Troque primeiro no site, depois aqui."
+
+msgctxt "AppWindow"
+msgid "Sync failed"
+msgstr "A sincronização falhou"
+
+msgctxt "AppWindow"
+msgid "Settings → Sync says why."
+msgstr "Configurações → Sincronização diz o porquê."
+
+msgctxt "AppWindow"
+msgid "The vault key was renewed on another device"
+msgstr "A chave do cofre foi renovada em outro aparelho"
+
+msgctxt "AppWindow"
+msgid "Settings → Sync takes the new one."
+msgstr "Configurações → Sincronização usa a nova."
+
+msgctxt "AppWindow"
+msgid "{n} weak password"
+msgid_plural "{n} weak passwords"
+msgstr[0] "{n} senha fraca"
+msgstr[1] "{n} senhas fracas"
+
+msgctxt "AppWindow"
+msgid "Easy to guess: the generator makes strong ones."
+msgstr "Fáceis de adivinhar: o gerador cria senhas fortes."
+
+msgctxt "AppWindow"
+msgid "{n} password used more than once"
+msgid_plural "{n} passwords used more than once"
+msgstr[0] "{n} senha usada mais de uma vez"
+msgstr[1] "{n} senhas usadas mais de uma vez"
+
+msgctxt "AppWindow"
+msgid "One leak opens every site that shares it."
+msgstr "Um vazamento abre todos os sites que a compartilham."
+
+msgctxt "AppWindow"
+msgid "{n} card expired"
+msgid_plural "{n} cards expired"
+msgstr[0] "{n} cartão vencido"
+msgstr[1] "{n} cartões vencidos"
+
+msgctxt "AppWindow"
+msgid "Put in its new date, or delete it."
+msgstr "Coloque a nova data, ou apague-o."
+
+msgctxt "AppWindow"
+msgid "{n} change waits for the item lock"
+msgid_plural "{n} changes wait for the item lock"
+msgstr[0] "{n} alteração espera a trava de itens"
+msgstr[1] "{n} alterações esperam a trava de itens"
+
+msgctxt "AppWindow"
+msgid "Settings → Sync: open the item lock to let them in."
+msgstr "Configurações → Sincronização: abra a trava de itens para que entrem."

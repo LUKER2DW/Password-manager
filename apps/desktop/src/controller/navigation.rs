@@ -33,6 +33,8 @@ enum Command {
     Forward,
     Lock,
     NewItem,
+    Search,
+    Sidebar,
 }
 
 impl Controller {
@@ -174,6 +176,11 @@ impl Controller {
                     self.note_place();
                 }
             }
+            Command::Search => {
+                self.search_now();
+                self.note_place();
+            }
+            Command::Sidebar => self.toggle_sidebar(),
         }
         self.touch_activity();
     }
@@ -231,7 +238,8 @@ impl Controller {
     }
 
     /// Mouse buttons 4 and 5, Alt+Left / Alt+Right, the keyboard's own Back and Forward keys,
-    /// Ctrl+L (lock) and Ctrl+N (new item). Read from the window's raw events, so they work
+    /// Ctrl+L (lock), Ctrl+N (new item), Ctrl+F (search) and Ctrl+B (the sidebar).
+    /// Read from the window's raw events, so they work
     /// wherever the pointer or the focus is. A no-op on backends without a native window
     /// (the tests).
     pub(super) fn install_shortcuts(self: &Rc<Self>, app: &crate::ui::AppWindow) {
@@ -291,6 +299,8 @@ impl Controller {
                         Key::Character(c) if control.get() && !alt.get() => match c.as_str() {
                             "l" | "L" => Some(Command::Lock),
                             "n" | "N" => Some(Command::NewItem),
+                            "f" | "F" => Some(Command::Search),
+                            "b" | "B" => Some(Command::Sidebar),
                             _ => None,
                         },
                         _ => None,

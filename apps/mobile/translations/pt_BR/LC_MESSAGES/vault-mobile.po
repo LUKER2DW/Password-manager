@@ -3409,10 +3409,6 @@ msgid "No update is on your vault server yet. It fetches them itself when it fol
 msgstr "Ainda não há atualização no seu servidor do cofre. Ele as busca sozinho quando acompanha as versões publicadas (VAULT_SERVER_APP_UPDATES), ou um computador coloca uma lá: vault-server publish-app."
 
 msgctxt "Messages"
-msgid "Version {} of Vault is out: Settings → About → Updates opens its page."
-msgstr "Saiu a versão {} do Vault: Configurações → Sobre → Atualizações abre a página dela."
-
-msgctxt "Messages"
 msgid "Windows now starts this copy of Vault when you sign in, instead of {}."
 msgstr "Agora o Windows abre esta cópia do Vault quando você entra, em vez de {}."
 
@@ -3747,3 +3743,15 @@ msgstr "Uma tentativa errada de abrir este cofre neste computador desde {}. Se n
 msgctxt "Messages"
 msgid "{} failed tries to unlock this vault on this computer since {}. If they weren't yours, someone may be guessing your master password."
 msgstr "{} tentativas erradas de abrir este cofre neste computador desde {}. Se não foram suas, alguém pode estar tentando adivinhar sua senha mestra."
+
+msgctxt "Messages"
+msgid "Version {} of Vault is out: the download button in the title bar, or Settings → About, installs it."
+msgstr "A versão {} do Vault saiu: o botão de download na barra de título, ou Configurações → Sobre, a instala."
+
+msgctxt "Messages"
+msgid "Vault can't replace itself in {}: that folder can't be written. Download the new version from its release page (the download button in the title bar has it)."
+msgstr "O Vault não consegue se substituir em {}: essa pasta não pode ser gravada. Baixe a nova versão na página da versão (o botão de download na barra de título leva até ela)."
+
+msgctxt "Messages"
+msgid "The new version is in place but couldn't be started ({}). Start Vault again."
+msgstr "A nova versão está no lugar, mas não pôde ser iniciada ({}). Abra o Vault de novo."

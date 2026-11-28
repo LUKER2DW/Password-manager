@@ -1268,6 +1268,7 @@ impl Controller {
             .map(|s| s.vault.settings().name.clone())
             .unwrap_or_default();
         self.app().set_vault_name(SharedString::from(name));
+        self.show_vault_mark();
     }
 
     pub(super) fn vault_settings_changed(&self) {
