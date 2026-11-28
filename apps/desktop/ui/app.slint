@@ -230,6 +230,8 @@ export component AppWindow inherits Window {
     in property <string> notice-arg;
     // A number some notices need besides their argument (failed unlocks: how many).
     in property <int> notice-count;
+    // The generator's options under the new vault's suggested master password, unfolded.
+    in-out property <bool> onboarding-options;
     // Failed unlocks in a row on this computer, and the seconds before the next may start.
     in property <int> unlock-failed;
     in property <int> unlock-wait;
@@ -799,6 +801,18 @@ export component AppWindow inherits Window {
         back => { root.onboarding-step = 1; }
         create => { root.create-vault(); }
         suggest => { root.suggest-passphrase(); }
+        gen-open <=> root.onboarding-options;
+        gen-mode <=> root.gen-mode;
+        gen-length <=> root.gen-length;
+        gen-words <=> root.gen-words;
+        gen-lowercase <=> root.gen-lowercase;
+        gen-uppercase <=> root.gen-uppercase;
+        gen-digits <=> root.gen-digits;
+        gen-symbols <=> root.gen-symbols;
+        gen-avoid-ambiguous <=> root.gen-avoid-ambiguous;
+        gen-word-case <=> root.gen-word-case;
+        gen-number <=> root.gen-number;
+        gen-separator <=> root.gen-separator;
         use-suggestion => { root.use-suggestion(); }
         finish => { root.finish-onboarding(); }
         import => { root.finish-onboarding-import(); }

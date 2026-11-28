@@ -174,3 +174,44 @@ fn easy_passwords_are_warned_about_and_a_weak_export_refused() {
     assert!(vault_core::sealed_export::open(&file_phrase, &sealed).is_ok());
     drop(controller);
 }
+
+/// The new vault's suggested master password comes from the generator's options, never below
+/// the one-factor floor, and goes into the fields only when the person takes it.
+#[test]
+fn the_suggested_master_password_follows_the_generator_and_the_floor() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let _turn = app_home(&dir.path().join("home"));
+    let app = AppWindow::new().unwrap();
+    apply_sketches(&app);
+    let _controller =
+        Controller::install(&app, dir.path().join("new.vault"), Runner::Inline, None).unwrap();
+    // Characters chosen before: the first suggestion is six words all the same.
+    app.set_gen_mode(0);
+    app.invoke_suggest_passphrase();
+    let first = app.get_suggestion().to_string();
+    assert_eq!(app.get_gen_mode(), 1);
+    assert_eq!(first.split('-').count(), 6, "{first}");
+    assert!(vault_core::health::holds_alone(&first, &[]));
+    assert_eq!(length(&app, 0), 0, "nothing typed for the person");
+
+    // Options too weak to reach the floor alone: it grows until it does.
+    app.set_gen_mode(0);
+    app.set_gen_length(8);
+    app.set_gen_symbols(false);
+    app.invoke_suggest_passphrase();
+    let chars = app.get_suggestion().to_string();
+    assert!(chars.chars().count() > 8, "{chars}");
+    assert!(i32::try_from(chars.chars().count()).unwrap() == app.get_gen_length());
+    assert!(vault_core::health::holds_alone(&chars, &[]), "{chars}");
+    app.set_gen_mode(1);
+    app.set_gen_words(3);
+    app.invoke_suggest_passphrase();
+    let words = app.get_suggestion().to_string();
+    assert!(app.get_gen_words() >= 3 && vault_core::health::holds_alone(&words, &[]));
+
+    // Taken: in both fields, as typed.
+    app.invoke_use_suggestion();
+    let taken = i32::try_from(words.chars().count()).unwrap();
+    assert_eq!((length(&app, 0), length(&app, 1)), (taken, taken));
+}

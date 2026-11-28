@@ -876,9 +876,10 @@ component SeparatorPicker inherits VerticalLayout {
     }
 }
 
-// The generator's main options, opened under an item's password by Generate: characters or
-// words, the length, and what goes in. Every change makes a new password at once.
-component QuickGenerator inherits Rectangle {
+// The generator's main options, opened under an item's password by Generate (and under the
+// suggested master password of a new vault): characters or words, the length, and what goes
+// in. Every change makes a new password at once.
+export component QuickGenerator inherits Rectangle {
     in-out property <int> mode;
     in-out property <int> length;
     in-out property <int> words;

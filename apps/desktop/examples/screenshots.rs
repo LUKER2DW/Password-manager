@@ -275,6 +275,12 @@ fn main() {
         "onboarding-error",
         "Mismatch error, with a suggested passphrase",
     );
+    app.set_onboarding_options(true);
+    camera.shot(
+        "onboarding-suggestion-options",
+        "The suggestion's options: the generator's, as for a new login (never below the floor)",
+    );
+    app.set_onboarding_options(false);
     type_into(&app, 1, PASSWORD);
     app.invoke_create_vault();
     camera.shot("item-lock-step", "Step 2: the item lock, PIN suggested");

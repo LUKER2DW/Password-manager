@@ -4919,3 +4919,15 @@ msgstr "{} tentativas erradas seguidas neste computador. Para atrasar quem tenta
 msgctxt "UnlockScreen"
 msgid "Try again in {}"
 msgstr "Tente de novo em {}"
+
+msgctxt "OnboardingScreen"
+msgid "A suggestion from the password generator, with the options under it: six random words at first, far beyond guessing and easier to remember than a jumble of symbols. One that would be easy to guess is never suggested."
+msgstr "Uma sugestão do gerador de senhas, com as opções logo abaixo: seis palavras aleatórias de início, muito além de qualquer palpite e mais fáceis de lembrar do que uma mistura de símbolos. Uma que seria fácil de adivinhar nunca é sugerida."
+
+msgctxt "OnboardingScreen"
+msgid "Use this one"
+msgstr "Usar esta"
+
+msgctxt "OnboardingScreen"
+msgid "Show the options"
+msgstr "Mostrar as opções"

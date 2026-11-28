@@ -21,7 +21,6 @@ use vault_core::{
     ItemKind, KdfParams, RecoveryCode, RecoveryKey, RecoveryPart, RecoveryParts, SecretKey, Unlock,
     Vault,
     card::{self, CardDetails, CardProblem},
-    generator::{self, PassphraseOptions},
     health::HealthReport,
     storage,
     totp::Totp,
@@ -543,6 +542,9 @@ struct State {
     editing: Option<Option<ItemId>>,
     copied: Option<Zeroizing<String>>,
     suggestion: Option<Zeroizing<String>>,
+    /// The generator's mode and number of words before the new vault's first suggestion
+    /// switched it to words: put back once the vault is made.
+    suggestion_restore: Option<(i32, i32)>,
     generated: Option<Zeroizing<String>>,
     totp: Option<Totp>,
     /// A file being imported: chosen, maybe parsed, waiting for confirmation.
@@ -765,6 +767,7 @@ impl Controller {
                 editing: None,
                 copied: None,
                 suggestion: None,
+                suggestion_restore: None,
                 generated: None,
                 totp: None,
                 codes_shown: None,
@@ -1469,6 +1472,12 @@ impl Controller {
         match result {
             JobResult::Created { session, parts } => {
                 self.forget_review();
+                let restore = self.state.borrow_mut().suggestion_restore.take();
+                if let Some((mode, words)) = restore {
+                    app.set_gen_mode(mode);
+                    app.set_gen_words(words);
+                    self.remember_generator_prefs(self.current_generator_prefs());
+                }
                 self.clear_secret(field::MASTER);
                 self.clear_secret(field::CONFIRM);
                 self.state.borrow_mut().suggestion = None;
@@ -1923,16 +1932,39 @@ impl Controller {
         });
     }
 
+    /// The new vault's suggested master password, made with the generator's options (the same
+    /// as a new login's, changed under it) and shown until "Use this one" puts it in the
+    /// fields. Never one below the one-factor floor: the number of words or the length grows
+    /// until it holds.
     fn suggest_passphrase(&self) {
-        let options = PassphraseOptions {
-            words: 6,
-            separator: "-".into(),
-            ..PassphraseOptions::default()
-        };
-        if let Ok(phrase) = generator::generate_passphrase(&options) {
-            self.app()
-                .set_suggestion(SharedString::from(phrase.as_str()));
-            self.state.borrow_mut().suggestion = Some(phrase);
+        let app = self.app();
+        if self.state.borrow().suggestion.is_none() {
+            // The first suggestion is words: the easiest to learn by heart. The generator's
+            // own choice comes back once the vault is made.
+            if self.state.borrow().suggestion_restore.is_none() {
+                self.state.borrow_mut().suggestion_restore =
+                    Some((app.get_gen_mode(), app.get_gen_words()));
+            }
+            app.set_gen_mode(1);
+            app.set_gen_words(app.get_gen_words().max(6));
+        }
+        for attempt in 0..60 {
+            let Some(value) = self.generate() else {
+                return;
+            };
+            if vault_core::health::holds_alone(&value, &[]) {
+                app.set_suggestion(SharedString::from(value.as_str()));
+                self.state.borrow_mut().suggestion = Some(value);
+                return;
+            }
+            // Every third miss: one more word, or two more characters.
+            if attempt % 3 == 2 {
+                if app.get_gen_mode() == 1 {
+                    app.set_gen_words((app.get_gen_words() + 1).min(20));
+                } else {
+                    app.set_gen_length((app.get_gen_length() + 2).min(128));
+                }
+            }
         }
     }
 

@@ -9,6 +9,7 @@ import { Button, QuietButton, SecretField, Check, Choice, MarkStroke, Hint, Rule
 import { KitSlip, PdfPassword } from "kit.slint";
 import { Glyph } from "icons.slint";
 import { PasswordReview, LeakCheckBox } from "review.slint";
+import { QuickGenerator } from "pages.slint";
 
 component StepMark inherits HorizontalLayout {
     in property <int> number;
@@ -426,6 +427,21 @@ export component OnboardingScreen inherits Rectangle {
     // Item lock, chosen before the vault is created: 0 PIN, 1 another password, 2 master
     // password, 3 none for now.
     in-out property <int> guard: 0;
+    // The suggested master password is made with the generator's options (the same as a new
+    // login's): changed here, a new suggestion comes at once. Never one below the one-factor
+    // floor (controller.rs `suggest_passphrase`).
+    in-out property <int> gen-mode;
+    in-out property <int> gen-length;
+    in-out property <int> gen-words;
+    in-out property <bool> gen-lowercase;
+    in-out property <bool> gen-uppercase;
+    in-out property <bool> gen-digits;
+    in-out property <bool> gen-symbols;
+    in-out property <bool> gen-avoid-ambiguous;
+    in-out property <int> gen-word-case;
+    in-out property <bool> gen-number;
+    in-out property <string> gen-separator;
+    in-out property <bool> gen-open: false;
     in-out property <bool> guard-all: true;
     in-out property <bool> guard-hello: true;
     in property <bool> quick-available;
@@ -539,90 +555,121 @@ export component OnboardingScreen inherits Rectangle {
                 new-file => { root.new-vault-file(); }
                 back => { root.choosing = false; }
             }
-            if !root.choosing: VerticalLayout {
-                spacing: 18px;
+            // Taller than the window (the generator's options open): it scrolls.
+            if !root.choosing: Flickable {
+                min-height: 240px;
+                preferred-height: step-one.preferred-height;
+                viewport-height: step-one.preferred-height;
+                interactive: self.viewport-height > self.height;
+                step-one := VerticalLayout {
+                    width: parent.width;
+                    spacing: 18px;
 
-                Heading { text: @tr("Choose a master password"); }
-                Prose {
-                    text: @tr("It's the only password you'll need to remember. Nobody can reset it for you, so pick one you won't forget.");
-                }
-                master := SecretField {
-                    field: 0;
-                    eye: true;
-                    label: @tr("Master password");
-                    required: true;
-                    hint: @tr("Something you'll remember that nobody could guess: several random words work best (try Suggest a passphrase). At least 12 characters. You'll type it every time you unlock, and it can't be reset.");
-                    error: root.error-code == 4 || root.error-code == 5;
-                    accepted => { confirm.focus(); }
-                }
-                confirm := SecretField {
-                    field: 1;
-                    eye: true;
-                    label: @tr("Type it again");
-                    required: true;
-                    error: root.error-code == 4;
-                    accepted => { root.create(); }
-                }
-                LeakCheckBox { }
-                PasswordReview { place: 1; field: 0; }
-                HorizontalLayout {
-                    spacing: 10px;
-                    alignment: start;
-                    QuietButton {
-                        icon: root.suggestion == "" ? "sparkle" : "refresh";
-                        text: root.suggestion == "" ? @tr("Suggest a passphrase") : @tr("Suggest another");
-                        clicked => { root.suggest(); }
+                    Heading { text: @tr("Choose a master password"); }
+                    Prose {
+                        text: @tr("It's the only password you'll need to remember. Nobody can reset it for you, so pick one you won't forget.");
                     }
-                    VerticalLayout {
-                        alignment: center;
-                        Hint {
-                            text: @tr("Six random words from the EFF word list: about 77 bits of entropy, far beyond guessing, and easier to remember than a jumble of symbols.");
-                        }
+                    master := SecretField {
+                        field: 0;
+                        eye: true;
+                        label: @tr("Master password");
+                        required: true;
+                        hint: @tr("Something you'll remember that nobody could guess: several random words work best (try Suggest a passphrase). At least 12 characters. You'll type it every time you unlock, and it can't be reset.");
+                        error: root.error-code == 4 || root.error-code == 5;
+                        accepted => { confirm.focus(); }
                     }
-                }
-                if root.suggestion != "": Rectangle {
-                    height: suggestion-layout.preferred-height;
-                    border-radius: Theme.radius;
-                    background: Theme.panel;
-                    suggestion-layout := VerticalLayout {
-                        padding: 14px;
-                        spacing: 8px;
-                        Text {
-                            text: root.suggestion;
-                            font-family: Theme.mono-font;
-                            font-size: Theme.lead;
-                            color: Theme.ink;
-                            wrap: word-wrap;
+                    confirm := SecretField {
+                        field: 1;
+                        eye: true;
+                        label: @tr("Type it again");
+                        required: true;
+                        error: root.error-code == 4;
+                        accepted => { root.create(); }
+                    }
+                    LeakCheckBox { }
+                    PasswordReview { place: 1; field: 0; }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: start;
+                        QuietButton {
+                            icon: root.suggestion == "" ? "sparkle" : "refresh";
+                            text: root.suggestion == "" ? @tr("Suggest a passphrase") : @tr("Suggest another");
+                            clicked => { root.suggest(); }
                         }
-                        HorizontalLayout {
-                            alignment: start;
-                            spacing: 12px;
-                            QuietButton {
-                                text: @tr("Use this passphrase");
-                                clicked => { root.use-suggestion(); }
-                            }
-                            Prose {
-                                text: @tr("Learn it by heart before you continue.");
-                                font-size: Theme.small;
-                                vertical-alignment: center;
+                        VerticalLayout {
+                            alignment: center;
+                            Hint {
+                                text: @tr("A suggestion from the password generator, with the options under it: six random words at first, far beyond guessing and easier to remember than a jumble of symbols. One that would be easy to guess is never suggested.");
                             }
                         }
                     }
-                }
-                ErrorLine {
-                    code: root.error-code;
-                    detail: root.error-detail;
-                }
-                Button {
-                    text: @tr("Continue");
-                    clicked => { root.create(); }
-                }
-                HorizontalLayout {
-                    alignment: start;
-                    QuietButton {
-                        text: @tr("I already have a vault: open it");
-                        tint: Theme.graphite;
-                        clicked => { root.choosing = true; }
+                    if root.suggestion != "": Rectangle {
+                        height: suggestion-layout.preferred-height;
+                        border-radius: Theme.radius;
+                        background: Theme.panel;
+                        suggestion-layout := VerticalLayout {
+                            padding: 14px;
+                            spacing: 8px;
+                            Text {
+                                text: root.suggestion;
+                                font-family: Theme.mono-font;
+                                font-size: Theme.lead;
+                                color: Theme.ink;
+                                wrap: word-wrap;
+                            }
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: 12px;
+                                QuietButton {
+                                    text: @tr("Use this one");
+                                    clicked => { root.use-suggestion(); }
+                                }
+                                Prose {
+                                    text: @tr("Learn it by heart before you continue.");
+                                    font-size: Theme.small;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                    if root.suggestion != "" && root.gen-open: QuickGenerator {
+                        mode <=> root.gen-mode;
+                        length <=> root.gen-length;
+                        words <=> root.gen-words;
+                        lowercase <=> root.gen-lowercase;
+                        uppercase <=> root.gen-uppercase;
+                        digits <=> root.gen-digits;
+                        symbols <=> root.gen-symbols;
+                        avoid-ambiguous <=> root.gen-avoid-ambiguous;
+                        word-case <=> root.gen-word-case;
+                        number <=> root.gen-number;
+                        separator <=> root.gen-separator;
+                        changed => { root.suggest(); }
+                        close => { root.gen-open = false; }
+                    }
+                    if root.suggestion != "" && !root.gen-open: HorizontalLayout {
+                        alignment: start;
+                        QuietButton {
+                            text: @tr("Show the options");
+                            tint: Theme.graphite;
+                            clicked => { root.gen-open = true; }
+                        }
+                    }
+                    ErrorLine {
+                        code: root.error-code;
+                        detail: root.error-detail;
+                    }
+                    Button {
+                        text: @tr("Continue");
+                        clicked => { root.create(); }
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        QuietButton {
+                            text: @tr("I already have a vault: open it");
+                            tint: Theme.graphite;
+                            clicked => { root.choosing = true; }
+                        }
                     }
                 }
             }

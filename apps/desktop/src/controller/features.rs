@@ -81,7 +81,7 @@ impl Controller {
         self.show_wordlists();
     }
 
-    fn current_generator_prefs(&self) -> GeneratorPrefs {
+    pub(super) fn current_generator_prefs(&self) -> GeneratorPrefs {
         let app = self.app();
         let wordlist = usize::try_from(app.get_gen_wordlist() - 1)
             .ok()
@@ -112,7 +112,7 @@ impl Controller {
 
     /// Saves the generator options when they changed (the file is small; the slider calls this
     /// at every step, so unchanged options are not written again).
-    fn remember_generator_prefs(&self, prefs: GeneratorPrefs) {
+    pub(super) fn remember_generator_prefs(&self, prefs: GeneratorPrefs) {
         if self.state.borrow().settings.generator == prefs {
             return;
         }
