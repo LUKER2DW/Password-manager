@@ -31,7 +31,9 @@ fn open_item(vault: &Vault, id: &ItemId) -> Result<ItemData, vault_core::Error> 
 }
 
 /// Every item with its folder name, in the file's order.
-fn items(vault: &Vault) -> Result<Vec<(ItemData, Option<String>)>, vault_core::Error> {
+pub(crate) fn export_items(
+    vault: &Vault,
+) -> Result<Vec<(ItemData, Option<String>)>, vault_core::Error> {
     let mut out = Vec::with_capacity(vault.len());
     for id in vault.item_ids() {
         let item = open_item(vault, &id)?;
@@ -229,7 +231,7 @@ fn document(vault: &Vault, sealed: bool) -> Result<Zeroizing<String>, vault_core
         .map(|f| json!({ "id": f.id.to_hex(), "name": f.name }))
         .collect();
     let mut items_json = Vec::new();
-    for (index, (item, _)) in items(vault)?.iter().enumerate() {
+    for (index, (item, _)) in export_items(vault)?.iter().enumerate() {
         // An SSH key's public half and fingerprint go in its own block, not as fields: the
         // first of each name (another one, such as a host's fingerprint, is a field).
         let ssh_field = |name: &str| {
@@ -343,7 +345,7 @@ fn document(vault: &Vault, sealed: bool) -> Result<Zeroizing<String>, vault_core
 
 /// The document as text in a buffer of its exact size: one that grew would leave copies of
 /// the passwords behind in the memory it outgrew.
-fn to_text(document: &Value) -> Result<Zeroizing<String>, vault_core::Error> {
+pub(crate) fn to_text(document: &Value) -> Result<Zeroizing<String>, vault_core::Error> {
     struct Count(usize);
     impl std::io::Write for Count {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -368,7 +370,7 @@ fn to_text(document: &Value) -> Result<Zeroizing<String>, vault_core::Error> {
 }
 
 /// Wipes every text of the document: copies of the items it was made from.
-fn wipe(value: &mut Value) {
+pub(crate) fn wipe(value: &mut Value) {
     match value {
         Value::String(text) => text.zeroize(),
         Value::Array(values) => values.iter_mut().for_each(wipe),
@@ -423,7 +425,7 @@ pub fn export_csv(vault: &Vault) -> Result<Zeroizing<String>, vault_core::Error>
     ];
     let to_error = |_| vault_core::Error::Malformed;
     writer.write_record(header).map_err(to_error)?;
-    for (item, folder) in items(vault)? {
+    for (item, folder) in export_items(vault)? {
         let mut fields: Zeroizing<Vec<String>> = Zeroizing::new(
             item.custom_fields
                 .iter()
@@ -468,6 +470,9 @@ pub enum ExportFormat {
     Json,
     /// Unencrypted CSV ([`export_csv`]).
     Csv,
+    /// A KeePass database (KDBX 4) encrypted with a password chosen for it
+    /// ([`crate::export_kdbx`]).
+    Kdbx,
 }
 
 /// What an export of a vault leaves out and what it writes readable by anyone who has the
@@ -563,8 +568,9 @@ pub fn export_report(
             .iter()
             .filter(|f| f.sensitive && !f.value.is_empty())
             .count();
-        // The sealed export keeps the item whole; the plain ones leave these out.
-        let sealed = format == ExportFormat::Sealed;
+        // The sealed export and the KeePass database keep the item whole; the plain ones
+        // leave these out.
+        let sealed = matches!(format, ExportFormat::Sealed | ExportFormat::Kdbx);
         let (files, passkeys, earlier) = if sealed {
             (0, 0, 0)
         } else {

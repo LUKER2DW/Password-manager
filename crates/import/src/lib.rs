@@ -2,7 +2,8 @@
 //!
 //! One entry point, [`import`], reads every supported file by its format:
 //! - **JSON**: unencrypted exports in the common layout (`.json`)
-//! - **KDBX**: KeePass-format databases (`.kdbx`, KDBX 3 and 4), opened with their password
+//! - **KDBX**: KeePass-format databases (`.kdbx`, KDBX 3 and 4), opened with their password;
+//!   [`export_kdbx`] writes one (KDBX 4)
 //! - **CSV**: exports from browsers and most managers, read by their header row
 //!
 //! [`Source`] lists where an export can come from, for the app to explain how to make one.
@@ -18,7 +19,9 @@ mod dates;
 mod export;
 mod json;
 mod kdbx;
+mod kdbx_export;
 
+pub use kdbx_export::{KDF as KDBX_KDF, KdfParams as KdbxKdf, export_kdbx};
 pub use export::{
     ExportFormat, ExportReport, InClear, LeftOut, export_csv, export_json, export_report,
     export_sealed,
