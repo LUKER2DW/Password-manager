@@ -883,7 +883,7 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     type_secret(&app, 10, "not the master password");
     app.invoke_confirmed(7);
     assert_eq!(app.get_error_code(), 30, "no password for the export");
-    type_secret(&app, 9, "an export password");
+    type_secret(&app, 9, "a long password for the file");
     app.invoke_confirmed(7);
     assert_eq!(
         (app.get_error_code(), app.get_confirming()),
@@ -1445,7 +1445,7 @@ fn the_phone_app_from_a_computer_vault_to_a_locked_one() {
     app.invoke_confirmed(11);
     assert_eq!((app.get_error_code(), app.get_confirming()), (26, 11));
     assert_eq!(length(&app, 8), 0, "typed again");
-    type_secret(&app, 8, "an export password");
+    type_secret(&app, 8, "a long password for the file");
     app.invoke_confirmed(11);
     assert_eq!(
         (app.get_error_code(), app.get_confirming()),
@@ -3160,7 +3160,7 @@ fn an_export_of_locked_items_is_refused_when_its_sheet_opens() {
             crate::ui::ExportCounts::default(),
             "nothing counted: nothing claimed"
         );
-        type_secret(app, 9, "an export password");
+        type_secret(app, 9, "a long password for the file");
         type_secret(app, 10, PASSWORD);
         app.invoke_confirmed(kind);
         assert_eq!((app.get_confirming(), app.get_error_code()), (kind, 32));
@@ -3233,10 +3233,10 @@ fn an_import_on_the_phone_shows_what_it_left_behind() {
     let document =
         br#"{"items": [{"type": 1, "name": "Mail", "login": {"password": "import-test-pw-m"},
         "leftOut": {"attachments": 1, "passkeys": 1}}]}"#;
-    let sealed = vault_core::sealed_export::seal("an export password", document).unwrap();
+    let sealed = vault_core::sealed_export::seal("a long password for the file", document).unwrap();
     controller.picked_file(3, "vault-export.vaultx", sealed);
     assert_eq!(app.get_confirming(), 11);
-    type_secret(app, 8, "an export password");
+    type_secret(app, 8, "a long password for the file");
     app.invoke_confirmed(11);
     assert_eq!(
         (app.get_error_code(), app.get_confirming()),
@@ -3950,4 +3950,162 @@ fn the_keyboard_is_asked_not_to_learn() {
         java.contains("| EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING;"),
         "the vendored Java side lacks the keyboard's flag"
     );
+}
+
+/// The wall clock the unlock attempts' tests read (no time since start: it alone counts). In
+/// the past: a window reads the real clock until the test's is set.
+static PHONE_NOW: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1_000_000_000);
+
+fn phone_clock() -> (i64, Option<i64>) {
+    (PHONE_NOW.load(std::sync::atomic::Ordering::SeqCst), None)
+}
+
+fn later(seconds: i64) {
+    PHONE_NOW.fetch_add(seconds, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[test]
+fn failed_unlocks_wait_survive_a_restart_and_the_copy_goes_only_when_chosen() {
+    let phone = Phone::open(|_, _| {});
+    let (app, controller) = (&phone.app, &phone.controller);
+    controller.set_clock(phone_clock);
+
+    // Without sync the removal isn't offered, and turning it on does nothing.
+    assert!(!app.get_can_remove_after());
+    app.invoke_remove_after_toggled(true);
+    assert_eq!(app.get_confirming(), 0);
+    assert!(!app.get_remove_after());
+
+    // The vault syncs (through a folder here): offered, and turned on only once the master
+    // password confirms the sheet that says what goes.
+    let folder = phone.path.with_file_name("sync-folder");
+    std::fs::create_dir_all(&folder).unwrap();
+    let mut state = vault_platform::DeviceState::load().unwrap();
+    state.set_sync_folder(&phone.vault_id, Some(&folder));
+    state.save().unwrap();
+    app.invoke_lock_now();
+    phone.unlock(PASSWORD);
+    assert!(app.get_can_remove_after());
+    app.invoke_remove_after_toggled(true);
+    assert_eq!(app.get_confirming(), 21);
+    assert!(!app.get_remove_after(), "not before the master password");
+    type_secret(app, 10, PASSWORD);
+    app.invoke_confirmed(21);
+    assert!(app.get_remove_after(), "{}", app.get_error_detail());
+    app.invoke_lock_now();
+
+    // Four wrong tries cost nothing more; the fifth starts a wait the controller keeps, for
+    // the right password too.
+    let wrong = || {
+        type_secret(app, 0, "not the password");
+        app.invoke_unlock();
+    };
+    for _ in 0..4 {
+        wrong();
+        assert_eq!(app.get_error_code(), 1);
+        assert_eq!(app.get_unlock_wait(), 0);
+        later(1);
+    }
+    wrong();
+    assert_eq!((app.get_unlock_wait(), app.get_unlock_failed()), (30, 5));
+    type_secret(app, 0, PASSWORD);
+    app.invoke_unlock();
+    assert_eq!(app.get_error_code(), 47);
+    assert_eq!(app.get_screen(), Screen::Unlock);
+
+    // The app started again on the same phone: still waiting.
+    let again = window();
+    let restarted = Controller::start(&again, phone.path.clone(), true);
+    restarted.set_clock(phone_clock);
+    type_secret(&again, 0, PASSWORD);
+    again.invoke_unlock();
+    assert_eq!(again.get_error_code(), 47);
+    later(31);
+    again.invoke_unlock();
+    assert_eq!(
+        again.get_screen(),
+        Screen::Vault,
+        "{}",
+        again.get_error_detail()
+    );
+    assert_eq!(again.get_notice_code(), 28);
+    assert_eq!(again.get_notice_count(), 5);
+    again.invoke_lock_now();
+
+    // Ten failures in a row (on the window started again), each after its wait: the copy
+    // goes, and nothing else.
+    for attempt in 1..=10 {
+        type_secret(&again, 0, "not the password");
+        again.invoke_unlock();
+        assert!(
+            again.get_error_code() == 1 || attempt == 10,
+            "try {attempt}: {} {}",
+            again.get_error_code(),
+            again.get_error_detail()
+        );
+        later(900);
+    }
+    assert!(!phone.path.exists(), "the phone's copy is gone");
+    assert!(!phone.keeps_secret_key());
+    assert!(
+        vault_platform::DeviceState::load()
+            .unwrap()
+            .sync_place(&phone.vault_id)
+            .is_none()
+    );
+    assert_eq!(again.get_notice_code(), 29);
+    assert_eq!(again.get_screen(), Screen::Start);
+    drop(restarted);
+}
+
+#[test]
+fn an_easy_new_master_password_is_warned_about_and_a_weak_export_refused() {
+    fn found(_: &str) -> Result<u64, String> {
+        Ok(3)
+    }
+    let phone = Phone::open(|_, _| {});
+    let (app, controller) = (&phone.app, &phone.controller);
+    let easy = "password1234";
+
+    // Settings, Master password: an easy one is warned about, nothing changes yet.
+    app.invoke_ask(12);
+    type_secret(app, 5, PASSWORD);
+    type_secret(app, 6, easy);
+    type_secret(app, 7, easy);
+    app.invoke_change_password();
+    assert_eq!((app.get_pw_place(), app.get_pw_warning()), (1, 1));
+    assert_eq!(app.get_confirming(), 12);
+    // Six random words instead, in both fields, shown.
+    app.invoke_use_passphrase(6);
+    assert_eq!(app.get_pw_place(), 0);
+    let shown = |field: usize| {
+        app.global::<Secrets>()
+            .get_shown()
+            .row_data(field)
+            .unwrap()
+            .to_string()
+    };
+    let phrase = shown(6);
+    assert_eq!(phrase.split('-').count(), 6, "{phrase}");
+    assert_eq!(length(app, 6), length(app, 7));
+    // Ticked, the breach check asks first; found, it is warned about, and may be kept.
+    controller.set_leak_lookup(found);
+    app.set_check_new_leaks(true);
+    app.invoke_change_password();
+    assert_eq!((app.get_pw_place(), app.get_pw_warning()), (1, 2));
+    assert_eq!(app.get_pw_warning_arg(), "3");
+    app.invoke_keep_new_password();
+    assert_eq!(app.get_notice_code(), 10, "{}", app.get_error_detail());
+    assert!(!app.get_check_new_leaks());
+
+    // A protected export: a password below the floor is refused; six random words do.
+    app.invoke_ask(7);
+    type_secret(app, 10, &phrase);
+    type_secret(app, 9, "a file password");
+    app.invoke_export_vault(0);
+    assert_eq!(app.get_error_code(), 46);
+    app.invoke_use_passphrase(9);
+    assert_eq!(shown(9).split('-').count(), 6);
+    app.invoke_export_vault(0);
+    assert_eq!(app.get_error_code(), 0, "{}", app.get_error_detail());
 }

@@ -197,6 +197,8 @@ export global Words {
         if (code == 30) { return @tr("Give the export a password of at least 12 characters."); }
         if (code == 31) { return @tr("The export couldn't be made ({}).", detail); }
         if (code == 32) { return @tr("Some items are behind the item lock, and the export would leave their secrets out. Open one of them first (one right answer opens them all for a while), then export."); }
+        if (code == 46) { return @tr("That password is too easy to guess to guard the file on its own: whoever gets the file can try guesses for as long as they like. Use a generated passphrase, or a longer password that isn't made of common words."); }
+        if (code == 47) { return @tr("Too many failed tries in a row: wait until the countdown ends, then try again."); }
         return detail;
     }
     // The confirmation sheet's words for each kind (PhoneWindow.ask).
@@ -221,6 +223,7 @@ export global Words {
         if (kind == 17) { return @tr("The key has a passphrase"); }
         if (kind == 18) { return @tr("Version {} is ready", arg); }
         if (kind == 19) { return @tr("Use the renewed vault key"); }
+        if (kind == 21) { return @tr("Remove this phone's copy after 10 failed tries?"); }
         return "";
     }
     pure public function confirm-text(kind: int, arg: string) -> string {
@@ -242,6 +245,7 @@ export global Words {
         if (kind == 17) { return @tr("Type it once to open the key. The vault keeps the key without it: the vault itself protects it, and the copy you take out works without a passphrase."); }
         if (kind == 18) { return @tr("A newer version of this app is out. Android asks you before it installs it, and installs it only if it is signed like the app you have. Later, it waits in Settings, Updates."); }
         if (kind == 19) { return @tr("Another device renewed the vault key and printed a new kit. Type the Secret Key from that kit, and your master password: this phone then keeps the new key and syncs again. Unlock with the phone turns off until you turn it on again."); }
+        if (kind == 21) { return @tr("After 10 failed tries in a row to unlock this vault here, this phone deletes its copy of the vault file, its unlock with the phone and the key in the phone's secure hardware behind it, the Secret Key kept on this phone, and this phone's sync key for the vault. Nothing is sent to your sync server: its copies stay, and your other devices keep the vault. To use it here again, join it again with an invite from another device."); }
         return "";
     }
     pure public function confirm-action(kind: int) -> string {
@@ -264,6 +268,21 @@ export global Words {
         if (kind == 17) { return @tr("Open the key"); }
         if (kind == 18) { return @tr("Install"); }
         if (kind == 19) { return @tr("Use the new key"); }
+        if (kind == 21) { return @tr("Turn it on"); }
+        return "";
+    }
+    // How many failed unlocks there were on this phone before the right one, and since when
+    // (notice 28).
+    pure public function failed-unlocks(count: int, since: string) -> string {
+        if (count == 1) { return @tr("One failed try to unlock this vault on this phone since {}. If it wasn't you, someone may be guessing your master password.", since); }
+        return @tr("{} failed tries to unlock this vault on this phone since {}. If they weren't yours, someone may be guessing your master password.", count, since);
+    }
+    // What is said under a new master password (pw-warning): easy to guess, found in data
+    // breaches, or the breach check failed.
+    pure public function password-warning(warning: int, arg: string) -> string {
+        if (warning == 1) { return @tr("This master password is easy to guess. Your Secret Key guards the vault too, but anyone who also gets it from a device has only this password left to find, and can try guesses for as long as they like. Six random words are far harder to guess."); }
+        if (warning == 2) { return @tr("This password turned up in data breaches ({} times): attackers try those first. Choose another one.", arg); }
+        if (warning == 3) { return @tr("The breach check couldn't reach the service ({}). Nothing was sent except the first five characters of the password's fingerprint.", arg); }
         return "";
     }
     // The title of the phone's check before one use of a secret (every use asks): what it
@@ -321,6 +340,7 @@ export global Words {
         if (code == 25) { return @tr("A passkey for “{}” was saved.", arg); }
         if (code == 26) { return @tr("Nothing was shown or copied: this phone has no screen lock to ask. Set one in Android's settings, or turn off “Ask for the fingerprint or screen lock every time” in Settings, Security."); }
         if (code == 27) { return @tr("Nothing was shown or copied: the phone's check didn't pass ({}).", arg); }
+        if (code == 29) { return @tr("This phone's copy of “{}” was removed after 10 failed tries to unlock it. The vault is still on your other devices and your sync server: join again with an invite to use it here.", arg); }
         if (code == 40) { return @tr("Only the first {} pages are shown: the rest would take too much of the phone's memory. Save the file to see all of it.", arg); }
         if (code == 41) { return @tr("This PDF's pages are too large to show here. Save the file to see it."); }
         return "";
@@ -1109,6 +1129,54 @@ component Countdown inherits Rectangle {
 // is needed (`fields`: secure fields, the first focused so the keyboard comes up). Such a sheet
 // stays open while the check runs (`busy`) and shows what went wrong (`error`); the app
 // closes it once the action is done.
+// What is said under a new master password that is easy to guess or found in breaches, with
+// six random words offered instead and a way to keep it. Folded away while `shown` is false.
+component PasswordWarning inherits Fold {
+    in property <bool> shown;
+    in property <string> text;
+    in property <string> keep-text;
+    // Room under it while it shows (in a layout without spacing).
+    in property <length> gap: 0px;
+    callback use-passphrase();
+    callback keep();
+    open: root.shown;
+    VerticalLayout {
+        padding-bottom: root.gap;
+        Rectangle {
+            border-radius: Theme.radius + 4px;
+            background: Theme.panel;
+            border-width: 1px;
+            border-color: Theme.seal;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 10px;
+                Text {
+                    text: root.text;
+                    font-size: Theme.body;
+                    color: Theme.ink;
+                    wrap: word-wrap;
+                }
+                // One under the other: side by side they are wider than a phone.
+                VerticalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    QuietButton {
+                        text: @tr("Use a generated passphrase");
+                        icon: "sparkle";
+                        outlined: true;
+                        clicked => { root.use-passphrase(); }
+                    }
+                    QuietButton {
+                        text: root.keep-text;
+                        tint: Theme.graphite;
+                        clicked => { root.keep(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
 component ConfirmSheet inherits Rectangle {
     in property <string> title;
     in property <string> text;
@@ -1123,6 +1191,16 @@ component ConfirmSheet inherits Rectangle {
     in property <string> error;
     in property <bool> busy;
     in property <string> busy-text;
+    // A new master password's review (the master password sheet): the box for the breach
+    // check, what is said about the password and the way to keep it anyway.
+    in property <bool> asks-leak-check;
+    in-out property <bool> leak-check;
+    in property <string> warning;
+    in property <string> keep-text;
+    // "Use a generated passphrase" into this secure field (-1: not offered).
+    in property <int> passphrase-field: -1;
+    callback use-passphrase(int);
+    callback keep();
     callback confirmed;
     callback cancelled;
     background: #00000088;
@@ -1175,30 +1253,69 @@ component ConfirmSheet inherits Rectangle {
                         if (i == root.fields.length - 1 && !root.busy) { root.confirmed(); }
                     }
                 }
-                if root.error != "": Text {
-                    text: root.error;
-                    font-size: Theme.body;
-                    color: Theme.seal;
-                    wrap: word-wrap;
-                }
-                HorizontalLayout {
-                    padding-top: 8px;
-                    spacing: 10px;
-                    QuietButton {
-                        horizontal-stretch: 1;
-                        text: @tr("Cancel");
-                        outlined: true;
-                        enabled: !root.busy;
-                        clicked => { root.cancelled(); }
+                // No spacing between these: what isn't shown takes no room at all.
+                VerticalLayout {
+                    spacing: 0px;
+                    Fold {
+                        open: root.asks-leak-check;
+                        VerticalLayout {
+                            padding-bottom: 12px;
+                            Check {
+                                text: @tr("Check it against known data breaches first");
+                                checked <=> root.leak-check;
+                            }
+                        }
                     }
-                    Button {
-                        horizontal-stretch: 1;
-                        text: root.action;
-                        danger: root.danger;
-                        busy: root.busy;
-                        busy-text: root.busy-text;
-                        clicked => {
-                            if (!root.busy) { root.confirmed(); }
+                    PasswordWarning {
+                        shown: root.warning != "";
+                        text: root.warning;
+                        keep-text: root.keep-text;
+                        gap: 12px;
+                        use-passphrase => { root.use-passphrase(root.passphrase-field); }
+                        keep => { root.keep(); }
+                    }
+                    Fold {
+                        open: root.passphrase-field >= 0 && root.warning == "";
+                        HorizontalLayout {
+                            alignment: start;
+                            padding-bottom: 12px;
+                            QuietButton {
+                                text: @tr("Use a generated passphrase");
+                                icon: "sparkle";
+                                outlined: true;
+                                enabled: !root.busy;
+                                clicked => { root.use-passphrase(root.passphrase-field); }
+                            }
+                        }
+                    }
+                    if root.error != "": VerticalLayout {
+                        padding-bottom: 12px;
+                        Text {
+                            text: root.error;
+                            font-size: Theme.body;
+                            color: Theme.seal;
+                            wrap: word-wrap;
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-top: 8px;
+                        spacing: 10px;
+                        QuietButton {
+                            horizontal-stretch: 1;
+                            text: @tr("Cancel");
+                            outlined: true;
+                            enabled: !root.busy;
+                            clicked => { root.cancelled(); }
+                        }
+                        Button {
+                            horizontal-stretch: 1;
+                            text: root.action;
+                            danger: root.danger;
+                            busy: root.busy;
+                            busy-text: root.busy-text;
+                            clicked => {
+                                if (!root.busy) { root.confirmed(); }
+                            }
                         }
                     }
                 }
@@ -1774,6 +1891,30 @@ export component PhoneWindow inherits Window {
     in property <string> error-detail;
     in property <int> notice-code;
     in property <string> notice-arg;
+    // A number some notices need besides their argument (failed unlocks: how many).
+    in property <int> notice-count;
+
+    // A new master password's review (controller/passwords.rs): which screen it is about (1
+    // the sheet, 2 recovery), what it says (1 easy to guess, 2 found in breaches, 3 the check
+    // failed) and its argument. The box: check it against known breaches first (off until
+    // ticked; it uses the network).
+    in property <int> pw-place;
+    in property <int> pw-warning;
+    in property <string> pw-warning-arg;
+    in-out property <bool> check-new-leaks;
+    // Six random words into a secure field (and the one that confirms it), shown.
+    callback use-passphrase(int);
+    callback keep-new-password();
+    // Failed unlocks in a row on this phone, and the seconds before the next may start
+    // (controller/attempts.rs; the controller refuses a try before then).
+    in property <int> unlock-failed;
+    in property <int> unlock-wait;
+    property <string> wait-text: Math.floor(root.unlock-wait / 60) + ":" + (Math.mod(root.unlock-wait, 60) < 10 ? "0" : "") + Math.mod(root.unlock-wait, 60);
+    // Settings, Security: remove this phone's copy after 10 failed unlocks (offered only
+    // while the vault syncs).
+    in property <bool> can-remove-after;
+    in-out property <bool> remove-after;
+    callback remove-after-toggled(bool);
 
     // Bringing a vault in, and unlock
     in property <string> vault-name;
@@ -2284,7 +2425,7 @@ export component PhoneWindow inherits Window {
             root.confirming = 0;
         }
         // Checked against the master password first, then made by the app.
-        if ((kind >= 1 && kind <= 4) || kind == 16) { root.check-master(kind); }
+        if ((kind >= 1 && kind <= 4) || kind == 16 || kind == 21) { root.check-master(kind); }
         if (kind == 5) { root.delete-item(); }
         if (kind == 14) { root.gen-history-clear(); }
         if (kind == 15) {
@@ -2313,12 +2454,12 @@ export component PhoneWindow inherits Window {
         if (kind != 0) { root.sheet-closed(kind); }
     }
     pure function asks-password(kind: int) -> bool {
-        return (kind >= 1 && kind <= 4) || (kind >= 6 && kind <= 8) || (kind >= 11 && kind <= 13) || kind == 16 || kind == 17 || kind == 19 || kind == 20;
+        return (kind >= 1 && kind <= 4) || (kind >= 6 && kind <= 8) || (kind >= 11 && kind <= 13) || kind == 16 || kind == 17 || kind == 19 || kind == 20 || kind == 21;
     }
     // The secure fields of each sheet that asks for a password.
     property <SheetField> master-field: { field: 10, label: @tr("Your master password"), icon: "lock", error: root.error-code == 13 };
-    property <[SheetField]> sheet-fields: root.confirming == 6 || root.confirming == 8 || (root.confirming >= 1 && root.confirming <= 4) || root.confirming == 16 ? [root.master-field]
-        : root.confirming == 7 ? [root.master-field, { field: 9, label: @tr("A password for the export"), icon: "key", error: root.error-code == 30 }]
+    property <[SheetField]> sheet-fields: root.confirming == 6 || root.confirming == 8 || (root.confirming >= 1 && root.confirming <= 4) || root.confirming == 16 || root.confirming == 21 ? [root.master-field]
+        : root.confirming == 7 ? [root.master-field, { field: 9, label: @tr("A password for the export"), icon: "key", error: root.error-code == 30 || root.error-code == 46 }]
         : root.confirming == 11 ? [{ field: 8, label: @tr("The file's password"), icon: "key", error: root.error-code == 26 }]
         : root.confirming == 12 ? [
             { field: 5, label: @tr("Current master password"), icon: "lock", error: root.error-code == 13 },
@@ -2803,16 +2944,27 @@ export component PhoneWindow inherits Window {
                         accepted => { root.unlock(); }
                     }
                     if root.error-code != 0: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
+                    // Always there (no height while there is no wait): wrapped text shown by
+                    // an `if` is measured as one line.
+                    Text {
+                        text: root.unlock-wait > 0 ? @tr("{} failed tries in a row on this phone. To slow down guessing, the next one can start in {}.", root.unlock-failed, root.wait-text) : "";
+                        height: self.text == "" ? 0px : self.preferred-height;
+                        font-size: Theme.small;
+                        color: Theme.graphite;
+                        wrap: word-wrap;
+                    }
                     Button {
-                        text: @tr("Open my vault");
+                        text: root.unlock-wait > 0 ? @tr("Try again in {}", root.wait-text) : @tr("Open my vault");
                         busy: root.busy;
                         busy-text: @tr("Opening…");
+                        enabled: root.unlock-wait == 0;
                         clicked => { root.unlock(); }
                     }
                     if root.bio-ready && !root.incoming: QuietButton {
                         text: @tr("Fingerprint, face or screen lock");
                         icon: "fingerprint";
                         outlined: true;
+                        enabled: root.unlock-wait == 0;
                         clicked => { root.bio-unlock(); }
                     }
                     if root.bio-stale && !root.incoming: Text {
@@ -2981,6 +3133,23 @@ export component PhoneWindow inherits Window {
                             eye: true;
                             error: root.error-code == 14;
                             accepted => { root.recover(); }
+                        }
+                        Fold {
+                            open: root.recover-mode == 0;
+                            VerticalLayout {
+                                spacing: 10px;
+                                Check {
+                                    text: @tr("Check it against known data breaches first");
+                                    checked <=> root.check-new-leaks;
+                                }
+                                PasswordWarning {
+                                    shown: root.pw-place == 2 && root.pw-warning != 0;
+                                    text: Words.password-warning(root.pw-warning, root.pw-warning-arg);
+                                    keep-text: root.pw-warning == 3 ? @tr("Go on without the check") : @tr("Keep this one");
+                                    use-passphrase => { root.use-passphrase(6); }
+                                    keep => { root.keep-new-password(); }
+                                }
+                            }
                         }
                         if root.recover-mode == 1: SecretField {
                             field: 0;
@@ -3946,6 +4115,22 @@ export component PhoneWindow inherits Window {
                                             }
                                         }
                                         if root.error-code == 24: ErrorLine { text: Words.error(root.error-code, root.error-detail); }
+                                        // Only while the vault syncs: its copies live elsewhere too.
+                                        Fold {
+                                            open: root.can-remove-after;
+                                            Section {
+                                                title: @tr("Failed unlocks");
+                                                note: @tr("After 5 failed tries in a row the next one waits, up to 15 minutes, even if the app is closed and opened again. With this on, the 10th failed try also deletes this phone's copy of the vault, its Secret Key here and its unlock with the phone; your sync server and your other devices keep the vault.");
+                                                SetRow {
+                                                    icon: "shield";
+                                                    text: @tr("Remove this phone's copy after 10 failed tries");
+                                                    detail: @tr("Asks for the master password to turn on");
+                                                    switch: true;
+                                                    checked <=> root.remove-after;
+                                                    toggled(on) => { root.remove-after-toggled(on); }
+                                                }
+                                            }
+                                        }
                                         Section {
                                             title: @tr("Each password");
                                             note: !root.ask-each-use ? @tr("Off: a password, a code or a card shows and copies with a tap while the vault is open.")
@@ -6139,7 +6324,8 @@ export component PhoneWindow inherits Window {
                 x: root.gutter;
                 width: parent.width - 2 * root.gutter;
                 y: parent.height - self.height - 12px - root.bottom-bar;
-                text: Words.notice(root.notice-code, root.notice-arg);
+                text: root.notice-code == 28 ? Words.failed-unlocks(root.notice-count, root.notice-arg)
+                    : Words.notice(root.notice-code, root.notice-arg);
             }
 
             // The folder picker: a card under the folder button with every folder (those inside
@@ -6348,6 +6534,13 @@ export component PhoneWindow inherits Window {
         danger: root.confirming <= 5 || root.confirming == 9 || root.confirming == 14 || root.confirming == 15;
         fields: root.sheet-fields;
         read-first: root.confirming >= 6 && root.confirming <= 8;
+        asks-leak-check: root.confirming == 12;
+        leak-check <=> root.check-new-leaks;
+        warning: root.confirming == 12 && root.pw-place == 1 ? Words.password-warning(root.pw-warning, root.pw-warning-arg) : "";
+        keep-text: root.pw-warning == 3 ? @tr("Go on without the check") : @tr("Keep this one");
+        passphrase-field: root.confirming == 7 ? 9 : root.confirming == 12 && root.pw-place == 1 ? 6 : -1;
+        use-passphrase(field) => { root.use-passphrase(field); }
+        keep => { root.keep-new-password(); }
         error: root.asks-password(root.confirming) && root.error-code != 0 ? Words.error(root.error-code, root.error-detail) : "";
         busy: root.busy;
         busy-text: root.confirming == 11 ? @tr("Importing…")

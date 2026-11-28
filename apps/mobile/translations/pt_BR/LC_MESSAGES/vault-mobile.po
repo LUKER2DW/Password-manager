@@ -3639,3 +3639,111 @@ msgstr "A extensão do navegador é mais antiga do que este Vault aceita (precis
 msgctxt "PhoneWindow"
 msgid "The app asks GitHub whether a newer version is out: one request, with nothing about you or your vault in it. Nothing else is sent unless you set it up (sync, the leak check, website icons). Updates can also come from your own sync server: Settings, About and updates."
 msgstr "O app pergunta ao GitHub se saiu uma versão mais nova: um pedido, sem nada sobre você ou o seu cofre. Nada mais é enviado a menos que você configure (sincronização, verificação de vazamentos, ícones dos sites). As atualizações também podem vir do seu próprio servidor de sincronização: Configurações, Sobre e atualizações."
+
+msgctxt "Words"
+msgid "That password is too easy to guess to guard the file on its own: whoever gets the file can try guesses for as long as they like. Use a generated passphrase, or a longer password that isn't made of common words."
+msgstr "Essa senha é fácil demais de adivinhar para proteger o arquivo sozinha: quem pegar o arquivo pode tentar palpites por quanto tempo quiser. Use uma frase-senha gerada, ou uma senha mais longa que não seja feita de palavras comuns."
+
+msgctxt "Words"
+msgid "Too many failed tries in a row: wait until the countdown ends, then try again."
+msgstr "Tentativas erradas demais seguidas: espere a contagem terminar e tente de novo."
+
+msgctxt "Words"
+msgid "Remove this phone's copy after 10 failed tries?"
+msgstr "Apagar a cópia deste celular após 10 tentativas erradas?"
+
+msgctxt "Words"
+msgid "After 10 failed tries in a row to unlock this vault here, this phone deletes its copy of the vault file, its unlock with the phone and the key in the phone's secure hardware behind it, the Secret Key kept on this phone, and this phone's sync key for the vault. Nothing is sent to your sync server: its copies stay, and your other devices keep the vault. To use it here again, join it again with an invite from another device."
+msgstr "Após 10 tentativas erradas seguidas de abrir este cofre aqui, este celular apaga a cópia dele do arquivo do cofre, o desbloqueio com o celular e a chave no hardware seguro do celular por trás dele, a chave secreta guardada neste celular e a chave de sincronização deste celular para o cofre. Nada é enviado ao seu servidor de sincronização: as cópias dele ficam, e seus outros aparelhos continuam com o cofre. Para usá-lo aqui de novo, entre de novo com um convite de outro aparelho."
+
+msgctxt "Words"
+msgid "Turn it on"
+msgstr "Ligar"
+
+msgctxt "Words"
+msgid "One failed try to unlock this vault on this phone since {}. If it wasn't you, someone may be guessing your master password."
+msgstr "Uma tentativa errada de abrir este cofre neste celular desde {}. Se não foi você, alguém pode estar tentando adivinhar sua senha mestra."
+
+msgctxt "Words"
+msgid "{} failed tries to unlock this vault on this phone since {}. If they weren't yours, someone may be guessing your master password."
+msgstr "{} tentativas erradas de abrir este cofre neste celular desde {}. Se não foram suas, alguém pode estar tentando adivinhar sua senha mestra."
+
+msgctxt "Words"
+msgid "This master password is easy to guess. Your Secret Key guards the vault too, but anyone who also gets it from a device has only this password left to find, and can try guesses for as long as they like. Six random words are far harder to guess."
+msgstr "Esta senha mestra é fácil de adivinhar. Sua chave secreta também protege o cofre, mas quem também a tirar de um aparelho só precisa descobrir esta senha, e pode tentar palpites por quanto tempo quiser. Seis palavras aleatórias são muito mais difíceis de adivinhar."
+
+msgctxt "Words"
+msgid "This password turned up in data breaches ({} times): attackers try those first. Choose another one."
+msgstr "Esta senha apareceu em vazamentos de dados ({} vezes): atacantes tentam essas primeiro. Escolha outra."
+
+msgctxt "Words"
+msgid "The breach check couldn't reach the service ({}). Nothing was sent except the first five characters of the password's fingerprint."
+msgstr "A verificação de vazamentos não alcançou o serviço ({}). Nada foi enviado além dos cinco primeiros caracteres da impressão digital da senha."
+
+msgctxt "Words"
+msgid "This phone's copy of “{}” was removed after 10 failed tries to unlock it. The vault is still on your other devices and your sync server: join again with an invite to use it here."
+msgstr "A cópia de “{}” neste celular foi apagada após 10 tentativas erradas de abri-lo. O cofre continua nos seus outros aparelhos e no seu servidor de sincronização: entre de novo com um convite para usá-lo aqui."
+
+msgctxt "PasswordWarning"
+msgid "Use a generated passphrase"
+msgstr "Usar uma frase-senha gerada"
+
+msgctxt "ConfirmSheet"
+msgid "Check it against known data breaches first"
+msgstr "Verificar antes em vazamentos de dados conhecidos"
+
+msgctxt "ConfirmSheet"
+msgid "Use a generated passphrase"
+msgstr "Usar uma frase-senha gerada"
+
+msgctxt "PhoneWindow"
+msgid "{} failed tries in a row on this phone. To slow down guessing, the next one can start in {}."
+msgstr "{} tentativas erradas seguidas neste celular. Para atrasar quem tenta adivinhar, a próxima pode começar em {}."
+
+msgctxt "PhoneWindow"
+msgid "Try again in {}"
+msgstr "Tente de novo em {}"
+
+msgctxt "PhoneWindow"
+msgid "Check it against known data breaches first"
+msgstr "Verificar antes em vazamentos de dados conhecidos"
+
+msgctxt "PhoneWindow"
+msgid "Go on without the check"
+msgstr "Seguir sem a verificação"
+
+msgctxt "PhoneWindow"
+msgid "Keep this one"
+msgstr "Manter esta"
+
+msgctxt "PhoneWindow"
+msgid "Failed unlocks"
+msgstr "Tentativas erradas"
+
+msgctxt "PhoneWindow"
+msgid "After 5 failed tries in a row the next one waits, up to 15 minutes, even if the app is closed and opened again. With this on, the 10th failed try also deletes this phone's copy of the vault, its Secret Key here and its unlock with the phone; your sync server and your other devices keep the vault."
+msgstr "Após 5 tentativas erradas seguidas a próxima espera, até 15 minutos, mesmo se o app for fechado e aberto de novo. Com isto ligado, a 10ª tentativa errada também apaga a cópia do cofre neste celular, a chave secreta dele aqui e o desbloqueio com o celular; seu servidor de sincronização e seus outros aparelhos continuam com o cofre."
+
+msgctxt "PhoneWindow"
+msgid "Remove this phone's copy after 10 failed tries"
+msgstr "Apagar a cópia deste celular após 10 tentativas erradas"
+
+msgctxt "PhoneWindow"
+msgid "Asks for the master password to turn on"
+msgstr "Pede a senha mestra para ligar"
+
+msgctxt "Messages"
+msgid "That password is too easy to guess to guard this file on its own: whoever gets the file can try guesses for as long as they like, with nothing else to stop them. Use a generated passphrase, or a longer password that isn't made of common words."
+msgstr "Essa senha é fácil demais de adivinhar para proteger este arquivo sozinha: quem pegar o arquivo pode tentar palpites por quanto tempo quiser, sem nada mais que o impeça. Use uma frase-senha gerada, ou uma senha mais longa que não seja feita de palavras comuns."
+
+msgctxt "Messages"
+msgid "Too many failed tries in a row: wait until the countdown ends, then try again."
+msgstr "Tentativas erradas demais seguidas: espere a contagem terminar e tente de novo."
+
+msgctxt "Messages"
+msgid "One failed try to unlock this vault on this computer since {}. If it wasn't you, someone may be guessing your master password."
+msgstr "Uma tentativa errada de abrir este cofre neste computador desde {}. Se não foi você, alguém pode estar tentando adivinhar sua senha mestra."
+
+msgctxt "Messages"
+msgid "{} failed tries to unlock this vault on this computer since {}. If they weren't yours, someone may be guessing your master password."
+msgstr "{} tentativas erradas de abrir este cofre neste computador desde {}. Se não foram suas, alguém pode estar tentando adivinhar sua senha mestra."

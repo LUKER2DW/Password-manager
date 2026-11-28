@@ -50,6 +50,10 @@ impl Controller {
         );
     }
     pub(super) fn sync_stop(&self) {}
+    pub(super) fn syncs(_vault_id: &str) -> bool {
+        false
+    }
+    pub(super) fn forget_sync_here(&self, _vault_id: &str) {}
     pub(super) fn sync_remove_device(&self, _index: i32) {}
     pub(super) fn sync_add_device(&self) {}
     pub(super) fn sync_hide_invite(&self) {}
@@ -667,6 +671,29 @@ mod native {
         }
 
         /// "Stop syncing": this phone stops, and forgets its server key.
+        /// Whether vault `vault_id` syncs on this phone (a place is set up for it), open or not.
+        pub(in crate::controller) fn syncs(vault_id: &str) -> bool {
+            DeviceState::load()
+                .ok()
+                .and_then(|state| state.sync_place(vault_id))
+                .is_some()
+        }
+
+        /// This phone stops syncing vault `vault_id` and forgets its keys there, without a word
+        /// to the server (whose copies stay): its copy is being removed while it is locked.
+        pub(in crate::controller) fn forget_sync_here(&self, vault_id: &str) {
+            self.stop_sync();
+            let Ok(mut device_state) = DeviceState::load() else {
+                return;
+            };
+            if let Ok(device) = device_state.device_id_for(vault_id) {
+                sync::forget_keys(vault_id, device);
+            }
+            device_state.set_sync_to(vault_id, None);
+            let _ = device_state.save();
+            let _ = secret_store::forget_webdav_password(vault_id);
+        }
+
         pub(in crate::controller) fn sync_stop(&self) {
             self.stop_sync();
             let Some(vault_id) = self.vault_id() else {

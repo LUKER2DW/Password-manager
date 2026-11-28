@@ -147,6 +147,11 @@ mod error {
     pub const TAKE_NOT_KEPT: i32 = 44;
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub const TAKE_ONLY_NEW: i32 = 45;
+    /// A protected export's password is below the one-factor floor (CRYPTO.md §3.3.1): it
+    /// alone guards the file.
+    pub const WEAK_EXPORT: i32 = 46;
+    /// Too many failed unlocks in a row: the next try waits (controller/attempts.rs).
+    pub const UNLOCK_WAIT: i32 = 47;
 }
 
 /// The sheets that ask for a password (app.slint `ask`, `confirming`).
@@ -170,6 +175,9 @@ mod sheet {
     /// Every use asks, on a phone with no screen lock: the item lock's PIN or password, for
     /// one use (`each_use`).
     pub const USE_CHECK: i32 = 20;
+    /// Settings, Security: remove this phone's copy after failed unlocks (what goes, and the
+    /// master password).
+    pub const REMOVE_AFTER_FAILURES: i32 = 21;
 }
 
 /// Where the line of a scanned QR code goes (the screens' `scan-invite` purpose).
@@ -197,6 +205,7 @@ mod editor {
 }
 
 mod attachments;
+mod attempts;
 mod each_use;
 use each_use::{Ask, Use};
 mod filling;
@@ -206,6 +215,7 @@ mod health;
 mod icons;
 #[cfg(not(target_arch = "wasm32"))]
 mod passkeys;
+mod passwords;
 mod preview;
 mod settings;
 mod syncing;
@@ -257,6 +267,11 @@ mod notice {
     pub const NO_SCREEN_LOCK: i32 = 26;
     /// The phone's check before one use didn't pass or couldn't be asked (what Android said).
     pub const CHECK_FAILED: i32 = 27;
+    /// Failed unlocks happened before this one (the argument: since when; `notice-count`: how
+    /// many). Its words are `Words.failed-unlocks`.
+    pub const FAILED_UNLOCKS: i32 = 28;
+    /// This phone's copy of a vault was removed after too many failed unlocks (its name).
+    pub const COPY_REMOVED: i32 = 29;
 }
 
 /// How long a copied secret may stay on the clipboard (Settings), in seconds.
@@ -563,6 +578,15 @@ struct State {
     /// A file to import that waits for its password (asked in the sheet).
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     import_pending: Option<Zeroizing<Vec<u8>>>,
+    /// The clocks unlock attempts are timed by (the tests put their own in its place), and
+    /// when the unlock screen's countdown ends (what shows; each try asks again).
+    clock: fn() -> (i64, Option<i64>),
+    unlock_until: Option<Instant>,
+    /// The new master password the person chose to keep although it is easy to guess, and the
+    /// one the breach check passed (or the person went on without it): until it changes
+    /// (controller/passwords.rs).
+    weak_kept: Option<usize>,
+    leaks_cleared: Option<usize>,
 }
 
 thread_local! {
@@ -595,6 +619,8 @@ impl std::fmt::Debug for Controller {
 /// What the slow part of opening a vault hands back.
 struct Opened {
     vault: Result<Vault, CoreError>,
+    /// The id in the file's header, to count a failed try against.
+    vault_id: String,
     secret_key: SecretKey,
     typed_key: bool,
     hash: [u8; 32],
@@ -692,6 +718,10 @@ impl Controller {
                 folder_ids: Vec::new(),
                 export_pending: None,
                 import_pending: None,
+                clock: attempts::clock_default,
+                unlock_until: None,
+                weak_kept: None,
+                leaks_cleared: None,
                 lock_after: LOCK_CHOICES[usize::from(prefs.lock_choice).min(2)],
             }),
             tick: Timer::default(),
@@ -889,6 +919,9 @@ impl Controller {
         on!(on_update_checks_changed, |c, on| c
             .update_checks_changed(on));
         on!(on_change_password, |c| c.change_password());
+        on!(on_use_passphrase, |c, field| c.use_passphrase(field));
+        on!(on_keep_new_password, |c| c.keep_new_password());
+        on!(on_remove_after_toggled, |c, on| c.remove_after_toggled(on));
         on!(on_health_opened, |c| c.refresh_health());
         on!(on_health_open, |c, index| c.health_open(index));
         on!(on_health_filtered, |c, _which| c.show_health_rows());
@@ -1104,6 +1137,7 @@ impl Controller {
         if index == field::ITEM_PASSWORD && !self.app().get_ed_password().is_empty() {
             self.show_editor_password(true);
         }
+        self.new_password_edited(index);
         self.publish_lengths();
     }
 
@@ -1383,12 +1417,20 @@ impl Controller {
             app.set_screen(Screen::Start);
             return;
         };
-        let known = Vault::inspect(&bytes)
-            .ok()
+        let info = Vault::inspect(&bytes).ok();
+        let known = info
+            .as_ref()
             .and_then(|info| secret_store::load(&info.id_hex).ok().flatten())
             .is_some();
         app.set_needs_secret_key(!known);
         app.set_screen(Screen::Unlock);
+        self.forget_review();
+        match &info {
+            Some(info) => {
+                self.unlock_wait(&info.id_hex);
+            }
+            None => app.set_unlock_wait(0),
+        }
         self.offer_biometrics(false);
     }
 
@@ -1521,6 +1563,9 @@ impl Controller {
         if info.needs_keyfile {
             return self.set_error(error::KEYFILE, "");
         }
+        if self.unlock_wait(&info.id_hex) > 0 {
+            return self.set_error(error::UNLOCK_WAIT, "");
+        }
         let (secret_key, typed_key) = match secret_store::load(&info.id_hex).ok().flatten() {
             Some(key) => (key, false),
             None => match SecretKey::parse(self.secret(field::SECRET_KEY).trim()) {
@@ -1529,6 +1574,7 @@ impl Controller {
             },
         };
         let password = self.secret(field::MASTER);
+        let vault_id = info.id_hex;
         self.run_in_session(
             move || {
                 let vault = Vault::open(
@@ -1540,6 +1586,7 @@ impl Controller {
                 );
                 Opened {
                     vault,
+                    vault_id,
                     secret_key,
                     typed_key,
                     hash: fingerprint(&bytes),
@@ -1612,6 +1659,9 @@ impl Controller {
             _ => error::PARTS_WRONG,
         };
         if app.get_recover_mode() == 1 {
+            if self.unlock_wait(&info.id_hex) > 0 {
+                return self.set_error(error::UNLOCK_WAIT, "");
+            }
             let [first, second] = match self.typed_parts([field::PART_A, field::PART_B]) {
                 Ok(parts) => parts,
                 Err(code) => return self.set_error(code, ""),
@@ -1621,6 +1671,7 @@ impl Controller {
                 Err(err) => return self.set_error(wrong_parts(err), ""),
             };
             let password = self.secret(field::MASTER);
+            let vault_id = info.id_hex;
             return self.run_in_session(
                 move || {
                     let vault = Vault::open(
@@ -1632,6 +1683,7 @@ impl Controller {
                     );
                     Opened {
                         vault,
+                        vault_id,
                         secret_key,
                         typed_key: true,
                         hash: fingerprint(&bytes),
@@ -1652,6 +1704,9 @@ impl Controller {
         }
         if *password != *self.secret(field::NEW_AGAIN) {
             return self.set_error(error::MISMATCH, "");
+        }
+        if !self.review_new_password(passwords::place::RECOVERY) {
+            return;
         }
         self.run_in_session(
             move || -> Result<Recovered, (i32, String)> {
@@ -1719,8 +1774,10 @@ impl Controller {
         // Fingerprint unlock was bound to the old master password.
         self.forget_biometrics(&id);
         let shown = secret_key.to_display_string();
+        self.forget_review();
         self.opened(Opened {
             vault: Ok(vault),
+            vault_id: id,
             secret_key,
             typed_key: true,
             hash: fingerprint(&bytes),
@@ -1799,6 +1856,7 @@ impl Controller {
     fn opened(&self, opened: Opened) {
         let Opened {
             vault,
+            vault_id,
             secret_key,
             mut typed_key,
             mut hash,
@@ -1808,9 +1866,14 @@ impl Controller {
         let mut vault = match vault {
             Ok(vault) => vault,
             Err(CoreError::KeyfileRequired) => return self.set_error(error::KEYFILE, ""),
-            Err(_) => {
+            Err(err) => {
                 self.state.borrow_mut().secrets[field::MASTER].clear();
                 self.publish_lengths();
+                // A wrong master password (or Secret Key): counted, and maybe the last try
+                // this phone's copy allowed.
+                if matches!(err, CoreError::DecryptionFailed) && self.unlock_failed(&vault_id) {
+                    return;
+                }
                 return self.set_error(error::WRONG, "");
             }
         };
@@ -1876,6 +1939,7 @@ impl Controller {
             state.file_hash = Some(hash);
         }
         self.enter_vault();
+        self.tell_failed_unlocks(&id);
         if state_file != StateFile::Read {
             self.notify(notice::STATE_RESET, "");
         }
@@ -2245,6 +2309,7 @@ impl Controller {
 
     /// The change is made (or the vault locked): the sheet's fields are cleared and it closes.
     fn close_password_change(&self) {
+        self.forget_review();
         self.clear_fields(Self::sheet_fields(sheet::MASTER_PASSWORD));
         self.set_error(error::NONE, "");
         self.close_sheet(sheet::MASTER_PASSWORD);
@@ -2268,6 +2333,9 @@ impl Controller {
         }
         if *new != *self.secret(field::NEW_AGAIN) {
             return self.set_error(error::MISMATCH, "");
+        }
+        if !self.review_new_password(passwords::place::CHANGE) {
+            return;
         }
         self.set_error(error::NONE, "");
         let Some((vault, secret_key, session)) = self.lend_vault() else {
@@ -2343,6 +2411,7 @@ impl Controller {
                             c.state.borrow_mut().file_hash = Some(hash);
                             c.close_password_change();
                         }
+                        c.forget_review();
                         c.notify(notice::PASSWORD_CHANGED, "");
                         c.biometrics_revoked(&id);
                         if back {
@@ -3580,6 +3649,7 @@ impl Controller {
         if idle {
             return self.lock();
         }
+        self.tick_unlock_wait();
         self.watch_tick();
         // Returns at once unless its time has come.
         self.ask_for_update_soon();

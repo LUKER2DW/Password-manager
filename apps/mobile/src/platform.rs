@@ -14,6 +14,13 @@ pub fn system_language() -> Option<String> {
     vault_platform::locale::system_language()
 }
 
+/// Seconds since the device started (nobody sets it), where the system tells it: unlock
+/// attempts are timed by it too.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn uptime_seconds() -> Option<i64> {
+    vault_platform::device::uptime_seconds()
+}
+
 /// The vault file: on disk, or (in a browser) in this page's memory.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod files {

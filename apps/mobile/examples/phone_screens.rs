@@ -288,8 +288,26 @@ fn main() {
     app.global::<Secrets>().set_focused(-1);
     app.set_drawn_keyboard(false);
     app.set_can_pick_file(true);
+    app.set_error_code(1);
+    app.set_unlock_failed(6);
+    app.set_unlock_wait(83);
+    camera.shot(
+        "unlock-wait",
+        "Six failed tries in a row: the next one waits, counted down",
+    );
+    app.set_unlock_wait(0);
+    app.set_unlock_failed(0);
+    app.set_error_code(0);
     app.invoke_unlock();
     camera.shot("empty", "An empty vault");
+    app.set_notice_code(28);
+    app.set_notice_count(3);
+    app.set_notice_arg("2026-11-26 14:02".into());
+    camera.shot(
+        "failed-unlocks",
+        "Opened after failed tries: how many, and since when, said once",
+    );
+    app.set_notice_code(0);
 
     add_login(
         &app,
@@ -520,12 +538,34 @@ fn main() {
         "settings-security-no-lock",
         "Security on a phone with no screen lock: the item PIN asks instead",
     );
+    app.set_ask_each_use_state(0);
+    app.set_can_remove_after(true);
+    tall(&mut camera, 2.1);
+    camera.shot(
+        "settings-security-synced",
+        "Security for a vault that syncs: removing this phone's copy after 10 failed tries",
+    );
     tall(&mut camera, 1.0);
+    app.invoke_ask(21);
+    camera.shot(
+        "settings-remove-after",
+        "Turning it on: exactly what goes, the master password asked",
+    );
+    app.set_confirming(0);
+    app.set_can_remove_after(false);
     app.invoke_ask(12);
     camera.shot(
         "settings-password",
         "Security: changing the master password, in the sheet",
     );
+    app.set_pw_place(1);
+    app.set_pw_warning(1);
+    camera.shot(
+        "settings-password-easy",
+        "An easy new master password: why, six random words offered, keeping it allowed",
+    );
+    app.set_pw_place(0);
+    app.set_pw_warning(0);
     app.set_error_code(13);
     camera.shot(
         "settings-password-wrong",
@@ -564,6 +604,12 @@ fn main() {
         "settings-export-protected",
         "A protected export: the master password, then the export's own, in the sheet",
     );
+    app.set_error_code(46);
+    camera.shot(
+        "settings-export-weak",
+        "A protected export's password too easy to guess: refused, a passphrase offered",
+    );
+    app.set_error_code(0);
     app.set_confirming(0);
     app.set_import_name("passwords.kdbx".into());
     app.invoke_ask(11);

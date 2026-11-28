@@ -69,6 +69,11 @@ extern "C" {
     fn browser_language() -> String;
 }
 
+/// A browser tells no time since the device started: unlock attempts go by the clock alone.
+pub fn uptime_seconds() -> Option<i64> {
+    None
+}
+
 pub fn system_language() -> Option<String> {
     Some(browser_language()).filter(|tag| !tag.is_empty())
 }

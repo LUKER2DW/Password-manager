@@ -77,7 +77,7 @@ fn sync_host(_vault_id: &str) -> String {
 }
 
 /// The backup copy `files::write_atomic` keeps next to `path`.
-fn bak(path: &Path) -> PathBuf {
+pub(super) fn bak(path: &Path) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".bak");
     path.with_file_name(name)
@@ -362,6 +362,10 @@ impl Controller {
         if format == 0 && password.chars().count() < super::MIN_MASTER_PASSWORD_CHARS {
             return self.set_error(error::EXPORT_PASSWORD, "");
         }
+        // It alone guards the file: one below the floor is refused before the slow check.
+        if format == 0 && !vault_core::sealed_export::password_holds(&password) {
+            return self.set_error(error::WEAK_EXPORT, "");
+        }
         let locked = self.state.borrow().vault.as_ref().is_some_and(|vault| {
             vault
                 .summaries()
@@ -574,6 +578,7 @@ impl Controller {
                     }
                     sheet::REMOVE_BACKUP => c.sync_remove_backup(),
                     sheet::ADD_DEVICE => c.sync_add_device(),
+                    sheet::REMOVE_AFTER_FAILURES => c.remove_after_confirmed(),
                     _ => {}
                 }
             },
@@ -695,8 +700,16 @@ impl Controller {
         self.change_prefs(|prefs| {
             prefs.vaults.retain(|v| v.file != file);
             prefs.password_typed_at.remove(&id);
+            prefs.unlock_attempts.remove(&id);
+            prefs.remove_after_failures.remove(&id);
             prefs.current.clear();
         });
+        self.open_next_vault();
+        self.notify(notice::VAULT_REMOVED, &name);
+    }
+
+    /// The vault on screen left this phone: the next one it keeps shows, or the start screen.
+    pub(super) fn open_next_vault(&self) {
         let folder = self.folder();
         let next = {
             let state = self.state.borrow();
@@ -710,7 +723,6 @@ impl Controller {
         let next_file = next.unwrap_or_else(|| prefs::FIRST_VAULT.to_owned());
         self.change_prefs(|prefs| prefs.current.clone_from(&next_file));
         self.open_slot(folder.join(next_file));
-        self.notify(notice::VAULT_REMOVED, &name);
     }
 
     /// The vault's size and the settings that follow the open vault.
@@ -797,6 +809,7 @@ impl Controller {
         app.set_lock_on_leave(prefs.lock_on_leave);
         app.set_allow_capture(prefs.allow_capture);
         self.refresh_each_use();
+        self.refresh_failed_unlocks_setting();
     }
 
     /// The unlock screen: whether the fingerprint can open this vault now, or waits for the
@@ -920,6 +933,9 @@ impl Controller {
         let Some(bio) = self.read_bio(&id).filter(|b| b.fresh(unix_now())) else {
             return self.offer_biometrics(false);
         };
+        if self.unlock_wait(&id) > 0 {
+            return self.set_error(error::UNLOCK_WAIT, "");
+        }
         self.set_error(error::NONE, "");
         self.state.borrow_mut().bio = BioPending::Opening(id.clone());
         let words = PromptWords {
@@ -956,6 +972,11 @@ impl Controller {
                         "the phone's fingerprints changed; type the master password and turn it on again",
                     );
                 }
+                // The prompt failed in a way the app sees (too many tries, say): counted
+                // like a wrong master password.
+                if self.unlock_failed(&id) {
+                    return;
+                }
                 return self.set_error(error::BIOMETRICS, &detail);
             }
         };
@@ -985,6 +1006,7 @@ impl Controller {
         match Vault::open_with_device(&bytes, &secret, &bio.sealed_key) {
             Ok(vault) => self.opened(Opened {
                 vault: Ok(vault),
+                vault_id: id,
                 secret_key,
                 typed_key: false,
                 hash: fingerprint(&bytes),

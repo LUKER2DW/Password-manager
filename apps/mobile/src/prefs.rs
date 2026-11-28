@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use vault_core::attempts::UnlockAttempts;
 
 use crate::platform::files;
 
@@ -58,7 +59,19 @@ pub struct Prefs {
     /// When GitHub was last asked for an update without the person pressing the button (Unix
     /// seconds, 0 never): it is asked again only some hours later, not at every unlock.
     pub github_asked_at: i64,
+    /// The failed unlocks of each vault (its id) on this phone since its last right one: a
+    /// count and when, nothing secret (`vault_core::attempts`). Kept here so that starting the
+    /// app again doesn't clear the wait they impose.
+    pub unlock_attempts: std::collections::BTreeMap<String, UnlockAttempts>,
+    /// The vaults (their ids) whose copy on this phone is removed after
+    /// [`REMOVE_AFTER_FAILURES`] failed unlocks in a row. Chosen in Settings, Security, and
+    /// offered only while the vault syncs (its copies live elsewhere too). Off for every vault
+    /// until chosen.
+    pub remove_after_failures: std::collections::BTreeSet<String>,
 }
+
+/// Failed unlocks in a row after which this phone's copy goes, for a vault that chose it.
+pub const REMOVE_AFTER_FAILURES: u32 = 10;
 
 /// Updates from the project's releases on GitHub.
 pub const UPDATES_FROM_GITHUB: u8 = 0;
@@ -116,6 +129,8 @@ impl Default for Prefs {
             update_source: UPDATES_FROM_GITHUB,
             update_checks: true,
             github_asked_at: 0,
+            unlock_attempts: std::collections::BTreeMap::new(),
+            remove_after_failures: std::collections::BTreeSet::new(),
         }
     }
 }
@@ -240,6 +255,10 @@ mod tests {
         assert_eq!(
             loaded.update_source, UPDATES_FROM_GITHUB,
             "a phone that never chose takes its updates from GitHub"
+        );
+        assert!(
+            loaded.remove_after_failures.is_empty() && loaded.unlock_attempts.is_empty(),
+            "no copy is removed after failed unlocks until the person chose it"
         );
         let changed = Prefs {
             dark_theme: false,
