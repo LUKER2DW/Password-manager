@@ -254,6 +254,34 @@ fn full_lifecycle() {
     let kit = env.ok(&["kit", "--new-parts"], &[MASTER]);
     let parts = ["Part A:", "Part B:", "Part C:"].map(|label| kit_value(&kit, label));
 
+    // the kit saved as a PDF: protected by the kit's PDF password, printed once
+    let pdf = env.home.with_file_name("test-kit.pdf");
+    let saved = env.ok(&["kit", "--pdf", pdf.to_str().unwrap()], &[MASTER]);
+    let pdf_password = kit_value(&saved, "PDF password:");
+    assert_eq!(pdf_password.split(' ').count(), 4, "{saved}");
+    let file = std::fs::read(&pdf).unwrap();
+    let raw = String::from_utf8_lossy(&file);
+    assert!(raw.contains("/Encrypt") && !raw.contains(&secret_key));
+    let opened = vault_platform::kit_pdf::open_protected(&file, &pdf_password).unwrap();
+    let opened = String::from_utf8_lossy(&opened);
+    assert!(opened.contains(&secret_key));
+    assert!(
+        parts.iter().all(|part| !opened.contains(part.as_str())),
+        "parts stay out"
+    );
+    // an existing file is not replaced
+    assert!(
+        env.fails(&["kit", "--pdf", pdf.to_str().unwrap()], &[MASTER])
+            .contains("already exists")
+    );
+    // the password alone, again, without the keys
+    let only = env.ok(&["kit", "--pdf-password"], &[MASTER]);
+    assert!(
+        only.contains(&pdf_password) && !only.contains("S0-"),
+        "{only}"
+    );
+    env.fails(&["kit", "--pdf-password", "--new-parts"], &[MASTER]);
+
     // forgot the password: recover with all three parts → new password + new Secret Key,
     // and new parts in place of the used ones
     let new_kit = env.ok(&["recover"], &[&parts[1], &parts[2], &parts[0], NEW_MASTER]);

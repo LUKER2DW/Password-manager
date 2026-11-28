@@ -763,7 +763,16 @@ fn recover_with(
         .context("the vault was recovered (its new kit is above), but this device didn't note it")
 }
 
-pub fn kit(ctx: &Context, prompter: &mut Prompter, new_parts: bool) -> Result<()> {
+pub fn kit(
+    ctx: &Context,
+    prompter: &mut Prompter,
+    new_parts: bool,
+    pdf: Option<&std::path::Path>,
+) -> Result<()> {
+    // Checked before anything changes, so a refused place costs no new parts.
+    if let Some(path) = pdf {
+        check_kit_pdf_place(path)?;
+    }
     let mut session = ctx.unlock(prompter)?;
     let parts = if new_parts {
         let parts = RecoveryParts::generate().map_err(explain)?;
@@ -795,6 +804,85 @@ pub fn kit(ctx: &Context, prompter: &mut Prompter, new_parts: bool) -> Result<()
             );
         }
     }
+    if let Some(path) = pdf {
+        save_kit_pdf(&session, path)?;
+    }
+    Ok(())
+}
+
+/// `vault kit --pdf-password`: the password of the kit's saved PDF files (CRYPTO.md §3.10),
+/// and nothing else of the kit.
+pub fn kit_pdf_password(ctx: &Context, prompter: &mut Prompter) -> Result<()> {
+    let session = ctx.unlock(prompter)?;
+    let password = session.vault.kit_pdf_password(&session.secret_key);
+    println!(
+        "PDF password of this kit's saved files: {}",
+        password.as_str()
+    );
+    println!(
+        "(Type it in the PDF viewer to open or print the file, with or without the spaces. A new kit has a new one.)"
+    );
+    Ok(())
+}
+
+/// Where `--pdf` may write: not a folder a cloud copies away, not over a file already there.
+fn check_kit_pdf_place(path: &std::path::Path) -> Result<()> {
+    if let Some(cloud) = vault_platform::files::cloud_folder(path) {
+        bail!(
+            "{} is in a folder {cloud} copies away: save the kit on this computer or a USB drive",
+            path.display()
+        );
+    }
+    if path.exists() {
+        bail!("{} already exists: choose another name", path.display());
+    }
+    Ok(())
+}
+
+/// `vault kit --pdf`: the kit's Secret Key page as a PDF protected by the kit's PDF password
+/// (as the app's Save as PDF writes it; the parts stay out), read back before it is called
+/// done, and the password printed once.
+fn save_kit_pdf(session: &Session, path: &std::path::Path) -> Result<()> {
+    check_kit_pdf_place(path)?;
+    let password = session.vault.kit_pdf_password(&session.secret_key);
+    let secret_key = session.secret_key.to_display_string();
+    let vault_id = session.vault.id_hex();
+    let created_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let bytes = vault_platform::kit_pdf::render_protected(
+        &vault_platform::kit_pdf::KitContents {
+            secret_key: &secret_key,
+            parts: None,
+            vault_id: &vault_id,
+            created_at,
+            filled: true,
+            part_c_elsewhere: false,
+        },
+        password.as_str(),
+    )?;
+    {
+        use std::io::Write as _;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .with_context(|| format!("cannot create {}", path.display()))?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+    }
+    let opens = std::fs::read(path).map(Zeroizing::new).is_ok_and(|back| {
+        vault_platform::kit_pdf::open_protected(&back, password.as_str()).is_some()
+    });
+    if !opens {
+        let _ = std::fs::remove_file(path);
+        bail!("the saved kit didn't open with its password, so it was removed");
+    }
+    println!("Saved the kit's Secret Key page to {}.", path.display());
+    println!("  PDF password:  {}", password.as_str());
+    println!("  Type it in the PDF viewer to open or print the file: without it, a copy of the");
+    println!("  file opens nothing. `vault kit --pdf-password` shows it again.");
+    println!();
     Ok(())
 }
 

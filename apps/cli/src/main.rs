@@ -93,12 +93,21 @@ enum Command {
     /// Forgot your master password? Unlock with all three recovery parts (or the Recovery Key
     /// of an older kit) and set a new password and Secret Key.
     Recover,
-    /// Print the emergency kit again (Secret Key); optionally issue new recovery parts.
+    /// Print the emergency kit again (Secret Key); optionally issue new recovery parts, or
+    /// save the kit as a PDF protected by a password.
     Kit {
         /// Issue new recovery parts (the old ones, or an older kit's Recovery Key, stop working)
         /// and print them.
         #[arg(long, alias = "new-recovery-key")]
         new_parts: bool,
+        /// Also save the kit's Secret Key page as a PDF here, protected by the kit's PDF
+        /// password, which is printed once (write it down apart from the file). Not in a folder
+        /// a cloud copies away; an existing file is not replaced.
+        #[arg(long, value_name = "FILE")]
+        pdf: Option<PathBuf>,
+        /// Only show the password of this kit's saved PDF files, not the keys.
+        #[arg(long, conflicts_with_all = ["new_parts", "pdf"])]
+        pdf_password: bool,
     },
     /// Hide a recovery part inside a picture of your own, saved as a PNG that looks the same.
     PartPicture {
@@ -467,7 +476,17 @@ fn run() -> Result<()> {
         Command::Passwd => commands::passwd(&ctx, &mut prompter),
         Command::RenewKey { yes } => commands::renew_key(&ctx, &mut prompter, yes),
         Command::Recover => commands::recover(&ctx, &mut prompter),
-        Command::Kit { new_parts } => commands::kit(&ctx, &mut prompter, new_parts),
+        Command::Kit {
+            new_parts,
+            pdf,
+            pdf_password,
+        } => {
+            if pdf_password {
+                commands::kit_pdf_password(&ctx, &mut prompter)
+            } else {
+                commands::kit(&ctx, &mut prompter, new_parts, pdf.as_deref())
+            }
+        }
         Command::PartPicture { cover, out } => {
             let part = prompter.secret("Recovery part to hide (A0-, B0- or C0-…)")?;
             commands::part_picture(&part, &cover, &out)
