@@ -2,7 +2,9 @@
 //!
 //! For carrying items to another device or keeping a copy that does not depend on the Secret
 //! Key: the whole export is sealed under a key stretched from a password chosen for that
-//! file. Unlike the vault file it has one factor only, so the password must be a strong one.
+//! file. Unlike the vault file it has one factor only, so the password must be a strong one:
+//! [`seal`] refuses one below the one-factor floor (`health::ONE_FACTOR_MIN_GUESSES_LOG10`,
+//! CRYPTO.md §3.3.1). [`open`] doesn't ask: an export made before the floor still opens.
 //!
 //! Layout: magic (8 bytes) ‖ header length (u16, little-endian) ‖ header (postcard
 //! `KdfParams`: Argon2id cost and salt) ‖ sealed, padded contents. Everything before the
@@ -21,8 +23,26 @@ pub fn is_sealed_export(bytes: &[u8]) -> bool {
     bytes.starts_with(MAGIC)
 }
 
-/// Seals `contents` under `password` (Argon2id at the standard level, fresh salt).
+/// Words an attacker would try first on an export's password.
+pub const CONTEXT: [&str; 4] = ["vault", "export", "vaultx", "password"];
+
+/// Whether `password` may protect an export: at least the one-factor floor
+/// (`health::holds_alone`, with [`CONTEXT`]). Apps ask before the slow work; [`seal`] asks
+/// again.
+pub fn password_holds(password: &str) -> bool {
+    crate::health::holds_alone(password, &CONTEXT)
+}
+
+/// Seals `contents` under `password` (Argon2id at the standard level, fresh salt). A password
+/// below the one-factor floor is refused ([`Error::WeakPassword`]): it would be all a thief
+/// of the file has to guess.
 pub fn seal(password: &str, contents: &[u8]) -> Result<Vec<u8>> {
+    if password.is_empty() {
+        return Err(Error::EmptyPassword);
+    }
+    if !password_holds(password) {
+        return Err(Error::WeakPassword);
+    }
     let params = KdfStrength::Standard.params()?;
     let header = postcard::to_allocvec(&params).map_err(|_| Error::Malformed)?;
     let header_len = u16::try_from(header.len()).map_err(|_| Error::Malformed)?;
@@ -68,17 +88,39 @@ pub fn open(password: &str, bytes: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
 mod tests {
     use super::*;
 
+    /// Strong enough alone (the floor); `WEAK` is not.
+    const PASSWORD: &str = "pale lantern under quiet orchards";
+    const WEAK: &str = "export password";
+
+    #[test]
+    fn a_password_below_the_floor_is_refused_but_still_opens_what_it_sealed_before() {
+        let contents = b"{}";
+        assert!(matches!(seal(WEAK, contents), Err(Error::WeakPassword)));
+        assert!(matches!(seal("", contents), Err(Error::EmptyPassword)));
+        // A file sealed before the floor (built here as `seal` built it then) still opens.
+        let params = KdfStrength::Standard.params().unwrap();
+        let header = postcard::to_allocvec(&params).unwrap();
+        let mut older = MAGIC.to_vec();
+        older.extend_from_slice(&u16::try_from(header.len()).unwrap().to_le_bytes());
+        older.extend_from_slice(&header);
+        let key = keys::export_key(&kdf::derive_password_key(WEAK, &params).unwrap());
+        let padded = padding::pad(contents, padding::body_bucket).unwrap();
+        let sealed = aead::seal(&key, &padded, &older).unwrap();
+        older.extend_from_slice(&sealed);
+        assert_eq!(&*open(WEAK, &older).unwrap(), contents);
+    }
+
     #[test]
     fn opens_only_with_its_password_and_untouched() {
         let contents = br#"{"items":[{"name":"Bank","login":{"password":"s3cret"}}]}"#;
-        let sealed = seal("export password", contents).unwrap();
+        let sealed = seal(PASSWORD, contents).unwrap();
         assert!(is_sealed_export(&sealed));
         assert!(!is_sealed_export(contents));
         assert!(
             !sealed.windows(6).any(|w| w == b"s3cret"),
             "nothing readable in the file"
         );
-        assert_eq!(&*open("export password", &sealed).unwrap(), contents);
+        assert_eq!(&*open(PASSWORD, &sealed).unwrap(), contents);
         assert!(matches!(
             open("another password", &sealed),
             Err(Error::DecryptionFailed)
@@ -87,23 +129,20 @@ mod tests {
         assert!(matches!(open("x", contents), Err(Error::NotAVault)));
 
         // Two exports of the same contents differ (fresh salt and nonce), and hide the length.
-        let again = seal("export password", contents).unwrap();
+        let again = seal(PASSWORD, contents).unwrap();
         assert_ne!(again, sealed);
-        assert_eq!(
-            seal("export password", b"short").unwrap().len(),
-            sealed.len()
-        );
+        assert_eq!(seal(PASSWORD, b"short").unwrap().len(), sealed.len());
 
         // Any change is caught: the header (cost, salt), the contents, a cut or a tail.
         for index in [8, 9, 12, MAGIC.len() + 2 + 20, sealed.len() - 1] {
             let mut bad = sealed.clone();
             bad[index] ^= 1;
-            assert!(open("export password", &bad).is_err(), "byte {index}");
+            assert!(open(PASSWORD, &bad).is_err(), "byte {index}");
         }
-        assert!(open("export password", &sealed[..sealed.len() - 1]).is_err());
-        assert!(open("export password", &sealed[..9]).is_err());
+        assert!(open(PASSWORD, &sealed[..sealed.len() - 1]).is_err());
+        assert!(open(PASSWORD, &sealed[..9]).is_err());
         let mut longer = sealed.clone();
         longer.push(0);
-        assert!(open("export password", &longer).is_err());
+        assert!(open(PASSWORD, &longer).is_err());
     }
 }

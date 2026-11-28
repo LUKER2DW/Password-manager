@@ -18,6 +18,13 @@ const MAX_SCORED_CHARS: usize = 64;
 /// A password not changed for this long is reported as old.
 pub const OLD_AFTER_SECONDS: i64 = 365 * 24 * 60 * 60;
 
+/// The fewest guesses (log10 of zxcvbn's estimate) a password needs when it is the only thing
+/// between a thief and what it protects (CRYPTO.md §3.3.1): 10^14, about 3 000 years of one
+/// graphics card at the protected export's Argon2id cost. A protected export is refused below
+/// it (and a KDBX export, once there is one), and a new master password or item lock password
+/// is warned about: each is all that is left once the rest is stolen.
+pub const ONE_FACTOR_MIN_GUESSES_LOG10: f64 = 14.0;
+
 /// What makes a password easy to guess (from the zxcvbn estimator).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Pattern {
@@ -56,6 +63,25 @@ impl Strength {
     pub fn is_weak(&self) -> bool {
         self.score < 3
     }
+
+    /// log10 of the estimated number of guesses.
+    pub fn guesses_log10(&self) -> f64 {
+        self.bits / std::f64::consts::LOG2_10
+    }
+
+    /// Whether it reaches [`ONE_FACTOR_MIN_GUESSES_LOG10`] (with room for rounding: `bits`
+    /// went through log2 and back).
+    pub fn holds_alone(&self) -> bool {
+        self.guesses_log10() + 1e-9 >= ONE_FACTOR_MIN_GUESSES_LOG10
+    }
+}
+
+/// Whether `password` is strong enough to guard something on its own (a protected export, or
+/// what is left of a vault once its Secret Key is stolen): at least
+/// [`ONE_FACTOR_MIN_GUESSES_LOG10`] by zxcvbn's estimate. `context` holds words an attacker
+/// would try first.
+pub fn holds_alone(password: &str, context: &[&str]) -> bool {
+    strength(password, context).holds_alone()
 }
 
 /// Estimates how hard `password` is to guess. `context` holds words an attacker would try
@@ -306,6 +332,45 @@ mod tests {
         assert_eq!(strength("", &[]).score, 0);
         // Very long passwords are scored on a prefix and stay fast.
         assert_eq!(strength(&"x7#Kq!9vR2@pLm4$".repeat(100), &[]).score, 4);
+    }
+
+    #[test]
+    fn the_one_factor_floor() {
+        // Twelve characters were all a protected export asked for before: not enough alone.
+        for weak in [
+            "aaaaaaaaaaaa",
+            "password1234",
+            "export password",
+            "a file password",
+            "Tr0ub4dor&3xyz",
+            "x8Kq2mZp4Lr7W",
+        ] {
+            assert!(!holds_alone(weak, &[]), "{weak}");
+        }
+        for strong in [
+            "correct horse battery staple",
+            "x8Kq2mZp4Lr7Wd",
+            "t7#Kq!9vR2@pLm4$",
+        ] {
+            assert!(holds_alone(strong, &[]), "{strong}");
+        }
+        // The passphrase the apps offer instead always reaches it.
+        for _ in 0..50 {
+            let phrase =
+                crate::generator::generate_passphrase(&crate::generator::PassphraseOptions {
+                    words: 6,
+                    ..Default::default()
+                })
+                .unwrap();
+            assert!(holds_alone(&phrase, &[]), "{}", phrase.as_str());
+        }
+        // Words an attacker tries first count against it.
+        assert!(holds_alone("octocat github mainframe", &[]));
+        assert!(!holds_alone(
+            "octocat github mainframe",
+            &["octocat", "github", "mainframe"]
+        ));
+        assert!(!holds_alone("", &[]));
     }
 
     #[test]

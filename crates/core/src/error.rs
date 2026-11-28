@@ -25,6 +25,8 @@ pub enum Error {
     KeyChecksumMismatch,
     #[error("the master password must not be empty")]
     EmptyPassword,
+    #[error("this password is too easy to guess to protect a file on its own")]
+    WeakPassword,
     #[error("a PIN has 4 to 8 digits; a password at least 6 characters")]
     InvalidGuardSecret,
     #[error("the item's secrets are locked: its PIN or password is needed first")]

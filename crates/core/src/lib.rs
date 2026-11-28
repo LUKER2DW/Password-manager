@@ -31,6 +31,7 @@ mod padding;
 mod random;
 mod vault;
 
+pub mod attempts;
 pub mod drop_box;
 pub mod generator;
 pub mod health;
