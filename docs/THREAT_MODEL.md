@@ -344,6 +344,10 @@ On top of that:
   permission. A frame approved for a shop can read what it is given, which is why approval is
   per frame site and per shop site, and named before it is given. Limit: an approved
   provider's frame that is itself compromised gets the card, as it would get it typed.
+- **Addresses** (F5 with F7): an identity's details (name, contact, address; never a
+  document number, which stays behind the item lock) go only to the tab's own top document,
+  after a pick in the card under an address field (its click check) or in the window, through
+  the item lock and the per-use check; no frame of another site gets them.
 - **Site rules** (F16) are kept in the device state (`state.json`), not in the vault: they
   name the sites given a rule, readable by anything running as the person (an infostealer
   learns those sites, not a secret). The app enforces them before answering; the extension's

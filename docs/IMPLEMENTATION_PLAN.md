@@ -946,9 +946,14 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   approved that frame's site for the page's site, in the card (click check) or the window,
   kept by the app with the site's rules (`card_frames`, F16) and shown in Settings; a frame of
   a site not approved is named, never filled; sandboxed documents get nothing (`cards.js`,
-  S22's rule on the extension side). ⬜ Addresses: wait for identity items (F7); the hook is
-  `card-fill.js`'s field kinds and a request of their own beside `card_fill`. ⬜ Tried in a
-  real Chrome on a checkout with an embedded provider's frame.
+  S22's rule on the extension side). Addresses: an address field (autocomplete's address
+  tokens, or named like a street, city or postal code; a name, email or phone alone is not)
+  gets the vault's identities (F7) under it and in the window (`identities`,
+  `identity_fill`: the name, email, phone, address, city, region, postal code, country and
+  company, never a document number), typed into the page's own top document only
+  (`address-fill.js`; no frame of another site), through the item lock and the per-use
+  check; never-fill rules hold for them too. ⬜ Tried in a real Chrome on a checkout with an
+  embedded provider's frame, and on an address form.
 - ⬜ F6. Unlock with a hardware key (challenge-response, or FIDO2 `hmac-secret`).
 - ✅ F7. Identity items (`ItemKind::Identity`, details as fields with fixed names,
   `vault_core::identity`, document numbers hidden; JSON import and export as the common
