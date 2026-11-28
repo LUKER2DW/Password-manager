@@ -5,7 +5,7 @@ import { Theme, Sketch } from "theme.slint";
 import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock } from "model.slint";
 import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker, IconLook, FolderLook } from "icons.slint";
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
-import { KitSlip } from "kit.slint";
+import { KitSlip, PdfPassword } from "kit.slint";
 import { StrengthMeter } from "strength.slint";
 
 component PageTitle inherits Text {
@@ -4459,6 +4459,16 @@ export component KitPage inherits Rectangle {
     in property <string> vault-path;
     in property <string> vault-id;
     in property <string> kit-secret-key;
+    // The password of the kit's PDF files (CRYPTO.md §3.10).
+    in property <string> kit-pdf-password;
+    // The keys and the PDF password wait for the item lock (in use and closed): its check
+    // (`check`: 1 PIN, 2 item password, else the master password; or Windows Hello) shows them.
+    in property <bool> keys-locked;
+    in property <int> check;
+    in property <bool> hello;
+    callback unlock();
+    callback unlock-hello();
+    callback copy-pdf-password();
     in property <string> kit-part-a;
     in property <string> kit-part-b;
     in property <string> kit-part-c;
@@ -4488,8 +4498,21 @@ export component KitPage inherits Rectangle {
         running: root.keys-shown;
         triggered => { root.keys-shown = false; }
     }
+    // The saved files' password: dots too, shown on its own request for 15 seconds.
+    in-out property <bool> pdf-password-shown: false;
+    Timer {
+        interval: 15s;
+        running: root.pdf-password-shown;
+        triggered => { root.pdf-password-shown = false; }
+    }
     changed kit-secret-key => {
         if (root.kit-secret-key != "") { root.asking-kit = false; }
+    }
+    changed keys-locked => {
+        if (root.keys-locked) {
+            root.keys-shown = false;
+            root.pdf-password-shown = false;
+        }
     }
     changed kit-part-a => {
         root.confirming-new-key = false;
@@ -4522,7 +4545,20 @@ export component KitPage inherits Rectangle {
 
             if root.kit-secret-key != "": VerticalLayout {
                 spacing: 16px;
-                HorizontalLayout {
+                if root.keys-locked: LockBox {
+                    max-width: 1000px;
+                    check: root.check;
+                    text: root.check == 1 ? @tr("The kit's keys and its PDF password are behind the item lock. Your PIN shows them for 5 minutes.")
+                        : root.check == 2 ? @tr("The kit's keys and its PDF password are behind the item lock. Your item password shows them for 5 minutes.")
+                        : @tr("The kit's keys and its PDF password are behind the item lock. Your master password shows them for 5 minutes.");
+                    busy: root.busy;
+                    error-code: root.error-code;
+                    error-detail: root.error-detail;
+                    hello: root.hello;
+                    unlock => { root.unlock(); }
+                    unlock-hello => { root.unlock-hello(); }
+                }
+                if !root.keys-locked: HorizontalLayout {
                     alignment: start;
                     spacing: 12px;
                     QuietButton {
@@ -4542,7 +4578,7 @@ export component KitPage inherits Rectangle {
                     }
                 }
                 KitSlip {
-                    masked: !root.keys-shown;
+                    masked: !root.keys-shown || root.keys-locked;
                     max-width: 1000px;
                     vault-id: root.vault-id;
                     secret-key: root.kit-secret-key;
@@ -4588,12 +4624,23 @@ export component KitPage inherits Rectangle {
                                 alignment: center;
                                 horizontal-stretch: 1;
                                 Text {
-                                    text: @tr("Makes a temporary PDF, wiped from this computer when the vault locks.");
+                                    text: root.kit-filled ? @tr("Opens a temporary PDF that asks for the PDF password, wiped from this computer when the vault locks.")
+                                        : @tr("Makes a temporary PDF, wiped from this computer when the vault locks.");
                                     font-size: Theme.small;
                                     color: Theme.graphite;
                                     overflow: elide;
                                 }
                             }
+                        }
+                        // The password the printed and saved PDFs ask for, next to the actions
+                        // that write them.
+                        PdfPassword {
+                            password: root.kit-pdf-password;
+                            masked: !root.pdf-password-shown || root.keys-locked;
+                            can-show: !root.keys-locked;
+                            can-copy: !root.keys-locked;
+                            toggle => { root.pdf-password-shown = !root.pdf-password-shown; }
+                            copy => { root.copy-pdf-password(); }
                         }
                         // Part C kept in its picture: the paper kit then holds A and B only, so the
                         // three are never in one place (its page says C is kept apart, not where).
@@ -4657,6 +4704,8 @@ export component KitPage inherits Rectangle {
                                 clicked => {
                                     root.confirming-new-key = false;
                                     root.confirming-renew = false;
+                                    root.keys-shown = false;
+                                    root.pdf-password-shown = false;
                                     root.hide-kit();
                                 }
                             }

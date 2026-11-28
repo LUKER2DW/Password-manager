@@ -315,6 +315,7 @@ mod notice {
     /// The browser extension asking is older than this app answers (the argument: the oldest
     /// version it answers).
     pub const EXTENSION_OUTDATED: i32 = 122;
+    pub const KIT_PDF_PASSWORD_COPIED: i32 = 123;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -1147,9 +1148,10 @@ impl Controller {
         on!(on_language_changed, |c, choice| c.set_language(choice));
         on!(on_change_password, |c| c.change_password());
         on!(on_show_kit, |c| c.verify_then(KitAction::Show));
+        on!(on_copy_kit_pdf_password, |c| c.copy_kit_pdf_password());
         on!(on_hide_kit, |c| {
             let app = c.app();
-            app.set_kit_secret_key(SharedString::new());
+            hide_kit_keys(&app);
             clear_kit_parts(&app);
         });
         on!(on_new_parts, |c| c.verify_then(KitAction::NewParts));
@@ -1408,9 +1410,7 @@ impl Controller {
                 self.state.borrow_mut().suggestion = None;
                 app.set_suggestion(SharedString::new());
                 app.set_vault_id(SharedString::from(session.vault.id_hex()));
-                app.set_kit_secret_key(SharedString::from(
-                    session.secret_key.to_display_string().as_str(),
-                ));
+                show_kit_keys(&app, &session.vault, &session.secret_key);
                 show_kit_parts(&app, &parts);
                 app.set_recovered(false);
                 app.set_kit_saved(false);
@@ -1426,9 +1426,7 @@ impl Controller {
                 for part in [field::PART_A, field::PART_B, field::PART_C] {
                     self.clear_secret(part);
                 }
-                app.set_kit_secret_key(SharedString::from(
-                    session.secret_key.to_display_string().as_str(),
-                ));
+                show_kit_keys(&app, &session.vault, &session.secret_key);
                 clear_kit_parts(&app);
                 app.set_recovered(true);
                 app.set_kit_saved(false);
@@ -1653,11 +1651,10 @@ impl Controller {
             }
             JobResult::KitVerified { session } => {
                 self.clear_secret(field::CURRENT);
-                app.set_kit_secret_key(SharedString::from(
-                    session.secret_key.to_display_string().as_str(),
-                ));
+                show_kit_keys(&app, &session.vault, &session.secret_key);
                 clear_kit_parts(&app);
                 self.state.borrow_mut().session = Some(session);
+                self.refresh_kit_lock();
             }
             JobResult::KeyRenewed {
                 session,
@@ -1667,12 +1664,11 @@ impl Controller {
             } => self.key_renewed(session, parts, former, not_kept),
             JobResult::PartsIssued { session, parts } => {
                 self.clear_secret(field::CURRENT);
-                app.set_kit_secret_key(SharedString::from(
-                    session.secret_key.to_display_string().as_str(),
-                ));
+                show_kit_keys(&app, &session.vault, &session.secret_key);
                 show_kit_parts(&app, &parts);
                 app.set_vault_recovery(2);
                 self.state.borrow_mut().session = Some(session);
+                self.refresh_kit_lock();
                 self.remember_file();
                 self.notify(notice::PARTS_ISSUED, "");
             }
@@ -1868,7 +1864,7 @@ impl Controller {
             return;
         };
         let app = self.app();
-        app.set_kit_secret_key(SharedString::new());
+        hide_kit_keys(&app);
         clear_kit_parts(&app);
         app.set_kit_saved(false);
         app.set_needs_secret_key(false);
@@ -2085,6 +2081,10 @@ impl Controller {
             match made {
                 Ok(parts) => {
                     show_kit_parts(&app, &parts);
+                    // A new kit, a new password for its files.
+                    if let Some(session) = self.state.borrow().pending.as_ref() {
+                        show_kit_keys(&app, &session.vault, &session.secret_key);
+                    }
                     app.set_kit_saved(false);
                 }
                 Err(err) => self.set_error(error::FILE, &err.to_string()),
@@ -2106,16 +2106,10 @@ impl Controller {
         };
         match made {
             Ok(parts) if self.save_vault() => {
-                // Printed straight into the page's text (a wiped string, no other copy).
-                let shown = self
-                    .state
-                    .borrow()
-                    .session
-                    .as_ref()
-                    .map(|s| s.secret_key.to_display_string());
-                app.set_kit_secret_key(SharedString::from(
-                    shown.as_ref().map_or("", |text| text.as_str()),
-                ));
+                if let Some(session) = self.state.borrow().session.as_ref() {
+                    show_kit_keys(&app, &session.vault, &session.secret_key);
+                }
+                self.refresh_kit_lock();
                 show_kit_parts(&app, &parts);
                 app.set_vault_recovery(2);
                 app.set_panel(Panel::Kit);
@@ -2831,7 +2825,7 @@ impl Controller {
         app.set_totp_code(SharedString::new());
         app.set_gen_result(SharedString::new());
         app.set_editor_password_shown(SharedString::new());
-        app.set_kit_secret_key(SharedString::new());
+        hide_kit_keys(&app);
         clear_kit_parts(&app);
         app.set_ed_title(SharedString::new());
         app.set_ed_username(SharedString::new());
@@ -3625,7 +3619,7 @@ impl Controller {
         let app = self.app();
         app.set_choosing_vault(false);
         app.set_suggestion(SharedString::new());
-        app.set_kit_secret_key(SharedString::new());
+        hide_kit_keys(&app);
         clear_kit_parts(&app);
         app.set_recovered(false);
         self.show_start_screen();
@@ -3828,8 +3822,32 @@ impl Controller {
                 self.tick_auth();
             }
             Panel::Generator => self.fill_generated_history(),
+            Panel::Kit => self.refresh_kit_lock(),
             _ => self.show_detail(),
         }
+    }
+
+    /// The kit page's keys and PDF password wait for the item lock while one is in use and
+    /// closed: its check (PIN, password, master password or Windows Hello) shows them.
+    fn refresh_kit_lock(&self) {
+        let locked = self.item_lock_closed();
+        self.app().set_kit_keys_locked(locked);
+    }
+
+    /// Copies the kit's PDF password (the clipboard clears itself and keeps it out of
+    /// history): on the kit page once the item lock is open, as showing it.
+    fn copy_kit_pdf_password(&self) {
+        let app = self.app();
+        let password = app.get_kit_pdf_password();
+        let gated = app.get_screen() != Screen::Onboarding && self.item_lock_closed();
+        if password.is_empty() || gated {
+            return;
+        }
+        self.copy(
+            Zeroizing::new(password.to_string()),
+            true,
+            notice::KIT_PDF_PASSWORD_COPIED,
+        );
     }
 
     /// Closes every locked item again (the Lock button, or the time is up).
@@ -4613,7 +4631,7 @@ impl Controller {
         self.show_extension_browsers();
         self.show_extension_source();
         self.show_vault_settings();
-        app.set_kit_secret_key(SharedString::new());
+        hide_kit_keys(&app);
         clear_kit_parts(&app);
         app.set_panel(Panel::Settings);
         self.set_error(error::NONE, "");
@@ -5075,20 +5093,25 @@ impl Controller {
 
     fn open_kit(&self) {
         let app = self.app();
-        app.set_kit_secret_key(SharedString::new());
+        hide_kit_keys(&app);
         clear_kit_parts(&app);
         self.clear_secret(field::CURRENT);
         app.set_panel(Panel::Kit);
+        self.refresh_kit_lock();
         self.set_error(error::NONE, "");
     }
 
     /// The kit currently on screen as a PDF, with a file name. `None` until the keys are shown.
-    /// `with_parts`: the recovery parts' pages too (the printed kit); a saved PDF keeps the
-    /// Secret Key only, as the three parts together open the vault without the master password.
-    fn kit_pdf(&self, with_parts: bool) -> Option<(String, Zeroizing<Vec<u8>>)> {
+    /// Protected by the kit's PDF password (CRYPTO.md §3.10), which the PDF viewer asks for.
+    /// `print`: the kit to print, with the recovery parts' pages, in a temporary file wiped
+    /// when the vault locks (a kit of empty boxes, holding no key, is not protected).
+    /// Otherwise the kit to keep in a file: the Secret Key's page only (the three parts
+    /// together open the vault without the master password).
+    fn kit_pdf(&self, print: bool) -> Option<anyhow::Result<(String, Zeroizing<Vec<u8>>)>> {
         let app = self.app();
         let secret_key = app.get_kit_secret_key();
-        if secret_key.is_empty() {
+        let pdf_password = app.get_kit_pdf_password();
+        if secret_key.is_empty() || pdf_password.is_empty() {
             return None;
         }
         let parts = [
@@ -5100,31 +5123,42 @@ impl Controller {
         let created_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
-        let bytes = kit_pdf::render(&KitContents {
+        let kit = KitContents {
             secret_key: &secret_key,
-            parts: (with_parts && !parts[0].is_empty())
+            parts: (print && !parts[0].is_empty())
                 .then(|| [parts[0].as_str(), parts[1].as_str(), parts[2].as_str()]),
             vault_id: &vault_id,
             created_at,
             filled: app.get_kit_filled(),
             part_c_elsewhere: app.get_kit_part_c_pictured() && app.get_kit_leave_c_out(),
-        });
+        };
+        let bytes = if print && !kit.filled {
+            Ok(kit_pdf::render(&kit))
+        } else {
+            kit_pdf::render_protected(&kit, &pdf_password)
+        };
         let short_id: String = vault_id.chars().take(8).collect();
-        Some((format!("emergency-kit-{short_id}.pdf"), bytes))
+        Some(bytes.map(|bytes| (format!("emergency-kit-{short_id}.pdf"), bytes)))
     }
 
-    /// The kit as it would print (tests).
+    /// The kit as it would print (`true`) or be saved (tests).
     #[cfg(test)]
-    pub(crate) fn kit_pdf_for_test(&self, with_parts: bool) -> Option<Zeroizing<Vec<u8>>> {
-        self.kit_pdf(with_parts).map(|(_, bytes)| bytes)
+    pub(crate) fn kit_pdf_for_test(&self, print: bool) -> Option<Zeroizing<Vec<u8>>> {
+        self.kit_pdf(print).map(|made| made.unwrap().1)
     }
 
     /// Writes the kit to the print folder (wiped when the vault locks) and opens it in the PDF
     /// viewer, where it can be printed.
     fn print_kit(&self) {
-        let Some((name, bytes)) = self.kit_pdf(true) else {
-            return;
+        let (name, bytes) = match self.kit_pdf(true) {
+            None => return,
+            Some(Ok(made)) => made,
+            Some(Err(err)) => {
+                self.set_error(error::FILE, &format!("{err:#}"));
+                return;
+            }
         };
+        let protected = if self.app().get_kit_filled() { "1" } else { "" };
         match files::write_for_printing(&name, &bytes) {
             Ok(path) => {
                 // Headless tests stop at writing the file.
@@ -5134,7 +5168,7 @@ impl Controller {
                     self.set_error(error::OTHER, &err.to_string());
                     return;
                 }
-                self.notify(notice::KIT_OPENED, "");
+                self.notify(notice::KIT_OPENED, protected);
             }
             Err(err) => self.set_error(error::FILE, &err.to_string()),
         }
@@ -5146,8 +5180,13 @@ impl Controller {
         if self.state.borrow().runner == Runner::Inline {
             return; // no dialogs in headless tests
         }
-        let Some((name, bytes)) = self.kit_pdf(false) else {
-            return;
+        let (name, bytes) = match self.kit_pdf(false) {
+            None => return,
+            Some(Ok(made)) => made,
+            Some(Err(err)) => {
+                self.set_error(error::FILE, &format!("{err:#}"));
+                return;
+            }
         };
         let Some(path) = rfd::FileDialog::new()
             .set_title("Save emergency kit")
@@ -5161,9 +5200,9 @@ impl Controller {
             self.set_error(error::KIT_CLOUD, cloud);
             return;
         }
-        match std::fs::write(&path, &*bytes) {
+        match write_kit_file(&path, &bytes, &self.app().get_kit_pdf_password()) {
             Ok(()) => self.notify(notice::KIT_SAVED, &path.display().to_string()),
-            Err(err) => self.set_error(error::FILE, &err.to_string()),
+            Err(err) => self.set_error(error::FILE, &format!("{err:#}")),
         }
     }
 
@@ -5180,7 +5219,8 @@ impl Controller {
             app.get_kit_part_b(),
             app.get_kit_part_c(),
         ];
-        if parts[0].is_empty() {
+        let pdf_password = app.get_kit_pdf_password();
+        if parts[0].is_empty() || pdf_password.is_empty() {
             return;
         }
         let leave_c_out = app.get_kit_part_c_pictured() && app.get_kit_leave_c_out();
@@ -5217,10 +5257,17 @@ impl Controller {
                 self.set_error(error::PARTS_TOGETHER, &other.to_string());
                 return;
             }
-            let bytes =
-                kit_pdf::render_part(label, part, &vault_id, created_at, app.get_kit_filled());
-            if let Err(err) = std::fs::write(&path, &*bytes) {
-                self.set_error(error::FILE, &err.to_string());
+            let written = kit_pdf::render_part_protected(
+                label,
+                part,
+                &vault_id,
+                created_at,
+                app.get_kit_filled(),
+                &pdf_password,
+            )
+            .and_then(|bytes| write_kit_file(&path, &bytes, &pdf_password));
+            if let Err(err) = written {
+                self.set_error(error::FILE, &format!("{err:#}"));
                 return;
             }
             used.push((letter, folder.unwrap_or_default()));
@@ -5817,6 +5864,34 @@ fn backup_summary(path: &std::path::Path, len: usize, unix: i64) -> String {
         minutes / 60,
         minutes % 60
     )
+}
+
+/// Shows the kit's Secret Key and the password of its saved files (CRYPTO.md §3.10), as
+/// text the kit page and the onboarding's kit step draw; [`hide_kit_keys`] clears both.
+fn show_kit_keys(app: &AppWindow, vault: &vault_core::Vault, secret_key: &SecretKey) {
+    app.set_kit_secret_key(SharedString::from(secret_key.to_display_string().as_str()));
+    app.set_kit_pdf_password(SharedString::from(
+        vault.kit_pdf_password(secret_key).as_str(),
+    ));
+}
+
+fn hide_kit_keys(app: &AppWindow) {
+    app.set_kit_secret_key(SharedString::new());
+    app.set_kit_pdf_password(SharedString::new());
+}
+
+/// Writes a protected kit file, then reads it back: done only when it opens with the
+/// password the kit page shows. A file that doesn't is removed.
+fn write_kit_file(path: &std::path::Path, bytes: &[u8], pdf_password: &str) -> anyhow::Result<()> {
+    std::fs::write(path, bytes)?;
+    let opens = std::fs::read(path)
+        .map(Zeroizing::new)
+        .is_ok_and(|back| kit_pdf::open_protected(&back, pdf_password).is_some());
+    if !opens {
+        let _ = std::fs::remove_file(path);
+        anyhow::bail!("the saved file doesn't open with the PDF password");
+    }
+    Ok(())
 }
 
 /// Shows the three parts of a kit just issued (the only time they can be shown).

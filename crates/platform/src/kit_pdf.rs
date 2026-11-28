@@ -526,21 +526,6 @@ pub fn render_protected(kit: &KitContents<'_>, password: &str) -> Result<Zeroizi
     Ok(assemble(&mut pages, streams, Some(&protection)))
 }
 
-/// One recovery part alone, as a PDF of one page, not protected (see
-/// [`render_part_protected`]).
-pub fn render_part(
-    label: vault_core::PartLabel,
-    part: &str,
-    vault_id: &str,
-    created_at: u64,
-    filled: bool,
-) -> Zeroizing<Vec<u8>> {
-    let date = date_text(created_at);
-    let mut pages = [part_page(label, part, filled, &date, vault_id, false)];
-    let streams = vec![Zeroizing::new(pages[0].as_bytes().to_vec())];
-    assemble(&mut pages, streams, None)
-}
-
 /// One recovery part alone, as a protected PDF of one page (see [`render_protected`]): saved
 /// as a file of its own, so the three parts (which together open the vault without the master
 /// password) never share a file.

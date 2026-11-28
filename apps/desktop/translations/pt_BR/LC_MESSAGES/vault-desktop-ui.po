@@ -4787,3 +4787,55 @@ msgstr "Sua chave secreta e sua senha mestra juntas abrem o cofre, por isso este
 msgctxt "SettingsPage"
 msgid "Weaker than with a chip: a copy of your Windows profile, with your Windows password, opens it on another computer."
 msgstr "Mais fraco do que com um chip: uma cópia do seu perfil do Windows, com a sua senha do Windows, a abre em outro computador."
+
+msgctxt "PdfPassword"
+msgid "PDF password"
+msgstr "Senha do PDF"
+
+msgctxt "PdfPassword"
+msgid "Four words, in small letters, with or without the spaces between them. It stays the same while the kit does: new recovery parts or a new Secret Key give a new one."
+msgstr "Quatro palavras, em letras minúsculas, com ou sem os espaços entre elas. Ela continua a mesma enquanto o kit não muda: novas partes de recuperação ou uma nova chave secreta dão uma nova."
+
+msgctxt "PdfPassword"
+msgid "PDF password: shown on screen, not read aloud"
+msgstr "Senha do PDF: mostrada na tela, não lida em voz alta"
+
+msgctxt "PdfPassword"
+msgid "Show for 15 seconds"
+msgstr "Mostrar por 15 segundos"
+
+msgctxt "PdfPassword"
+msgid "Hide"
+msgstr "Ocultar"
+
+msgctxt "PdfPassword"
+msgid "Copy"
+msgstr "Copiar"
+
+msgctxt "PdfPassword"
+msgid "Printing and Save as PDF make files that open only with this password: type it in the PDF viewer to open or print one. Someone who copies such a file, or opens it while you're away from the computer, sees nothing without it."
+msgstr "Imprimir e Salvar como PDF criam arquivos que só abrem com esta senha: digite-a no leitor de PDF para abrir ou imprimir um deles. Quem copiar um desses arquivos, ou abri-lo enquanto você está longe do computador, não vê nada sem ela."
+
+msgctxt "Messages"
+msgid "Kit opened for printing: type the PDF password to open it. The file is wiped when the vault locks."
+msgstr "Kit aberto para impressão: digite a senha do PDF para abri-lo. O arquivo é apagado quando o cofre trava."
+
+msgctxt "Messages"
+msgid "PDF password copied. The clipboard clears in {} seconds."
+msgstr "Senha do PDF copiada. A área de transferência é limpa em {} segundos."
+
+msgctxt "KitPage"
+msgid "The kit's keys and its PDF password are behind the item lock. Your PIN shows them for 5 minutes."
+msgstr "As chaves do kit e a senha do PDF estão atrás da trava de itens. Seu PIN as mostra por 5 minutos."
+
+msgctxt "KitPage"
+msgid "The kit's keys and its PDF password are behind the item lock. Your item password shows them for 5 minutes."
+msgstr "As chaves do kit e a senha do PDF estão atrás da trava de itens. Sua senha de itens as mostra por 5 minutos."
+
+msgctxt "KitPage"
+msgid "The kit's keys and its PDF password are behind the item lock. Your master password shows them for 5 minutes."
+msgstr "As chaves do kit e a senha do PDF estão atrás da trava de itens. Sua senha mestra as mostra por 5 minutos."
+
+msgctxt "KitPage"
+msgid "Opens a temporary PDF that asks for the PDF password, wiped from this computer when the vault locks."
+msgstr "Abre um PDF temporário que pede a senha do PDF, apagado deste computador quando o cofre trava."

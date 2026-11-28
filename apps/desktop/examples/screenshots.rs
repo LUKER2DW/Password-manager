@@ -985,6 +985,13 @@ fn main() {
     type_into(&app, 5, PASSWORD);
     app.invoke_show_kit();
     camera.shot("kit", "Emergency kit page: print or save as PDF");
+    // Behind an item lock, the keys and the PDF password wait for its check.
+    app.set_kit_keys_locked(true);
+    camera.shot(
+        "kit-keys-locked",
+        "Emergency kit page: the keys behind the item lock",
+    );
+    app.set_kit_keys_locked(false);
     app.set_kit_confirming_new_parts(true);
     camera.shot(
         "kit-new-parts-ask",
@@ -1013,6 +1020,9 @@ fn main() {
             let _ = std::fs::copy(entry.path(), dir.join("emergency-kit-demo.pdf"));
         }
     }
+    // And the kit as Save as PDF and Save each part apart write it: protected by the kit's
+    // PDF password (CRYPTO.md §3.10), written next to them, to check in any PDF viewer.
+    write_protected_demo(&app, &dir);
     app.set_kit_confirming_renew(true);
     camera.shot(
         "kit-renew-ask",
@@ -1213,4 +1223,46 @@ fn demo_qr(text: &str) -> slint::Image {
         *pixel = slint::Rgb8Pixel { r: v, g: v, b: v };
     }
     slint::Image::from_rgb8(buffer)
+}
+
+/// The demo kit as the app saves it: the Secret Key's page and part A's page, each protected
+/// by the kit's PDF password, and the password in a text file beside them (fake keys only),
+/// to open them in any PDF viewer.
+fn write_protected_demo(app: &AppWindow, dir: &Path) {
+    use vault_platform::kit_pdf::{self, KitContents};
+    let password = app.get_kit_pdf_password();
+    let secret_key = app.get_kit_secret_key();
+    let vault_id = app.get_vault_id();
+    if password.is_empty() || secret_key.is_empty() {
+        return;
+    }
+    let created_at = 1_794_441_600;
+    let kit = KitContents {
+        secret_key: &secret_key,
+        parts: None,
+        vault_id: &vault_id,
+        created_at,
+        filled: true,
+        part_c_elsewhere: false,
+    };
+    if let Ok(bytes) = kit_pdf::render_protected(&kit, &password) {
+        let _ = std::fs::write(dir.join("emergency-kit-demo-protected.pdf"), &*bytes);
+    }
+    let part_a = app.get_kit_part_a();
+    if !part_a.is_empty()
+        && let Ok(bytes) = kit_pdf::render_part_protected(
+            vault_core::PartLabel::A,
+            &part_a,
+            &vault_id,
+            created_at,
+            true,
+            &password,
+        )
+    {
+        let _ = std::fs::write(dir.join("recovery-part-A-demo-protected.pdf"), &*bytes);
+    }
+    let _ = std::fs::write(
+        dir.join("emergency-kit-demo-password.txt"),
+        format!("{password}\n"),
+    );
 }

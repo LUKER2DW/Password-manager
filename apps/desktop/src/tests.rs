@@ -1416,13 +1416,26 @@ fn whole_app_flow_headless() {
     type_into(&app, 5, NEW_PASSWORD);
     app.invoke_show_kit();
     assert_eq!(app.get_kit_secret_key(), secret_key.as_str());
+    // The PDF files' password, shown with the kit and gone with it (CRYPTO.md §3.10): four
+    // words. No item lock yet, so nothing more stands before it.
+    let pdf_password = app.get_kit_pdf_password().to_string();
+    assert_eq!(pdf_password.split(' ').count(), 4, "{pdf_password}");
+    assert!(!app.get_kit_keys_locked());
+    app.invoke_copy_kit_pdf_password();
+    assert_eq!(app.get_notice_code(), 123);
+    // Printing goes through a protected PDF: the viewer asks for the password.
     app.invoke_print_kit();
     let printed: Vec<_> = std::fs::read_dir(&print_dir).unwrap().flatten().collect();
     assert_eq!(printed.len(), 1);
     let pdf = std::fs::read(printed[0].path()).unwrap();
-    assert!(pdf.starts_with(b"%PDF-1.4"));
+    assert!(pdf.starts_with(b"%PDF-1.7"), "the printed kit is protected");
+    for clear in [&secret_key, &pdf_password] {
+        assert!(!pdf.windows(clear.len()).any(|w| w == clear.as_bytes()));
+    }
+    let opened = vault_platform::kit_pdf::open_protected(&pdf, &pdf_password).unwrap();
     assert!(
-        pdf.windows(secret_key.len())
+        opened
+            .windows(secret_key.len())
             .any(|w| w == secret_key.as_bytes())
     );
     assert_eq!(app.get_notice_code(), 16);
@@ -1447,8 +1460,19 @@ fn whole_app_flow_headless() {
     .map(|part| part.to_string());
     assert!(parts[0].starts_with("A0-") && parts[0] != old_parts[0]);
     assert_eq!(app.get_kit_secret_key(), secret_key.as_str());
+    let new_pdf_password = app.get_kit_pdf_password().to_string();
+    assert!(
+        new_pdf_password.split(' ').count() == 4 && new_pdf_password != pdf_password,
+        "a new kit, a new password"
+    );
     app.invoke_hide_kit();
     assert_eq!(app.get_kit_part_c(), "");
+    assert_eq!(app.get_kit_pdf_password(), "");
+    // Shown again, the kit's password is the same: nothing was stored for it.
+    type_into(&app, 5, NEW_PASSWORD);
+    app.invoke_show_kit();
+    assert_eq!(app.get_kit_pdf_password(), new_pdf_password.as_str());
+    app.invoke_hide_kit();
 
     // ---- lock (here: Windows locked the session) and unlock ----
     Controller::windows_session_ended();
@@ -1548,6 +1572,25 @@ fn whole_app_flow_headless() {
     assert!(row.locked && row.code.is_empty());
     app.invoke_auth_copy(0);
     assert_ne!(app.get_notice_code(), 3);
+    // The kit page's keys and PDF password wait for the item lock too, and its check opens
+    // them there.
+    app.invoke_open_kit();
+    type_into(&app, 5, NEW_PASSWORD);
+    app.invoke_show_kit();
+    assert_ne!(app.get_kit_pdf_password(), "");
+    assert!(app.get_kit_keys_locked());
+    app.invoke_copy_kit_pdf_password();
+    assert_ne!(app.get_notice_code(), 123);
+    type_into(&app, 11, NEW_PASSWORD);
+    app.invoke_unlock_item();
+    assert!(!app.get_kit_keys_locked());
+    app.invoke_copy_kit_pdf_password();
+    assert_eq!(app.get_notice_code(), 123);
+    app.invoke_lock_secrets();
+    assert!(app.get_kit_keys_locked());
+    app.invoke_hide_kit();
+    app.invoke_open_authenticator();
+    assert!(app.get_auth_locked());
     // The check, typed there, opens every locked item at once.
     type_into(&app, 11, "not the master password");
     app.invoke_unlock_item();
@@ -2134,28 +2177,43 @@ fn whole_app_flow_headless() {
     .map(ToString::to_string)
     .collect();
     assert!(parts[0].starts_with("A0-") && parts[0] != used_parts[0]);
-    // On paper: the keys, or empty boxes to fill in by hand.
+    // On paper: the keys (behind the PDF password), or empty boxes to fill in by hand (no
+    // key, so no password).
     app.set_kit_filled(false);
     let blank = controller.kit_pdf_for_test(true).unwrap();
+    assert!(String::from_utf8_lossy(&blank).starts_with("%PDF-1.4"));
     assert!(!String::from_utf8_lossy(&blank).contains(&parts[0]));
     app.set_kit_filled(true);
-    assert!(
-        String::from_utf8_lossy(&controller.kit_pdf_for_test(true).unwrap()).contains(&parts[0])
-    );
-    // On screen, the kit's keys stay out of the accessibility tree.
+    let printed = controller.kit_pdf_for_test(true).unwrap();
+    assert!(!String::from_utf8_lossy(&printed).contains(&parts[0]));
+    let printed =
+        vault_platform::kit_pdf::open_protected(&printed, &app.get_kit_pdf_password()).unwrap();
+    assert!(String::from_utf8_lossy(&printed).contains(&parts[0]));
+    // On screen, the kit's keys and its files' password stay out of the accessibility tree.
     let exposed = accessible_texts(&app);
     let secret_key = app.get_kit_secret_key().to_string();
+    let pdf_password = app.get_kit_pdf_password().to_string();
+    assert_eq!(pdf_password.split(' ').count(), 4);
     assert!(
         exposed.iter().all(|text| !text.contains(&secret_key)
+            && !text.contains(&pdf_password)
             && parts.iter().all(|part| !text.contains(part.as_str()))),
         "{exposed:?}"
     );
-    // Saved as a file, the kit keeps the Secret Key only: the three parts together open the
-    // vault without the master password.
+    // Saved as a file, the kit keeps the Secret Key only (the three parts together open the
+    // vault without the master password), and opens only with the kit's PDF password.
     let saved = controller.kit_pdf_for_test(false).unwrap();
-    let saved = String::from_utf8_lossy(&saved);
+    let raw = String::from_utf8_lossy(&saved);
+    assert!(raw.contains("/Encrypt") && !raw.contains(&secret_key));
+    assert!(vault_platform::kit_pdf::open_protected(&saved, "ABCD-EFGH-JKMN-PQRS-TVWX").is_none());
+    let opened = vault_platform::kit_pdf::open_protected(&saved, &pdf_password).unwrap();
+    let saved = String::from_utf8_lossy(&opened);
     assert!(parts.iter().all(|part| !saved.contains(part.as_str())));
-    assert!(saved.contains("Secret Key") || saved.contains("SECRET KEY"));
+    assert!(saved.contains(&secret_key) && saved.contains("SECRET KEY"));
+    assert!(
+        !saved.contains(&pdf_password),
+        "a saved file doesn't carry its own password"
+    );
 
     // ---- recovery with the emergency kit ----
     app.invoke_lock();

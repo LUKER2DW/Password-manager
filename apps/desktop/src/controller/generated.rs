@@ -201,8 +201,9 @@ impl Controller {
         }
     }
 
-    /// Whether the history waits for the item lock: one is in use and not open.
-    fn generated_locked(&self) -> bool {
+    /// Whether what the item lock guards beside items (this history, the kit's keys) waits for
+    /// it: one is in use and not open.
+    pub(super) fn item_lock_closed(&self) -> bool {
         let state = self.state.borrow();
         let Some(session) = state.session.as_ref() else {
             return true;
@@ -216,7 +217,7 @@ impl Controller {
 
     /// The generator page's list.
     pub(super) fn fill_generated_history(&self) {
-        let locked = self.generated_locked();
+        let locked = self.item_lock_closed();
         let shown = self.state.borrow().generated_shown;
         let offset = vault_platform::locale::utc_offset_minutes();
         let rows: Vec<GeneratedRow> = self
@@ -240,7 +241,7 @@ impl Controller {
 
     /// Shows one entry (or hides it again). One at a time.
     pub(super) fn reveal_generated(&self, index: i32) {
-        if self.generated_locked() {
+        if self.item_lock_closed() {
             return;
         }
         let index = usize::try_from(index).ok();
@@ -256,7 +257,7 @@ impl Controller {
     }
 
     pub(super) fn copy_generated_entry(&self, index: i32) {
-        if self.generated_locked() {
+        if self.item_lock_closed() {
             return;
         }
         let value = usize::try_from(index).ok().and_then(|i| {

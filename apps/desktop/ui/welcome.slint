@@ -6,7 +6,7 @@
 import { Theme, Sketch } from "theme.slint";
 import { Messages, RecentVault } from "model.slint";
 import { Button, QuietButton, SecretField, Check, Choice, MarkStroke, Hint, Rule, Logo } from "widgets.slint";
-import { KitSlip } from "kit.slint";
+import { KitSlip, PdfPassword } from "kit.slint";
 import { Glyph } from "icons.slint";
 
 component StepMark inherits HorizontalLayout {
@@ -412,6 +412,8 @@ export component OnboardingScreen inherits Rectangle {
     in property <bool> recovered: false;
     in property <string> kit-vault-id;
     in property <string> kit-secret-key;
+    // The password of the kit's saved files (CRYPTO.md §3.10).
+    in property <string> kit-pdf-password;
     in property <string> kit-part-a;
     in property <string> kit-part-b;
     in property <string> kit-part-c;
@@ -435,6 +437,7 @@ export component OnboardingScreen inherits Rectangle {
     callback print-kit();
     callback save-kit();
     callback save-parts-apart();
+    callback copy-pdf-password();
     // Vault chooser
     in property <[RecentVault]> vaults;
     in-out property <bool> choosing;
@@ -724,6 +727,11 @@ export component OnboardingScreen inherits Rectangle {
                         text: @tr("Save each part apart…");
                         clicked => { root.save-parts-apart(); }
                     }
+                }
+                PdfPassword {
+                    password: root.kit-pdf-password;
+                    can-copy: true;
+                    copy => { root.copy-pdf-password(); }
                 }
                 Check {
                     text: @tr("I wrote these down and keep them somewhere safe");

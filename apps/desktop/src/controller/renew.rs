@@ -264,6 +264,8 @@ impl Controller {
     ) {
         let app = self.app();
         let secret_key = SharedString::from(session.secret_key.to_display_string().as_str());
+        let pdf_password =
+            SharedString::from(session.vault.kit_pdf_password(&session.secret_key).as_str());
         let hello = reseal_side_files(&session.vault, &former);
         drop(former);
         if hello {
@@ -277,6 +279,8 @@ impl Controller {
             self.clear_secret(field::CURRENT);
             app.set_kit_confirming_renew(false);
             app.set_kit_secret_key(secret_key);
+            app.set_kit_pdf_password(pdf_password);
+            self.refresh_kit_lock();
             show_kit_parts(&app, &parts);
             app.set_vault_recovery(2);
         } else {

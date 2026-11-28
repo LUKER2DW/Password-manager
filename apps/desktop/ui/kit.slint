@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { Hint, Rule } from "widgets.slint";
+import { Hint, QuietButton, Rule } from "widgets.slint";
 
 component KitLine inherits VerticalLayout {
     in property <string> label;
@@ -162,5 +162,66 @@ export component KitSlip inherits Rectangle {
             color: #5F6B7D;
             wrap: word-wrap;
         }
+    }
+}
+
+// The password of the kit's PDF files (CRYPTO.md §3.10), next to the actions that write
+// them: the PDF viewer asks for it before it opens or prints one. On the kit page it is dots
+// until shown (for 15 seconds) and its buttons wait for the item lock; in the onboarding's
+// kit step it shows as the keys do.
+export component PdfPassword inherits VerticalLayout {
+    in property <string> password;
+    // Drawn as dots until the person asks to see it.
+    in property <bool> masked: false;
+    // A button that shows and hides it (`toggle`), and one that copies it (`copy`).
+    in property <bool> can-show: false;
+    in property <bool> can-copy: false;
+    callback toggle();
+    callback copy();
+    spacing: 4px;
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: start;
+        Text {
+            text: @tr("PDF password");
+            font-size: Theme.small;
+            color: Theme.graphite;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            alignment: center;
+            Hint { text: @tr("Four words, in small letters, with or without the spaces between them. It stays the same while the kit does: new recovery parts or a new Secret Key give a new one."); }
+        }
+    }
+    HorizontalLayout {
+        spacing: 10px;
+        alignment: start;
+        Text {
+            text: root.masked ? "•••••• •••••• •••••• ••••••" : root.password;
+            // Drawn, but kept out of the accessibility tree (UI Automation), as the keys are.
+            accessible-label: @tr("PDF password: shown on screen, not read aloud");
+            font-family: Theme.mono-font;
+            font-size: Theme.body;
+            color: Theme.ink;
+            vertical-alignment: center;
+        }
+        if root.can-show: QuietButton {
+            outlined: true;
+            icon: root.masked ? "eye" : "eye-off";
+            text: root.masked ? @tr("Show for 15 seconds") : @tr("Hide");
+            clicked => { root.toggle(); }
+        }
+        if root.can-copy: QuietButton {
+            outlined: true;
+            icon: "copy";
+            text: @tr("Copy");
+            clicked => { root.copy(); }
+        }
+    }
+    Text {
+        text: @tr("Printing and Save as PDF make files that open only with this password: type it in the PDF viewer to open or print one. Someone who copies such a file, or opens it while you're away from the computer, sees nothing without it.");
+        font-size: Theme.small;
+        color: Theme.graphite;
+        wrap: word-wrap;
     }
 }

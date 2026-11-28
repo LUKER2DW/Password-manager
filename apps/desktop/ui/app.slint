@@ -239,6 +239,11 @@ export component AppWindow inherits Window {
     in property <bool> recovered;
     in property <string> suggestion;
     in property <string> kit-secret-key;
+    // The password of the kit's saved PDF files (CRYPTO.md §3.10), while the kit is shown.
+    in property <string> kit-pdf-password;
+    // The kit page's keys and PDF password wait for the item lock (closed until told).
+    in property <bool> kit-keys-locked: true;
+    callback copy-kit-pdf-password();
     // Recovery parts A, B and C, only right after they are issued.
     in property <string> kit-part-a;
     in property <string> kit-part-b;
@@ -768,6 +773,8 @@ export component AppWindow inherits Window {
         recovered: root.recovered;
         kit-vault-id: root.vault-id;
         kit-secret-key: root.kit-secret-key;
+        kit-pdf-password: root.kit-pdf-password;
+        copy-pdf-password => { root.copy-kit-pdf-password(); }
         kit-part-a: root.kit-part-a;
         kit-part-b: root.kit-part-b;
         kit-part-c: root.kit-part-c;
@@ -1281,6 +1288,13 @@ export component AppWindow inherits Window {
                 vault-path: root.vault-path;
                 vault-id: root.vault-id;
                 kit-secret-key: root.kit-secret-key;
+                kit-pdf-password: root.kit-pdf-password;
+                keys-locked: root.kit-keys-locked;
+                check: root.detail-check;
+                hello: root.guard-hello-on;
+                unlock => { root.unlock-item(); }
+                unlock-hello => { root.unlock-item-hello(); }
+                copy-pdf-password => { root.copy-kit-pdf-password(); }
                 kit-part-a: root.kit-part-a;
                 kit-part-b: root.kit-part-b;
                 kit-part-c: root.kit-part-c;
