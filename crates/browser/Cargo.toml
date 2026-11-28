@@ -17,6 +17,8 @@ workspace = true
 [dependencies]
 vault-core = { path = "../core" }
 vault-platform = { path = "../platform" }
+# Versions as the apps write them (`x.y.z`), compared one way everywhere.
+vault-sync-wire = { path = "../sync-wire" }
 # The extension's requests and the app's answers are sealed with AES-256-GCM, the AEAD the
 # browser's WebCrypto offers (pairing.rs, CRYPTO.md §3.9).
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
@@ -31,7 +33,9 @@ p256 = { version = "0.14", default-features = false, features = ["ecdh"] }
 # registry such as `*.co.uk`.
 psl = "2.1"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# `raw_value`: the request inside a sealed message is passed on as it came, never copied
+# (protocol.rs `asked`).
+serde_json = { version = "1.0", features = ["raw_value"] }
 sha2 = "0.11"
 # Lookalike sites (lookalike.rs): accents taken off names, and the script of each letter, so a
 # name that mixes scripts is shown in its ASCII form. Both are already in the workspace (core,

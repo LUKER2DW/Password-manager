@@ -2,11 +2,81 @@
 //!
 //! Every message is one JSON object with a `type`. The extension sends a [`Request`] and gets
 //! exactly one [`Response`].
+//!
+//! A sealed request (`pairing.rs`) holds `{"version":"0.4.8","request":{…}}`: the request,
+//! and the version of the extension that sends it (its `manifest.json`'s). The app answers
+//! only an extension of [`MIN_EXTENSION_VERSION`] or later ([`asked`]); an older one hears
+//! `outdated_extension` ([`outdated`]) and nothing else, so an old copy with a known fault put
+//! back in the extension's place gets nothing from the vault.
 
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub use crate::lookalike::Lookalike;
+
+/// The oldest extension the app answers. Raised when a release fixes a fault in the extension
+/// that must not stay reachable.
+///
+/// 0.4.7 is the version the sealed link carries until the next release raises every app's
+/// version: the extension of every release up to 0.4.7 signs its requests instead of sealing
+/// them and names no version, and is refused whatever this says ([`asked`]). Every extension
+/// that names a version seals its requests and agrees its key by ECDH.
+pub const MIN_EXTENSION_VERSION: &str = "0.4.7";
+
+/// Whether `version` (an extension's, `x.y.z`) is one the app answers.
+pub fn accepted_version(version: &str) -> bool {
+    match (
+        vault_sync_wire::parse_version(version),
+        vault_sync_wire::parse_version(MIN_EXTENSION_VERSION),
+    ) {
+        (Some(version), Some(minimum)) => version >= minimum,
+        _ => false,
+    }
+}
+
+/// The request inside the text of a sealed request (`{"version":…,"request":{…}}`), as it
+/// came (not copied), when the extension that sent it is one the app answers. Otherwise
+/// [`ErrorCode::OutdatedExtension`] (no version it can read, as from an extension older than
+/// versions sending a bare request, or one below [`MIN_EXTENSION_VERSION`]), or
+/// [`ErrorCode::BadRequest`] for anything that isn't a JSON object of those two.
+pub fn asked(text: &[u8]) -> Result<&[u8], ErrorCode> {
+    // Each field as it is in `text`: nothing of the request is copied or decoded here.
+    let fields = serde_json::from_slice::<std::collections::BTreeMap<&str, &RawValue>>(text)
+        .map_err(|_| ErrorCode::BadRequest)?;
+    let version = fields
+        .get("version")
+        .and_then(|raw| serde_json::from_str::<&str>(raw.get()).ok());
+    if !version.is_some_and(accepted_version) {
+        return Err(ErrorCode::OutdatedExtension);
+    }
+    match (fields.get("request"), fields.len()) {
+        (Some(request), 2) => Ok(request.get().as_bytes()),
+        _ => Err(ErrorCode::BadRequest),
+    }
+}
+
+/// The answer to an extension below [`MIN_EXTENSION_VERSION`]: the oldest version the app
+/// answers, and the version of the extension the app carries (`carried`), so a copy loaded
+/// from the app's folder reloads itself into it (`apps/extension/update.js`).
+pub fn outdated(carried: Option<&str>) -> Vec<u8> {
+    #[derive(Serialize)]
+    struct Outdated<'a> {
+        #[serde(rename = "type")]
+        kind: &'static str,
+        code: ErrorCode,
+        minimum: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        extension_version: Option<&'a str>,
+    }
+    serde_json::to_vec(&Outdated {
+        kind: "error",
+        code: ErrorCode::OutdatedExtension,
+        minimum: MIN_EXTENSION_VERSION,
+        extension_version: carried,
+    })
+    .unwrap_or_else(|_| br#"{"type":"error","code":"outdated_extension"}"#.to_vec())
+}
 
 /// What the extension may ask.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -613,6 +683,9 @@ pub enum ErrorCode {
     /// What a page sent as a password is one of the emergency kit's keys
     /// ([`crate::kit`]): it is never saved, compared or kept.
     KitKey,
+    /// The extension is older than [`MIN_EXTENSION_VERSION`] (or names no version): nothing
+    /// it asks is answered, and connecting it is refused.
+    OutdatedExtension,
 }
 
 #[cfg(test)]
@@ -638,5 +711,74 @@ mod tests {
             status(None),
             r#"{"type":"status","locked":false,"name":""}"#
         );
+    }
+
+    #[test]
+    fn only_an_extension_at_the_floor_or_later_is_answered() {
+        let request = br#"{"type":"logins","url":"https://github.com/A"}"#;
+        let wrapped = |version: &str| {
+            format!(
+                r#"{{"version":"{version}","request":{}}}"#,
+                std::str::from_utf8(request).unwrap()
+            )
+        };
+        // The request comes out as it went in, byte for byte (escapes too).
+        for version in [MIN_EXTENSION_VERSION, "0.4.10", "0.5.0", "1.0.0"] {
+            assert_eq!(
+                asked(wrapped(version).as_bytes()),
+                Ok(&request[..]),
+                "{version}"
+            );
+        }
+        // Older, no version (an extension from before versions: a bare request), or one that
+        // isn't `x.y.z`.
+        for version in [
+            "0.4.6",
+            "0.3.99",
+            "0.4",
+            "0.4.7.1",
+            "",
+            "v0.4.8",
+            "0.4.8-beta",
+        ] {
+            assert_eq!(
+                asked(wrapped(version).as_bytes()),
+                Err(ErrorCode::OutdatedExtension),
+                "{version}"
+            );
+        }
+        assert_eq!(asked(request), Err(ErrorCode::OutdatedExtension));
+        assert_eq!(
+            asked(br#"{"version":0.5,"request":{}}"#),
+            Err(ErrorCode::OutdatedExtension)
+        );
+        // Anything else around the request, or none, is not understood.
+        let current = MIN_EXTENSION_VERSION;
+        for bad in [
+            format!(r#"{{"version":"{current}"}}"#),
+            format!(r#"{{"version":"{current}","request":{{}},"more":1}}"#),
+            "not json".to_owned(),
+            "[]".to_owned(),
+        ] {
+            assert_eq!(asked(bad.as_bytes()), Err(ErrorCode::BadRequest), "{bad}");
+        }
+        assert!(accepted_version(MIN_EXTENSION_VERSION));
+        assert!(!accepted_version("0.0.1"));
+    }
+
+    #[test]
+    fn the_refusal_names_the_floor_and_the_extension_the_app_carries() {
+        let refusal: serde_json::Value = serde_json::from_slice(&outdated(Some("0.4.9"))).unwrap();
+        assert_eq!(
+            refusal,
+            serde_json::json!({
+                "type": "error",
+                "code": "outdated_extension",
+                "minimum": MIN_EXTENSION_VERSION,
+                "extension_version": "0.4.9",
+            })
+        );
+        let plain: serde_json::Value = serde_json::from_slice(&outdated(None)).unwrap();
+        assert_eq!(plain.get("extension_version"), None);
     }
 }

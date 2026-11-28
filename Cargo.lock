@@ -7658,6 +7658,7 @@ dependencies = [
  "url",
  "vault-core",
  "vault-platform",
+ "vault-sync-wire",
  "zeroize",
 ]
 

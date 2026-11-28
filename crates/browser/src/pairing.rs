@@ -28,11 +28,11 @@
 //! to connect only when the extension shows the same one, and a second request while one waits
 //! is said there too.
 //!
-//! An extension older than this asks with a bare `{"type":"pair"}` and is handed a random key
-//! (with a six-digit code derived from it, which the person types into the app: whatever asked
-//! knows that code, so the app never shows it). That key passes through whatever is in between.
-//! It is still answered, so an extension not reloaded yet can connect, until a version floor
-//! ends it.
+//! The extension names its version in step 1 (`"version":"0.4.8"`, its manifest's), and the
+//! app connects only one of [`crate::protocol::MIN_EXTENSION_VERSION`] or later. An extension
+//! older than the key agreement asked with a bare `{"type":"pair"}` and was handed a random
+//! key, which passed through whatever was in between: it is refused now
+//! ([`Envelope::Outdated`]), as is every one that names no version or an older one.
 //!
 //! **Asking.** Every request is sealed (AES-256-GCM) with a key derived from `K`, and so is
 //! every answer to it:
@@ -46,17 +46,19 @@
 //! - Its answer: `{"type":"sealed","data":base64(m ‖ AES-256-GCM(K_ans, m, answer,
 //!   aad = "vault-browser/answer" ‖ c ‖ n))}` with a random `m`: bound to the very request it
 //!   answers, so an old answer can't be passed off for a new request.
-//! - Only the answers given before any trust (not connected, not running, not understood) are
-//!   plain: they tell nothing.
+//! - Only the answers given before any trust (not connected, not running, not understood, too
+//!   old) are plain: they tell nothing.
+//! - Inside, the text is `{"version":…,"request":{…}}` (`protocol::asked`): an extension below
+//!   the version floor is refused, sealed, with nothing else said.
 //!
 //! So a program in between reads nothing (not the logins, not a password being filled or
 //! saved, not the PIN typed for a locked login) and can't forge an answer (a generated password
 //! it knows, a passkey of its own). Nonces are random, never the counter: the set of counters
 //! seen starts empty each time the app starts.
 //!
-//! An extension older than sealed requests signs them instead
-//! (`{"type":"signed","counter","body","mac"}`, `mac = HMAC-SHA-256(K, c as 8 bytes LE ‖ body)`)
-//! and gets plain answers, as it always did.
+//! An extension older than sealed requests signed them instead
+//! (`{"type":"signed","counter","body","mac"}`) and got plain answers: it is refused now, plain
+//! (`outdated_extension`), and reads nothing.
 //!
 //! The extension keeps `K` as a browser key object that scripts can't read back. The app keeps
 //! it sealed with the vault, so it is readable only while the vault is open (plus a copy
@@ -72,7 +74,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use hkdf::Hkdf;
 use hmac::{Hmac, KeyInit, Mac};
 use p256::{PublicKey, SecretKey, ecdh::diffie_hellman, elliptic_curve::sec1::ToSec1Point};
-use serde::Deserialize;
+use serde::{Deserialize, de::IgnoredAny};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
@@ -146,20 +148,9 @@ impl PairingKey {
         &self.0
     }
 
-    /// The key as hex, to hand to an extension older than the key agreement, once.
+    /// The key as hex, wiped on drop.
     pub fn to_hex(&self) -> Zeroizing<String> {
         Zeroizing::new(self.0.iter().map(|b| format!("{b:02x}")).collect())
-    }
-
-    /// The code of a key handed over whole (an older extension's connection): six digits
-    /// both sides show while the person decides ("482 913"). Not a secret.
-    pub fn code(&self) -> String {
-        six_digits(
-            &Sha256::new()
-                .chain_update(CODE_LABEL)
-                .chain_update(self.0.as_ref())
-                .finalize(),
-        )
     }
 
     /// One block of HKDF-SHA-256-Expand with this key as the PRK (see the module's notes).
@@ -290,20 +281,6 @@ impl PairingKey {
         let text = std::str::from_utf8(&text).ok()?;
         Some(Zeroizing::new(text.to_owned()))
     }
-
-    /// Whether `mac` (hex) is HMAC-SHA-256(key, counter as 8 bytes little-endian ‖ body): an
-    /// older extension's signed request.
-    pub fn verify(&self, counter: u64, body: &[u8], mac: &str) -> bool {
-        let Some(mac) = from_hex::<32>(mac) else {
-            return false;
-        };
-        let Ok(mut hmac) = <Hmac<Sha256> as KeyInit>::new_from_slice(self.0.as_ref()) else {
-            return false;
-        };
-        hmac.update(&counter.to_le_bytes());
-        hmac.update(body);
-        hmac.verify_slice(&mac).is_ok()
-    }
 }
 
 fn request_aad(counter: u64) -> Vec<u8> {
@@ -312,12 +289,6 @@ fn request_aad(counter: u64) -> Vec<u8> {
 
 fn answer_aad(counter: u64, request_nonce: &[u8; NONCE_LEN]) -> Vec<u8> {
     [ANSWER_LABEL, &counter.to_le_bytes(), request_nonce].concat()
-}
-
-/// "482 913": six digits from the first four bytes of a hash.
-fn six_digits(hash: &[u8]) -> String {
-    let number = u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]]) % 1_000_000;
-    format!("{:03} {:03}", number / 1000, number % 1000)
 }
 
 fn to_hex(bytes: &[u8]) -> String {
@@ -338,28 +309,12 @@ fn from_hex<const N: usize>(text: &str) -> Option<[u8; N]> {
 
 // ---- connecting ----
 
-/// A connection waiting for the person's approval in the app: its key, and the code the
-/// extension shows for it.
+/// A connection waiting for the person's approval in the app: its key, and the code both
+/// sides show for it, which the person compares.
 #[derive(Clone, Debug)]
 pub struct Pending {
     pub key: PairingKey,
     pub code: String,
-    /// Agreed by ECDH: the app shows the code and the person compares the two. Otherwise (a
-    /// key handed over to an older extension) the person types the extension's code, and the
-    /// app never shows it.
-    pub compared: bool,
-}
-
-impl Pending {
-    /// For an extension older than the key agreement: a random key, handed to it whole.
-    pub fn handed_over() -> Option<Self> {
-        let key = PairingKey::generate()?;
-        Some(Self {
-            code: key.code(),
-            key,
-            compared: false,
-        })
-    }
 }
 
 /// The code both sides of a key agreement show ("74At LSYM"; see the module's notes).
@@ -436,7 +391,6 @@ fn agree(
     Some(Pending {
         key: PairingKey(key),
         code: agreed_code(extension, app),
-        compared: true,
     })
 }
 
@@ -559,9 +513,8 @@ impl Replay {
 pub enum Envelope {
     /// "Is the app there?" Answered to anyone: it tells nothing but locked or not.
     Status,
-    /// "Connect me", from an extension older than the key agreement: it is handed a key.
-    Pair,
-    /// "Connect me": the extension's commitment to its public key (step 1).
+    /// "Connect me": the extension's commitment to its public key (step 1), from an extension
+    /// the app answers.
     PairCommit {
         commit: String,
     },
@@ -574,13 +527,10 @@ pub enum Envelope {
         counter: u64,
         data: String,
     },
-    /// An older extension's request ([`crate::protocol::Request`] as JSON in `body`) with its
-    /// proof.
-    Signed {
-        counter: u64,
-        body: String,
-        mac: String,
-    },
+    /// From an extension older than the version floor (`protocol::MIN_EXTENSION_VERSION`):
+    /// a bare `pair` or a `signed` request (extensions older than the sealed link), or a `pair`
+    /// that names an older version or none. Refused plain, `outdated_extension`.
+    Outdated,
     Invalid,
 }
 
@@ -590,6 +540,7 @@ enum Outer {
     Status {},
     Pair {
         commit: Option<String>,
+        version: Option<String>,
     },
     PairKey {
         key: String,
@@ -598,10 +549,14 @@ enum Outer {
         counter: u64,
         data: String,
     },
+    /// Read only to be recognised: nothing in it is kept.
     Signed {
-        counter: u64,
-        body: String,
-        mac: String,
+        #[serde(rename = "counter")]
+        _counter: IgnoredAny,
+        #[serde(rename = "body")]
+        _body: IgnoredAny,
+        #[serde(rename = "mac")]
+        _mac: IgnoredAny,
     },
 }
 
@@ -609,13 +564,13 @@ impl Envelope {
     pub fn parse(message: &[u8]) -> Self {
         match serde_json::from_slice::<Outer>(message) {
             Ok(Outer::Status {}) => Self::Status,
-            Ok(Outer::Pair { commit: None }) => Self::Pair,
             Ok(Outer::Pair {
                 commit: Some(commit),
-            }) => Self::PairCommit { commit },
+                version: Some(version),
+            }) if crate::protocol::accepted_version(&version) => Self::PairCommit { commit },
+            Ok(Outer::Pair { .. } | Outer::Signed { .. }) => Self::Outdated,
             Ok(Outer::PairKey { key }) => Self::PairKey { key },
             Ok(Outer::Sealed { counter, data }) => Self::Sealed { counter, data },
-            Ok(Outer::Signed { counter, body, mac }) => Self::Signed { counter, body, mac },
             Err(_) => Self::Invalid,
         }
     }
@@ -624,13 +579,6 @@ impl Envelope {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn sign(key: &PairingKey, counter: u64, body: &[u8]) -> String {
-        let mut hmac = <Hmac<Sha256> as KeyInit>::new_from_slice(key.as_bytes()).unwrap();
-        hmac.update(&counter.to_le_bytes());
-        hmac.update(body);
-        to_hex(&hmac.finalize().into_bytes())
-    }
 
     const COUNTER: u64 = 1_800_000_000_123;
     const REQUEST: &[u8] = br#"{"type":"logins","url":"https://github.com/"}"#;
@@ -766,8 +714,12 @@ mod tests {
         assert_eq!(joiner.public_hex(), extension);
         let commit = "56135d400b11486d786cc15da678e0498718808a61cd417e7bc3b40405d108e8";
         assert_eq!(joiner.commit_hex(), commit);
+        let current = crate::protocol::MIN_EXTENSION_VERSION;
         assert_eq!(
-            Envelope::parse(format!(r#"{{"type":"pair","commit":"{commit}"}}"#).as_bytes()),
+            Envelope::parse(
+                format!(r#"{{"type":"pair","commit":"{commit}","version":"{current}"}}"#)
+                    .as_bytes()
+            ),
             Envelope::PairCommit {
                 commit: commit.into()
             }
@@ -814,7 +766,6 @@ mod tests {
         );
         assert_eq!(honest.0.key.as_bytes(), honest.1.key.as_bytes());
         assert_eq!(honest.0.code, honest.1.code);
-        assert!(honest.0.compared && honest.1.compared);
         // Eight characters of the alphabet, in two groups of four.
         let (left, right) = honest.0.code.split_once(' ').unwrap();
         assert_eq!((left.len(), right.len()), (4, 4));
@@ -832,40 +783,41 @@ mod tests {
     }
 
     #[test]
-    fn older_extensions_sign_their_requests() {
-        let key = PairingKey::from_bytes(&[7u8; 32]).unwrap();
-        let other = PairingKey::from_bytes(&[8u8; 32]).unwrap();
-        assert!(PairingKey::from_bytes(&[7u8; 31]).is_none());
-        let body = br#"{"type":"logins","url":"https://github.com/"}"#;
-        let mac = sign(&key, 1_000, body);
-        assert!(key.verify(1_000, body, &mac));
-        assert!(!key.verify(1_001, body, &mac), "the counter is signed");
-        assert!(!key.verify(1_000, b"{}", &mac), "the body is signed");
-        assert!(!other.verify(1_000, body, &mac));
-        for bad in ["", "zz", &mac[..62], &format!("{mac}00"), &"é".repeat(32)] {
-            assert!(!key.verify(1_000, body, bad));
+    fn extensions_below_the_version_floor_are_refused() {
+        let commit = "56".repeat(32);
+        let pair = |version: &str| {
+            Envelope::parse(
+                format!(r#"{{"type":"pair","commit":"{commit}","version":"{version}"}}"#)
+                    .as_bytes(),
+            )
+        };
+        assert!(matches!(
+            pair(crate::protocol::MIN_EXTENSION_VERSION),
+            Envelope::PairCommit { .. }
+        ));
+        assert!(matches!(pair("9.0.0"), Envelope::PairCommit { .. }));
+        for old in ["0.4.6", "0.0.1", "", "0.4", "newest"] {
+            assert_eq!(pair(old), Envelope::Outdated, "{old}");
         }
-        // RFC 4231 test case 2, to pin the construction (counter 0 would prefix eight zero
-        // bytes, so the vector is checked on the raw primitive).
-        let mut rfc = <Hmac<Sha256> as KeyInit>::new_from_slice(b"Jefe").unwrap();
-        rfc.update(b"what do ya want for nothing?");
-        assert_eq!(rfc.finalize().into_bytes()[..4], [0x5b, 0xdc, 0xc1, 0x46]);
-        assert!(!format!("{key:?}").contains('7'));
+        // An extension older than the key agreement asked to be handed a key; one older than
+        // versions commits without naming one; one older than sealed requests signs them.
+        // None of them is answered but with "too old".
+        let current = crate::protocol::MIN_EXTENSION_VERSION;
+        for old in [
+            r#"{"type":"pair"}"#.to_owned(),
+            format!(r#"{{"type":"pair","commit":"{commit}"}}"#),
+            format!(r#"{{"type":"pair","version":"{current}"}}"#),
+            format!(
+                r#"{{"type":"signed","counter":5,"body":"{{\"type\":\"status\"}}","mac":"{}"}}"#,
+                "ab".repeat(32)
+            ),
+        ] {
+            assert_eq!(Envelope::parse(old.as_bytes()), Envelope::Outdated, "{old}");
+        }
+        assert!(PairingKey::from_bytes(&[7u8; 31]).is_none());
+        let key = PairingKey::from_bytes(&[7u8; 32]).unwrap();
         assert_eq!(key.to_hex().len(), 64);
-        // Handed over whole, with the code that follows from it.
-        let pending = Pending::handed_over().unwrap();
-        assert_eq!(pending.code, pending.key.code());
-        assert!(!pending.compared, "typed, never shown by the app");
-    }
-
-    #[test]
-    fn the_code_is_six_digits_and_follows_the_key() {
-        let a = PairingKey::from_bytes(&[1u8; 32]).unwrap().code();
-        let b = PairingKey::from_bytes(&[2u8; 32]).unwrap().code();
-        assert_ne!(a, b);
-        assert_eq!(a.len(), 7);
-        assert!(a.chars().all(|c| c.is_ascii_digit() || c == ' '));
-        assert_eq!(a, PairingKey::from_bytes(&[1u8; 32]).unwrap().code());
+        assert!(!format!("{key:?}").contains('7'));
     }
 
     #[test]
@@ -897,22 +849,19 @@ mod tests {
     #[test]
     fn envelopes_are_strict() {
         assert_eq!(Envelope::parse(br#"{"type":"status"}"#), Envelope::Status);
-        assert_eq!(Envelope::parse(br#"{"type":"pair"}"#), Envelope::Pair);
+        assert_eq!(Envelope::parse(br#"{"type":"pair"}"#), Envelope::Outdated);
         assert_eq!(
             Envelope::parse(br#"{"type":"pair_key","key":"04ab"}"#),
             Envelope::PairKey { key: "04ab".into() }
         );
         assert_eq!(
             Envelope::parse(br#"{"type":"signed","counter":5,"body":"{}","mac":"ab"}"#),
-            Envelope::Signed {
-                counter: 5,
-                body: "{}".into(),
-                mac: "ab".into()
-            }
+            Envelope::Outdated
         );
         for bad in [
             &br#"{"type":"logins","url":"https://github.com/"}"#[..],
             br#"{"type":"signed","counter":5,"body":"{}"}"#,
+            br#"{"type":"signed","counter":5,"body":"{}","mac":"ab","more":1}"#,
             br#"{"type":"sealed","counter":5}"#,
             br#"{"type":"sealed","counter":5,"data":"","mac":"ab"}"#,
             br#"{"type":"pair","extra":true}"#,
