@@ -22,7 +22,9 @@ import java.util.Objects;
  * A form's fields are all of one origin: the app's own, or one web view's fields of one domain
  * and scheme. A screen may show several (a page with another site's frame in it, an app's own
  * fields next to a web page); a domain counts only for the fields under the node that gives it,
- * and fields of two origins are never one form.
+ * and fields of two origins are never one form. A form in a frame of another site than the
+ * page around it ({@link #framedByAnotherSite}) gets no offer and saves nothing (AutoFail,
+ * USENIX Security 2026: the person sees the page, not the frame).
  */
 final class Fields {
     AutofillId username;
@@ -34,6 +36,11 @@ final class Fields {
     String webDomain;
     /** The page's scheme, when the web view gives it ("https"). */
     String webScheme;
+    /**
+     * The domain of the top page of the web view the fields are in ("" when it gives none):
+     * {@link #webDomain} itself unless the fields are in a frame of another domain.
+     */
+    String topDomain;
     /** What the fields hold (for "Save to Vault?"). */
     String usernameValue;
     String passwordValue;
@@ -101,8 +108,9 @@ final class Fields {
                 // This node, and what is under it, is a web page (or another page inside one).
                 // One with a scheme and no host (a "data:" page) is nobody's site: neither the
                 // app's own fields nor the page's around it.
-                here = page(around.web == null ? node : around.web,
-                        domain == null ? "" : domain, scheme);
+                String page = domain == null ? "" : domain;
+                here = page(around.web == null ? node : around.web, page, scheme,
+                        around.web == null ? page : around.topDomain);
             }
             if (node.isFocused()) {
                 // The innermost one: a web view has the focus along with the field in it.
@@ -114,7 +122,7 @@ final class Fields {
             }
         }
 
-        private Fields page(ViewNode web, String domain, String scheme) {
+        private Fields page(ViewNode web, String domain, String scheme, String top) {
             domain = domain.toLowerCase(Locale.ROOT);
             scheme = scheme == null ? null : scheme.toLowerCase(Locale.ROOT);
             for (Fields form : forms) {
@@ -127,9 +135,21 @@ final class Fields {
             form.web = web;
             form.webDomain = domain;
             form.webScheme = scheme;
+            form.topDomain = top.toLowerCase(Locale.ROOT);
             forms.add(form);
             return form;
         }
+    }
+
+    /**
+     * The fields are in a frame whose domain isn't the top page's, nor of the same site
+     * ({@code Autofill.sameSite}: the same registrable domain, as a sign-in served from the
+     * site's own accounts host). When the web view names no top page, it can't be told, and
+     * the frame's own domain is all there is.
+     */
+    boolean framedByAnotherSite() {
+        return webDomain != null && topDomain != null && !topDomain.isEmpty()
+                && !topDomain.equals(webDomain) && !Autofill.sameSite(topDomain, webDomain);
     }
 
     private boolean signsIn() {

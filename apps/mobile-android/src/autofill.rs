@@ -244,6 +244,21 @@ pub extern "system" fn Java_org_passwordvault_phone_Autofill_suggest<'local>(
     }
 }
 
+/// `Autofill.sameSite`: whether a frame at `frame` inside a page at `top` are one site's
+/// (`autofill::same_site`); a login is neither offered nor saved in a frame of another one.
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_passwordvault_phone_Autofill_sameSite<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    top: JString<'local>,
+    frame: JString<'local>,
+) -> jboolean {
+    let top = string(&mut env, &top).unwrap_or_default();
+    let frame = string(&mut env, &frame).unwrap_or_default();
+    jboolean::from(!top.is_empty() && !frame.is_empty() && autofill::same_site(&top, &frame))
+}
+
 /// `Autofill.NOT_SAVED`, `SAVED` and `SAVED_BESIDE`: what `Autofill.save` answers.
 const NOT_SAVED: jint = 0;
 const SAVED: jint = 1;

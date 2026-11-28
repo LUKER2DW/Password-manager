@@ -74,6 +74,12 @@ final class Autofill {
     /** A strong password from the app's generator. */
     static native String suggest();
 
+    /**
+     * Whether a frame at {@code frame} inside a page at {@code top} are one site's (the same
+     * registrable domain); false when either is empty.
+     */
+    static native boolean sameSite(String top, String frame);
+
     /** One line of the offer: a name, and under it, smaller, another. */
     static RemoteViews row(Context context, String first, String second) {
         RemoteViews row = new RemoteViews(context.getPackageName(), id(context, "layout", "autofill_row"));

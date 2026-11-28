@@ -60,7 +60,8 @@ public class VaultAutofillService extends AutofillService {
             return;
         }
         Fields fields = Fields.find(structure);
-        if (fields.password == null && fields.username == null) {
+        // A frame of another site than the page around it: nothing is offered (Fields).
+        if ((fields.password == null && fields.username == null) || fields.framedByAnotherSite()) {
             callback.onSuccess(null);
             return;
         }
@@ -166,7 +167,8 @@ public class VaultAutofillService extends AutofillService {
         Bundle state = request.getClientState();
         AutofillId password = state == null ? null : state.getParcelable(AutofillActivity.PASSWORD);
         Fields fields = password == null ? null : Fields.holding(structure, password);
-        if (fields != null && (fields.passwordValue == null || fields.passwordValue.isEmpty())) {
+        if (fields != null && (fields.passwordValue == null || fields.passwordValue.isEmpty()
+                || fields.framedByAnotherSite())) {
             callback.onSuccess();
             return;
         }
