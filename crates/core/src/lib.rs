@@ -34,6 +34,7 @@ mod vault;
 pub mod attempts;
 pub mod drop_box;
 pub mod generator;
+pub mod hardware_key;
 pub mod health;
 pub mod identity;
 pub mod kept_key;
