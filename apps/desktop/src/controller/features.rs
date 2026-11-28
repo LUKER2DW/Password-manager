@@ -645,6 +645,12 @@ impl Controller {
                     .unwrap_or_default();
                 entries.push((4, *id, expiry, 0, (-1, 0)));
             }
+            // An expiry date (format v11) past or within 30 days: told apart by `weakness` 1.
+            for (id, at) in &report.expiring {
+                if !report.expired_cards.contains(id) {
+                    entries.push((4, *id, view::date(*at), 1, (-1, 0)));
+                }
+            }
             let troubled: std::collections::HashSet<ItemId> = entries
                 .iter()
                 .filter(|(group, ..)| *group < 4)

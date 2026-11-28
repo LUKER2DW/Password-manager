@@ -2,7 +2,7 @@
 //! website or image link), deleting, and reordering by drag or from the right-click menu.
 
 use slint::{Image, SharedString};
-use vault_core::FolderId;
+use vault_core::{FolderBrowser, FolderId};
 
 use super::{CURRENT, Controller, FOLDER_CATEGORY, Runner, error, notice};
 use vault_platform::website_icons::IconSource;
@@ -50,6 +50,9 @@ impl Controller {
         app.set_fd_icon(SharedString::new());
         app.set_fd_color(0);
         app.set_fd_link(SharedString::new());
+        app.set_fd_browser(0);
+        app.set_fd_paired(self.browser_pairing_id().is_some());
+        self.state.borrow_mut().dialog_folder_browser = None;
         self.show_folder_preview(None, PREVIEW_NONE);
         self.set_error(error::NONE, "");
         app.set_folder_dialog(NEW);
@@ -85,6 +88,14 @@ impl Controller {
         app.set_fd_color(i32::from(folder.color));
         app.set_fd_link(SharedString::from(folder.icon_url.as_str()));
         app.set_fd_items(i32::try_from(items).unwrap_or(i32::MAX));
+        app.set_fd_browser(match folder.browser {
+            FolderBrowser::Any => 0,
+            FolderBrowser::Never => 1,
+            FolderBrowser::Only(_) => 2,
+        });
+        app.set_fd_paired(self.browser_pairing_id().is_some());
+        // Kept to a pairing: kept as it is unless the person picks another choice.
+        self.state.borrow_mut().dialog_folder_browser = Some(folder.browser);
         let picture = self.folder_picture(&folder.icon_url);
         let state = if picture.is_some() {
             PREVIEW_FOUND
@@ -185,6 +196,17 @@ impl Controller {
         }
         let icon = app.get_fd_icon().to_string();
         let color = u8::try_from(app.get_fd_color().clamp(0, 15)).unwrap_or(0);
+        let kept = self.state.borrow().dialog_folder_browser;
+        let browser = match app.get_fd_browser() {
+            1 => FolderBrowser::Never,
+            2 => match (kept, self.browser_pairing_id()) {
+                (Some(FolderBrowser::Only(id)), _) => FolderBrowser::Only(id),
+                (_, Some(id)) => FolderBrowser::Only(id),
+                // No extension connected: kept out rather than open to any.
+                (_, None) => FolderBrowser::Never,
+            },
+            _ => FolderBrowser::Any,
+        };
         let editing = self.state.borrow().dialog_folder;
         let result = self.state.borrow_mut().session.as_mut().map(|s| {
             let id = match editing {
@@ -193,6 +215,7 @@ impl Controller {
             }?;
             s.vault.style_folder(&id, &icon, color)?;
             s.vault.set_folder_icon_url(&id, &link)?;
+            s.vault.set_folder_browser(&id, browser)?;
             Ok(id)
         });
         match result {

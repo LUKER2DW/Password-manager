@@ -2,7 +2,7 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Sketch } from "theme.slint";
-import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock } from "model.slint";
+import { DetailField, FileRow, PasskeyRow, CodeRow, AuthRow, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock } from "model.slint";
 import { FieldIcon, Glyph, BrandMark, FieldColors, SourceMark, SourcePicker, IconLook, FolderLook } from "icons.slint";
 import { Button, QuietButton, EyeButton, LineField, NotesField, SecretField, Check, Stepper, Choice, Rule, Hint, ItemIcon, Slider, Dropdown } from "widgets.slint";
 import { KitSlip, PdfPassword } from "kit.slint";
@@ -276,7 +276,23 @@ export component DetailPage inherits Rectangle {
     callback clear-history();
     callback edit();
     callback toggle-favorite();
+    // Puts the item in the trash (`delete-for-good` deletes one already there).
     callback delete();
+    // Format v11: the trash, the archive, templates, tags, expiry, earlier versions.
+    in property <bool> trashed;
+    in property <bool> archived;
+    in property <bool> template;
+    in property <bool> no-browser;
+    in property <string> tags;
+    in property <string> expires;
+    in property <bool> expired;
+    in property <[VersionRow]> versions;
+    in-out property <bool> versions-shown;
+    callback restore-item();
+    callback delete-for-good();
+    callback toggle-archive();
+    callback new-from-template();
+    callback restore-version(int);
     callback reveal();
     callback conceal();
     callback copy-username();
@@ -356,6 +372,15 @@ export component DetailPage inherits Rectangle {
                             : Messages.kind-name(root.kind);
                         font-size: Theme.small;
                         color: Theme.graphite;
+                    }
+                    if root.trashed || root.archived || root.template || root.no-browser: Text {
+                        text: root.trashed ? @tr("In the trash: deleted for good 30 days after it was put there.")
+                            : root.archived ? @tr("Archived: kept, but out of search, filling and health.")
+                            : root.template ? @tr("A template: new items can start from it.")
+                            : @tr("Kept out of the browser.");
+                        font-size: Theme.small;
+                        color: root.trashed ? Theme.seal : Theme.graphite;
+                        wrap: word-wrap;
                     }
                 }
                 VerticalLayout {
@@ -771,9 +796,69 @@ export component DetailPage inherits Rectangle {
                 }
             }
 
+            if root.tags != "": FieldRow {
+                label: @tr("Tags");
+                icon: "list";
+                value: root.tags;
+            }
+            if root.expires != "": FieldRow {
+                label: @tr("Expires");
+                icon: "clock";
+                value: root.expired ? @tr("{} (expired)", root.expires) : root.expires;
+                warning: root.expired;
+            }
+
+            // Earlier versions of the whole item, kept on every change (format v11).
+            if root.versions.length > 0: FieldRow {
+                label: @tr("Earlier versions");
+                icon: "history";
+                value: @tr("{n} earlier version" | "{n} earlier versions" % root.versions.length);
+                EyeButton {
+                    open: root.versions-shown;
+                    clicked => { root.versions-shown = !root.versions-shown; }
+                }
+            }
+            if root.versions-shown && root.versions.length > 0: VerticalLayout {
+                padding-top: 6px;
+                padding-bottom: 10px;
+                spacing: 2px;
+                for version[index] in root.versions: Rectangle {
+                    height: 36px;
+                    border-radius: Theme.radius;
+                    background: version-touch.has-hover ? Theme.hover : transparent;
+                    version-touch := TouchArea { }
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 4px;
+                        spacing: 10px;
+                        Text {
+                            width: 176px;
+                            text: version.date;
+                            font-size: Theme.small;
+                            color: Theme.graphite;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            text: version.summary;
+                            font-size: Theme.body;
+                            color: Theme.ink;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        QuietButton {
+                            text: @tr("Restore");
+                            enabled: !root.locked && !root.trashed;
+                            clicked => { root.restore-version(index); }
+                        }
+                    }
+                }
+            }
+
             Rectangle { height: 26px; }
 
-            if !root.confirming-delete: HorizontalLayout {
+            if !root.confirming-delete && !root.trashed: HorizontalLayout {
                 alignment: start;
                 spacing: 6px;
                 if root.guarded-open: QuietButton {
@@ -787,9 +872,35 @@ export component DetailPage inherits Rectangle {
                     enabled: !root.locked;
                     clicked => { root.edit(); }
                 }
+                if root.template: QuietButton {
+                    outlined: true;
+                    text: @tr("New item from it");
+                    clicked => { root.new-from-template(); }
+                }
                 QuietButton {
                     outlined: true;
-                    text: @tr("Delete");
+                    text: root.archived ? @tr("Take out of the archive") : @tr("Archive");
+                    clicked => { root.toggle-archive(); }
+                }
+                QuietButton {
+                    outlined: true;
+                    text: @tr("Move to the trash");
+                    tint: Theme.seal;
+                    enabled: !root.locked;
+                    clicked => { root.delete(); }
+                }
+            }
+            if !root.confirming-delete && root.trashed: HorizontalLayout {
+                alignment: start;
+                spacing: 6px;
+                QuietButton {
+                    outlined: true;
+                    text: @tr("Restore");
+                    clicked => { root.restore-item(); }
+                }
+                QuietButton {
+                    outlined: true;
+                    text: @tr("Delete for good");
                     tint: Theme.seal;
                     enabled: !root.locked;
                     clicked => { root.confirming-delete = true; }
@@ -798,7 +909,7 @@ export component DetailPage inherits Rectangle {
             if root.confirming-delete: VerticalLayout {
                 spacing: 12px;
                 Text {
-                    text: @tr("Delete “{}”? This can't be undone.", root.title);
+                    text: @tr("Delete “{}” for good? This can't be undone.", root.title);
                     font-size: Theme.body;
                     color: Theme.ink;
                     wrap: word-wrap;
@@ -807,9 +918,9 @@ export component DetailPage inherits Rectangle {
                     alignment: start;
                     spacing: 8px;
                     Button {
-                        text: @tr("Delete");
+                        text: @tr("Delete for good");
                         danger: true;
-                        clicked => { root.delete(); }
+                        clicked => { root.delete-for-good(); }
                     }
                     VerticalLayout {
                         alignment: center;
@@ -1022,6 +1133,12 @@ export component EditorPage inherits Rectangle {
     in-out property <string> notes;
     in-out property <bool> favorite;
     in-out property <bool> reprompt;
+    // Format v11: tags (comma-separated), an expiry date (YYYY-MM-DD), kept out of the
+    // browser, a template.
+    in-out property <string> tags;
+    in-out property <string> expires;
+    in-out property <bool> no-browser;
+    in-out property <bool> template;
     // "No folder" first, then every folder; `folder` indexes this list.
     in property <[string]> folder-options;
     in-out property <int> folder;
@@ -1095,7 +1212,7 @@ export component EditorPage inherits Rectangle {
                 }
                 // 3 is a login made for its two-step codes only (no password).
                 Choice {
-                    options: [@tr("Login"), @tr("Card"), @tr("Secure note"), @tr("Authenticator"), @tr("SSH key")];
+                    options: [@tr("Login"), @tr("Card"), @tr("Secure note"), @tr("Authenticator"), @tr("SSH key"), @tr("Identity")];
                     selected <=> root.kind;
                 }
             }
@@ -1225,7 +1342,7 @@ export component EditorPage inherits Rectangle {
                 spacing: 16px;
                 LineField {
                     horizontal-stretch: 1;
-                    label: root.kind == 1 ? @tr("Name on card") : root.kind == 3 ? @tr("Account") : root.kind == 4 ? @tr("User or comment") : @tr("Username or email");
+                    label: root.kind == 1 ? @tr("Name on card") : root.kind == 3 ? @tr("Account") : root.kind == 4 ? @tr("User or comment") : root.kind == 5 ? @tr("Full name") : @tr("Username or email");
                     icon: "user";
                     placeholder: root.kind == 1 ? "" : @tr("you@example.com");
                     text <=> root.username;
@@ -1599,6 +1716,48 @@ export component EditorPage inherits Rectangle {
                     alignment: center;
                     Hint {
                         text: @tr("For the accounts that matter most (bank, main email). The item still shows its name, username and website, but its password, codes and hidden fields open only after a second check: your master password, or the PIN or password chosen in Settings → Item lock. Editing and deleting need it too. Settings can also lock every item at once.");
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 16px;
+                LineField {
+                    horizontal-stretch: 2;
+                    label: @tr("Tags");
+                    icon: "tag";
+                    placeholder: @tr("work, bank");
+                    text <=> root.tags;
+                }
+                LineField {
+                    horizontal-stretch: 1;
+                    label: @tr("Expires");
+                    icon: "calendar";
+                    placeholder: @tr("YYYY-MM-DD");
+                    text <=> root.expires;
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Check {
+                    text: @tr("Keep out of the browser");
+                    checked <=> root.no-browser;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Hint {
+                        text: @tr("The browser extension never gets this item: not listed, not filled, not compared, not in the file for filling while locked. A folder can be kept out of the browser too (its settings).");
+                    }
+                }
+                Rectangle { width: 16px; }
+                Check {
+                    text: @tr("Use as a template");
+                    checked <=> root.template;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Hint {
+                        text: @tr("A template is a shape for new items: its websites, tags, folder and fields, without its secrets. Templates are listed apart and never filled.");
                     }
                 }
             }
@@ -2447,6 +2606,7 @@ export component SettingsPage inherits Rectangle {
     in-out property <bool> browser-warnings;
     in-out property <bool> browser-fill-notices;
     in-out property <bool> browser-always-asks;
+    in-out property <bool> browser-whole-vault;
     in property <int> browser-ask-way;
     in property <bool> quick-unlock-available;
     in-out property <bool> quick-unlock-on;
@@ -3318,6 +3478,21 @@ export component SettingsPage inherits Rectangle {
                             font-size: Theme.small;
                             color: Theme.seal;
                             overflow: elide;
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Check {
+                                text: @tr("List every login in the extension's window");
+                                checked <=> root.browser-whole-vault;
+                                toggled => { root.settings-changed(); }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Hint {
+                                    text: @tr("Off, the extension's window lists only the logins of the open site: whoever copied the extension's key from this browser learns no more than the sites it asks about. Items and folders kept out of the browser are never listed.");
+                                }
+                            }
                         }
                         HorizontalLayout {
                             spacing: 8px;
@@ -4488,7 +4663,7 @@ export component HealthPage inherits Rectangle {
                     clicked => { root.filter = root.filter == 3 ? -1 : 3; root.filter-changed(root.filter); }
                 }
                 HealthTile {
-                    label: @tr("Expired cards");
+                    label: @tr("Expiring");
                     icon: "expired";
                     count: root.counts[4];
                     active: root.filter == 4;
@@ -4595,6 +4770,7 @@ export component HealthPage inherits Rectangle {
                                     : row.problem == 2 ? (row.weakness != 0 ? Messages.weakness(row.weakness) : @tr("Easy to guess"))
                                     : row.problem == 3 ? @tr("Same password as {n} other login" | "Same password as {n} other logins" % row.count)
                                     : row.problem == 4 ? @tr("Last changed {}", Messages.ago(row.age-unit, row.age-amount))
+                                    : row.weakness == 1 ? @tr("Expiry date {}", row.detail)
                                     : @tr("Expired in {}", row.detail);
                                 font-size: Theme.small;
                                 color: row.problem <= 3 ? Theme.seal : Theme.graphite;

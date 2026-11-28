@@ -2,7 +2,7 @@
 
 import { Theme } from "theme.slint";
 import { ExportCounts, Messages } from "model.slint";
-import { Button, QuietButton, LineField, Hint, SecretField } from "widgets.slint";
+import { Button, QuietButton, LineField, Hint, SecretField, Choice } from "widgets.slint";
 import { Glyph, FolderLook, FieldColors } from "icons.slint";
 import { NewPassword, PasswordReview, LeakCheckBox } from "review.slint";
 
@@ -207,6 +207,10 @@ export component FolderDialog inherits Modal {
     in property <int> error-code;
     in property <string> error-detail;
     in property <int> item-count;
+    // Which browsers reach its items (S18): 0 every paired one, 1 none, 2 only the one
+    // connected now (offered while one is).
+    in-out property <int> browser;
+    in property <bool> paired;
     callback save();
     callback fetch-preview();
     callback delete();
@@ -383,6 +387,28 @@ export component FolderDialog inherits Modal {
             font-size: Theme.small;
             color: Theme.graphite;
             wrap: word-wrap;
+        }
+    }
+
+    if root.mode != 2: VerticalLayout {
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: @tr("The browser extension");
+                font-size: Theme.small;
+                color: Theme.graphite;
+                vertical-alignment: center;
+            }
+            Hint {
+                text: @tr("Kept out, the extension never gets this folder's items: not listed, not filled, not compared. Only this browser: the extension connected now gets them, and no other, here or on another computer, even one connected again later.");
+            }
+        }
+        Choice {
+            options: root.paired || root.browser == 2
+                ? [@tr("Reaches its items"), @tr("Kept out"), @tr("Only this browser")]
+                : [@tr("Reaches its items"), @tr("Kept out")];
+            selected <=> root.browser;
         }
     }
 

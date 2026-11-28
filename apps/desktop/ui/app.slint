@@ -2,7 +2,7 @@ import { Theme, Sketch, Secrets } from "theme.slint";
 // The monospace font, built in (see Theme.mono-font).
 import "fonts/JetBrainsMono-Regular.ttf";
 import "fonts/JetBrainsMono-SemiBold.ttf";
-import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, GeneratedRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock } from "model.slint";
+import { FileRow, PasskeyRow, Screen, Panel, ItemRow, DetailField, FolderRow, CodeRow, AuthRow, RecentVault, EditField, HistoryRow, VersionRow, GeneratedRow, HealthRow, ImportRow, ExportCounts, SourceRow, DeviceLine, ExtensionBrowser, Messages, ItemLock } from "model.slint";
 import { OnboardingScreen, UnlockScreen, RecoverScreen } from "welcome.slint";
 import { VaultIndex, ItemList, VaultMark } from "vault.slint";
 import { DetailPage, EditorPage, GeneratorPage, SettingsPage, KitPage, TransferPage, AuthenticatorPage, HealthPage, UpdateCard } from "pages.slint";
@@ -757,7 +757,7 @@ export component AppWindow inherits Window {
     in property <int> selected: -1;
     in property <int> total-items;
     in property <int> category;
-    in property <[int]> counts: [0, 0, 0, 0, 0];
+    in property <[int]> counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     in property <[FolderRow]> folders;
     in property <int> totp-count;
     in property <string> vault-name;
@@ -797,6 +797,8 @@ export component AppWindow inherits Window {
     in property <bool> fd-has-preview;
     in property <int> fd-preview-state;
     in property <int> fd-items;
+    in-out property <int> fd-browser;
+    in property <bool> fd-paired;
     callback new-folder();
     callback edit-folder(int);
     callback ask-delete-folder(int);
@@ -876,6 +878,21 @@ export component AppWindow inherits Window {
     callback edit-item();
     callback toggle-favorite();
     callback delete-item();
+    // Format v11: the item's state, tags, expiry and earlier versions; the trash and archive.
+    in property <bool> detail-trashed;
+    in property <bool> detail-archived;
+    in property <bool> detail-template;
+    in property <bool> detail-no-browser;
+    in property <string> detail-tags;
+    in property <string> detail-expires;
+    in property <bool> detail-expired;
+    in property <[VersionRow]> detail-versions;
+    in-out property <bool> detail-versions-shown;
+    callback restore-item();
+    callback delete-for-good();
+    callback toggle-archive();
+    callback new-from-template();
+    callback restore-version(int);
     callback reveal();
     callback conceal();
     callback copy-username();
@@ -926,6 +943,10 @@ export component AppWindow inherits Window {
     in-out property <string> ed-notes;
     in-out property <bool> ed-favorite;
     in-out property <bool> ed-reprompt;
+    in-out property <string> ed-tags;
+    in-out property <string> ed-expires;
+    in-out property <bool> ed-no-browser;
+    in-out property <bool> ed-template;
     in property <[string]> ed-folder-options: [""];
     in-out property <int> ed-folder;
     in-out property <string> ed-recovery-codes;
@@ -1002,6 +1023,8 @@ export component AppWindow inherits Window {
     in-out property <bool> browser-fill-notices: true;
     // Every password, code or passkey the extension uses asks first (Settings).
     in-out property <bool> browser-always-asks: true;
+    // The extension's window lists the whole vault, not only the open site's logins (S18).
+    in-out property <bool> browser-whole-vault: false;
     // What it can ask for: 1 Windows Hello, 2 the item lock's PIN or password, 3 both, 0 none.
     in property <int> browser-ask-way;
     in-out property <bool> backdrop-on: true;
@@ -1413,6 +1436,20 @@ export component AppWindow inherits Window {
                 edit => { root.edit-item(); }
                 toggle-favorite => { root.toggle-favorite(); }
                 delete => { root.delete-item(); }
+                trashed: root.detail-trashed;
+                archived: root.detail-archived;
+                template: root.detail-template;
+                no-browser: root.detail-no-browser;
+                tags: root.detail-tags;
+                expires: root.detail-expires;
+                expired: root.detail-expired;
+                versions: root.detail-versions;
+                versions-shown <=> root.detail-versions-shown;
+                restore-item => { root.restore-item(); }
+                delete-for-good => { root.delete-for-good(); }
+                toggle-archive => { root.toggle-archive(); }
+                new-from-template => { root.new-from-template(); }
+                restore-version(i) => { root.restore-version(i); }
                 reveal => { root.reveal(); }
                 conceal => { root.conceal(); }
                 copy-username => { root.copy-username(); }
@@ -1477,6 +1514,10 @@ export component AppWindow inherits Window {
                 notes <=> root.ed-notes;
                 favorite <=> root.ed-favorite;
                 reprompt <=> root.ed-reprompt;
+                tags <=> root.ed-tags;
+                expires <=> root.ed-expires;
+                no-browser <=> root.ed-no-browser;
+                template <=> root.ed-template;
                 folder-options: root.ed-folder-options;
                 folder <=> root.ed-folder;
                 recovery-codes <=> root.ed-recovery-codes;
@@ -1614,6 +1655,7 @@ export component AppWindow inherits Window {
                 browser-warnings <=> root.browser-warnings;
                 browser-fill-notices <=> root.browser-fill-notices;
                 browser-always-asks <=> root.browser-always-asks;
+                browser-whole-vault <=> root.browser-whole-vault;
                 browser-ask-way: root.browser-ask-way;
                 browser-paired <=> root.browser-paired;
                 sync-folder: root.sync-folder;
@@ -1819,6 +1861,8 @@ export component AppWindow inherits Window {
         has-preview: root.fd-has-preview;
         preview-state: root.fd-preview-state;
         item-count: root.fd-items;
+        browser <=> root.fd-browser;
+        paired: root.fd-paired;
         error-code: root.error-code;
         error-detail: root.error-detail;
         save => { root.folder-dialog-save(); }

@@ -181,7 +181,9 @@ fn make(vault: &Vault, keys: &IndexKeys, previous: &[GuardedEntry]) -> Option<In
         let Ok(item) = vault.get_item(&item_id) else {
             continue;
         };
-        if item.kind != ItemKind::Login {
+        // What is kept out of the browser, or kept to one pairing, is never in this file: it
+        // is read while the vault is locked, by whichever extension is connected then (S18).
+        if item.kind != ItemKind::Login || !vault.reaches_browser(&item, None) {
             continue;
         }
         let Some(stamp) = vault.item_stamp(&item_id) else {

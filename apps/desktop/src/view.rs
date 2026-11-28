@@ -245,8 +245,13 @@ pub fn now_month_year() -> (u32, u32) {
     (month as u32, year as u32)
 }
 
-/// Index tabs: 0 all, 1 favorites, 2 logins, 3 cards, 4 secure notes, 5 SSH keys.
-pub const CATEGORY_COUNT: usize = 7;
+/// Index tabs: 0 all, 1 favorites, 2 logins, 3 cards, 4 secure notes, 5 SSH keys, 6 passkeys,
+/// 7 identities, then the items not in use: 8 templates, 9 archived, 10 the trash.
+pub const CATEGORY_COUNT: usize = 11;
+pub const CATEGORY_IDENTITIES: i32 = 7;
+pub const CATEGORY_TEMPLATES: i32 = 8;
+pub const CATEGORY_ARCHIVE: i32 = 9;
+pub const CATEGORY_TRASH: i32 = 10;
 
 pub fn kind_to_int(kind: ItemKind) -> i32 {
     match kind {
@@ -255,6 +260,7 @@ pub fn kind_to_int(kind: ItemKind) -> i32 {
         ItemKind::SecureNote => 2,
         ItemKind::Passkey => 3,
         ItemKind::SshKey => 4,
+        ItemKind::Identity => 5,
     }
 }
 
@@ -281,6 +287,8 @@ pub fn lock_warning_lead(total_seconds: u64) -> u64 {
 pub const EDITOR_AUTHENTICATOR: i32 = 3;
 /// The editor's kind for an SSH key.
 pub const EDITOR_SSH: i32 = 4;
+/// The editor's kind for an identity.
+pub const EDITOR_IDENTITY: i32 = 5;
 
 /// What the editor shows an item as: 0 login, 1 card, 2 secure note, or
 /// [`EDITOR_AUTHENTICATOR`] for a login with a one-time code secret and no password.
@@ -292,6 +300,7 @@ pub fn editor_kind(item: &vault_core::ItemData) -> i32 {
         ItemKind::Card => 1,
         ItemKind::SecureNote => 2,
         ItemKind::SshKey => EDITOR_SSH,
+        ItemKind::Identity => EDITOR_IDENTITY,
         _ => 0,
     }
 }
@@ -302,6 +311,7 @@ pub fn editor_kind_to_kind(value: i32) -> ItemKind {
         1 => ItemKind::Card,
         2 => ItemKind::SecureNote,
         EDITOR_SSH => ItemKind::SshKey,
+        EDITOR_IDENTITY => ItemKind::Identity,
         _ => ItemKind::Login,
     }
 }
@@ -354,12 +364,22 @@ pub fn new_item_kind(category: i32, authenticator: bool) -> i32 {
         3 => 1,
         4 => 2,
         5 => EDITOR_SSH,
+        CATEGORY_IDENTITIES => EDITOR_IDENTITY,
         _ => 0,
     }
 }
 
 pub fn in_category(summary: &ItemSummary, category: i32) -> bool {
+    // Templates, archived items and the trash have lists of their own, and only there.
     match category {
+        CATEGORY_TEMPLATES => return summary.template && summary.trashed_at == 0,
+        CATEGORY_ARCHIVE => return summary.archived && summary.trashed_at == 0,
+        CATEGORY_TRASH => return summary.trashed_at != 0,
+        _ if !summary.is_active() => return false,
+        _ => {}
+    }
+    match category {
+        CATEGORY_IDENTITIES => summary.kind == ItemKind::Identity,
         1 => summary.favorite,
         2 => summary.kind == ItemKind::Login,
         3 => summary.kind == ItemKind::Card,
@@ -377,6 +397,42 @@ pub fn matches_search(summary: &ItemSummary, query: &str) -> bool {
         || [&summary.title, &summary.username, &summary.url]
             .iter()
             .any(|field| field.to_lowercase().contains(&query))
+        || summary
+            .tags
+            .iter()
+            .any(|tag| tag.to_lowercase().contains(query.trim_start_matches('#')))
+}
+
+/// What an earlier version of an item was, in a line of its own words: its title, and its
+/// username when it had one (both are the person's data, not the app's words).
+pub fn version_summary(current: &vault_core::ItemData, version: &vault_core::ItemData) -> String {
+    let mut parts = vec![version.title.clone()];
+    if !version.username.is_empty() && version.username != current.username {
+        parts.push(version.username.clone());
+    }
+    parts.retain(|part| !part.is_empty());
+    parts.join(" · ")
+}
+
+/// A date typed as `YYYY-MM-DD` (the form [`date`] writes), as Unix seconds at midnight UTC.
+/// `None` when it isn't one.
+pub fn parse_date(text: &str) -> Option<i64> {
+    let mut parts = text.trim().splitn(3, '-');
+    let year: i64 = parts.next()?.parse().ok()?;
+    let month: i64 = parts.next()?.parse().ok()?;
+    let day: i64 = parts.next()?.parse().ok()?;
+    if !(1970..=9999).contains(&year) || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let unix = (era * 146_097 + doe - 719_468) * 86_400;
+    // A day the month doesn't have (31 April) comes back as another date.
+    (date(unix) == format!("{year:04}-{month:02}-{day:02}")).then_some(unix)
 }
 
 /// Items for the list (sorted by title) plus per-category counts. With a older, the list
@@ -398,7 +454,7 @@ pub fn filter(
     let mut visible: Vec<usize> = (0..summaries.len())
         .filter(|&i| {
             let shown = match folder {
-                Some(folder) => summaries[i].folder == Some(folder),
+                Some(folder) => summaries[i].folder == Some(folder) && summaries[i].is_active(),
                 None => in_category(&summaries[i], category),
             };
             shown && matches_search(&summaries[i], query)
@@ -453,6 +509,7 @@ pub fn tint(kind: ItemKind, key: &str) -> (u8, u8, u8) {
         ItemKind::SecureNote => (0x2F, 0x7D, 0x68),
         ItemKind::Passkey => (0x5C, 0x4B, 0x7A),
         ItemKind::SshKey => (0x3E, 0x4A, 0x5C),
+        ItemKind::Identity => (0x7A, 0x5A, 0x3C),
         ItemKind::Login => {
             // FNV-1a: tiny, stable across runs and platforms.
             let hash = key.to_lowercase().bytes().fold(0x811C_9DC5u32, |h, b| {
@@ -654,7 +711,7 @@ mod tests {
     fn categories_counts_and_order() {
         let all = summaries();
         let (visible, counts) = filter(&all, 0, None, "");
-        assert_eq!(counts, [4, 1, 2, 1, 1, 0, 1]);
+        assert_eq!(counts, [4, 1, 2, 1, 1, 0, 1, 0, 0, 0, 0]);
         let titles: Vec<&str> = visible.iter().map(|&i| all[i].title.as_str()).collect();
         assert_eq!(
             titles,
@@ -667,6 +724,44 @@ mod tests {
         let (passkeys, _) = filter(&all, 6, None, "");
         let titles: Vec<&str> = passkeys.iter().map(|&i| all[i].title.as_str()).collect();
         assert_eq!(titles, ["GitHub"]);
+    }
+
+    #[test]
+    fn the_trash_the_archive_and_templates_are_listed_apart() {
+        let mut all = summaries();
+        all[0].trashed_at = 1;
+        all[1].archived = true;
+        all[2].template = true;
+        let (visible, counts) = filter(&all, 0, None, "");
+        assert_eq!(visible.len(), 1, "only items in use");
+        assert_eq!(
+            (
+                counts[CATEGORY_TRASH as usize],
+                counts[CATEGORY_ARCHIVE as usize],
+                counts[CATEGORY_TEMPLATES as usize]
+            ),
+            (1, 1, 1)
+        );
+        let (trash, _) = filter(&all, CATEGORY_TRASH, None, "");
+        assert_eq!(trash, [0]);
+        // A tag is searched like the title; `#` before it is allowed.
+        all[3].tags = vec!["Family".into()];
+        assert_eq!(filter(&all, 0, None, "#fam").0, [3]);
+    }
+
+    #[test]
+    fn dates_typed_read_back() {
+        assert_eq!(
+            parse_date("2027-03-31").map(date).as_deref(),
+            Some("2027-03-31")
+        );
+        assert_eq!(
+            parse_date(" 2024-02-29 ").map(date).as_deref(),
+            Some("2024-02-29")
+        );
+        assert_eq!(parse_date("2023-02-29"), None);
+        assert_eq!(parse_date("2027-13-01"), None);
+        assert_eq!(parse_date("31/03/2027"), None);
     }
 
     #[test]

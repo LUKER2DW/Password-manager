@@ -5241,3 +5241,209 @@ msgstr "Esconder as chaves"
 msgctxt "OnboardingScreen"
 msgid "Printing and saving use the keys as they are."
 msgstr "Imprimir e salvar usam as chaves como elas são."
+
+msgctxt "FolderDialog"
+msgid "The browser extension"
+msgstr "A extensão do navegador"
+
+msgctxt "FolderDialog"
+msgid "Kept out, the extension never gets this folder's items: not listed, not filled, not compared. Only this browser: the extension connected now gets them, and no other, here or on another computer, even one connected again later."
+msgstr "Mantida de fora, a extensão nunca recebe os itens desta pasta: não lista, não preenche, não compara. Só este navegador: a extensão conectada agora os recebe, e nenhuma outra, aqui ou em outro computador, nem uma conectada de novo depois."
+
+msgctxt "FolderDialog"
+msgid "Reaches its items"
+msgstr "Alcança seus itens"
+
+msgctxt "FolderDialog"
+msgid "Kept out"
+msgstr "Mantida de fora"
+
+msgctxt "FolderDialog"
+msgid "Only this browser"
+msgstr "Só este navegador"
+
+msgctxt "Messages"
+msgid "SSH key"
+msgstr "Chave SSH"
+
+msgctxt "Messages"
+msgid "Identity"
+msgstr "Identidade"
+
+msgctxt "Messages"
+msgid "Tags are separated by commas: at most 32, each up to 40 characters."
+msgstr "As etiquetas são separadas por vírgulas: no máximo 32, cada uma com até 40 caracteres."
+
+msgctxt "Messages"
+msgid "Type the expiry date as year-month-day, for example 2027-03-31."
+msgstr "Digite a data de validade como ano-mês-dia, por exemplo 2027-03-31."
+
+msgctxt "Messages"
+msgid "“{}” is in the trash. It is deleted for good after 30 days; until then, Trash brings it back."
+msgstr "“{}” está na lixeira. É apagado de vez depois de 30 dias; até lá, a Lixeira o traz de volta."
+
+msgctxt "Messages"
+msgid "“{}” is back from the trash."
+msgstr "“{}” voltou da lixeira."
+
+msgctxt "Messages"
+msgid "“{}” is archived: kept, out of search, filling and health. Archive lists it."
+msgstr "“{}” foi arquivado: guardado, fora da busca, do preenchimento e da saúde. O Arquivo o lista."
+
+msgctxt "Messages"
+msgid "“{}” is out of the archive."
+msgstr "“{}” saiu do arquivo."
+
+msgctxt "Messages"
+msgid "The earlier version of “{}” is back; the one it replaced is kept among its earlier versions."
+msgstr "A versão anterior de “{}” voltou; a que ela substituiu fica entre as versões anteriores."
+
+msgctxt "Messages"
+msgid "{} syncs with a newer version of Vault, so its copy can't be used here. Update this app: Settings → About → Check for updates."
+msgstr "{} sincroniza com uma versão mais nova do Vault, então a cópia dele não pode ser usada aqui. Atualize este app: Configurações → Sobre → Procurar atualizações."
+
+msgctxt "Messages"
+msgid "A device syncs with a newer version of Vault, so its copy can't be used here. Update this app: Settings → About → Check for updates."
+msgstr "Um dispositivo sincroniza com uma versão mais nova do Vault, então a cópia dele não pode ser usada aqui. Atualize este app: Configurações → Sobre → Procurar atualizações."
+
+msgctxt "Messages"
+msgid "{} still runs an older version of Vault, so its copy can't be used here. Update Vault on that device; it syncs again once it is updated."
+msgstr "{} ainda usa uma versão mais antiga do Vault, então a cópia dele não pode ser usada aqui. Atualize o Vault nesse dispositivo; ele volta a sincronizar quando estiver atualizado."
+
+msgctxt "Messages"
+msgid "A device still runs an older version of Vault, so its copy can't be used here. Update Vault on that device; it syncs again once it is updated."
+msgstr "Um dispositivo ainda usa uma versão mais antiga do Vault, então a cópia dele não pode ser usada aqui. Atualize o Vault nesse dispositivo; ele volta a sincronizar quando estiver atualizado."
+
+msgctxt "DetailPage"
+msgid "In the trash: deleted for good 30 days after it was put there."
+msgstr "Na lixeira: apagado de vez 30 dias depois de ir para lá."
+
+msgctxt "DetailPage"
+msgid "Archived: kept, but out of search, filling and health."
+msgstr "Arquivado: guardado, mas fora da busca, do preenchimento e da saúde."
+
+msgctxt "DetailPage"
+msgid "A template: new items can start from it."
+msgstr "Um modelo: novos itens podem começar a partir dele."
+
+msgctxt "DetailPage"
+msgid "Kept out of the browser."
+msgstr "Mantido fora do navegador."
+
+msgctxt "DetailPage"
+msgid "Tags"
+msgstr "Etiquetas"
+
+msgctxt "DetailPage"
+msgid "Expires"
+msgstr "Validade"
+
+msgctxt "DetailPage"
+msgid "{} (expired)"
+msgstr "{} (vencido)"
+
+msgctxt "DetailPage"
+msgid "Earlier versions"
+msgstr "Versões anteriores"
+
+msgctxt "DetailPage"
+msgid "{n} earlier version"
+msgid_plural "{n} earlier versions"
+msgstr[0] "{n} versão anterior"
+msgstr[1] "{n} versões anteriores"
+
+msgctxt "DetailPage"
+msgid "Restore"
+msgstr "Restaurar"
+
+msgctxt "DetailPage"
+msgid "New item from it"
+msgstr "Novo item a partir dele"
+
+msgctxt "DetailPage"
+msgid "Take out of the archive"
+msgstr "Tirar do arquivo"
+
+msgctxt "DetailPage"
+msgid "Archive"
+msgstr "Arquivar"
+
+msgctxt "DetailPage"
+msgid "Move to the trash"
+msgstr "Mover para a lixeira"
+
+msgctxt "DetailPage"
+msgid "Delete for good"
+msgstr "Apagar de vez"
+
+msgctxt "DetailPage"
+msgid "Delete “{}” for good? This can't be undone."
+msgstr "Apagar “{}” de vez? Não dá para desfazer."
+
+msgctxt "EditorPage"
+msgid "Identity"
+msgstr "Identidade"
+
+msgctxt "EditorPage"
+msgid "Full name"
+msgstr "Nome completo"
+
+msgctxt "EditorPage"
+msgid "Tags"
+msgstr "Etiquetas"
+
+msgctxt "EditorPage"
+msgid "work, bank"
+msgstr "trabalho, banco"
+
+msgctxt "EditorPage"
+msgid "YYYY-MM-DD"
+msgstr "AAAA-MM-DD"
+
+msgctxt "EditorPage"
+msgid "Keep out of the browser"
+msgstr "Manter fora do navegador"
+
+msgctxt "EditorPage"
+msgid "The browser extension never gets this item: not listed, not filled, not compared, not in the file for filling while locked. A folder can be kept out of the browser too (its settings)."
+msgstr "A extensão do navegador nunca recebe este item: não lista, não preenche, não compara, nem o guarda no arquivo para preencher com o cofre trancado. Uma pasta também pode ficar fora do navegador (nas configurações dela)."
+
+msgctxt "EditorPage"
+msgid "Use as a template"
+msgstr "Usar como modelo"
+
+msgctxt "EditorPage"
+msgid "A template is a shape for new items: its websites, tags, folder and fields, without its secrets. Templates are listed apart and never filled."
+msgstr "Um modelo é uma forma para novos itens: seus sites, etiquetas, pasta e campos, sem os segredos. Os modelos ficam listados à parte e nunca são preenchidos."
+
+msgctxt "SettingsPage"
+msgid "List every login in the extension's window"
+msgstr "Listar todos os logins na janela da extensão"
+
+msgctxt "SettingsPage"
+msgid "Off, the extension's window lists only the logins of the open site: whoever copied the extension's key from this browser learns no more than the sites it asks about. Items and folders kept out of the browser are never listed."
+msgstr "Desligado, a janela da extensão lista só os logins do site aberto: quem copiar a chave da extensão deste navegador não fica sabendo de mais nada além dos sites que perguntar. Itens e pastas mantidos fora do navegador nunca são listados."
+
+msgctxt "HealthPage"
+msgid "Expiring"
+msgstr "Vencendo"
+
+msgctxt "HealthPage"
+msgid "Expiry date {}"
+msgstr "Validade {}"
+
+msgctxt "VaultIndex"
+msgid "Identities"
+msgstr "Identidades"
+
+msgctxt "VaultIndex"
+msgid "Templates"
+msgstr "Modelos"
+
+msgctxt "VaultIndex"
+msgid "Archive"
+msgstr "Arquivo"
+
+msgctxt "VaultIndex"
+msgid "Trash"
+msgstr "Lixeira"

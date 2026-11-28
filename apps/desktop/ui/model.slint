@@ -54,6 +54,12 @@ export struct HistoryRow {
     date: string,     // when it stopped being the password
 }
 
+// An earlier version of the item shown (Earlier versions, format v11), oldest first.
+export struct VersionRow {
+    date: string,     // when it stopped being the current version
+    summary: string,  // what differs from the item now, in a few words
+}
+
 // A password made by the generator and used (Generator page, newest first).
 export struct GeneratedRow {
     password: string, // filled only while shown
@@ -71,10 +77,10 @@ export struct HealthRow {
     has-icon: bool,
     initial: string,
     tint: color,
-    problem: int,     // 1 leaked, 2 weak, 3 reused, 4 old, 5 expired card
+    problem: int,     // 1 leaked, 2 weak, 3 reused, 4 old, 5 expired card or expiry date
     detail: string,   // how many breaches, or the expiry date
     count: int,       // how many other logins share the password
-    weakness: int,    // why it is weak (Messages.weakness)
+    weakness: int,    // why it is weak (Messages.weakness); problem 5: 1 for an expiry date
     age-unit: int,    // how long ago the password was set (Messages.ago)
     age-amount: int,
 }
@@ -202,6 +208,8 @@ export global Messages {
         if (kind == 1) { return @tr("Card"); }
         if (kind == 2) { return @tr("Secure note"); }
         if (kind == 3) { return @tr("Passkey"); }
+        if (kind == 4) { return @tr("SSH key"); }
+        if (kind == 5) { return @tr("Identity"); }
         return @tr("Login");
     }
 
@@ -275,6 +283,8 @@ export global Messages {
         if (code == 90) { return @tr("This computer's security chip (TPM) no longer opens the Secret Key it kept for this vault: the chip was cleared, replaced or turned off. Type the Secret Key from your emergency kit. Once the vault opens, it's kept again."); }
         if (code == 91) { return @tr("Two different Secret Keys are kept for this vault on this computer: an older version of the app saved one. Type the Secret Key from your newest emergency kit."); }
         if (code == 92) { return @tr("The Secret Key kept on this computer couldn't be read just now ({}). Try again, or type it from your emergency kit.", detail); }
+        if (code == 93) { return @tr("Tags are separated by commas: at most 32, each up to 40 characters."); }
+        if (code == 94) { return @tr("Type the expiry date as year-month-day, for example 2027-03-31."); }
         return @tr("Something went wrong: {}", detail);
     }
 
@@ -424,6 +434,13 @@ export global Messages {
         if (code == 98) { return @tr("Vault couldn't check the browser extension's files ({}). It tries again in a few minutes; if this keeps coming back, restart the browser, then Vault.", arg); }
         if (code == 88) { return @tr("The vault key was renewed, but the vault locked before the new kit showed. Open Emergency kit and issue new recovery parts: the ones made then can't be shown again."); }
         if (code == 123) { return @tr("PDF password copied. The clipboard clears in {} seconds.", arg); }
+        if (code == 125) { return @tr("“{}” is in the trash. It is deleted for good after 30 days; until then, Trash brings it back.", arg); }
+        if (code == 126) { return @tr("“{}” is back from the trash.", arg); }
+        if (code == 127) { return @tr("“{}” is archived: kept, out of search, filling and health. Archive lists it.", arg); }
+        if (code == 128) { return @tr("“{}” is out of the archive.", arg); }
+        if (code == 129) { return @tr("The earlier version of “{}” is back; the one it replaced is kept among its earlier versions.", arg); }
+        if (code == 132) { return arg != "" ? @tr("{} syncs with a newer version of Vault, so its copy can't be used here. Update this app: Settings → About → Check for updates.", arg) : @tr("A device syncs with a newer version of Vault, so its copy can't be used here. Update this app: Settings → About → Check for updates."); }
+        if (code == 133) { return arg != "" ? @tr("{} still runs an older version of Vault, so its copy can't be used here. Update Vault on that device; it syncs again once it is updated.", arg) : @tr("A device still runs an older version of Vault, so its copy can't be used here. Update Vault on that device; it syncs again once it is updated."); }
         if (code == 120) { return @tr("The Secret Key couldn't be kept on this computer just now ({}). The vault is open; if the next unlock asks for the Secret Key, type it from your emergency kit.", arg); }
         if (code == 121) { return @tr("Vault {} has already opened this vault on this computer, and this copy is older. If you didn't go back to an older version yourself, someone may have put back an old one with a known fault: get the newest in Settings → About → Check for updates.", arg); }
         if (code == 122) { return @tr("The browser extension is older than this Vault accepts (it needs {} or later), so Vault doesn't answer it. Settings → Browser extension → Add to a browser writes the newest one into its folder; then reload it on the browser's extensions page.", arg); }

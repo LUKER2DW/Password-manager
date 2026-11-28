@@ -86,7 +86,7 @@ impl Controller {
                 .item_ids()
                 .filter_map(|id| {
                     let item = vault.get_item(&id).ok()?;
-                    (item.kind == ItemKind::Login && !item.password.is_empty())
+                    (item.kind == ItemKind::Login && item.is_active() && !item.password.is_empty())
                         .then(|| (id, BreachQuery::new(&item.password)))
                 })
                 .collect();

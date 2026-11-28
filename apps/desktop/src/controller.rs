@@ -38,7 +38,7 @@ use zeroize::Zeroizing;
 use crate::{
     ui::{
         AppWindow, AuthRow, CodeRow, DetailField, EditField, ExportCounts, FolderRow, ItemLock,
-        ItemRow, Panel, RecentVault, Screen, Secrets, Theme,
+        ItemRow, Panel, RecentVault, Screen, Secrets, Theme, VersionRow,
     },
     view,
 };
@@ -207,6 +207,9 @@ mod error {
     pub const SECRET_KEY_CHIP_LOST: i32 = 90;
     pub const SECRET_KEY_CONFLICT: i32 = 91;
     pub const SECRET_KEY_UNREADABLE: i32 = 92;
+    /// The editor's tags or expiry date (format v11) can't be kept as typed.
+    pub const BAD_TAGS: i32 = 93;
+    pub const BAD_EXPIRY: i32 = 94;
 }
 
 /// Notice codes (texts live in model.slint → Messages.notice).
@@ -334,6 +337,17 @@ mod notice {
     pub const UPDATE_NOT_WRITABLE: i32 = 130;
     /// The new version is in place, but couldn't be started (the argument says why).
     pub const RESTART_FAILED: i32 = 131;
+    /// Format v11: an item went to the trash, came back, was archived or taken out of the
+    /// archive, an earlier version was restored.
+    pub const TRASHED: i32 = 125;
+    pub const RESTORED: i32 = 126;
+    pub const ARCHIVED: i32 = 127;
+    pub const UNARCHIVED: i32 = 128;
+    pub const VERSION_RESTORED: i32 = 129;
+    /// A sync copy was written by a newer Vault (this app needs updating), or an older one
+    /// (that device's app does); the argument names the device.
+    pub const SYNC_NEWER_FORMAT: i32 = 132;
+    pub const SYNC_OLDER_FORMAT: i32 = 133;
 }
 
 const MIN_MASTER_PASSWORD_CHARS: usize = 12;
@@ -549,6 +563,12 @@ struct State {
     selected: Option<ItemId>,
     /// `Some(None)` = new item, `Some(Some(id))` = editing `id`.
     editing: Option<Option<ItemId>>,
+    /// A new item made from a template: what it starts as (kept for what the editor doesn't
+    /// show, its other websites).
+    editor_start: Option<ItemData>,
+    /// The browser setting of the folder in the folder dialog, as it was (a pairing it is
+    /// kept to stays that one).
+    dialog_folder_browser: Option<vault_core::FolderBrowser>,
     copied: Option<Zeroizing<String>>,
     suggestion: Option<Zeroizing<String>>,
     /// The generator's mode and number of words before the new vault's first suggestion
@@ -778,6 +798,8 @@ impl Controller {
                 visible: Vec::new(),
                 selected: None,
                 editing: None,
+                editor_start: None,
+                dialog_folder_browser: None,
                 copied: None,
                 suggestion: None,
                 suggestion_restore: None,
@@ -1126,7 +1148,15 @@ impl Controller {
         on!(on_copy_code, |c, index| c
             .copy_from_selected(CopyWhat::RecoveryCode(index)));
         on!(on_toggle_code_used, |c, index| c.toggle_code_used(index));
-        on!(on_delete_item, |c| c.delete_selected());
+        on!(on_delete_item, |c| c.trash_selected());
+        on!(on_restore_item, |c| c.change_selected(
+            |vault, id| vault.restore_item(id),
+            notice::RESTORED
+        ));
+        on!(on_delete_for_good, |c| c.delete_selected());
+        on!(on_toggle_archive, |c| c.toggle_archive());
+        on!(on_new_from_template, |c| c.new_from_template());
+        on!(on_restore_version, |c, index| c.restore_version(index));
         on!(on_reveal, |c| c.reveal());
         on!(on_conceal, |c| c.conceal());
         on!(on_copy_username, |c| c
@@ -3235,7 +3265,7 @@ impl Controller {
                     .borrow()
                     .summaries
                     .iter()
-                    .filter(|s| s.has_totp)
+                    .filter(|s| s.has_totp && s.is_active())
                     .count(),
             )
             .unwrap_or(0),
@@ -3373,6 +3403,7 @@ impl Controller {
                 .and_then(|folder| self.folder_name(&folder))
                 .unwrap_or_default(),
         ));
+        self.show_detail_state(&item, locked);
         let codes = if locked { 0 } else { item.recovery_codes.len() };
         app.set_detail_codes_total(i32::try_from(codes).unwrap_or(0));
         self.show_detail_files(&item, locked);
@@ -3404,6 +3435,39 @@ impl Controller {
                     }
                 });
         }
+    }
+
+    /// What format v11 adds to the item page: the trash, the archive, templates, kept out of
+    /// the browser, tags, expiry, and the earlier versions (none while locked: they are
+    /// sealed with the secrets).
+    fn show_detail_state(&self, item: &ItemData, locked: bool) {
+        let app = self.app();
+        app.set_detail_trashed(item.trashed_at != 0);
+        app.set_detail_archived(item.archived);
+        app.set_detail_template(item.template);
+        app.set_detail_no_browser(item.no_browser);
+        app.set_detail_tags(SharedString::from(item.tags.join(", ")));
+        app.set_detail_expires(if item.expires_at == 0 {
+            SharedString::new()
+        } else {
+            SharedString::from(view::date(item.expires_at))
+        });
+        app.set_detail_expired(item.expires_at != 0 && item.expires_at <= view::now_unix());
+        let versions: Vec<VersionRow> = if locked {
+            Vec::new()
+        } else {
+            item.versions
+                .iter()
+                .map(|version| VersionRow {
+                    date: SharedString::from(view::date(version.saved_at)),
+                    summary: SharedString::from(view::version_summary(item, &version.item)),
+                })
+                .collect()
+        };
+        if versions.is_empty() {
+            app.set_detail_versions_shown(false);
+        }
+        app.set_detail_versions(ModelRc::from(Rc::new(VecModel::from(versions))));
     }
 
     fn tick_totp(&self) {
@@ -3688,6 +3752,100 @@ impl Controller {
         }
     }
 
+    /// Puts the selected item in the trash (format v11): it leaves the lists and can be
+    /// restored for 30 days.
+    fn trash_selected(&self) {
+        let Some((id, item)) = self.selected_item() else {
+            return;
+        };
+        let trashed = self
+            .state
+            .borrow_mut()
+            .session
+            .as_mut()
+            .map(|s| s.vault.trash_item(&id));
+        if matches!(trashed, Some(Ok(()))) && self.save_vault() {
+            self.state.borrow_mut().selected = None;
+            self.refresh_list();
+            self.show_detail();
+            self.notify(notice::TRASHED, &item.title);
+        }
+    }
+
+    /// Runs `change` on the selected item, saves, and tells `notice` with its title.
+    fn change_selected(
+        &self,
+        change: impl FnOnce(&mut Vault, &vault_core::ItemId) -> vault_core::Result<()>,
+        notice: i32,
+    ) {
+        let Some((id, item)) = self.selected_item_raw() else {
+            return;
+        };
+        let changed = self
+            .state
+            .borrow_mut()
+            .session
+            .as_mut()
+            .map(|s| change(&mut s.vault, &id));
+        match changed {
+            Some(Ok(())) if self.save_vault() => {
+                self.refresh_list();
+                self.show_detail();
+                self.notify(notice, &item.title);
+            }
+            Some(Err(vault_core::Error::SecretsLocked)) => {
+                self.set_error(error::SECRETS_LOCKED, "");
+            }
+            _ => {}
+        }
+    }
+
+    fn toggle_archive(&self) {
+        let Some((_, item)) = self.selected_item_raw() else {
+            return;
+        };
+        let archive = !item.archived;
+        self.change_selected(
+            |vault, id| {
+                let mut item = vault.get_item(id)?;
+                item.archived = archive;
+                item.touch();
+                vault.update_item(id, &item)
+            },
+            if archive {
+                notice::ARCHIVED
+            } else {
+                notice::UNARCHIVED
+            },
+        );
+    }
+
+    /// Restores earlier version `index` of the selected item (its secrets must be open).
+    fn restore_version(&self, index: i32) {
+        let Ok(index) = usize::try_from(index) else {
+            return;
+        };
+        if self.selected_item().is_none() {
+            return;
+        }
+        self.app().set_detail_versions_shown(false);
+        self.change_selected(
+            |vault, id| vault.restore_version(id, index),
+            notice::VERSION_RESTORED,
+        );
+    }
+
+    /// Opens the editor on a new item in the shape of the selected template.
+    fn new_from_template(&self) {
+        let Some((_, template)) = self.selected_item_raw() else {
+            return;
+        };
+        if !template.template {
+            return;
+        }
+        self.open_editor_with(None, template.from_template());
+    }
+
     fn delete_selected(&self) {
         let Some((id, item)) = self.selected_item() else {
             return;
@@ -3913,7 +4071,7 @@ impl Controller {
             .borrow()
             .summaries
             .iter()
-            .filter(|s| s.has_totp)
+            .filter(|s| s.has_totp && s.is_active())
             .map(|s| (s.id, guard_all || s.reprompt))
             .collect();
         let mut entries = Vec::with_capacity(listed.len());
@@ -4284,6 +4442,15 @@ impl Controller {
     // -----------------------------------------------------------------------------------------
 
     fn open_editor(&self, id: Option<ItemId>) {
+        self.open_editor_from(id, None);
+    }
+
+    /// The editor on a new item that starts as `start` (one made from a template).
+    fn open_editor_with(&self, id: Option<ItemId>, start: ItemData) {
+        self.open_editor_from(id, Some(start));
+    }
+
+    fn open_editor_from(&self, id: Option<ItemId>, start: Option<ItemData>) {
         let app = self.app();
         self.conceal();
         if let Some(id) = id {
@@ -4309,13 +4476,32 @@ impl Controller {
                 .ok()
         });
         let new = item.is_none();
-        let item = item.unwrap_or_else(|| ItemData::new(vault_core::ItemKind::Login, ""));
+        let from_template = start.is_some();
+        let new_kind =
+            view::new_item_kind(app.get_category(), app.get_panel() == Panel::Authenticator);
+        let item = item.or(start).unwrap_or_else(|| {
+            // A new identity starts with every detail it offers, empty.
+            if new_kind == view::EDITOR_IDENTITY {
+                vault_core::identity::new("")
+            } else {
+                ItemData::new(vault_core::ItemKind::Login, "")
+            }
+        });
         // A new item starts as the kind of the list (or page) it was asked for from.
-        app.set_ed_kind(if new {
-            view::new_item_kind(app.get_category(), app.get_panel() == Panel::Authenticator)
+        app.set_ed_kind(if new && !from_template {
+            new_kind
         } else {
             view::editor_kind(&item)
         });
+        app.set_ed_tags(SharedString::from(item.tags.join(", ")));
+        app.set_ed_expires(if item.expires_at == 0 {
+            SharedString::new()
+        } else {
+            SharedString::from(view::date(item.expires_at))
+        });
+        app.set_ed_no_browser(item.no_browser);
+        app.set_ed_template(item.template);
+        self.state.borrow_mut().editor_start = from_template.then(|| item.clone());
         app.set_ed_title(SharedString::from(item.title.as_str()));
         app.set_ed_username(SharedString::from(item.username.as_str()));
         app.set_ed_url(SharedString::from(
@@ -4357,7 +4543,7 @@ impl Controller {
                 .map(|(_, name)| SharedString::from(name.as_str())),
         );
         app.set_ed_folder_options(ModelRc::from(Rc::new(VecModel::from(options))));
-        let current = if id.is_some() {
+        let current = if id.is_some() || from_template {
             item.folder
         } else {
             self.browsed_folder()
@@ -4424,6 +4610,7 @@ impl Controller {
 
     fn close_editor(&self) {
         self.state.borrow_mut().editing = None;
+        self.state.borrow_mut().editor_start = None;
         self.clear_secret(field::ITEM_PASSWORD);
         let app = self.app();
         app.set_editor_password_shown(SharedString::new());
@@ -4480,9 +4667,27 @@ impl Controller {
             self.set_error(error::TOTP_REQUIRED, "");
             return;
         }
-        let mut item = existing.unwrap_or_else(|| ItemData::new(kind, &title));
+        let start = self.state.borrow().editor_start.clone();
+        let mut item = existing
+            .or(start)
+            .unwrap_or_else(|| ItemData::new(kind, &title));
         item.kind = kind;
         item.title = title;
+        if item.set_tags(&app.get_ed_tags()).is_err() {
+            self.set_error(error::BAD_TAGS, "");
+            return;
+        }
+        let expires = app.get_ed_expires();
+        item.expires_at = if expires.trim().is_empty() {
+            0
+        } else if let Some(at) = view::parse_date(&expires) {
+            at
+        } else {
+            self.set_error(error::BAD_EXPIRY, "");
+            return;
+        };
+        item.no_browser = app.get_ed_no_browser();
+        item.template = app.get_ed_template();
         item.username = app.get_ed_username().to_string();
         if item.username.trim().is_empty() && app.get_ed_kind() == view::EDITOR_AUTHENTICATOR {
             item.username = vault_core::totp::names(&totp).account;
@@ -4546,6 +4751,9 @@ impl Controller {
                 return;
             }
             details.apply(&mut item);
+        }
+        if kind == ItemKind::Identity {
+            vault_core::identity::tidy(&mut item);
         }
         self.editor_files_into(&mut item);
         if kind == ItemKind::Login {
@@ -4802,6 +5010,7 @@ impl Controller {
         app.set_browser_warnings(settings.browser_warnings);
         app.set_browser_fill_notices(settings.browser_fill_notices);
         app.set_browser_always_asks(settings.browser_always_asks);
+        app.set_browser_whole_vault(settings.browser_whole_vault);
         app.set_browser_ask_way(self.browser_ask_way());
         app.set_backdrop_on(settings.backdrop);
         app.set_settings_dialog(dialog::NONE);
@@ -5596,6 +5805,7 @@ impl Controller {
             browser_warnings: app.get_browser_warnings(),
             browser_fill_notices: app.get_browser_fill_notices(),
             browser_always_asks: app.get_browser_always_asks(),
+            browser_whole_vault: app.get_browser_whole_vault(),
             backdrop: app.get_backdrop_on(),
             update_install: app.get_update_install(),
             sidebar_hidden: app.get_sidebar_hidden(),

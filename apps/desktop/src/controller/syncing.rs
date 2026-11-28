@@ -834,9 +834,36 @@ impl Controller {
                 vault_core::Error::SecretsLocked | vault_core::Error::DecryptionFailed
             )
         });
+        // A copy of another format version: said plainly, with what to update.
+        let other_format = round.refused.iter().find_map(|(device, err)| match err {
+            vault_core::Error::UnsupportedVersion(version) => Some((*device, *version)),
+            _ => None,
+        });
         if tell_renewed {
             self.notify_long(notice::SYNC_KEY_RENEWED, "");
             self.show_sync_settings();
+        } else if let Some((device, version)) = other_format {
+            let name = self
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .and_then(|s| {
+                    s.vault
+                        .sync_devices()
+                        .iter()
+                        .find(|d| d.id == device)
+                        .map(|d| d.name.clone())
+                })
+                .unwrap_or_default();
+            self.notify_long(
+                if version > vault_core::FORMAT_VERSION {
+                    notice::SYNC_NEWER_FORMAT
+                } else {
+                    notice::SYNC_OLDER_FORMAT
+                },
+                &name,
+            );
         } else if round.unlock_changed() {
             self.notify_long(notice::SYNC_UNLOCK_CHANGED, "");
         } else if guard_changed {

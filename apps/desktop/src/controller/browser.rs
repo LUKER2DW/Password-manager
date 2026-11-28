@@ -497,6 +497,7 @@ impl Controller {
             .as_ref()
             .map(|s| s.vault.id_hex())
             .is_some_and(|id| self.locked_fill_missing(&id));
+        let pairing = self.pairing_key().map(|key| key.id());
         let (mut answer, locked_out, save, before) = {
             let mut state = self.state.borrow_mut();
             let state = &mut *state;
@@ -522,6 +523,8 @@ impl Controller {
                 rebuild_fill,
                 clipboard_seconds: state.settings.clipboard_clear_seconds.max(5),
                 generated: &mut state.browser_generated,
+                pairing,
+                whole_vault: state.settings.browser_whole_vault,
             };
             let vault = state.session.as_mut().map(|session| &mut session.vault);
             let before = changes
@@ -686,6 +689,11 @@ impl Controller {
     }
 
     // ---- pairing ----
+
+    /// The id of the extension connected now (`PairingKey::id`), for a folder kept to it.
+    pub(super) fn browser_pairing_id(&self) -> Option<[u8; 8]> {
+        self.pairing_key().map(|key| key.id())
+    }
 
     /// The connected extension's key: read once per unlock from its file sealed with the
     /// vault, or, while the vault is locked, from its copy protected for the Windows user.
@@ -1008,12 +1016,24 @@ struct AppGate<'a> {
     clipboard_seconds: u32,
     /// Generated passwords handed to the extension and not used yet.
     generated: &'a mut Vec<(String, Kept)>,
+    /// The connected extension's pairing (S18: a folder kept to one browser).
+    pairing: Option<[u8; 8]>,
+    /// The extension's window may list the whole vault (Settings).
+    whole_vault: bool,
 }
 
 /// How many generated passwords wait to be used at most; older ones are dropped.
 const HELD_GENERATED: usize = 8;
 
 impl Gate for AppGate<'_> {
+    fn pairing(&self) -> Option<[u8; 8]> {
+        self.pairing
+    }
+
+    fn whole_vault(&self) -> bool {
+        self.whole_vault
+    }
+
     fn check(&self, vault: &Vault) -> Check {
         match vault.item_guard().check {
             GuardCheck::Pin => Check::Pin,
