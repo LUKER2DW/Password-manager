@@ -172,8 +172,9 @@ On top of that:
 - Window excluded from screen capture (`WDA_EXCLUDEFROMCAPTURE` on Windows, `FLAG_SECURE` on Android).
 - What the window shows is also read through the accessibility tree (UI Automation), by
   screen readers and by any program of the same user. A revealed password, PIN or private
-  key, a sensitive field, one-time and recovery codes, notes, a generated password and the
-  kit's keys are drawn but kept out of it: their element names what it is ("Password: shown
+  key, a sensitive field, one-time and recovery codes, notes, a generated password, the
+  kit's keys and its files' password are drawn but kept out of it: their element names what
+  it is ("Password: shown
   on screen, not read aloud"), never the value. The phone's toolkit exposes no accessibility
   tree on Android at all.
 - A memory bug is harder to turn into control of the app: the Windows programs have ASLR with
@@ -644,7 +645,9 @@ On top of that:
 
 **Files with secrets outside the vault** (each a deliberate, visible choice):
 - Printed emergency kit: the temporary PDF lives in `<app dir>/print` and is overwritten and
-  deleted on lock, on exit and at the next start. A kit saved with "Save as PDF" holds the
+  deleted on lock, on exit and at the next start; a kit with keys in it is protected by the
+  kit's PDF password (below), which the viewer asks for before it shows or prints it. A kit
+  saved with "Save as PDF" holds the
   Secret Key only: infostealers sweep PDFs from Documents and the Desktop, and the three
   recovery parts together open the vault without the master password. The parts go on paper,
   or each to a PDF of its own with "Save each part apart", in different folders (the app
@@ -654,6 +657,24 @@ On top of that:
   (black squares in the PDF, no picture), for the phone's scanner: whoever can photograph a
   page could already read the same key printed above its code. A kit with empty boxes, to be
   filled by hand, has no codes.
+- **The kit's PDF files are protected by a password**: the printed kit's temporary PDF, "Save
+  as PDF", "Save each part apart" and `vault kit --pdf` are encrypted with AES-256 by the PDF's
+  own standard encryption (revision 6, which every viewer opens; CRYPTO.md §3.10). The PDF is
+  for printing and may sit on the computer for a while; the paper is the kit. The password is
+  four words the app derives from the vault key, the Secret Key and the kit, never stores and
+  never prints, and shows on the kit page next to the print and save actions: dots until shown
+  for 15 seconds, copyable, and behind the item lock's check (PIN, password, master password or
+  Windows Hello) when one is in use, as the kit's keys are (`vault kit --pdf-password` after the
+  master password). What it stops: a copy of the file (taken by an infostealer, synced by a
+  folder, left in Downloads) or the file opened by someone while the person is away from the
+  computer shows nothing. What it doesn't stop: four words are about 51.7 bits and the PDF's
+  own password hash is quick, so someone who sets a large GPU farm on one file for a long time
+  could find it (a bulk sweep won't); someone who has the password; a program that reads the
+  screen while the password shows, or the open vault's memory (it could derive it, and read
+  the Secret Key itself); and files made before this protection, which are plain. A new kit
+  (new parts, a new Secret Key, a renewed vault key) has a new password; files made before keep
+  theirs. The permissions written in the file (print and copy, no changes) are advisory. A
+  kit of empty boxes holds no key and is not protected.
 - Recovery on the phone: the parts are typed or scanned (Google's scanner, as for an invite:
   the text passes through Play services) into secure fields, never into the screen's text.
   With all three parts the vault gets a new master password and a new Secret Key (shown once,

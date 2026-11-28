@@ -75,6 +75,7 @@ filesystem policy** beyond atomic writes.
 | `aead.rs` | Key-committing XChaCha20-Poly1305 (`seal` / `open`) |
 | `kdf.rs` | Password hashing (Argon2id; scrypt and PBKDF2-SHA-256 by choice) with a hard floor and ceiling on parameters |
 | `keys.rs` | Secret Key, recovery parts (and the Recovery Key of older kits), keyfile, vault key, subkeys, device KEK |
+| `kit_password.rs` | The password of the emergency kit's PDFs (four words), derived from the vault key, the Secret Key and the kit (CRYPTO.md §3.10) |
 | `guard.rs` | Item guard: which items ask for a second check, and the guard key wrapped by the PIN or password |
 | `encoding.rs` | Crockford Base32 for the printed keys |
 | `padding.rs` | Length-hiding padding for items and body |
@@ -118,7 +119,8 @@ that the browser loads it from, kept as the app wrote it (`extension_folder.rs`)
 files come from: a GitHub release's zip read strictly, a folder of the person's, or the copy
 built into the app (`extension_source.rs`), the
 emergency kit PDF
-(`kit_pdf.rs`, with a QR code for each key), a recovery part hidden in a picture (`part_picture.rs`), opt-in website icons
+(`kit_pdf.rs`, with a QR code for each key; a kit saved as a file is encrypted by the PDF's own
+AES-256 password protection, `kit_pdf/protect.rs`), a recovery part hidden in a picture (`part_picture.rs`), opt-in website icons
 fetched directly from each site with a sealed cache (`website_icons.rs`), the `.vault` file
 type for this user on Windows (icon, opens in the app; `file_types.rs`), starting at sign-in
 (`autostart.rs`, the user's `Run` key) and one running copy of the desktop app
@@ -152,7 +154,8 @@ Importers only produce `ItemData`; they never touch keys.
 
 `vault init | info | list | add | show | edit | rm | generate | totp | passwd | renew-key |
 recover | kit | part-picture | forget | keyfile | import | sync` (`sync --take-new-key` takes a
-vault key renewed on another device). Same vault and device state as the desktop app. `tests/cli.rs` runs the binary, including sync through a running server.
+vault key renewed on another device; `kit --pdf` saves the kit protected by its PDF password,
+`kit --pdf-password` shows that password). Same vault and device state as the desktop app. `tests/cli.rs` runs the binary, including sync through a running server.
 
 ### 2.4.1 `crates/browser` (vault-browser) and `apps/extension/`
 

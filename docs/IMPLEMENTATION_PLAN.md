@@ -851,6 +851,18 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
   Headless tests: on by default, each use asks again, a refusal shows and copies nothing, a
   code back to dots once it runs out or the item is left, the Codes page per row, off asks
   nothing, no screen lock with and without an item PIN.
+- ✅ S32. The emergency kit's PDFs protected by a password (CRYPTO.md §3.10): the printed
+  kit's temporary PDF, "Save as PDF", "Save each part apart" (Kit page and onboarding) and
+  `vault kit --pdf` are encrypted with the PDF standard security handler, revision 6 (AES-256;
+  `kit_pdf/protect.rs`, by hand on `aes`, `cbc` and `sha2`); saved files are read back before
+  they are called done. The password is four EFF words, derived, never stored or printed
+  (`Vault::kit_pdf_password`: `subkey("kit-pdf")`, the Secret Key and the kit's id), opening
+  with or without the spaces; the Kit page shows it next to the print and save actions (dots
+  until shown for 15 seconds, Copy), and the keys and the password wait for the item lock's
+  check when one is in use; `vault kit --pdf-password` shows it alone. Known-answer vectors
+  computed apart (Python's `cryptography` for the password, pypdf's revision 6 code for the
+  hash and the dictionary, `cryptography`'s AES-CBC for a string), and the files opened by
+  pypdf, qpdf (pikepdf) and PDFium (pypdfium2) with either spelling, a wrong password refused.
 
 **Features** (F2, F7 and F8 change the file format: one format version for the three)
 - ⬜ F1. Lock options: ask for the master password at every start of the app.
