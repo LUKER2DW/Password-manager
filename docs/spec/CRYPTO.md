@@ -17,6 +17,7 @@
 | Sealing to a public key (browser drop box only, §3.5) | libsodium sealed box: X25519 + XSalsa20-Poly1305, nonce = BLAKE2b(eph_pk ‖ pk) | `crypto_box` |
 | The browser extension's link only (§3.9) | ECDH P-256 to agree on its key; AES-256-GCM to seal its messages (the AEAD the browser's WebCrypto offers: XChaCha20-Poly1305 isn't there, and written in JavaScript it would be home-made) | `p256`, `aes-gcm` |
 | Keeping the Secret Key on Windows only (§2.2.1) | RSA-2048 OAEP with SHA-256, the private key in the TPM | Windows NCrypt, Microsoft Platform Crypto Provider |
+| The emergency kit's PDF files only (§3.10) | The PDF standard security handler, revision 6 (ISO 32000-2 §7.6.4): AES-256-CBC for the content, AES-128-CBC and SHA-256/384/512 in its password hash, AES-256 on one block for its permissions (what every PDF viewer reads; nothing else opens a PDF) | `aes`, `cbc`, `sha2` |
 
 All labels below are ASCII byte strings and are used verbatim (no terminator).
 
@@ -143,7 +144,7 @@ KEK_recovery = HKDF-SHA-256(ikm  = recovery_key,
 vault_key    = 32 random bytes (generated when the vault is made, and again when it is
                renewed, §3.8)
 subkey(p)    = HKDF-SHA-256(ikm = vault_key, salt = vault_id, info = "vault-v0/subkey/" ‖ p)
-               p ∈ { "body", "item-wrap", "parts", "local/" ‖ purpose }
+               p ∈ { "body", "item-wrap", "parts", "kit-pdf" (§3.10), "local/" ‖ purpose }
 item_key     = 32 random bytes per item revision
 ```
 
@@ -623,6 +624,105 @@ The app keeps `K` sealed with the vault (`subkey("local/browser-pairing")`, §6)
 DPAPI for filling while locked (§3.4); the extension keeps it as a non-extractable WebCrypto
 key. That key object is still written to the browser's profile, so a program that copies the
 profile takes it (THREAT_MODEL.md).
+
+### 3.10 The emergency kit's PDF files (not part of the vault file)
+
+Every PDF the app makes of a kit that holds keys is protected by a password: the kit printed
+from the app (a temporary PDF the viewer opens, wiped when the vault locks), "Save as PDF"
+(the Secret Key's page), "Save each part apart" (a PDF for each recovery part) and
+`vault kit --pdf`. The PDF is for printing and may sit on the computer for a while; the
+password means that a copy of it (taken by malware, synced by a folder, left in Downloads),
+or the file opened by someone while the person is away from the computer, shows nothing. The
+paper is the kit: the password is not printed on it, and it is not meant for recovering. A
+kit of empty boxes, to be filled in by hand, holds no key and is not protected.
+
+**The password** is derived, never stored, so the vault file doesn't change and the kit page
+shows the same one again whenever the vault is open (behind the item lock when one is in use,
+like the keys). A random password for each file was considered: it would be shown once, at
+the moment the file is made, and a file printed later would need its own note; one password
+for the kit is simpler and is no weaker against a copy of the file.
+
+```
+K_pdf    = subkey("kit-pdf")                                  (§3, from the vault key)
+kit      = 0x01 ‖ kit_id                    when the vault has recovery parts (§3.6)
+           0x00                             when it has none
+stream   = HKDF-SHA-256(ikm  = K_pdf ‖ secret_key,           (32 + 16 bytes)
+                        salt = vault_id,
+                        info = "vault-v0/kit-pdf/password" ‖ kit)   (L up to 8160 bytes)
+words    = read stream as big-endian two-byte draws; a draw d < 62208 (= 8 × 7776) gives the
+           word at d mod 7776 of the EFF large list (the generator's, compiled in), a higher
+           one is skipped; the first four words taken
+password = the four words, in small letters, separated by single spaces
+```
+
+- The first 64 bytes of the stream give four words except about once in 2^112; the code then
+  reads on (HKDF's output for a longer L starts with the same bytes), so the answer never
+  depends on how much was read.
+- Bound to the kit: a new Secret Key (a recovery, a renewal), new recovery parts (a new
+  `kit_id`) or a renewed vault key give a new password. A file made before keeps the one it
+  was made with. Every file of one kit has the same password.
+- The parts themselves are not an input: they aren't stored, so a password made from them
+  could never be shown again. `kit_id` names them in the header.
+- Four words, about 51.7 bits, because the owner asked for a password simple enough to type in
+  a PDF viewer. The PDF's own hash (Algorithm 2.B, below) is quick and needs no memory, so
+  this is the weak point of the file: about 2^51.7 guesses, each a few thousand AES blocks
+  and a SHA-2 run. Enough against a copy taken in bulk or a glance at the screen; not against
+  someone who sets a large GPU farm on one file for a long time. A person's own choice would
+  be far weaker, which is why it is drawn, not chosen.
+- It tells nothing about the vault key (HKDF is one-way), and whoever reads it learns nothing
+  the file it opens wouldn't tell them.
+
+**The file** uses the PDF standard security handler as ISO 32000-2:2020 §7.6.4 specifies it,
+revision 6, written by hand like the rest of the file (`vault_platform::kit_pdf`) with
+RustCrypto's `aes`, `cbc` and `sha2`. Every current viewer reads it (the browsers' own,
+Acrobat, pdf.js, qpdf).
+
+```
+file_key = 32 random bytes                       uvs, uks, ovs, oks: 8 random bytes each
+U        = H(user, uvs, "") ‖ uvs ‖ uks                                       (Algorithm 8)
+UE       = AES-256-CBC(key = H(user, uks, ""), IV = 16 zero bytes, file_key), no padding
+O        = H(owner, ovs, U) ‖ ovs ‖ oks                                       (Algorithm 9)
+OE       = AES-256-CBC(key = H(owner, oks, U), IV = 16 zero bytes, file_key), no padding
+Perms    = AES-256(file_key) of one block:                                  (Algorithm 10)
+           P as 8 bytes LE (upper 32 bits set) ‖ "T" ‖ "adb" ‖ 4 random bytes
+stream   = IV ‖ AES-256-CBC(file_key, IV, content with PKCS#7 padding)  IV: 16 random bytes,
+                                                                        new for each stream
+H(pw, salt, u)                                                            (Algorithm 2.B)
+         K = SHA-256(pw ‖ salt ‖ u); then rounds 0, 1, 2, …:
+           E = AES-128-CBC(key = K[0..16], IV = K[16..32], (pw ‖ K ‖ u) repeated 64 times)
+           K = SHA-256(E), SHA-384(E) or SHA-512(E) as E[0..16], a big-endian number, mod 3
+               is 0, 1 or 2
+         after a round, with n rounds done: stop when n ≥ 64 and E's last byte ≤ n − 32
+         H = K[0..32]
+```
+
+- `user` is the password as shown (its words with their spaces) and `owner` the same letters
+  without the spaces. Either one opens the file (a viewer tries both, Algorithm 2.A), so it
+  doesn't matter whether the person types the spaces. Both are ASCII, which SASLprep leaves as
+  it is, far under the 127-byte limit.
+- The encrypt dictionary: `/Filter /Standard /V 5 /R 6 /Length 256`, one crypt filter
+  `/StdCF` (`/CFM /AESV3 /AuthEvent /DocOpen /Length 32`) for streams and strings (`/StmF`,
+  `/StrF`), and the five values above. The file has no strings outside its content streams
+  except in that dictionary and the trailer's `/ID` (16 random bytes, twice), which are never
+  encrypted: everything the kit prints (keys, QR codes, words) is in the content streams. The
+  header says `%PDF-1.7`, with `/Extensions << /ADBE << /BaseVersion /1.7 /ExtensionLevel 8 >>
+  >>` in the catalog, where revision 6 was published before PDF 2.0.
+- Permissions `P = −1324`: bits 3, 5, 10 and 12 set (print, copy, accessibility, high-quality
+  print), 4, 6, 9 and 11 clear (no changes, notes, forms or reassembly). A viewer applies them
+  once it has opened the file, so they protect nothing and promise nothing. Copying is allowed
+  because it is how a key goes from the file into the app. The owner spelling opens the file
+  with every permission.
+- The file key is not derived from the password: the password unwraps it (UE, OE). All the
+  randomness is the OS generator's.
+- AES-CBC checks no integrity: a damaged or altered file shows wrong text or doesn't open. The
+  keys on it carry their own checksums (§2.2, §2.4), so a key typed from a damaged file is
+  refused, never taken.
+
+**What it stops, and what it doesn't** (THREAT_MODEL.md): a copy of a kit's PDF, or the file
+opened by someone else at the computer, shows nothing without the password. Someone who has
+both reads it, as they would read the paper kit. While the kit page shows the password (on
+request, for 15 seconds) a program that reads the screen sees it, as it would see the keys,
+and one that reads the open vault's memory could derive it.
 
 ## 4. Argon2id parameters
 
