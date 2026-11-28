@@ -4,6 +4,7 @@ mod clipboard;
 mod commands;
 mod prompt;
 mod session;
+mod through_app;
 
 use std::path::PathBuf;
 
@@ -131,6 +132,34 @@ enum Command {
     },
     /// Import an export from another password manager or a browser (JSON, CSV or KDBX).
     Import(ImportArgs),
+    /// Run a program with secrets from the open desktop app in its environment: each variable
+    /// whose value is vault://<item>/<field>, and each --env NAME=vault://<item>/<field>, holds
+    /// the secret instead. Each use is approved in the app (Settings → Security → The vault
+    /// command).
+    Run {
+        /// A variable to set to a secret: NAME=vault://<item>/<field> (again for more).
+        #[arg(long = "env", value_name = "NAME=REFERENCE")]
+        env: Vec<String>,
+        /// The program and its arguments, after --.
+        #[arg(last = true, required = true, value_name = "PROGRAM")]
+        command: Vec<String>,
+    },
+    /// Fill a template's {{ vault://<item>/<field> }} with secrets from the open desktop app,
+    /// each use approved there.
+    Inject {
+        /// The template (standard input when not given).
+        #[arg(long = "in", short = 'i', value_name = "FILE")]
+        input: Option<PathBuf>,
+        /// Where to write the result (standard output when not given).
+        #[arg(long = "out", short = 'o', value_name = "FILE")]
+        output: Option<PathBuf>,
+    },
+    /// Git's credential helper: `git config --global credential.helper "vault git-credential"`.
+    /// Git gets the login saved for the site, from the open desktop app, approved there.
+    GitCredential {
+        /// What git asks: get, store or erase (store and erase change nothing).
+        action: String,
+    },
     /// Sync this vault with your other devices: through a folder they all see (OneDrive,
     /// Google Drive, Dropbox, Syncthing, a network share), your own vault-server, or a
     /// WebDAV folder (Nextcloud, a NAS). Each device writes only its own sealed copy there;
@@ -386,6 +415,16 @@ fn main() {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    // Through the open desktop app: no vault opened here, no prompt.
+    match cli.command {
+        Command::Run { env, command } => {
+            let code = through_app::run(env, command)?;
+            std::process::exit(code);
+        }
+        Command::Inject { input, output } => return through_app::inject(input, output),
+        Command::GitCredential { action } => return through_app::git_credential(&action),
+        _ => {}
+    }
     let path = match cli.vault {
         Some(path) => path,
         None => session::default_vault_path()?,
@@ -546,6 +585,8 @@ fn run() -> Result<()> {
                 delete_source: args.delete_source,
             },
         ),
+        // Answered above, through the open desktop app.
+        Command::Run { .. } | Command::Inject { .. } | Command::GitCredential { .. } => Ok(()),
     }
 }
 
