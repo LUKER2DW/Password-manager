@@ -728,7 +728,17 @@ On top of that:
   With all three parts the vault gets a new master password and a new Secret Key (shown once,
   before it opens), the parts used stop working, and the phone's fingerprint unlock goes, as
   on the desktop.
-- Imports: the app offers to overwrite and delete the plain-text export right after importing.
+- Imports: the app offers to overwrite and delete the plain-text export right after importing
+  (a picture whose QR code held an authenticator's keys counts as one).
+- The Credential Exchange (CXF) export holds passkeys' private keys in clear, as the format
+  carries them: the export dialog counts them among what anyone with the file can read, and
+  says to import it at once and delete it. The KeePass (KDBX 4) export is encrypted under a
+  password of its own (at least 12 characters) and an optional keyfile (CRYPTO.md §3.11); it
+  holds passkeys too, so its password is all that guards them.
+- What other apps hand over is read as hostile: the CXF, KDBX and authenticator readers refuse
+  or count what they can't read, an `otpauth-migration://` payload is a protocol buffer read
+  field by field with every length checked, a picture is decoded within size limits before its
+  QR codes are looked for, and each of these readers has a fuzz target.
 - Unencrypted export: only after re-checking the master password, with a warning; the encrypted
   backup copy is offered first. The phone does the same (master password checked against the
   file, a confirmation, refused while items are behind the item lock), and offers the protected

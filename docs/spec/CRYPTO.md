@@ -782,6 +782,31 @@ file        = postcard(version = 1, pk, sealed_key, [entry…])
 - A renewed vault key (§3.8) seals `sealed_key` again; `sk` and `pk` stay.
 - `pk` isn't authenticated while locked, as for the drop box: anyone who can write the file can
   add entries or swap the key; the log is a way to notice, not evidence (THREAT_MODEL.md §3).
+### 3.11 Export as a KeePass database (not part of the vault file)
+
+`vault_import::export_kdbx` writes the vault as a KDBX 4.1 database for KeePass and the apps
+that read its files. No cryptography is written here: the `keepass` crate (the one the KDBX
+importer reads with) makes the file with the format's own primitives, and the choices are:
+
+| Part | Choice |
+|---|---|
+| Composite key | SHA-256 of SHA-256(password) and, when chosen, the keyfile as KeePass hashes it (any file) |
+| Key derivation | Argon2id v1.3, 256 MiB, 3 passes, 4 lanes (the vault's standard level, §4), fresh 32-byte salt |
+| File cipher | ChaCha20 (RFC 8439), fresh nonce; header and blocks authenticated with HMAC-SHA-256 |
+| Protected values (passwords, hidden fields, the `otp` link, passkey keys, attached files) | ChaCha20 inner stream |
+| Compression | GZip |
+
+The desktop asks for at least 12 characters, as for §3.3. A passkey's private key goes in as
+KeePassXC keeps it (PKCS#8 PEM in the protected field `KPEX_PASSKEY_PRIVATE_KEY_PEM`), so
+whoever opens the database can sign in with it, as with §3.3. KeePassXC 2.7 opens such a
+file (checked with `keepassxc-cli`: entries, `otp`, attachments, passkeys, the cipher and
+KDF above), and the app's importer refuses a database asking for more than 2 GiB, 1000 passes
+or 64 lanes before any work.
+
+The Credential Exchange Format export (`vault_import::export_cxf`) is not encrypted: it is the
+JSON one manager hands another (CXF 1.0, FIDO Alliance Proposed Standard of 14 August 2025),
+and it carries passkeys' private keys as PKCS#8 DER, as the format requires. The export dialog
+counts them as readable by anyone with the file.
 
 ## 4. Argon2id parameters
 

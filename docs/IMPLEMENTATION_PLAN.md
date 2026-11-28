@@ -947,7 +947,15 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
 - ✅ F8. Tags (searched, `#tag` too) and an expiry date on items; Password health lists what
   expires within 30 days (`HealthReport::expiring`, under Expiring).
 - ⬜ F9. SSH agent, with approval for each use.
-- ⬜ F10. Credential Exchange Format (CXF) import and export.
+- ✅ F10. Credential Exchange Format (CXF) import and export. CXF 1.0, the FIDO Alliance's
+  Proposed Standard of 14 August 2025 (`vault_import::cxf`): basic-auth, passkeys (PKCS#8),
+  TOTP, notes, cards, SSH keys (PKCS#8, `vault_core::ssh::pkcs8_der`) and custom fields onto
+  items, collections onto folders; addresses, identity documents, passports, names, Wi-Fi and
+  API keys as fields of a note (identity items once F7 lands), files, links and unknown kinds
+  counted in the review. The export carries passkeys with their keys (counted as readable in
+  the export dialog), leaves files and earlier passwords out (counted). Desktop: Export →
+  "Credential Exchange (CXF), not encrypted"; Import detects it. Still to do: the Credential
+  Exchange Protocol (app to app, HPKE), when platforms offer it to third-party apps.
 - ⬜ F11. Auto-type into programs outside the browser.
 - ⬜ F12. Distribution: the extension in the stores, an installer, the desktop updating itself.
   Done: the desktop app writes the extension into a folder of its own
@@ -989,8 +997,14 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
 - ⬜ F18. The save card and the editor warn of a reused or leaked new password.
 - ⬜ F19. Help changing a password: `/.well-known/change-password`, and the change URLs and
   password rules of the `password-manager-resources` lists, built in.
-- ⬜ F20. Authenticator: Steam codes, import from other authenticator apps
-  (`otpauth-migration`, exports), a QR code read from a picture on the desktop.
+- ✅ F20. Authenticator: five-character codes (`encoder=steam` or `otpauth://steam/`, the
+  platform's name only where the person reads it), import from other authenticator apps
+  (`otpauth-migration://` transfer payloads, `otpauth://` link lists and the common apps' JSON
+  exports, encrypted ones refused with how to make a plain one; `vault_import::authenticator`),
+  and on the desktop a QR code read from a picture file (Authenticator → From a QR picture…,
+  `rqrr`): a site's key opens a new code item, a transfer code goes to the import review.
+  Still to do: the phone's own QR scanner for transfer codes; picking five-character codes in
+  the editor (they come from links and imports today).
 - ✅ F21. The whole item's history: every change to an item's contents keeps the version it
   replaces (`ItemData::versions`, up to the history limit, sealed with its secrets under the
   item lock), merged so that neither device's edit is lost (SYNC.md §4.3); the item page lists
@@ -1001,8 +1015,18 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
 - ⬜ F24. Show a password in large type.
 - ⬜ F25. A settings review on the health page, and "ignore this warning".
 - ⬜ F26. Quick access by a global shortcut (search, copy, type) and configurable shortcuts.
-- ⬜ F27. Export as KDBX 4.
-- ⬜ F28. More import sources.
+- ✅ F27. Export as KDBX 4 (`vault_import::export_kdbx`, CRYPTO.md §3.11): the `keepass`
+  crate, ChaCha20 and Argon2id 256 MiB / 3 passes / 4 lanes, a password of the person's (12
+  characters at least) and optionally a keyfile; every item whole in KeePassXC's places
+  (`KP2A_URL_n`, `otp`, `KPEX_PASSKEY_*`, attachments, history) and the rest in `vault.item`.
+  Round trip tested against the importer, and opened by KeePassXC 2.7's CLI. Desktop only for
+  now (Export → KeePass database); the phone's export keeps its three formats.
+- ✅ F28. More import sources: other managers' JSON shapes (vaults of typed items, items of
+  labelled fields, records with typed custom fields), more CSV columns (password and URL
+  aliases, more websites in one cell, tags, created and modified dates, card columns), the
+  KeePass reader's passkeys, files, extra websites and history, each tested with constructed
+  rows. Not read: zip exports (a manager's `.1pux`, a zip of CSVs: unzip first), headerless
+  CSVs, XML exports.
 - ⬜ F29. CLI automation through the open app (`vault run`, `vault inject`, a git credential
   helper), each use approved in the app.
 

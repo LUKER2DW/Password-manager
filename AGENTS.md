@@ -102,7 +102,7 @@ filesystem policy** beyond atomic writes.
 | `kept_key.rs` | The Secret Key as a Windows device keeps it: sealed under a random key the TPM wraps (CRYPTO.md §2.2.1) |
 | `locked_fill.rs` | Logins the extension may fill while the vault is locked (CRYPTO.md §3.4) |
 | `passkey.rs` | Passkeys in logins: ES256 keys, authenticator data, attestation, signatures (CRYPTO.md §3.7) |
-| `totp.rs` | RFC 6238 one-time codes, and RFC 4226 counter-based ones (`otpauth://hotp/`) |
+| `totp.rs` | RFC 6238 one-time codes, RFC 4226 counter-based ones (`otpauth://hotp/`), five-character codes (`encoder=steam`), links made from an export's parts (`LinkParts`) |
 | `storage.rs` | Atomic file writes with a `.bak` copy |
 | `random.rs` | OS randomness |
 | `memory.rs` | Keys in memory: the `KeyShield` a program installs (the vault key, the guard key, the Secret Key and the keyfile kept encrypted between uses), and `clear_stack`, called after a key is hashed and when the vault locks |
@@ -155,7 +155,13 @@ supported file. Readers are named by format, never by product:
 
 - `json.rs` — unencrypted JSON exports in the common layout.
 - `csv_import.rs` — CSV from browsers and managers, detected by header aliases.
-- `kdbx.rs` — KeePass-format databases.
+- `kdbx.rs` — KeePass-format databases (with KeePassXC's passkeys, extra websites, files and
+  history); `kdbx_export.rs` writes one (KDBX 4, CRYPTO.md §3.11).
+- `cxf.rs` — the FIDO Alliance's Credential Exchange Format (CXF 1.0), read and written.
+- `authenticator.rs` — authenticator apps' keys: `otpauth://` link lists, the
+  `otpauth-migration://` transfer payload (a protocol buffer read by hand), the apps' JSON
+  exports by shape.
+- `managers.rs` — other managers' own JSON shapes, told by their keys.
 - `browser.rs` — reads a browser's own store directly on Windows (Chromium via DPAPI +
   AES-GCM, Firefox via NSS `key4.db`), only on an explicit user action. DPAPI is passed in by
   the caller so this crate stays free of `unsafe`.
@@ -233,6 +239,7 @@ Slint UI (`ui/*.slint`) driven by a Rust controller.
 | `src/i18n.rs` | The app's language: picks a compiled-in catalogue from `translations/` |
 | `src/controller/navigation.rs` | Back/forward history, mouse buttons 4/5 and keyboard shortcuts (raw window events) |
 | `src/view.rs` | Pure presentation rules (unit-tested): filters, tints, crack times, dates |
+| `src/qr.rs` | A QR code read from a picture file (Authenticator → From a QR picture…; `rqrr`) |
 | `src/sketch.rs` | Hand-drawn strokes generated in Rust |
 | `src/tests.rs` | Headless end-to-end test of the whole app |
 | `examples/screenshots.rs` | Renders every screen to PNG for visual review |

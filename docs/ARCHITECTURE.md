@@ -262,38 +262,45 @@ Rust gives us is **control**: short lifetimes, no hidden copies, explicit zeroiz
 
 ## 9. Import / export
 
-- Import: JSON exports in the common layout, CSV from browsers and managers, KeePass KDBX
-  3/4 (with a key file), an export sealed under a password (`.vaultx`), and on Windows a
-  browser's own store read directly on request.
-- Export: JSON (also sealed under a password) and CSV; plain-text export only after the master
-  password again, and plain-text files the app read are offered for secure wiping. Before a file
-  is made the app shows what the chosen format leaves out and what it writes in plain text
-  (`vault_import::export_report`), and an import names what it left out.
+- Import: JSON exports in the common layout, CSV from browsers and managers (many layouts, read
+  by their header), other managers' own JSON shapes (told by their keys, never by product),
+  KeePass KDBX 3/4 (with a key file), the FIDO Alliance's Credential Exchange Format (CXF 1.0,
+  Proposed Standard of 14 August 2025), authenticator apps' keys (`otpauth://` link lists,
+  `otpauth-migration://` transfer payloads, the apps' JSON exports; on the desktop also a QR
+  code read from a picture file), an export sealed under a password (`.vaultx`), and on
+  Windows a browser's own store read directly on request.
+- Export: JSON (also sealed under a password), CSV, a KeePass database (KDBX 4, under a
+  password and optionally a keyfile, CRYPTO.md §3.11) and CXF; plain-text export only after the
+  master password again, and plain-text files the app read are offered for secure wiping.
+  Before a file is made the app shows what the chosen format leaves out and what it writes in
+  plain text (`vault_import::export_report`), and an import names what it left out.
 
 What each format keeps:
 
-| What an item holds | `.vault` (vault file, backup) | `.vaultx` (sealed export) | JSON (plain) | CSV (plain) |
-|---|---|---|---|---|
-| Title, username, password, notes, favourite, "ask again" | kept | kept | kept, in clear | kept, in clear |
-| Websites | all | all | all | the first only |
-| One-time code (TOTP; a HOTP counter inside its URI) | kept | kept | kept, in clear | kept, written as is |
-| Custom fields | kept, hidden mark kept | kept, hidden mark kept | kept, hidden mark kept, in clear | "name: value" lines, no hidden mark (the app hides names that look secret again); a value of several lines comes back whole unless a later line holds ": " |
-| Recovery codes | codes, used marks | codes, used marks | as `.vaultx`, in clear | one text field, hidden again by name |
-| Earlier passwords | kept | kept | left out (named on import) | left out |
-| Created, changed, password set dates | kept | kept | kept | left out |
-| Attached files | kept | kept (name, date, bytes) | left out (counted, named on import) | left out |
-| Passkeys | kept | kept, with their private keys (sealed under the file's password) | left out (a key in clear would sign in as you) | left out |
-| Item kind | kept | kept | passkey items as logins | cards and SSH keys as notes, passkey items as logins |
-| Folders | name, icon, colour, picture, order | names | names | a name per item |
-| Item lock | kept | not carried (the importing vault's applies) | not carried | not carried |
-| Items whose secrets are locked | sealed | export refused until they are opened | refused | refused |
-| Protection | master password and Secret Key | its own password (Argon2id) | none | none |
+| What an item holds | `.vault` (vault file, backup) | `.vaultx` (sealed export) | KDBX 4 | CXF (plain) | JSON (plain) | CSV (plain) |
+|---|---|---|---|---|---|---|
+| Title, username, password, notes, favourite, "ask again" | kept | kept | kept ("ask again" and favourite in `vault.item`) | kept, in clear ("ask again" left out) | kept, in clear | kept, in clear |
+| Websites | all | all | all (`URL`, `KP2A_URL_n`) | all (`scope.urls`) | all | the first only |
+| One-time code (TOTP; a HOTP counter inside its URI) | kept | kept | kept (`otp` link) | TOTP as a `totp` credential; HOTP and five-character keys as a hidden field | kept, in clear | kept, written as is |
+| Custom fields | kept, hidden mark kept | kept, hidden mark kept | kept, protected when hidden (a name KeePass keeps for itself gets a number) | kept (`custom-fields`, concealed when hidden) | kept, hidden mark kept, in clear | "name: value" lines, no hidden mark (the app hides names that look secret again); a value of several lines comes back whole unless a later line holds ": " |
+| Recovery codes | codes, used marks | codes, used marks | codes, used marks (a protected field marked in `vault.item`) | codes (one hidden field each) | as `.vaultx`, in clear | one text field, hidden again by name |
+| Earlier passwords | kept | kept | kept (the entry's history) | left out (counted) | left out (named on import) | left out |
+| Created, changed, password set dates | kept | kept | created, changed | created, changed | kept | left out |
+| Attached files | kept | kept (name, date, bytes) | kept (attachments) | left out (counted) | left out (counted, named on import) | left out |
+| Passkeys | kept | kept, with their private keys (sealed under the file's password) | kept, one per entry (`KPEX_PASSKEY_*`; more become entries of their own) | kept, with their private keys in clear (counted as readable) | left out (a key in clear would sign in as you) | left out |
+| Item kind | kept | kept | kept (`vault.item`) | kept | passkey items as logins | cards and SSH keys as notes, passkey items as logins |
+| Folders | name, icon, colour, picture, order | names | groups | collections | names | a name per item |
+| Item lock | kept | not carried (the importing vault's applies) | not carried | not carried | not carried | not carried |
+| Items whose secrets are locked | sealed | export refused until they are opened | refused | refused | refused | refused |
+| Protection | master password and Secret Key | its own password (Argon2id) | its own password and keyfile (Argon2id, ChaCha20) | none | none | none |
 
-From other managers: passkeys in a JSON export and KeePass attachments are not imported and
-are counted in a warning; a website rule narrower than an origin is kept for reference and not
-filled; KeePass entry history is not imported (one warning per file counts the entries with
-earlier passwords).
-- Passkeys, later: the FIDO Alliance Credential Exchange Protocol/Format.
+From other managers: passkeys in a JSON export are not imported and are counted in a warning;
+a website rule narrower than an origin is kept for reference and not filled. KeePass
+databases bring their attachments (within an item's limits), extra websites, KeePassXC
+passkeys and the entry history's earlier passwords. A CXF document's credentials the vault has
+no item for yet (addresses, identity documents, passports, names, Wi-Fi, API keys) become
+fields of a note, said in the review; identity items will take them when they exist (F7).
+Authenticator keys become logins holding the code, the issuer as the title.
 
 ## 10. Licensing
 
