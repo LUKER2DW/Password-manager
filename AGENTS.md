@@ -156,7 +156,7 @@ supported file. Readers are named by format, never by product:
 - `json.rs` — unencrypted JSON exports in the common layout.
 - `csv_import.rs` — CSV from browsers and managers, detected by header aliases.
 - `kdbx.rs` — KeePass-format databases (with KeePassXC's passkeys, extra websites, files and
-  history); `kdbx_export.rs` writes one (KDBX 4, CRYPTO.md §3.11).
+  history); `kdbx_export.rs` writes one (KDBX 4, CRYPTO.md §3.12).
 - `cxf.rs` — the FIDO Alliance's Credential Exchange Format (CXF 1.0), read and written.
 - `authenticator.rs` — authenticator apps' keys: `otpauth://` link lists, the
   `otpauth-migration://` transfer payload (a protocol buffer read by hand), the apps' JSON

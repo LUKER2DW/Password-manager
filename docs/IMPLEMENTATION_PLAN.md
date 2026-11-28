@@ -1015,7 +1015,7 @@ committed by area. Items marked (owner) need the maintainer's own accounts or ke
 - ⬜ F24. Show a password in large type.
 - ⬜ F25. A settings review on the health page, and "ignore this warning".
 - ⬜ F26. Quick access by a global shortcut (search, copy, type) and configurable shortcuts.
-- ✅ F27. Export as KDBX 4 (`vault_import::export_kdbx`, CRYPTO.md §3.11): the `keepass`
+- ✅ F27. Export as KDBX 4 (`vault_import::export_kdbx`, CRYPTO.md §3.12): the `keepass`
   crate, ChaCha20 and Argon2id 256 MiB / 3 passes / 4 lanes, a password of the person's (12
   characters at least) and optionally a keyfile; every item whole in KeePassXC's places
   (`KP2A_URL_n`, `otp`, `KPEX_PASSKEY_*`, attachments, history) and the rest in `vault.item`.

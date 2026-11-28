@@ -270,7 +270,7 @@ Rust gives us is **control**: short lifetimes, no hidden copies, explicit zeroiz
   code read from a picture file), an export sealed under a password (`.vaultx`), and on
   Windows a browser's own store read directly on request.
 - Export: JSON (also sealed under a password), CSV, a KeePass database (KDBX 4, under a
-  password and optionally a keyfile, CRYPTO.md §3.11) and CXF; plain-text export only after the
+  password and optionally a keyfile, CRYPTO.md §3.12) and CXF; plain-text export only after the
   master password again, and plain-text files the app read are offered for secure wiping.
   Before a file is made the app shows what the chosen format leaves out and what it writes in
   plain text (`vault_import::export_report`), and an import names what it left out.

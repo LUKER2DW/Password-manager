@@ -733,7 +733,7 @@ On top of that:
 - The Credential Exchange (CXF) export holds passkeys' private keys in clear, as the format
   carries them: the export dialog counts them among what anyone with the file can read, and
   says to import it at once and delete it. The KeePass (KDBX 4) export is encrypted under a
-  password of its own (at least 12 characters) and an optional keyfile (CRYPTO.md §3.11); it
+  password of its own (at least 12 characters) and an optional keyfile (CRYPTO.md §3.12); it
   holds passkeys too, so its password is all that guards them.
 - What other apps hand over is read as hostile: the CXF, KDBX and authenticator readers refuse
   or count what they can't read, an `otpauth-migration://` payload is a protocol buffer read

@@ -782,7 +782,7 @@ file        = postcard(version = 1, pk, sealed_key, [entry…])
 - A renewed vault key (§3.8) seals `sealed_key` again; `sk` and `pk` stay.
 - `pk` isn't authenticated while locked, as for the drop box: anyone who can write the file can
   add entries or swap the key; the log is a way to notice, not evidence (THREAT_MODEL.md §3).
-### 3.11 Export as a KeePass database (not part of the vault file)
+### 3.12 Export as a KeePass database (not part of the vault file)
 
 `vault_import::export_kdbx` writes the vault as a KDBX 4.1 database for KeePass and the apps
 that read its files. No cryptography is written here: the `keepass` crate (the one the KDBX
