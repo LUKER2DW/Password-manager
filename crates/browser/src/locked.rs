@@ -348,6 +348,8 @@ pub fn answer_locked(message: &[u8], logins: &[LockedLogin], gate: &mut dyn Lock
         // Cards, site rules, weighing and icons need the open vault too.
         | Request::Cards { .. }
         | Request::CardFill { .. }
+        | Request::Identities { .. }
+        | Request::IdentityFill { .. }
         | Request::SiteRule { .. }
         | Request::Weigh { .. }
         | Request::Icons { .. }

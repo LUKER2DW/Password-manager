@@ -6,6 +6,7 @@ use vault_core::{
     ItemData, ItemId, ItemKind, Passkey, Vault,
     card::{self, CardDetails},
     generator::{self, PassphraseOptions, PasswordOptions, WordCase},
+    identity,
     passkey::{ES256, attestation_object},
     totp::Totp,
 };
@@ -17,8 +18,9 @@ use crate::{
     origin::{Origin, PageProblem, item_matches, passkey_site},
     protocol::{
         Assertion, Attestation, CardEntry, CardFill, Check, CopyWhat, Credentials, ErrorCode,
-        GeneratedPassword, LoginEntry, OneTimeCode, PasskeyEntry, Request, Response, Revealed,
-        Secret, Shown, ShownCode, SignalKind, Symbols, UserVerification, VaultEntry,
+        GeneratedPassword, IdentityEntry, IdentityFill, LoginEntry, OneTimeCode, PasskeyEntry,
+        Request, Response, Revealed, Secret, Shown, ShownCode, SignalKind, Symbols,
+        UserVerification, VaultEntry,
     },
 };
 
@@ -163,6 +165,7 @@ pub fn wants_hello(message: &[u8]) -> bool {
             | Request::Copy { hello: true, .. }
             | Request::Update { hello: true, .. }
             | Request::CardFill { hello: true, .. }
+            | Request::IdentityFill { hello: true, .. }
             | Request::PasskeyGet { hello: true, .. }
             | Request::PasskeyCreate { hello: true, .. })
     )
@@ -696,6 +699,8 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
         | Request::PasskeyGet { url, .. }
         | Request::PasskeyCreate { url, .. }
         | Request::Cards { url }
+        | Request::Identities { url }
+        | Request::IdentityFill { url, .. }
         | Request::PasskeySignal { url, .. }
         | Request::CardFill { url, .. } => match page_origin(url) {
             Ok(origin) => Some(origin),
@@ -982,6 +987,71 @@ fn respond(request: Request, vault: Option<&mut Vault>, gate: &mut dyn Gate) -> 
                     noted: u32::try_from(signals.len()).unwrap_or(u32::MAX),
                 }
                 .into()
+            }
+        }
+        (Request::Identities { .. }, Some(origin)) => {
+            let pairing = gate.pairing();
+            let mut items: Vec<IdentityEntry> = vault
+                .item_ids()
+                .filter_map(|id| {
+                    let item = vault.get_item(&id).ok()?;
+                    (item.kind == ItemKind::Identity && vault.reaches_browser(&item, pairing)).then(
+                        || IdentityEntry {
+                            id: id.to_hex(),
+                            title: item.title.clone(),
+                            name: item.username.clone(),
+                            summary: identity::summary(&item),
+                            locked: item.is_locked() || gate.locked(vault, &item),
+                        },
+                    )
+                })
+                .collect();
+            items.sort_by_key(|entry| entry.title.to_lowercase());
+            Response::Identities {
+                origin: origin.as_str().to_owned(),
+                check: gate.check(vault),
+                hello: gate.hello(vault),
+                always_asks: gate.always(),
+                items,
+            }
+            .into()
+        }
+        (
+            Request::IdentityFill {
+                id, check, hello, ..
+            },
+            Some(origin),
+        ) => {
+            let read = with_item(
+                vault,
+                gate,
+                ItemKind::Identity,
+                &id,
+                check,
+                hello,
+                None,
+                |_| true,
+                |_, _, item, _| item,
+            );
+            match read {
+                // Only the details a form asks for: never a document number.
+                Ok(item) => Outcome {
+                    filled: Some(item.title.clone()),
+                    ..Response::IdentityFill(Box::new(IdentityFill {
+                        origin: origin.as_str().to_owned(),
+                        name: item.username.clone(),
+                        email: identity::get(&item, identity::EMAIL),
+                        phone: identity::get(&item, identity::PHONE),
+                        address: identity::get(&item, identity::ADDRESS),
+                        city: identity::get(&item, identity::CITY),
+                        region: identity::get(&item, identity::REGION),
+                        postal_code: identity::get(&item, identity::POSTAL_CODE),
+                        country: identity::get(&item, identity::COUNTRY),
+                        company: identity::get(&item, identity::COMPANY),
+                    }))
+                    .into()
+                },
+                Err(response) => response.into(),
             }
         }
         (Request::Cards { .. }, Some(origin)) => {
@@ -3363,5 +3433,50 @@ mod tests {
         .unwrap();
         let reply: Value = serde_json::from_slice(&answer.bytes).unwrap();
         assert_eq!(reply, json!({"type": "password_rules", "rules": null}));
+    }
+
+    #[test]
+    fn identities_are_listed_and_filled_without_their_documents() {
+        let (mut vault, _, _) = vault();
+        let mut person = identity::new("Home");
+        person.username = "Test Person".into();
+        identity::set(&mut person, identity::EMAIL, "test@example.com");
+        identity::set(&mut person, identity::CITY, "Testville");
+        identity::set(&mut person, identity::PASSPORT, "X1234567");
+        let id = vault.add_item(&person).unwrap().to_hex();
+        let mut gate = TestGate::new(Check::Pin);
+        let url = "https://shop.example/address";
+        let (listed, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "identities", "url": url}),
+        );
+        assert_eq!(
+            listed["items"][0]["summary"], "test@example.com",
+            "{listed}"
+        );
+        assert_eq!(listed["items"][0]["name"], "Test Person");
+        assert!(!listed.to_string().contains("X1234567"));
+        let (filled, title) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "identity_fill", "url": url, "id": id}),
+        );
+        assert_eq!(filled["type"], "identity_fill", "{filled}");
+        assert_eq!(filled["origin"], "https://shop.example");
+        assert_eq!(filled["city"], "Testville");
+        assert_eq!(title.as_deref(), Some("Home"));
+        assert!(
+            !filled.to_string().contains("X1234567"),
+            "never a document number"
+        );
+        // Every use asks: so does an identity.
+        gate.always = true;
+        let (asks, _) = ask_with(
+            Some(&mut vault),
+            &mut gate,
+            json!({"type": "identity_fill", "url": url, "id": id}),
+        );
+        assert_eq!(asks["code"], "item_locked");
     }
 }

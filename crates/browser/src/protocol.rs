@@ -335,6 +335,21 @@ pub enum Request {
         #[serde(default)]
         hello: bool,
     },
+    /// The vault's identities (F7), offered for the address fields of the page at `url`: whose
+    /// and a line that tells them apart (an email, a phone, a city), never a document number.
+    Identities { url: String },
+    /// The details of identity `id` a form asks for (name, email, phone, address, city, region,
+    /// postal code, country, company), to type into the page at `url` (its own origin only;
+    /// never a frame of another site). Document numbers are never sent. The item lock and the
+    /// per-use check are asked as for a fill.
+    IdentityFill {
+        url: String,
+        id: String,
+        #[serde(default)]
+        check: Option<Secret>,
+        #[serde(default)]
+        hello: bool,
+    },
     /// Changes the person's rule for the site of the page at `url` (the extension's window, for
     /// the site in front): answered by the app itself, with the rule as it is now
     /// ([`crate::rules`]). Kept on this device.
@@ -495,6 +510,16 @@ pub enum Response {
     },
     /// What a card fill types ([`Request::CardFill`]).
     CardFill(Box<CardFill>),
+    /// The vault's identities ([`Request::Identities`]).
+    Identities {
+        origin: String,
+        check: Check,
+        hello: bool,
+        always_asks: bool,
+        items: Vec<IdentityEntry>,
+    },
+    /// What an address fill types ([`Request::IdentityFill`]).
+    IdentityFill(Box<IdentityFill>),
     Vault {
         check: Check,
         hello: bool,
@@ -629,6 +654,43 @@ pub struct CardFill {
 impl std::fmt::Debug for CardFill {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CardFill")
+            .field("origin", &self.origin)
+            .finish_non_exhaustive()
+    }
+}
+
+/// One identity offered for a page's address fields.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct IdentityEntry {
+    pub id: String,
+    pub title: String,
+    /// The person's name.
+    pub name: String,
+    /// An email, else a phone, else the city and country.
+    pub summary: String,
+    pub locked: bool,
+}
+
+/// What is typed into a page's address fields. Personal, so wiped when dropped.
+#[derive(Serialize, Zeroize, ZeroizeOnDrop)]
+pub struct IdentityFill {
+    /// The origin the page must still have when the fields are filled.
+    #[zeroize(skip)]
+    pub origin: String,
+    pub name: String,
+    pub email: String,
+    pub phone: String,
+    pub address: String,
+    pub city: String,
+    pub region: String,
+    pub postal_code: String,
+    pub country: String,
+    pub company: String,
+}
+
+impl std::fmt::Debug for IdentityFill {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IdentityFill")
             .field("origin", &self.origin)
             .finish_non_exhaustive()
     }

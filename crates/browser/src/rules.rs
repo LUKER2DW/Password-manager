@@ -75,7 +75,7 @@ pub fn refused(rules: &[SiteRule], kind: &str, url: &str) -> bool {
     };
     match kind {
         "save" | "changed" | "update" => rule.never_save,
-        "fill" | "code" | "card_fill" => rule.never_fill,
+        "fill" | "code" | "card_fill" | "identity_fill" => rule.never_fill,
         "passkeys" | "passkey_get" | "passkey_create" | "passkey_signal" => rule.no_passkeys,
         _ => false,
     }
