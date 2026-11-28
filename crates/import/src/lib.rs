@@ -26,6 +26,7 @@ mod export;
 mod json;
 mod kdbx;
 mod kdbx_export;
+mod managers;
 
 pub use cxf::export_cxf;
 pub use export::{

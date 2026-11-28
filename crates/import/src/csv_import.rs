@@ -6,14 +6,38 @@ use vault_core::{CustomField, ItemData, ItemKind};
 use crate::{ImportError, ImportReport, counted, host_of, non_empty};
 
 /// Column name aliases (compared case-insensitively, ignoring spaces and underscores).
-const TITLE: &[&str] = &["name", "title", "account", "itemname"];
-const URL: &[&str] = &[
-    "url", "loginuri", "website", "uri", "address", "loginurl", "weburl", "site",
+const TITLE: &[&str] = &[
+    "name",
+    "title",
+    "account",
+    "itemname",
+    "passwordname",
+    "nickname",
 ];
-const USERNAME: &[&str] = &["username", "loginusername", "login", "user", "username1"];
+const URL: &[&str] = &[
+    "url",
+    "loginuri",
+    "website",
+    "uri",
+    "address",
+    "loginurl",
+    "weburl",
+    "site",
+    "passwordurl",
+];
+/// More websites: a JSON array, or addresses one per line or separated by commas.
+const MORE_URLS: &[&str] = &["additionalurls", "urls"];
+const USERNAME: &[&str] = &[
+    "username",
+    "loginusername",
+    "login",
+    "user",
+    "username1",
+    "loginname",
+];
 /// Used when the username column is missing or empty (Proton Pass has both).
 const EMAIL: &[&str] = &["email", "emailaddress", "loginemail"];
-const PASSWORD: &[&str] = &["password", "loginpassword"];
+const PASSWORD: &[&str] = &["password", "loginpassword", "pwd"];
 const NOTES: &[&str] = &[
     "note",
     "notes",
@@ -21,6 +45,7 @@ const NOTES: &[&str] = &[
     "comments",
     "comment",
     "notesplain",
+    "additionalinfo",
 ];
 /// Dashlane "otpSecret"/"otpUrl", 1Password and Safari "OTPAuth".
 const TOTP: &[&str] = &[
@@ -31,6 +56,9 @@ const TOTP: &[&str] = &[
     "otpsecret",
     "otpurl",
     "2fa",
+    "twofasecret",
+    "totpsecret",
+    "totpsecretcode",
 ];
 const FAVORITE: &[&str] = &["favorite", "fav"];
 const REPROMPT: &[&str] = &["reprompt"];
@@ -38,7 +66,31 @@ const KIND: &[&str] = &["type"];
 const FIELDS: &[&str] = &["fields"];
 /// Bitwarden CSV "folder", LastPass "grouping", KeePassXC "group", Dashlane "category",
 /// Proton Pass "vault".
-const FOLDER: &[&str] = &["folder", "grouping", "group", "category", "vault"];
+const FOLDER: &[&str] = &[
+    "folder",
+    "grouping",
+    "group",
+    "category",
+    "vault",
+    "foldername",
+];
+/// Labels the item carries: kept as a field "Tags".
+const TAGS: &[&str] = &["tags", "tag", "labels"];
+/// A card's details, in the layouts that put cards in the same file as logins.
+const CARD_NUMBER: &[&str] = &["cardnumber", "ccnumber"];
+const CARD_HOLDER: &[&str] = &["cardholdername", "cardholder", "nameoncard"];
+const CARD_CODE: &[&str] = &["cvc", "cvv", "securitycode", "verificationnumber"];
+const CARD_EXPIRY: &[&str] = &["expirydate", "expirationdate", "expiry", "expires"];
+const CARD_PIN: &[&str] = &["pin"];
+/// When the item was made and last changed: a date (`2024-05-01T10:00:00Z`) or Unix seconds.
+const CREATED: &[&str] = &["created", "createtime", "creationdate", "createdat"];
+const MODIFIED: &[&str] = &[
+    "lastmodified",
+    "modifytime",
+    "modified",
+    "revisiondate",
+    "updatedat",
+];
 /// Firefox: milliseconds since the Unix epoch.
 const CREATED_MS: &[&str] = &["timecreated"];
 const CHANGED_MS: &[&str] = &["timepasswordchanged"];
@@ -58,6 +110,15 @@ struct Columns {
     folder: Option<usize>,
     created_ms: Option<usize>,
     changed_ms: Option<usize>,
+    more_urls: Option<usize>,
+    tags: Option<usize>,
+    card_number: Option<usize>,
+    card_holder: Option<usize>,
+    card_code: Option<usize>,
+    card_expiry: Option<usize>,
+    card_pin: Option<usize>,
+    created: Option<usize>,
+    modified: Option<usize>,
 }
 
 impl Columns {
@@ -86,6 +147,15 @@ impl Columns {
             folder: find(FOLDER),
             created_ms: find(CREATED_MS),
             changed_ms: find(CHANGED_MS),
+            more_urls: find(MORE_URLS),
+            tags: find(TAGS),
+            card_number: find(CARD_NUMBER),
+            card_holder: find(CARD_HOLDER),
+            card_code: find(CARD_CODE),
+            card_expiry: find(CARD_EXPIRY),
+            card_pin: find(CARD_PIN),
+            created: find(CREATED),
+            modified: find(MODIFIED),
         }
     }
 
@@ -140,13 +210,16 @@ pub(crate) fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
             continue;
         }
 
+        let card_number = get(columns.card_number);
         let kind = match get(columns.kind)
             .as_deref()
-            .map(str::to_lowercase)
+            .map(|k| k.to_lowercase().replace([' ', '_', '-'], ""))
             .as_deref()
         {
             Some("note" | "securenote") => ItemKind::SecureNote,
-            Some("card") => ItemKind::Card,
+            Some("card" | "creditcard" | "paymentcard") => ItemKind::Card,
+            _ if card_number.is_some() && password.is_none() => ItemKind::Card,
+            Some("identity" | "address" | "document") => ItemKind::SecureNote,
             _ => ItemKind::Login,
         };
         let title = title
@@ -159,6 +232,50 @@ pub(crate) fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
         item.notes = notes.unwrap_or_default();
         item.totp = totp.unwrap_or_default();
         item.urls = url.into_iter().collect();
+        for more in more_urls(get(columns.more_urls).as_deref()) {
+            if !item.urls.contains(&more) {
+                item.urls.push(more);
+            }
+        }
+        if kind == ItemKind::Card {
+            use vault_core::card;
+            if let Some(holder) = text(columns.card_holder) {
+                item.username = holder;
+            }
+            if item.password.is_empty() {
+                item.password = get(columns.card_pin).unwrap_or_default();
+            }
+            let mut put = |name: &str, value: Option<String>, sensitive| {
+                if let Some(value) = value {
+                    item.custom_fields.push(CustomField {
+                        name: name.to_owned(),
+                        value,
+                        sensitive,
+                    });
+                }
+            };
+            put(card::NUMBER, card_number, true);
+            put(
+                card::EXPIRY,
+                get(columns.card_expiry)
+                    .map(|e| card::parse_expiry(&e).map_or(e, card::format_expiry)),
+                false,
+            );
+            put(card::SECURITY_CODE, get(columns.card_code), true);
+        }
+        if let Some(tags) = text(columns.tags) {
+            item.custom_fields.push(CustomField {
+                name: "Tags".into(),
+                value: tags,
+                sensitive: false,
+            });
+        }
+        if let Some(created) = get(columns.created).and_then(|t| when(&t)) {
+            item.created_at = created;
+        }
+        if let Some(modified) = get(columns.modified).and_then(|t| when(&t)) {
+            item.updated_at = modified;
+        }
         item.favorite =
             get(columns.favorite).is_some_and(|f| matches!(f.trim(), "1" | "true" | "yes"));
         item.reprompt =
@@ -225,6 +342,38 @@ pub(crate) fn import_csv(bytes: &[u8]) -> Result<ImportReport, ImportError> {
         report.warnings.insert(0, warning);
     }
     Ok(report)
+}
+
+/// More websites in one cell: a JSON array of addresses, or addresses one per line or
+/// separated by commas.
+fn more_urls(cell: Option<&str>) -> Vec<String> {
+    let Some(cell) = cell.map(str::trim).filter(|c| !c.is_empty()) else {
+        return Vec::new();
+    };
+    if cell.starts_with('[')
+        && let Ok(list) = serde_json::from_str::<Vec<String>>(cell)
+    {
+        return list
+            .into_iter()
+            .filter_map(|u| non_empty(Some(u.trim().to_owned())))
+            .collect();
+    }
+    cell.split(['\n', ','])
+        .filter_map(|u| non_empty(Some(u.trim().to_owned())))
+        .collect()
+}
+
+/// A time in a cell: Unix seconds (milliseconds when it is that large) or an ISO 8601 date.
+fn when(cell: &str) -> Option<i64> {
+    let cell = cell.trim();
+    if let Ok(number) = cell.parse::<i64>() {
+        return Some(if number > 100_000_000_000 {
+            number / 1000
+        } else {
+            number
+        });
+    }
+    crate::dates::iso8601_to_unix(cell)
 }
 
 /// Parts of a field's name that say its value is a secret: a word of the name that starts or

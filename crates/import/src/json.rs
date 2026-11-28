@@ -169,7 +169,8 @@ where
 }
 
 /// Imports an unencrypted JSON export (not the encrypted variant): the common layout, a
-/// Credential Exchange document or an authenticator app's export, each told by its keys.
+/// Credential Exchange document, an authenticator app's export or another manager's own
+/// shape, each told by its keys.
 pub(crate) fn import_json(bytes: &[u8]) -> Result<ImportReport, ImportError> {
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     if let Ok(mut document) = serde_json::from_slice::<Value>(bytes) {
@@ -178,6 +179,9 @@ pub(crate) fn import_json(bytes: &[u8]) -> Result<ImportReport, ImportError> {
         }
         if let Some(shape) = crate::authenticator::shape(&document) {
             return crate::authenticator::import_shape(document, shape);
+        }
+        if let Some(shape) = crate::managers::shape(&document) {
+            return crate::managers::import_shape(document, shape);
         }
         export::wipe(&mut document);
     }
