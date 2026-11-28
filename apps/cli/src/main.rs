@@ -191,9 +191,13 @@ enum KeyfileCommand {
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ImportFormat {
     Auto,
+    /// JSON: the common layout, the Credential Exchange Format, authenticator apps' exports
+    /// and other managers' own shapes (told by their keys).
     Json,
     Csv,
     Kdbx,
+    /// `otpauth://` and `otpauth-migration://` links, one per line.
+    OtpLinks,
 }
 
 #[derive(Debug, Args)]
@@ -535,6 +539,7 @@ fn run() -> Result<()> {
                     ImportFormat::Json => Some(vault_import::Format::Json),
                     ImportFormat::Csv => Some(vault_import::Format::Csv),
                     ImportFormat::Kdbx => Some(vault_import::Format::Kdbx),
+                    ImportFormat::OtpLinks => Some(vault_import::Format::OtpLinks),
                 },
                 keyfile: args.keyfile,
                 dry_run: args.dry_run,
