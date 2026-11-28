@@ -1783,6 +1783,14 @@ msgid "Kit opened for printing. The file is wiped when the vault locks."
 msgstr "Kit aberto para impressão. O arquivo é apagado quando o cofre trancar."
 
 msgctxt "Messages"
+msgid "Kit opened for printing: type the PDF password to open it. The file is wiped when the vault locks."
+msgstr "Kit aberto para impressão: digite a senha do PDF para abri-lo. O arquivo é apagado quando o cofre trancar."
+
+msgctxt "Messages"
+msgid "PDF password copied. The clipboard clears in {} seconds."
+msgstr "Senha do PDF copiada. A área de transferência é limpa em {} segundos."
+
+msgctxt "Messages"
 msgid "Imported {} items."
 msgstr "{} itens importados."
 
