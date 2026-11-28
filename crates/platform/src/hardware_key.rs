@@ -1,4 +1,4 @@
-//! A hardware security key, asked through FIDO2's `hmac-secret` (CRYPTO.md §3.11, M10 F6;
+//! A hardware security key, asked through FIDO2's `hmac-secret` (CRYPTO.md §3.12, M10 F6;
 //! designed, not used by the apps yet: the vault's header carries it from a later format).
 //!
 //! On Windows the key is reached through Windows' own WebAuthn API (`webauthn.dll`), which
@@ -167,7 +167,7 @@ mod tests {
                 .answer("vault.local", &enrolled.credential_id, &salt)
                 .unwrap()
         );
-        // The vault's slot (CRYPTO.md §3.11) opens with that answer only.
+        // The vault's slot (CRYPTO.md §3.12) opens with that answer only.
         let factor = vault_core::hardware_key::random_32().unwrap();
         let vault_id = [5u8; 16];
         let slot = vault_core::hardware_key::seal_factor(

@@ -73,6 +73,10 @@ pub mod kind {
     pub const AUTOFILL_GAVE: u16 = 16;
     /// A passkey signed in for another app or a browser on the phone (site, title).
     pub const PASSKEY_USED: u16 = 17;
+    /// The SSH agent signed with an SSH key item (title; detail: the program Windows named).
+    pub const SSH_SIGNED: u16 = 18;
+    /// Auto-type typed a login into a window (title; detail: the window's title).
+    pub const AUTOTYPED: u16 = 19;
 }
 
 /// How an unlock was made or tried (an entry's detail).
